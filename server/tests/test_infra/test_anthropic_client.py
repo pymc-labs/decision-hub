@@ -1,9 +1,10 @@
 """Tests for infra/anthropic_client.py -- LLM judge for agent evals."""
 
 import json
-from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from decision_hub.infra.anthropic_client import _parse_judge_response, judge_eval_output
 
@@ -39,14 +40,13 @@ class TestParseJudgeResponse:
 
 class TestJudgeEvalOutput:
 
-    @patch("decision_hub.infra.anthropic_client.httpx.post")
-    def test_successful_judge_call(self, mock_post: MagicMock) -> None:
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "Good output"})}],
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
+    @respx.mock
+    def test_successful_judge_call(self) -> None:
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(200, json={
+                "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "Good output"})}],
+            })
+        )
 
         result = judge_eval_output(
             api_key="test-api-key",
@@ -59,21 +59,22 @@ class TestJudgeEvalOutput:
         assert result["verdict"] == "pass"
         assert result["reasoning"] == "Good output"
 
-        # Verify the API was called correctly
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args
-        assert call_kwargs.kwargs["headers"]["x-api-key"] == "test-api-key"
-        payload = call_kwargs.kwargs["json"]
+        # Verify the real request was built correctly
+        request = route.calls[0].request
+        assert request.headers["x-api-key"] == "test-api-key"
+        assert request.headers["anthropic-version"] == "2023-06-01"
+        payload = json.loads(request.content)
         assert payload["model"] == "claude-sonnet-4-5-20250929"
+        assert payload["system"] is not None
+        assert "test-case" in payload["messages"][0]["content"]
 
-    @patch("decision_hub.infra.anthropic_client.httpx.post")
-    def test_truncates_long_output(self, mock_post: MagicMock) -> None:
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "ok"})}],
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
+    @respx.mock
+    def test_truncates_long_output(self) -> None:
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(200, json={
+                "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "ok"})}],
+            })
+        )
 
         long_output = "x" * 20000
 
@@ -86,18 +87,16 @@ class TestJudgeEvalOutput:
         )
 
         # Verify output was truncated in the request
-        call_kwargs = mock_post.call_args
-        user_content = call_kwargs.kwargs["json"]["messages"][0]["content"]
+        payload = json.loads(route.calls[0].request.content)
+        user_content = payload["messages"][0]["content"]
         assert "truncated" in user_content
-        # Should be much less than 20000 chars
         assert len(user_content) < 15000
 
-    @patch("decision_hub.infra.anthropic_client.httpx.post")
-    def test_api_error_propagates(self, mock_post: MagicMock) -> None:
+    @respx.mock
+    def test_api_error_propagates(self) -> None:
         """httpx errors should propagate up."""
-        import httpx
-        mock_post.side_effect = httpx.HTTPStatusError(
-            "Server Error", request=MagicMock(), response=MagicMock()
+        respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(500, text="Server Error")
         )
 
         with pytest.raises(httpx.HTTPStatusError):
