@@ -28,7 +28,6 @@ from decision_hub.models import (
     AuditLogEntry,
     EvalReport,
     Organization,
-    OrgInvite,
     OrgMember,
     Skill,
     User,
@@ -89,25 +88,6 @@ org_members_table = Table(
         primary_key=True,
     ),
     Column("role", String, nullable=False),
-)
-
-org_invites_table = Table(
-    "org_invites",
-    metadata,
-    Column(
-        "id",
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        server_default=sa.func.gen_random_uuid(),
-    ),
-    Column(
-        "org_id",
-        PG_UUID(as_uuid=True),
-        ForeignKey("organizations.id"),
-        nullable=False,
-    ),
-    Column("invitee_github_username", String, nullable=False),
-    Column("status", String, nullable=False, server_default="pending"),
 )
 
 skills_table = Table(
@@ -293,16 +273,6 @@ def _row_to_organization(row: sa.Row) -> Organization:
 def _row_to_org_member(row: sa.Row) -> OrgMember:
     """Map a database row to an OrgMember model."""
     return OrgMember(org_id=row.org_id, user_id=row.user_id, role=row.role)
-
-
-def _row_to_org_invite(row: sa.Row) -> OrgInvite:
-    """Map a database row to an OrgInvite model."""
-    return OrgInvite(
-        id=row.id,
-        org_id=row.org_id,
-        invitee_github_username=row.invitee_github_username,
-        status=row.status,
-    )
 
 
 def _row_to_skill(row: sa.Row) -> Skill:
@@ -526,75 +496,6 @@ def find_org_member(
     if row is None:
         return None
     return _row_to_org_member(row)
-
-
-# ---------------------------------------------------------------------------
-# Org invite queries
-# ---------------------------------------------------------------------------
-
-
-def insert_org_invite(
-    conn: Connection, org_id: UUID, invitee_github_username: str
-) -> OrgInvite:
-    """Create a pending invitation to an organization.
-
-    Args:
-        conn: Active database connection.
-        org_id: UUID of the organization.
-        invitee_github_username: GitHub username of the person being invited.
-
-    Returns:
-        The newly created OrgInvite with status 'pending'.
-    """
-    stmt = (
-        sa.insert(org_invites_table)
-        .values(org_id=org_id, invitee_github_username=invitee_github_username)
-        .returning(*org_invites_table.c)
-    )
-    row = conn.execute(stmt).one()
-    return _row_to_org_invite(row)
-
-
-def find_invite(conn: Connection, invite_id: UUID) -> OrgInvite | None:
-    """Find an invitation by its ID.
-
-    Args:
-        conn: Active database connection.
-        invite_id: UUID of the invitation.
-
-    Returns:
-        The OrgInvite if found, or None.
-    """
-    stmt = sa.select(org_invites_table).where(
-        org_invites_table.c.id == invite_id
-    )
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_org_invite(row)
-
-
-def accept_invite(conn: Connection, invite_id: UUID) -> OrgInvite:
-    """Mark an invitation as accepted.
-
-    Args:
-        conn: Active database connection.
-        invite_id: UUID of the invitation to accept.
-
-    Returns:
-        The updated OrgInvite with status 'accepted'.
-
-    Raises:
-        sqlalchemy.exc.NoResultFound: If no invite with the given ID exists.
-    """
-    stmt = (
-        sa.update(org_invites_table)
-        .where(org_invites_table.c.id == invite_id)
-        .values(status="accepted")
-        .returning(*org_invites_table.c)
-    )
-    row = conn.execute(stmt).one()
-    return _row_to_org_invite(row)
 
 
 # ---------------------------------------------------------------------------

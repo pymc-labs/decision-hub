@@ -220,6 +220,31 @@ class TestPublishSkill:
 
         assert resp.status_code == 401
 
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    def test_publish_rejects_oversized_upload(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+        test_settings: MagicMock,
+    ) -> None:
+        """Uploading a zip exceeding 50 MB should return 413."""
+        test_settings.google_api_key = "test-key"
+        org = _make_org(sample_user_id)
+        mock_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+
+        # Create a payload just over the limit (50 MB + 2 bytes)
+        oversized = b"\x00" * (50 * 1024 * 1024 + 2)
+
+        resp = _publish_request(client, auth_headers, zip_bytes=oversized)
+
+        assert resp.status_code == 413
+        assert "maximum size" in resp.json()["detail"]
+
     @patch("decision_hub.api.registry_routes._build_analyze_prompt_fn", return_value=None)
     @patch("decision_hub.api.registry_routes._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")

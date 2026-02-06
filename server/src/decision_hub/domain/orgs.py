@@ -49,15 +49,3 @@ def validate_role(role: str) -> str:
     return role
 
 
-def can_invite(member_role: str) -> bool:
-    """Check whether a member with the given role can invite others.
-
-    Only owners and admins have invite privileges.
-
-    Args:
-        member_role: The role of the member attempting to invite.
-
-    Returns:
-        True if the role allows inviting, False otherwise.
-    """
-    return member_role in ("owner", "admin")

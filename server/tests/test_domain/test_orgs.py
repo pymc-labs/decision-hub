@@ -2,7 +2,7 @@
 
 import pytest
 
-from decision_hub.domain.orgs import can_invite, validate_org_slug, validate_role
+from decision_hub.domain.orgs import validate_org_slug, validate_role
 
 
 # ---------------------------------------------------------------------------
@@ -61,19 +61,3 @@ class TestValidateRole:
     def test_invalid_roles(self, role: str) -> None:
         with pytest.raises(ValueError):
             validate_role(role)
-
-
-# ---------------------------------------------------------------------------
-# can_invite
-# ---------------------------------------------------------------------------
-
-class TestCanInvite:
-
-    def test_owner_can_invite(self) -> None:
-        assert can_invite("owner") is True
-
-    def test_admin_can_invite(self) -> None:
-        assert can_invite("admin") is True
-
-    def test_member_cannot_invite(self) -> None:
-        assert can_invite("member") is False

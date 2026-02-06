@@ -194,8 +194,14 @@ async def publish_skill(
             detail="You are not a member of this organisation",
         )
 
-    # Read file contents and compute checksum
-    file_bytes = await zip_file.read()
+    # Read file contents with size limit (50 MB) and compute checksum
+    max_upload_bytes = 50 * 1024 * 1024
+    file_bytes = await zip_file.read(max_upload_bytes + 1)
+    if len(file_bytes) > max_upload_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload exceeds maximum size of {max_upload_bytes // (1024 * 1024)} MB",
+        )
     checksum = compute_checksum(file_bytes)
 
     # Run Gauntlet static checks before uploading

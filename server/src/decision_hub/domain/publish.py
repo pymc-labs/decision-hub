@@ -55,6 +55,9 @@ def build_quarantine_s3_key(org_slug: str, skill_name: str, version: str) -> str
     return f"rejected/{org_slug}/{skill_name}/{version}.zip"
 
 
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per extracted file
+
+
 def extract_for_evaluation(
     zip_bytes: bytes,
 ) -> tuple[str, list[tuple[str, str]], str | None]:
@@ -72,7 +75,8 @@ def extract_for_evaluation(
         lockfile_content is None if no lockfile was found.
 
     Raises:
-        ValueError: If the zip does not contain a SKILL.md file.
+        ValueError: If the zip does not contain a SKILL.md file, or if any
+            individual file exceeds the size limit.
     """
     skill_md = ""
     source_files: list[tuple[str, str]] = []
@@ -82,6 +86,12 @@ def extract_for_evaluation(
         for name in zf.namelist():
             if name.endswith("/"):
                 continue
+
+            if zf.getinfo(name).file_size > _MAX_FILE_SIZE:
+                raise ValueError(
+                    f"File '{name}' exceeds maximum size of "
+                    f"{_MAX_FILE_SIZE // (1024 * 1024)} MB"
+                )
 
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
 

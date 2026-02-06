@@ -28,14 +28,6 @@ class OrgMember:
 
 
 @dataclass(frozen=True)
-class OrgInvite:
-    id: UUID
-    org_id: UUID
-    invitee_github_username: str
-    status: str
-
-
-@dataclass(frozen=True)
 class Skill:
     id: UUID
     org_id: UUID

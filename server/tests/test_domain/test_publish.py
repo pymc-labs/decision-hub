@@ -118,6 +118,20 @@ def _make_zip(**files: str) -> bytes:
 
 class TestExtractForEvaluation:
 
+    def test_rejects_oversized_file_in_zip(self) -> None:
+        """A file whose uncompressed size exceeds the limit should raise ValueError."""
+        from decision_hub.domain.publish import _MAX_FILE_SIZE
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            # Write a .py file that exceeds the per-file limit
+            zf.writestr("huge.py", "x" * (_MAX_FILE_SIZE + 1))
+        zip_bytes = buf.getvalue()
+
+        with pytest.raises(ValueError, match="exceeds maximum size"):
+            extract_for_evaluation(zip_bytes)
+
     def test_extracts_skill_md_and_python_files(self) -> None:
         zip_bytes = _make_zip(
             **{
