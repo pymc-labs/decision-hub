@@ -1,12 +1,14 @@
 """Application settings loaded from environment variables."""
 
+import os
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Decision Hub configuration. All values come from env vars or .env file."""
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = {"extra": "ignore"}
 
     # Database
     database_url: str
@@ -38,3 +40,17 @@ class Settings(BaseSettings):
     # Access control: restrict login to members of a GitHub org.
     # Leave empty to allow all authenticated GitHub users.
     require_github_org: str = ""
+
+
+def get_env() -> str:
+    """Return current environment name from DHUB_ENV (default: 'prod')."""
+    return os.environ.get("DHUB_ENV", "prod")
+
+
+def create_settings(env: str | None = None) -> Settings:
+    """Build Settings from the env-specific .env file (.env.dev, .env.prod).
+
+    Environment variables still override values from the file.
+    """
+    env = env or get_env()
+    return Settings(_env_file=f".env.{env}")

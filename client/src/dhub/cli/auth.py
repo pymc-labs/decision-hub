@@ -51,7 +51,7 @@ def login_command(
 
 def logout_command() -> None:
     """Log out by removing the stored token."""
-    from dhub.cli.config import CONFIG_FILE, CliConfig, load_config, save_config
+    from dhub.cli.config import CliConfig, load_config, save_config
 
     config = load_config()
     if not config.token:
