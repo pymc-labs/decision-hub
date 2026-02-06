@@ -98,12 +98,14 @@ def build_agent_run_command(
 
 
 def _run_in_sandbox(sb, *args: str):
-    """Run a process inside a Modal sandbox and return (stdout, exit_code).
+    """Run a command inside a Modal sandbox and return (stdout, exit_code).
 
-    Uses Modal's Sandbox.process API to run arbitrary commands
+    Uses Modal's Sandbox API to run arbitrary commands
     inside the sandboxed environment.
     """
-    proc = sb.process(*args)
+    # Modal SDK renamed process() -> exec() in recent versions
+    run_fn = getattr(sb, "exec", None) or sb.process
+    proc = run_fn(*args)
     proc.wait()
     return proc.stdout.read(), proc.returncode
 
@@ -144,7 +146,7 @@ def run_skill_tests_in_sandbox(
     # Merge agent-specific extra env with the user's decrypted keys
     env = {**agent_config.extra_env, **agent_env_vars}
 
-    app = modal.App("decision-hub-eval")
+    app = modal.App.lookup("decision-hub-eval", create_if_missing=True)
     skill_path = f"/root/{agent_config.skills_path}/{org_slug}/{skill_name}"
 
     outputs: list[tuple[str, int]] = []
@@ -209,7 +211,7 @@ def _create_skill_sandbox(
     # Merge agent-specific extra env with the user's decrypted keys
     env = {**agent_config.extra_env, **agent_env_vars}
 
-    app = modal.App("decision-hub-eval")
+    app = modal.App.lookup("decision-hub-eval", create_if_missing=True)
     skill_path = f"/root/{agent_config.skills_path}/{org_slug}/{skill_name}"
 
     with modal.enable_output():

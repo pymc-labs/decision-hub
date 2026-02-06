@@ -767,7 +767,7 @@ def _run_assessment_background(
             required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
 
-            fernet = Fernet(settings.encryption_key.encode())
+            fernet = Fernet(settings.fernet_key.encode())
             agent_env_vars = {
                 name: fernet.decrypt(value).decode()
                 for name, value in encrypted_keys.items()
