@@ -1,30 +1,32 @@
 """Tests for decision_hub.api.auth_routes -- GitHub Device Flow endpoints."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import httpx
 import pytest
+import respx
 from fastapi.testclient import TestClient
 
-from decision_hub.models import DeviceCodeResponse, User
+from decision_hub.models import User
 
 
 class TestStartDeviceFlow:
     """POST /auth/github/code -- initiates the GitHub Device Flow."""
 
-    @patch("decision_hub.api.auth_routes.request_device_code", new_callable=AsyncMock)
+    @respx.mock
     def test_returns_device_code_info(
         self,
-        mock_request_device_code: AsyncMock,
         client: TestClient,
     ) -> None:
         """Should return user_code, verification_uri, device_code, interval."""
-        mock_request_device_code.return_value = DeviceCodeResponse(
-            device_code="dev-code-abc",
-            user_code="ABCD-1234",
-            verification_uri="https://github.com/login/device",
-            interval=5,
+        route = respx.post("https://github.com/login/device/code").mock(
+            return_value=httpx.Response(200, json={
+                "device_code": "dev-code-abc",
+                "user_code": "ABCD-1234",
+                "verification_uri": "https://github.com/login/device",
+                "interval": 5,
+            })
         )
 
         resp = client.post("/auth/github/code")
@@ -36,23 +38,29 @@ class TestStartDeviceFlow:
         assert data["verification_uri"] == "https://github.com/login/device"
         assert data["interval"] == 5
 
+        # Verify the real request was built correctly
+        request = route.calls[0].request
+        assert request.headers["accept"] == "application/json"
+        assert b"client_id=test-client-id" in request.content
+
 
 class TestExchangeToken:
     """POST /auth/github/token -- exchanges device_code for a JWT."""
 
+    @respx.mock
     @patch("decision_hub.api.auth_routes.upsert_user")
-    @patch("decision_hub.api.auth_routes.get_github_user", new_callable=AsyncMock)
-    @patch("decision_hub.api.auth_routes.poll_for_access_token", new_callable=AsyncMock)
     def test_returns_jwt_on_success(
         self,
-        mock_poll: AsyncMock,
-        mock_gh_user: AsyncMock,
-        mock_upsert: AsyncMock,
+        mock_upsert: MagicMock,
         client: TestClient,
     ) -> None:
         """Successful flow should return an access_token and username."""
-        mock_poll.return_value = "gh-access-token-xyz"
-        mock_gh_user.return_value = {"id": 42, "login": "alice"}
+        token_route = respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
+        )
+        user_route = respx.get("https://api.github.com/user").mock(
+            return_value=httpx.Response(200, json={"id": 42, "login": "alice"})
+        )
         mock_upsert.return_value = User(
             id=UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
             github_id="42",
@@ -70,28 +78,35 @@ class TestExchangeToken:
         assert data["token_type"] == "bearer"
         assert data["username"] == "alice"
 
-        mock_poll.assert_called_once_with("test-client-id", "dev-code-abc")
-        mock_gh_user.assert_called_once_with("gh-access-token-xyz")
+        # Verify the real GitHub requests were built correctly
+        token_request = token_route.calls[0].request
+        assert b"device_code=dev-code-abc" in token_request.content
+        assert b"grant_type=" in token_request.content
+
+        user_request = user_route.calls[0].request
+        assert user_request.headers["authorization"] == "Bearer gh-access-token-xyz"
+
         mock_upsert.assert_called_once()
 
-    @patch("decision_hub.api.auth_routes.check_org_membership", new_callable=AsyncMock)
+    @respx.mock
     @patch("decision_hub.api.auth_routes.upsert_user")
-    @patch("decision_hub.api.auth_routes.get_github_user", new_callable=AsyncMock)
-    @patch("decision_hub.api.auth_routes.poll_for_access_token", new_callable=AsyncMock)
     def test_rejects_user_not_in_required_org(
         self,
-        mock_poll: AsyncMock,
-        mock_gh_user: AsyncMock,
-        mock_upsert: AsyncMock,
-        mock_check_org: AsyncMock,
+        mock_upsert: MagicMock,
         client: TestClient,
-        test_settings: AsyncMock,
+        test_settings: MagicMock,
     ) -> None:
         """When require_github_org is set, users outside that org get 403."""
         test_settings.require_github_org = "pymc-labs"
-        mock_poll.return_value = "gh-access-token-xyz"
-        mock_gh_user.return_value = {"id": 42, "login": "outsider"}
-        mock_check_org.return_value = False
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
+        )
+        respx.get("https://api.github.com/user").mock(
+            return_value=httpx.Response(200, json={"id": 42, "login": "outsider"})
+        )
+        org_route = respx.get("https://api.github.com/orgs/pymc-labs/members/outsider").mock(
+            return_value=httpx.Response(404)
+        )
 
         resp = client.post(
             "/auth/github/token",
@@ -102,24 +117,28 @@ class TestExchangeToken:
         assert "pymc-labs" in resp.json()["detail"]
         mock_upsert.assert_not_called()
 
-    @patch("decision_hub.api.auth_routes.check_org_membership", new_callable=AsyncMock)
+        # Verify org membership check was sent with the GitHub token
+        assert org_route.calls[0].request.headers["authorization"] == "Bearer gh-access-token-xyz"
+
+    @respx.mock
     @patch("decision_hub.api.auth_routes.upsert_user")
-    @patch("decision_hub.api.auth_routes.get_github_user", new_callable=AsyncMock)
-    @patch("decision_hub.api.auth_routes.poll_for_access_token", new_callable=AsyncMock)
     def test_allows_user_in_required_org(
         self,
-        mock_poll: AsyncMock,
-        mock_gh_user: AsyncMock,
-        mock_upsert: AsyncMock,
-        mock_check_org: AsyncMock,
+        mock_upsert: MagicMock,
         client: TestClient,
-        test_settings: AsyncMock,
+        test_settings: MagicMock,
     ) -> None:
         """When require_github_org is set, members of that org can log in."""
         test_settings.require_github_org = "pymc-labs"
-        mock_poll.return_value = "gh-access-token-xyz"
-        mock_gh_user.return_value = {"id": 42, "login": "alice"}
-        mock_check_org.return_value = True
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
+        )
+        respx.get("https://api.github.com/user").mock(
+            return_value=httpx.Response(200, json={"id": 42, "login": "alice"})
+        )
+        respx.get("https://api.github.com/orgs/pymc-labs/members/alice").mock(
+            return_value=httpx.Response(204)
+        )
         mock_upsert.return_value = User(
             id=UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
             github_id="42",
@@ -134,16 +153,15 @@ class TestExchangeToken:
         assert resp.status_code == 200
         assert resp.json()["username"] == "alice"
 
-    @patch("decision_hub.api.auth_routes.poll_for_access_token", new_callable=AsyncMock)
+    @respx.mock
     def test_authorization_pending_returns_428(
         self,
-        mock_poll: AsyncMock,
         client: TestClient,
     ) -> None:
         """AuthorizationPending should return 428."""
-        from decision_hub.infra.github import AuthorizationPending
-
-        mock_poll.side_effect = AuthorizationPending()
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"error": "authorization_pending"})
+        )
 
         resp = client.post(
             "/auth/github/token",
@@ -153,14 +171,15 @@ class TestExchangeToken:
         assert resp.status_code == 428
         assert resp.json()["detail"] == "authorization_pending"
 
-    @patch("decision_hub.api.auth_routes.poll_for_access_token", new_callable=AsyncMock)
+    @respx.mock
     def test_runtime_error_returns_502(
         self,
-        mock_poll: AsyncMock,
         client: TestClient,
     ) -> None:
         """RuntimeError from GitHub polling should return 502."""
-        mock_poll.side_effect = RuntimeError("Device code expired")
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"error": "expired_token"})
+        )
 
         resp = client.post(
             "/auth/github/token",
@@ -170,16 +189,14 @@ class TestExchangeToken:
         assert resp.status_code == 502
         assert "Device code expired" in resp.json()["detail"]
 
-    @patch("decision_hub.api.auth_routes.poll_for_access_token", new_callable=AsyncMock)
+    @respx.mock
     def test_http_status_error_returns_502(
         self,
-        mock_poll: AsyncMock,
         client: TestClient,
     ) -> None:
         """httpx.HTTPStatusError from GitHub should return 502."""
-        response = httpx.Response(status_code=503, request=httpx.Request("POST", "https://github.com"))
-        mock_poll.side_effect = httpx.HTTPStatusError(
-            "Service Unavailable", request=response.request, response=response,
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(503, text="Service Unavailable")
         )
 
         resp = client.post(
@@ -190,19 +207,17 @@ class TestExchangeToken:
         assert resp.status_code == 502
         assert "GitHub API error" in resp.json()["detail"]
 
-    @patch("decision_hub.api.auth_routes.get_github_user", new_callable=AsyncMock)
-    @patch("decision_hub.api.auth_routes.poll_for_access_token", new_callable=AsyncMock)
+    @respx.mock
     def test_github_user_fetch_error_returns_502(
         self,
-        mock_poll: AsyncMock,
-        mock_gh_user: AsyncMock,
         client: TestClient,
     ) -> None:
         """HTTPStatusError from get_github_user should return 502."""
-        mock_poll.return_value = "gh-access-token-xyz"
-        response = httpx.Response(status_code=500, request=httpx.Request("GET", "https://api.github.com/user"))
-        mock_gh_user.side_effect = httpx.HTTPStatusError(
-            "Internal Server Error", request=response.request, response=response,
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
+        )
+        respx.get("https://api.github.com/user").mock(
+            return_value=httpx.Response(500, text="Internal Server Error")
         )
 
         resp = client.post(
