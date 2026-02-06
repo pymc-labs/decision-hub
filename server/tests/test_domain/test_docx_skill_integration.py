@@ -11,7 +11,7 @@ import pytest
 
 from decision_hub.domain.skill_manifest import parse_skill_md
 from decision_hub.domain.publish import build_s3_key
-from decision_hub.domain.evals import (
+from decision_hub.domain.gauntlet import (
     check_manifest_schema,
     check_safety_scan,
     run_static_checks,

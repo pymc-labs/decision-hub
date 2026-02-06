@@ -101,26 +101,25 @@ class TestRunCommand:
         assert "no runtime configuration" in result.output.lower()
 
     @patch("dhub.core.install.get_dhub_skill_path")
-    def test_run_unsupported_driver(
+    def test_run_unsupported_language(
         self,
         mock_skill_path: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """run should fail for an unsupported runtime driver.
+        """run should fail for an unsupported runtime language.
 
-        The manifest parser validates the driver during parsing and raises
+        The manifest parser validates the language during parsing and raises
         a ValueError before the CLI checks it, so we expect a non-zero exit
         with the error surfaced as an exception.
         """
-        # Use a driver value that parse_skill_md rejects during validation
+        # Use a language value that parse_skill_md rejects during validation
         unsupported_md = """\
 ---
 name: my-skill
 description: A test skill
 runtime:
-  driver: docker/compose
-  entrypoint: main.py
-  lockfile: requirements.txt
+  language: ruby
+  entrypoint: main.rb
   env: []
 ---
 System prompt body here.
@@ -133,10 +132,10 @@ System prompt body here.
 
         result = runner.invoke(app, ["run", "myorg/my-skill"])
 
-        # parse_skill_md raises ValueError for unsupported drivers
+        # parse_skill_md raises ValueError for unsupported languages
         assert result.exit_code != 0
         assert result.exception is not None
-        assert "Unsupported runtime driver" in str(result.exception)
+        assert "Unsupported runtime language" in str(result.exception)
 
     @patch("dhub.cli.runtime.subprocess.run")
     @patch("dhub.core.install.get_dhub_skill_path")

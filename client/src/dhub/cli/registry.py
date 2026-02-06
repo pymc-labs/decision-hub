@@ -133,6 +133,7 @@ def publish_command(
 
     data = resp.json()
     eval_status = data.get("eval_status", "")
+    eval_report_status = data.get("eval_report_status")
 
     grade_colors = {"A": "green", "B": "yellow", "C": "red", "F": "red"}
     grade_color = grade_colors.get(eval_status, "white")
@@ -147,6 +148,9 @@ def publish_command(
             "[red]Warning: Grade C — ambiguous patterns detected. "
             "Users will need --allow-risky to install.[/]"
         )
+
+    if eval_report_status == "pending":
+        console.print("[dim]Agent evaluation running in background...[/]")
 
 
 def _auto_detect_org(api_url: str, token: str) -> str:
@@ -368,6 +372,83 @@ def delete_command(
             resp.raise_for_status()
 
         console.print(f"[green]Deleted: {org_slug}/{skill_name}@{version}[/]")
+
+
+def eval_report_command(
+    skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill@1.0.0')"),
+) -> None:
+    """View the agent evaluation report for a skill version."""
+    from dhub.cli.config import build_headers, get_api_url, get_token
+
+    # Parse skill reference (org/skill@version)
+    if "@" not in skill_ref:
+        console.print(
+            "[red]Error: Skill reference must include version: org/skill@version[/]"
+        )
+        raise typer.Exit(1)
+
+    skill_path, version = skill_ref.rsplit("@", 1)
+    parts = skill_path.split("/", 1)
+    if len(parts) != 2:
+        console.print(
+            "[red]Error: Skill reference must be in org/skill@version format.[/]"
+        )
+        raise typer.Exit(1)
+    org_slug, skill_name = parts
+
+    api_url = get_api_url()
+    headers = build_headers(get_token())
+
+    # Fetch the eval report
+    with httpx.Client(timeout=30) as client:
+        resp = client.get(
+            f"{api_url}/v1/skills/{org_slug}/{skill_name}/versions/{version}/eval-report",
+            headers=headers,
+        )
+        if resp.status_code == 404:
+            console.print(
+                f"[red]Error: No eval report found for {org_slug}/{skill_name}@{version}[/]"
+            )
+            raise typer.Exit(1)
+        resp.raise_for_status()
+
+    data = resp.json()
+
+    # Handle null response (no eval report yet)
+    if data is None:
+        console.print(f"No eval report available for {org_slug}/{skill_name}@{version}")
+        return
+
+    # Display report summary
+    status = data["status"]
+    passed = data["passed"]
+    total = data["total"]
+    duration = data["total_duration_ms"] / 1000
+
+    status_colors = {"passed": "green", "failed": "red", "error": "red", "pending": "yellow"}
+    status_color = status_colors.get(status, "white")
+
+    console.print(f"\nEval Report: {org_slug}/{skill_name}@{version}")
+    console.print(f"Agent: [cyan]{data['agent']}[/]")
+    console.print(f"Judge: [dim]{data['judge_model']}[/]")
+    console.print(f"Status: [{status_color}]{status.upper()}[/]")
+    console.print(f"Results: [{status_color}]{passed}/{total}[/] cases passed")
+    console.print(f"Duration: {duration:.2f}s")
+
+    if data.get("error_message"):
+        console.print(f"\n[red]Error: {data['error_message']}[/]")
+
+    # Display individual case results
+    console.print("\nCase Results:")
+    for case in data["case_results"]:
+        verdict = case["verdict"]
+        verdict_colors = {"pass": "green", "fail": "red", "error": "red"}
+        verdict_color = verdict_colors.get(verdict, "white")
+
+        console.print(f"\n  [{verdict_color}]{case['name']}[/]: {verdict.upper()}")
+        console.print(f"    {case['description']}")
+        if case["reasoning"]:
+            console.print(f"    Reasoning: {case['reasoning']}")
 
 
 def install_command(

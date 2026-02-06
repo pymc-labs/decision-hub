@@ -109,11 +109,20 @@ async def exchange_token(
 
     user = upsert_user(conn, str(gh_user["id"]), gh_user["login"])
 
+    # Embed GitHub org slugs in the JWT so downstream endpoints can
+    # check membership without a DB lookup.  Currently we only know
+    # the required org (if configured); a future enhancement will
+    # fetch all orgs via the GitHub API.
+    github_orgs: list[str] = []
+    if settings.require_github_org:
+        github_orgs = [settings.require_github_org]
+
     jwt_token = create_jwt(
         str(user.id),
         user.username,
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.jwt_expiry_hours,
+        github_orgs=github_orgs,
     )
     return TokenResponse(access_token=jwt_token, username=user.username)

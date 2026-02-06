@@ -3,12 +3,12 @@
 import json
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user, get_s3_client, get_settings
-from decision_hub.domain.evals import run_static_checks
+from decision_hub.domain.gauntlet import run_static_checks
 from decision_hub.domain.publish import (
     build_quarantine_s3_key,
     build_s3_key,
@@ -24,15 +24,19 @@ from decision_hub.infra.database import (
     delete_version,
     fetch_all_skills_for_index,
     find_audit_logs,
+    find_eval_report_by_skill,
+    find_eval_report_by_version,
     find_org_by_slug,
     find_org_member,
     find_skill,
     find_version,
     insert_audit_log,
+    insert_eval_report,
     insert_skill,
     insert_version,
     resolve_latest_version,
     resolve_version,
+    update_eval_report,
     update_skill_description,
 )
 from decision_hub.infra.storage import (
@@ -60,6 +64,7 @@ class PublishResponse(BaseModel):
     s3_key: str
     checksum: str
     eval_status: str
+    eval_report_status: str | None = None
 
 
 class ResolveResponse(BaseModel):
@@ -114,12 +119,41 @@ class AuditLogResponse(BaseModel):
     created_at: str | None
 
 
+class EvalCaseResultResponse(BaseModel):
+    """A single eval case result."""
+    name: str
+    description: str
+    verdict: str
+    reasoning: str
+    agent_output: str
+    agent_stderr: str
+    exit_code: int
+    duration_ms: int
+    stage: str
+
+
+class EvalReportResponse(BaseModel):
+    """Eval report for a skill version."""
+    id: str
+    version_id: str
+    agent: str
+    judge_model: str
+    case_results: list[EvalCaseResultResponse]
+    passed: int
+    total: int
+    total_duration_ms: int
+    status: str
+    error_message: str | None
+    created_at: str | None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 @router.post("/publish", response_model=PublishResponse, status_code=201)
 async def publish_skill(
+    background_tasks: BackgroundTasks,
     metadata: str = Form(...),
     zip_file: UploadFile = File(...),
     conn: Connection = Depends(get_connection),
@@ -169,6 +203,31 @@ async def publish_skill(
         skill_md_content, source_files, lockfile_content = extract_for_evaluation(file_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    # Parse manifest to extract runtime config and eval config.
+    # If parsing fails (malformed frontmatter), the gauntlet will catch
+    # the issue downstream — we just skip runtime/eval extraction.
+    from decision_hub.domain.skill_manifest import parse_skill_md
+    import tempfile
+    from pathlib import Path
+
+    runtime_config_dict = None
+    eval_config = None
+    eval_cases: tuple = ()
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as tmp:
+        tmp.write(skill_md_content)
+        tmp_path = Path(tmp.name)
+
+    try:
+        manifest = parse_skill_md(tmp_path)
+        runtime_config_dict = _extract_runtime_config_dict(manifest)
+        eval_config = _extract_assessment_config(manifest)
+        eval_cases = _try_parse_assessment_cases(file_bytes)
+    except ValueError:
+        pass
+    finally:
+        tmp_path.unlink()
 
     # Extract description and body from SKILL.md
     description = extract_description(skill_md_content)
@@ -255,7 +314,7 @@ async def publish_skill(
         semver=version,
         s3_key=s3_key,
         checksum=checksum,
-        runtime_config=None,
+        runtime_config=runtime_config_dict,
         published_by=current_user.username,
         eval_status=eval_status,
     )
@@ -273,12 +332,26 @@ async def publish_skill(
         llm_reasoning=llm_reasoning,
     )
 
+    # Trigger background agent eval if config and cases are present
+    eval_report_status = _maybe_trigger_agent_assessment(
+        background_tasks=background_tasks,
+        eval_config=eval_config,
+        eval_cases=eval_cases,
+        file_bytes=file_bytes,
+        version_id=version_record.id,
+        org_slug=org_slug,
+        skill_name=skill_name,
+        settings=settings,
+        user_id=current_user.id,
+    )
+
     return PublishResponse(
         skill_id=str(skill.id),
         version=version_record.semver,
         s3_key=version_record.s3_key,
         checksum=version_record.checksum,
         eval_status=eval_status,
+        eval_report_status=eval_report_status,
     )
 
 
@@ -396,6 +469,48 @@ def get_audit_log(
         )
         for entry in entries
     ]
+
+
+@router.get(
+    "/skills/{org_slug}/{skill_name}/eval-report",
+    response_model=EvalReportResponse | None,
+)
+def get_eval_report_by_skill(
+    org_slug: str,
+    skill_name: str,
+    semver: str = Query(..., description="Semantic version of the skill"),
+    conn: Connection = Depends(get_connection),
+) -> EvalReportResponse | None:
+    """Get the eval report for a specific skill version.
+
+    Public endpoint — no authentication required.
+    Returns None if no eval report exists for this version.
+    """
+    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
+    if report is None:
+        return None
+    return _report_to_response(report)
+
+
+@router.get(
+    "/skills/{org_slug}/{skill_name}/versions/{semver}/eval-report",
+    response_model=EvalReportResponse | None,
+)
+def get_eval_report_by_version_path(
+    org_slug: str,
+    skill_name: str,
+    semver: str,
+    conn: Connection = Depends(get_connection),
+) -> EvalReportResponse | None:
+    """Get the eval report for a specific skill version (path-based).
+
+    Public endpoint — no authentication required.
+    Returns None if no eval report exists for this version.
+    """
+    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
+    if report is None:
+        return None
+    return _report_to_response(report)
 
 
 @router.delete(
@@ -551,3 +666,203 @@ def _build_analyze_prompt_fn(settings: Settings):
         )
 
     return analyze_prompt_fn
+
+
+def _extract_runtime_config_dict(manifest) -> dict | None:
+    """Extract runtime config as a JSON-compatible dict for database storage."""
+    if manifest.runtime is None:
+        return None
+
+    runtime_dict = {
+        "language": manifest.runtime.language,
+        "entrypoint": manifest.runtime.entrypoint,
+        "version_hint": manifest.runtime.version_hint,
+        "env": list(manifest.runtime.env),
+        "capabilities": list(manifest.runtime.capabilities),
+        "repair_strategy": manifest.runtime.repair_strategy,
+    }
+
+    if manifest.runtime.dependencies:
+        runtime_dict["dependencies"] = {
+            "system": list(manifest.runtime.dependencies.system),
+            "package_manager": manifest.runtime.dependencies.package_manager,
+            "packages": list(manifest.runtime.dependencies.packages),
+            "lockfile": manifest.runtime.dependencies.lockfile,
+        }
+
+    return runtime_dict
+
+
+def _extract_assessment_config(manifest):
+    """Extract eval config from manifest (returns None if not present)."""
+    return manifest.evals
+
+
+def _try_parse_assessment_cases(file_bytes: bytes):
+    """Try to parse eval cases from zip. Returns empty tuple if evals/ not present."""
+    from decision_hub.domain.skill_manifest import parse_eval_cases_from_zip
+
+    try:
+        return parse_eval_cases_from_zip(file_bytes)
+    except ValueError:
+        return ()
+
+
+def _maybe_trigger_agent_assessment(
+    background_tasks: BackgroundTasks,
+    eval_config,
+    eval_cases: tuple,
+    file_bytes: bytes,
+    version_id,
+    org_slug: str,
+    skill_name: str,
+    settings: Settings,
+    user_id,
+):
+    """Conditionally trigger background agent evaluation if eval config present."""
+    if eval_config and eval_cases:
+        background_tasks.add_task(
+            _run_assessment_background,
+            version_id=version_id,
+            eval_config=eval_config,
+            eval_cases=eval_cases,
+            skill_zip=file_bytes,
+            org_slug=org_slug,
+            skill_name=skill_name,
+            settings=settings,
+            user_id=user_id,
+        )
+        return "pending"
+    return None
+
+
+def _run_assessment_background(
+    version_id,
+    eval_config,
+    eval_cases: tuple,
+    skill_zip: bytes,
+    org_slug: str,
+    skill_name: str,
+    settings: Settings,
+    user_id,
+):
+    """Background task to run agent assessments and store report."""
+    from cryptography.fernet import Fernet
+
+    from decision_hub.domain.evals import run_eval_pipeline
+    from decision_hub.infra.database import create_engine, get_api_keys_for_eval
+    from decision_hub.infra.modal_client import get_agent_config
+
+    try:
+        engine = create_engine(settings.database_url)
+        with engine.connect() as conn:
+            # Decrypt API keys needed by the target agent
+            agent_config = get_agent_config(eval_config.agent)
+            required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
+            encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
+
+            fernet = Fernet(settings.encryption_key.encode())
+            agent_env_vars = {
+                name: fernet.decrypt(value).decode()
+                for name, value in encrypted_keys.items()
+            }
+
+            # Run the pipeline
+            case_results, passed, total, total_duration_ms = run_eval_pipeline(
+                skill_zip=skill_zip,
+                eval_config=eval_config,
+                eval_cases=eval_cases,
+                agent_env_vars=agent_env_vars,
+                org_slug=org_slug,
+                skill_name=skill_name,
+            )
+
+            # Determine overall status
+            all_passed = all(r["verdict"] == "pass" for r in case_results)
+            status = "completed" if all_passed else "failed"
+
+            # Store report
+            insert_eval_report(
+                conn,
+                version_id=version_id,
+                agent=eval_config.agent,
+                judge_model=eval_config.judge_model,
+                case_results=case_results,
+                passed=passed,
+                total=total,
+                total_duration_ms=total_duration_ms,
+                status=status,
+            )
+            conn.commit()
+
+    except Exception as e:
+        logger.error(f"Agent assessment failed for version {version_id}: {e}")
+        engine = create_engine(settings.database_url)
+        with engine.connect() as conn:
+            update_eval_report(
+                conn,
+                version_id=version_id,
+                status="failed",
+                error_message=str(e),
+            )
+            conn.commit()
+
+
+def _reconstruct_runtime_config(runtime_dict: dict | None):
+    """Reconstruct a RuntimeConfig from a stored dict (for testing/validation)."""
+    if runtime_dict is None:
+        return None
+
+    from decision_hub.models import DependencySpec, RuntimeConfig
+
+    deps_dict = runtime_dict.get("dependencies")
+    dependencies = None
+    if deps_dict:
+        dependencies = DependencySpec(
+            system=tuple(deps_dict.get("system", [])),
+            package_manager=deps_dict.get("package_manager", ""),
+            packages=tuple(deps_dict.get("packages", [])),
+            lockfile=deps_dict.get("lockfile"),
+        )
+
+    return RuntimeConfig(
+        language=runtime_dict.get("language", ""),
+        entrypoint=runtime_dict.get("entrypoint", ""),
+        version_hint=runtime_dict.get("version_hint"),
+        env=tuple(runtime_dict.get("env", [])),
+        capabilities=tuple(runtime_dict.get("capabilities", [])),
+        dependencies=dependencies,
+        repair_strategy=runtime_dict.get("repair_strategy", "attempt_install"),
+    )
+
+
+def _report_to_response(report) -> EvalReportResponse:
+    """Convert an EvalReport model to a response schema."""
+    case_results_responses = [
+        EvalCaseResultResponse(
+            name=r["name"],
+            description=r["description"],
+            verdict=r["verdict"],
+            reasoning=r["reasoning"],
+            agent_output=r["agent_output"],
+            agent_stderr=r["agent_stderr"],
+            exit_code=r["exit_code"],
+            duration_ms=r["duration_ms"],
+            stage=r["stage"],
+        )
+        for r in report.case_results
+    ]
+
+    return EvalReportResponse(
+        id=str(report.id),
+        version_id=str(report.version_id),
+        agent=report.agent,
+        judge_model=report.judge_model,
+        case_results=case_results_responses,
+        passed=report.passed,
+        total=report.total,
+        total_duration_ms=report.total_duration_ms,
+        status=report.status,
+        error_message=report.error_message,
+        created_at=report.created_at.isoformat() if report.created_at else None,
+    )

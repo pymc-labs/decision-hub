@@ -58,7 +58,7 @@ def get_agent_config(agent_name: str) -> AgentSandboxConfig:
 # ---------------------------------------------------------------------------
 
 
-def build_agent_image(config: AgentSandboxConfig):
+def build_eval_image(config: AgentSandboxConfig):
     """Build a Modal image for a specific agent.
 
     The image is based on node:20-slim with the agent's NPM package
@@ -139,7 +139,7 @@ def run_skill_tests_in_sandbox(
     import base64
     import modal
 
-    image = build_agent_image(agent_config)
+    image = build_eval_image(agent_config)
 
     # Merge agent-specific extra env with the user's decrypted keys
     env = {**agent_config.extra_env, **agent_env_vars}
@@ -187,3 +187,106 @@ def run_skill_tests_in_sandbox(
         sb.terminate()
 
     return SandboxResult(outputs=tuple(outputs))
+
+
+def _create_skill_sandbox(
+    skill_zip: bytes,
+    agent_config: AgentSandboxConfig,
+    agent_env_vars: dict[str, str],
+    org_slug: str,
+    skill_name: str,
+):
+    """Create and prepare a Modal sandbox with a skill installed.
+
+    Returns:
+        A tuple of (sandbox, skill_path) ready for running commands.
+    """
+    import base64
+    import modal
+
+    image = build_eval_image(agent_config)
+
+    # Merge agent-specific extra env with the user's decrypted keys
+    env = {**agent_config.extra_env, **agent_env_vars}
+
+    app = modal.App("decision-hub-eval")
+    skill_path = f"/root/{agent_config.skills_path}/{org_slug}/{skill_name}"
+
+    with modal.enable_output():
+        sb = modal.Sandbox.create(
+            image=image,
+            secrets=[modal.Secret.from_dict(env)],
+            app=app,
+        )
+
+        # Set up skill directory
+        _run_in_sandbox(sb, "mkdir", "-p", skill_path)
+
+        # Transfer and extract skill zip via base64 + Python zipfile
+        b64_zip = base64.b64encode(skill_zip).decode()
+        _run_in_sandbox(
+            sb,
+            "python3",
+            "-c",
+            f"import base64,zipfile,io; "
+            f"data=base64.b64decode('{b64_zip}'); "
+            f"zipfile.ZipFile(io.BytesIO(data)).extractall('{skill_path}')",
+        )
+
+        # Install Python deps if pyproject.toml exists
+        _run_in_sandbox(
+            sb,
+            "python3",
+            "-c",
+            f"import os,subprocess; "
+            f"os.path.isfile('{skill_path}/pyproject.toml') and "
+            f"subprocess.run(['uv','sync','--directory','{skill_path}'])",
+        )
+
+        return sb, skill_path
+
+
+def run_eval_case_in_sandbox(
+    skill_zip: bytes,
+    prompt: str,
+    agent_config: AgentSandboxConfig,
+    agent_env_vars: dict[str, str],
+    org_slug: str,
+    skill_name: str,
+) -> tuple[str, str, int, int]:
+    """Run a single eval case in a Modal sandbox.
+
+    Steps:
+    1. Build an agent-specific image
+    2. Create a Modal sandbox with the image and env vars
+    3. Upload and extract the skill zip to the agent's skills path
+    4. Invoke the agent CLI with the prompt and capture output
+    5. Return stdout, stderr, exit code, and duration
+
+    Args:
+        skill_zip: Raw bytes of the skill zip archive.
+        prompt: The eval case prompt to send to the agent.
+        agent_config: Configuration for the target agent.
+        agent_env_vars: Decrypted environment variables (API keys).
+        org_slug: Organisation slug for skill path placement.
+        skill_name: Skill name for skill path placement.
+
+    Returns:
+        Tuple of (stdout, stderr, exit_code, duration_ms).
+    """
+    import time
+
+    sb, skill_path = _create_skill_sandbox(
+        skill_zip, agent_config, agent_env_vars, org_slug, skill_name
+    )
+
+    try:
+        # Run the eval prompt through the agent
+        cmd = build_agent_run_command(agent_config, prompt)
+        start = time.monotonic()
+        stdout, exit_code = _run_in_sandbox(sb, *cmd)
+        duration_ms = int((time.monotonic() - start) * 1000)
+
+        return stdout, "", exit_code, duration_ms
+    finally:
+        sb.terminate()

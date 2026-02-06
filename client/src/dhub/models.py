@@ -13,16 +13,37 @@ class SkillManifest:
     metadata: dict[str, str] | None
     allowed_tools: str | None
     runtime: "RuntimeConfig | None"
-    testing: "TestingConfig | None"
+    evals: "EvalConfig | None"
     body: str
+    testing: "TestingConfig | None" = None  # Legacy field for backward compatibility
+
+
+@dataclass(frozen=True)
+class DependencySpec:
+    """Declared dependencies for a skill's runtime environment."""
+    system: tuple[str, ...]
+    package_manager: str
+    packages: tuple[str, ...]
+    lockfile: str | None
 
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    driver: str
+    """Soft contract: what the skill needs to run."""
+    language: str
     entrypoint: str
-    lockfile: str
-    env: tuple[str, ...]
+    version_hint: str | None = None
+    env: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    dependencies: DependencySpec | None = None
+    repair_strategy: str = "attempt_install"
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    """Eval configuration from SKILL.md frontmatter."""
+    agent: str
+    judge_model: str
 
 
 @dataclass(frozen=True)

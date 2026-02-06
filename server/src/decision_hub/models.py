@@ -10,6 +10,7 @@ class User:
     id: UUID
     github_id: str
     username: str
+    github_orgs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -98,26 +99,103 @@ class SkillManifest:
     metadata: dict[str, str] | None
     allowed_tools: str | None
     runtime: "RuntimeConfig | None"
-    testing: "TestingConfig | None"
+    evals: "EvalConfig | None"
     body: str
+    testing: "TestingConfig | None" = None  # Legacy field for backward compatibility
+
+
+# ---------------------------------------------------------------------------
+# Soft contract runtime
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DependencySpec:
+    """Declared dependencies for a skill's runtime environment."""
+    system: tuple[str, ...]
+    package_manager: str
+    packages: tuple[str, ...]
+    lockfile: str | None
 
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    driver: str
+    """Soft contract: what the skill needs to run."""
+    language: str
     entrypoint: str
-    lockfile: str
-    env: tuple[str, ...]
+    version_hint: str | None = None
+    env: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    dependencies: DependencySpec | None = None
+    repair_strategy: str = "attempt_install"
+
+
+# ---------------------------------------------------------------------------
+# Agent evals
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    """Eval configuration from SKILL.md frontmatter."""
+    agent: str
+    judge_model: str
+
+
+@dataclass(frozen=True)
+class EvalCase:
+    """A single evaluation case from evals/*.yaml."""
+    name: str
+    description: str
+    prompt: str
+    judge_criteria: str
+
+
+@dataclass(frozen=True)
+class EvalCaseResult:
+    """Result of running and judging a single eval case."""
+    name: str
+    description: str
+    verdict: str
+    reasoning: str
+    agent_output: str
+    agent_stderr: str
+    exit_code: int
+    duration_ms: int
+    stage: str
+
+
+@dataclass(frozen=True)
+class EvalReport:
+    """Aggregated eval report for a skill version."""
+    id: UUID
+    version_id: UUID
+    agent: str
+    judge_model: str
+    case_results: list[dict]
+    passed: int
+    total: int
+    total_duration_ms: int
+    status: str
+    error_message: str | None = None
+    created_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Legacy models for backward compatibility
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class AgentTestTarget:
+    """Legacy testing target configuration."""
     name: str
     required_keys: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class TestingConfig:
+    """Legacy testing configuration from SKILL.md frontmatter."""
     __test__ = False  # prevent pytest from trying to collect this dataclass
     cases: str
     agents: tuple[AgentTestTarget, ...]

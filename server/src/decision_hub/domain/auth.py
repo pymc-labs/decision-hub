@@ -11,6 +11,7 @@ def create_jwt(
     secret: str,
     algorithm: str = "HS256",
     expiry_hours: int = 8760,
+    github_orgs: list[str] | None = None,
 ) -> str:
     """Create a long-lived JWT token.
 
@@ -20,6 +21,9 @@ def create_jwt(
         secret: Secret key used to sign the token.
         algorithm: JWT signing algorithm.
         expiry_hours: Token lifetime in hours (default: 1 year).
+        github_orgs: List of GitHub org slugs the user belongs to.
+            Included in the token so downstream endpoints can check
+            membership without a DB lookup.
 
     Returns:
         Encoded JWT string.
@@ -28,6 +32,7 @@ def create_jwt(
     payload = {
         "sub": user_id,
         "username": username,
+        "github_orgs": github_orgs if github_orgs is not None else [],
         "exp": now + timedelta(hours=expiry_hours),
         "iat": now,
     }

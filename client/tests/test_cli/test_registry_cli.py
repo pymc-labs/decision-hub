@@ -78,7 +78,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill", "--version", "1.0.0"],
+            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0"],
         )
 
         assert result.exit_code == 0
@@ -115,7 +115,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill"],
+            ["publish", "myorg/my-skill", str(tmp_path)],
         )
 
         assert result.exit_code == 0
@@ -152,7 +152,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill"],
+            ["publish", "myorg/my-skill", str(tmp_path)],
         )
 
         assert result.exit_code == 0
@@ -189,7 +189,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill", "--minor"],
+            ["publish", "myorg/my-skill", str(tmp_path), "--minor"],
         )
 
         assert result.exit_code == 0
@@ -226,7 +226,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill", "--major"],
+            ["publish", "myorg/my-skill", str(tmp_path), "--major"],
         )
 
         assert result.exit_code == 0
@@ -237,7 +237,7 @@ class TestPublishCommand:
         """Publish should fail when SKILL.md is absent."""
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill", "--version", "1.0.0"],
+            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0"],
         )
 
         assert result.exit_code == 1
@@ -249,7 +249,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "INVALID NAME!", "--version", "1.0.0"],
+            ["publish", "myorg/INVALID NAME!", str(tmp_path), "--version", "1.0.0"],
         )
 
         # validate_skill_name raises ValueError which propagates
@@ -261,7 +261,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill", "--version", "not-a-version"],
+            ["publish", "myorg/my-skill", str(tmp_path), "--version", "not-a-version"],
         )
 
         assert result.exit_code != 0
@@ -281,7 +281,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill", "--version", "1.0.0"],
+            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0"],
         )
 
         assert result.exit_code == 1
@@ -293,7 +293,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", str(tmp_path), "--org", "myorg", "--name", "my-skill", "--minor", "--major"],
+            ["publish", "myorg/my-skill", str(tmp_path), "--minor", "--major"],
         )
 
         assert result.exit_code == 1

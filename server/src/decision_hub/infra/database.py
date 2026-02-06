@@ -26,6 +26,7 @@ from sqlalchemy.pool import NullPool
 
 from decision_hub.models import (
     AuditLogEntry,
+    EvalReport,
     Organization,
     OrgInvite,
     OrgMember,
@@ -208,6 +209,38 @@ eval_audit_logs_table = Table(
     Column("llm_reasoning", JSONB, nullable=True),
     Column("publisher", String, nullable=False, server_default=""),
     Column("quarantine_s3_key", Text, nullable=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+)
+
+eval_reports_table = Table(
+    "eval_reports",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column(
+        "version_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("versions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    ),
+    Column("agent", String, nullable=False),
+    Column("judge_model", String, nullable=False),
+    Column("case_results", JSONB, nullable=False),
+    Column("passed", sa.Integer, nullable=False),
+    Column("total", sa.Integer, nullable=False),
+    Column("total_duration_ms", sa.Integer, nullable=False),
+    Column("status", String, nullable=False),
+    Column("error_message", Text, nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -1150,3 +1183,161 @@ def find_audit_logs(
     )
     rows = conn.execute(stmt).all()
     return [_row_to_audit_log_entry(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Eval report queries
+# ---------------------------------------------------------------------------
+
+
+def _row_to_eval_report(row: sa.Row) -> EvalReport:
+    """Map a database row to an EvalReport model."""
+    return EvalReport(
+        id=row.id,
+        version_id=row.version_id,
+        agent=row.agent,
+        judge_model=row.judge_model,
+        case_results=row.case_results,
+        passed=row.passed,
+        total=row.total,
+        total_duration_ms=row.total_duration_ms,
+        status=row.status,
+        error_message=row.error_message,
+        created_at=row.created_at,
+    )
+
+
+def insert_eval_report(
+    conn: Connection,
+    version_id: UUID,
+    agent: str,
+    judge_model: str,
+    case_results: list[dict],
+    passed: int,
+    total: int,
+    total_duration_ms: int,
+    status: str,
+    error_message: str | None = None,
+) -> EvalReport:
+    """Insert an eval report for a skill version.
+
+    Args:
+        conn: Active database connection.
+        version_id: UUID of the skill version.
+        agent: Name of the agent used for evaluation.
+        judge_model: Name of the LLM judge model.
+        case_results: List of serialized EvalCaseResult dicts.
+        passed: Number of cases that passed.
+        total: Total number of cases.
+        total_duration_ms: Total execution duration in milliseconds.
+        status: Overall status (passed/failed/error).
+        error_message: Optional error message.
+
+    Returns:
+        The newly created EvalReport.
+    """
+    stmt = (
+        sa.insert(eval_reports_table)
+        .values(
+            version_id=version_id,
+            agent=agent,
+            judge_model=judge_model,
+            case_results=case_results,
+            passed=passed,
+            total=total,
+            total_duration_ms=total_duration_ms,
+            status=status,
+            error_message=error_message,
+        )
+        .returning(*eval_reports_table.c)
+    )
+    row = conn.execute(stmt).one()
+    return _row_to_eval_report(row)
+
+
+def update_eval_report(
+    conn: Connection,
+    version_id: UUID,
+    status: str,
+    error_message: str | None = None,
+) -> None:
+    """Update an existing eval report's status and error message.
+
+    Args:
+        conn: Active database connection.
+        version_id: UUID of the skill version.
+        status: New status value.
+        error_message: Optional error message.
+    """
+    stmt = (
+        sa.update(eval_reports_table)
+        .where(eval_reports_table.c.version_id == version_id)
+        .values(status=status, error_message=error_message)
+    )
+    conn.execute(stmt)
+
+
+def find_eval_report_by_version(
+    conn: Connection, version_id: UUID
+) -> EvalReport | None:
+    """Find an eval report by version ID.
+
+    Args:
+        conn: Active database connection.
+        version_id: UUID of the skill version.
+
+    Returns:
+        The EvalReport if found, or None.
+    """
+    stmt = sa.select(eval_reports_table).where(
+        eval_reports_table.c.version_id == version_id
+    )
+    row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return _row_to_eval_report(row)
+
+
+def find_eval_report_by_skill(
+    conn: Connection, org_slug: str, skill_name: str, semver: str
+) -> EvalReport | None:
+    """Find an eval report by org, skill name, and version.
+
+    Args:
+        conn: Active database connection.
+        org_slug: Organization slug.
+        skill_name: Skill name.
+        semver: Semantic version string.
+
+    Returns:
+        The EvalReport if found, or None.
+    """
+    # Join eval_reports -> versions -> skills -> organizations
+    join = (
+        eval_reports_table.join(
+            versions_table,
+            eval_reports_table.c.version_id == versions_table.c.id,
+        )
+        .join(skills_table, versions_table.c.skill_id == skills_table.c.id)
+        .join(
+            organizations_table,
+            skills_table.c.org_id == organizations_table.c.id,
+        )
+    )
+
+    stmt = (
+        sa.select(eval_reports_table)
+        .select_from(join)
+        .where(
+            sa.and_(
+                organizations_table.c.slug == org_slug,
+                skills_table.c.name == skill_name,
+                versions_table.c.semver == semver,
+            )
+        )
+    )
+
+    row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return _row_to_eval_report(row)

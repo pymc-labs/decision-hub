@@ -12,16 +12,21 @@ from dhub.core.runtime import (
     build_uv_sync_command,
     validate_local_runtime_prerequisites,
 )
-from dhub.models import RuntimeConfig
+from dhub.models import DependencySpec, RuntimeConfig
 
 
 @pytest.fixture
 def runtime_config() -> RuntimeConfig:
     """A standard runtime config for tests."""
     return RuntimeConfig(
-        driver="local/uv",
+        language="python",
         entrypoint="src/main.py",
-        lockfile="uv.lock",
+        dependencies=DependencySpec(
+            system=(),
+            package_manager="uv",
+            packages=(),
+            lockfile="uv.lock",
+        ),
         env=("OPENAI_API_KEY",),
     )
 
@@ -30,9 +35,14 @@ def runtime_config() -> RuntimeConfig:
 def runtime_config_no_env() -> RuntimeConfig:
     """A runtime config with no required env vars."""
     return RuntimeConfig(
-        driver="local/uv",
+        language="python",
         entrypoint="main.py",
-        lockfile="uv.lock",
+        dependencies=DependencySpec(
+            system=(),
+            package_manager="uv",
+            packages=(),
+            lockfile="uv.lock",
+        ),
         env=(),
     )
 

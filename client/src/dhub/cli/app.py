@@ -29,7 +29,7 @@ def main(
 # Register top-level commands
 from dhub.cli.auth import login_command, logout_command  # noqa: E402
 from dhub.cli.env import env_command  # noqa: E402
-from dhub.cli.registry import delete_command, install_command, list_command, publish_command  # noqa: E402
+from dhub.cli.registry import delete_command, eval_report_command, install_command, list_command, publish_command  # noqa: E402
 from dhub.cli.runtime import run_command  # noqa: E402
 from dhub.cli.search import ask_command  # noqa: E402
 
@@ -40,6 +40,7 @@ app.command("publish")(publish_command)
 app.command("install")(install_command)
 app.command("list")(list_command)
 app.command("delete")(delete_command)
+app.command("eval-report")(eval_report_command)
 app.command("run")(run_command)
 app.command("ask")(ask_command)
 

@@ -11,6 +11,8 @@ import yaml
 
 from dhub.models import (
     AgentTestTarget,
+    DependencySpec,
+    EvalConfig,
     RuntimeConfig,
     SkillManifest,
     TestingConfig,
@@ -64,7 +66,8 @@ def parse_skill_md(path: Path) -> SkillManifest:
 
     # Optional structured blocks
     runtime = _parse_runtime(data.get("runtime"))
-    testing = _parse_testing(data.get("testing"))
+    evals = _parse_evals(data.get("evals"))
+    testing = _parse_testing(data.get("testing"))  # Legacy
     manifest = SkillManifest(
         name=name,
         description=description,
@@ -73,8 +76,9 @@ def parse_skill_md(path: Path) -> SkillManifest:
         metadata=metadata,
         allowed_tools=allowed_tools,
         runtime=runtime,
-        testing=testing,
+        evals=evals,
         body=body,
+        testing=testing,
     )
 
     errors = validate_manifest(manifest)
@@ -124,36 +128,140 @@ def _split_frontmatter(content: str) -> tuple[str, str]:
 
 
 def _parse_runtime(data: dict | None) -> RuntimeConfig | None:
-    """Parse the runtime block from frontmatter."""
+    """Parse the runtime block from frontmatter (soft contract).
+
+    Soft contract: accepts either old hard-coded formats (driver/entrypoint/lockfile)
+    or new flexible language/entrypoint + optional dependencies.
+    """
     if data is None:
         return None
 
     if not isinstance(data, dict):
         raise ValueError("'runtime' must be a mapping.")
 
-    driver = data.get("driver")
-    if not driver or not isinstance(driver, str):
-        raise ValueError("runtime.driver is required and must be a string.")
+    # Detect format: presence of 'language' indicates new soft contract
+    language = data.get("language")
+    if language:
+        # New soft contract format
+        entrypoint = data.get("entrypoint")
+        if not entrypoint or not isinstance(entrypoint, str):
+            raise ValueError("runtime.entrypoint is required and must be a string.")
 
-    entrypoint = data.get("entrypoint")
-    if not entrypoint or not isinstance(entrypoint, str):
-        raise ValueError("runtime.entrypoint is required and must be a string.")
+        version_hint = data.get("version_hint")
+
+        env_raw = data.get("env", [])
+        if not isinstance(env_raw, list):
+            raise ValueError("runtime.env must be a list of strings.")
+        env = tuple(str(e) for e in env_raw)
+
+        capabilities_raw = data.get("capabilities", [])
+        if not isinstance(capabilities_raw, list):
+            raise ValueError("runtime.capabilities must be a list of strings.")
+        capabilities = tuple(str(c) for c in capabilities_raw)
+
+        dependencies = _parse_dependencies(data.get("dependencies"))
+        repair_strategy = data.get("repair_strategy", "attempt_install")
+
+        return RuntimeConfig(
+            language=language,
+            entrypoint=entrypoint,
+            version_hint=version_hint,
+            env=env,
+            capabilities=capabilities,
+            dependencies=dependencies,
+            repair_strategy=repair_strategy,
+        )
+    else:
+        # Old hard-coded format (backward compatibility)
+        driver = data.get("driver")
+        if not driver or not isinstance(driver, str):
+            raise ValueError("runtime.driver is required and must be a string.")
+
+        entrypoint = data.get("entrypoint")
+        if not entrypoint or not isinstance(entrypoint, str):
+            raise ValueError("runtime.entrypoint is required and must be a string.")
+
+        lockfile = data.get("lockfile")
+        if not lockfile or not isinstance(lockfile, str):
+            raise ValueError("runtime.lockfile is required and must be a string.")
+
+        env_raw = data.get("env", [])
+        if not isinstance(env_raw, list):
+            raise ValueError("runtime.env must be a list of strings.")
+        env = tuple(str(e) for e in env_raw)
+
+        # Map old driver format to new language field
+        language_map = {"local/uv": "python"}
+        language = language_map.get(driver, driver)
+
+        # Build dependencies from old lockfile field
+        dependencies = DependencySpec(
+            system=(),
+            package_manager="uv",
+            packages=(),
+            lockfile=lockfile,
+        )
+
+        return RuntimeConfig(
+            language=language,
+            entrypoint=entrypoint,
+            version_hint=None,
+            env=env,
+            capabilities=(),
+            dependencies=dependencies,
+            repair_strategy="attempt_install",
+        )
+
+
+def _parse_dependencies(data: dict | None) -> DependencySpec | None:
+    """Parse the dependencies block from runtime config."""
+    if data is None:
+        return None
+
+    if not isinstance(data, dict):
+        raise ValueError("'dependencies' must be a mapping.")
+
+    system_raw = data.get("system", [])
+    if not isinstance(system_raw, list):
+        raise ValueError("dependencies.system must be a list of strings.")
+    system = tuple(str(s) for s in system_raw)
+
+    package_manager = data.get("package_manager", "")
+    if not isinstance(package_manager, str):
+        raise ValueError("dependencies.package_manager must be a string.")
+
+    packages_raw = data.get("packages", [])
+    if not isinstance(packages_raw, list):
+        raise ValueError("dependencies.packages must be a list of strings.")
+    packages = tuple(str(p) for p in packages_raw)
 
     lockfile = data.get("lockfile")
-    if not lockfile or not isinstance(lockfile, str):
-        raise ValueError("runtime.lockfile is required and must be a string.")
 
-    env_raw = data.get("env", [])
-    if not isinstance(env_raw, list):
-        raise ValueError("runtime.env must be a list of strings.")
-    env = tuple(str(e) for e in env_raw)
-
-    return RuntimeConfig(
-        driver=driver,
-        entrypoint=entrypoint,
+    return DependencySpec(
+        system=system,
+        package_manager=package_manager,
+        packages=packages,
         lockfile=lockfile,
-        env=env,
     )
+
+
+def _parse_evals(data: dict | None) -> EvalConfig | None:
+    """Parse the evals block from frontmatter."""
+    if data is None:
+        return None
+
+    if not isinstance(data, dict):
+        raise ValueError("'evals' must be a mapping.")
+
+    agent = data.get("agent")
+    if not agent or not isinstance(agent, str):
+        raise ValueError("evals.agent is required and must be a string.")
+
+    judge_model = data.get("judge_model")
+    if not judge_model or not isinstance(judge_model, str):
+        raise ValueError("evals.judge_model is required and must be a string.")
+
+    return EvalConfig(agent=agent, judge_model=judge_model)
 
 
 def _parse_testing(data: dict | None) -> TestingConfig | None:
@@ -212,10 +320,13 @@ def validate_manifest(manifest: SkillManifest) -> list[str]:
     if not manifest.body:
         errors.append("Body (system prompt) must not be empty.")
 
-    if manifest.runtime and manifest.runtime.driver not in ("local/uv",):
-        errors.append(
-            f"Unsupported runtime driver '{manifest.runtime.driver}'. "
-            "Supported: local/uv"
-        )
+    # Validate runtime (supports both old driver field and new language field)
+    if manifest.runtime:
+        supported_languages = ("python",)
+        if manifest.runtime.language not in supported_languages:
+            errors.append(
+                f"Unsupported runtime language '{manifest.runtime.language}'. "
+                f"Supported: {', '.join(supported_languages)}"
+            )
 
     return errors

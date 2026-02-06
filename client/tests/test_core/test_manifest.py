@@ -8,7 +8,7 @@ from dhub.core.manifest import (
     parse_skill_md,
     validate_manifest,
 )
-from dhub.models import RuntimeConfig, SkillManifest, TestingConfig
+from dhub.models import DependencySpec, RuntimeConfig, SkillManifest, TestingConfig
 
 
 VALID_SKILL_MD = """\
@@ -75,9 +75,10 @@ class TestParseSkillMd:
         assert manifest.description == "A test skill for unit testing."
         assert manifest.body == "You are a test assistant."
         assert manifest.runtime is not None
-        assert manifest.runtime.driver == "local/uv"
+        assert manifest.runtime.language == "python"
         assert manifest.runtime.entrypoint == "src/main.py"
-        assert manifest.runtime.lockfile == "uv.lock"
+        assert manifest.runtime.dependencies is not None
+        assert manifest.runtime.dependencies.lockfile == "uv.lock"
         assert manifest.runtime.env == ("OPENAI_API_KEY",)
         assert manifest.testing is not None
         assert manifest.testing.cases == "tests/cases.json"
@@ -305,18 +306,24 @@ class TestValidateManifest:
             metadata=None,
             allowed_tools=None,
             runtime=RuntimeConfig(
-                driver="local/uv",
+                language="python",
                 entrypoint="main.py",
-                lockfile="uv.lock",
+                dependencies=DependencySpec(
+                    system=(),
+                    package_manager="uv",
+                    packages=(),
+                    lockfile="uv.lock",
+                ),
                 env=(),
             ),
+            evals=None,
             testing=None,
             body="You are a helpful assistant.",
         )
         errors = validate_manifest(manifest)
         assert errors == []
 
-    def test_unsupported_driver_returns_error(self) -> None:
+    def test_unsupported_language_returns_error(self) -> None:
         manifest = SkillManifest(
             name="valid-skill",
             description="A valid skill.",
@@ -325,17 +332,18 @@ class TestValidateManifest:
             metadata=None,
             allowed_tools=None,
             runtime=RuntimeConfig(
-                driver="docker",
-                entrypoint="main.py",
-                lockfile="lock.json",
+                language="ruby",
+                entrypoint="main.rb",
+                dependencies=None,
                 env=(),
             ),
+            evals=None,
             testing=None,
             body="You are a helpful assistant.",
         )
         errors = validate_manifest(manifest)
         assert len(errors) == 1
-        assert "docker" in errors[0]
+        assert "ruby" in errors[0]
 
     def test_empty_body_returns_error(self) -> None:
         manifest = SkillManifest(
@@ -346,6 +354,7 @@ class TestValidateManifest:
             metadata=None,
             allowed_tools=None,
             runtime=None,
+            evals=None,
             testing=None,
             body="",
         )

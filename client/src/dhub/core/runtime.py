@@ -27,11 +27,13 @@ def validate_local_runtime_prerequisites(
             "Install it from https://docs.astral.sh/uv/"
         )
 
-    lockfile_path = skill_dir / config.lockfile
-    if not lockfile_path.exists():
-        errors.append(
-            f"Lockfile not found: {lockfile_path}"
-        )
+    lockfile = config.dependencies.lockfile if config.dependencies else None
+    if lockfile:
+        lockfile_path = skill_dir / lockfile
+        if not lockfile_path.exists():
+            errors.append(
+                f"Lockfile not found: {lockfile_path}"
+            )
 
     entrypoint_path = skill_dir / config.entrypoint
     if not entrypoint_path.exists():

@@ -56,10 +56,10 @@ def run_command(
         )
         raise typer.Exit(1)
 
-    if manifest.runtime.driver != "local/uv":
+    if manifest.runtime.language != "python":
         console.print(
-            f"[red]Error: Unsupported runtime driver '{manifest.runtime.driver}'. "
-            f"Only 'local/uv' is supported.[/]"
+            f"[red]Error: Unsupported runtime language '{manifest.runtime.language}'. "
+            f"Only 'python' is supported.[/]"
         )
         raise typer.Exit(1)
 
