@@ -11,6 +11,7 @@ from pathlib import Path
 # Mapping of agent names to their skill directories
 AGENT_SKILL_PATHS: dict[str, Path] = {
     "claude": Path.home() / ".claude" / "skills",
+    "codex": Path.home() / ".codex" / "skills",
     "cursor": Path.home() / ".cursor" / "skills",
     "opencode": Path.home() / ".config" / "opencode" / "skills",
     "gemini": Path.home() / ".gemini" / "skills",
