@@ -2,7 +2,9 @@
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+import respx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -57,17 +59,64 @@ class TestSearchSkills:
         assert resp.status_code == 503
         assert "GOOGLE_API_KEY" in resp.json()["detail"]
 
-    @patch("decision_hub.api.search_routes.search_skills_with_llm")
-    @patch("decision_hub.api.search_routes.create_gemini_client")
+    @respx.mock
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_success(
         self,
         mock_fetch: MagicMock,
-        mock_create_gemini: MagicMock,
-        mock_search_llm: MagicMock,
         search_client: TestClient,
     ) -> None:
-        """Full search flow: DB has skills, Gemini returns recommendations."""
+        """End-to-end ask flow: canned DB rows through real domain logic and Gemini response parsing."""
+        mock_fetch.return_value = [
+            {
+                "org_slug": "acme",
+                "skill_name": "weather",
+                "description": "Weather forecasting",
+                "latest_version": "1.0.0",
+                "eval_status": "passed",
+                "published_by": "alice",
+            },
+            {
+                "org_slug": "acme",
+                "skill_name": "translate",
+                "description": "Language translation",
+                "latest_version": "2.1.0",
+                "eval_status": "pending",
+                "published_by": "bob",
+            },
+        ]
+
+        gemini_answer = (
+            "1. acme/weather v1.0.0 [A] - Weather forecasting\n"
+            "2. acme/translate v2.1.0 [C] - Translation"
+        )
+        gemini_route = respx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+        ).mock(return_value=httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"text": gemini_answer}]}}],
+        }))
+
+        resp = search_client.get("/v1/search", params={"q": "weather forecast"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["query"] == "weather forecast"
+        assert "acme/weather" in data["results"]
+        assert "acme/translate" in data["results"]
+
+        # Verify the real index was built and sent to Gemini
+        sent_payload = gemini_route.calls[0].request.content.decode()
+        assert "weather" in sent_payload
+        assert "translate" in sent_payload
+
+    @respx.mock
+    @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
+    def test_search_gemini_empty_candidates(
+        self,
+        mock_fetch: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """When Gemini returns no candidates, the fallback message propagates through the route."""
         mock_fetch.return_value = [
             {
                 "org_slug": "acme",
@@ -78,20 +127,14 @@ class TestSearchSkills:
                 "published_by": "alice",
             },
         ]
-        mock_create_gemini.return_value = {"api_key": "test-key"}
-        mock_search_llm.return_value = "acme/weather v1.0.0 - weather forecasting skill"
+        respx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+        ).mock(return_value=httpx.Response(200, json={"candidates": []}))
 
-        resp = search_client.get("/v1/search", params={"q": "weather forecast"})
+        resp = search_client.get("/v1/search", params={"q": "something obscure"})
 
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["query"] == "weather forecast"
-        assert "weather" in data["results"]
-
-        # Verify the LLM was called with index content built from DB rows
-        mock_search_llm.assert_called_once()
-        call_args = mock_search_llm.call_args
-        assert "weather" in call_args[0][2]  # index_content contains skill data
+        assert "No recommendations found" in resp.json()["results"]
 
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_empty_database(
