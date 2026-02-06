@@ -37,10 +37,9 @@ def login_command(
             title="GitHub Login",
         )
     )
-    console.print("Waiting for authorization...")
-
     # Step 3: Poll for the token until the user completes the flow
-    token_data = _poll_for_token(base_url, device_code, poll_interval)
+    with console.status("Waiting for authorization..."):
+        token_data = _poll_for_token(base_url, device_code, poll_interval)
 
     # Step 4: Persist the token
     new_config = CliConfig(api_url=base_url, token=token_data["access_token"])

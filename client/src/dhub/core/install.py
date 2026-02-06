@@ -5,6 +5,7 @@ and symlink management for linking skills to agent directories.
 """
 
 import hashlib
+import shutil
 from pathlib import Path
 
 
@@ -158,3 +159,40 @@ def list_linked_agents(org: str, skill_name: str) -> list[str]:
             linked.append(agent)
 
     return linked
+
+
+def uninstall_skill(org: str, skill_name: str) -> list[str]:
+    """Remove a locally installed skill and all its agent symlinks.
+
+    Removes symlinks from all agent directories first, then deletes the
+    canonical skill directory under ~/.dhub/skills/{org}/{skill_name}.
+
+    Args:
+        org: The organization slug.
+        skill_name: The skill name.
+
+    Returns:
+        List of agent names whose symlinks were removed.
+
+    Raises:
+        FileNotFoundError: If the skill is not installed locally.
+    """
+    canonical = get_dhub_skill_path(org, skill_name)
+    if not canonical.exists():
+        raise FileNotFoundError(f"Skill not installed: {canonical}")
+
+    # Remove agent symlinks first
+    unlinked: list[str] = []
+    for agent in list_linked_agents(org, skill_name):
+        unlink_skill_from_agent(org, skill_name, agent)
+        unlinked.append(agent)
+
+    # Remove the skill directory
+    shutil.rmtree(canonical)
+
+    # Clean up empty org directory
+    org_dir = canonical.parent
+    if org_dir.exists() and not any(org_dir.iterdir()):
+        org_dir.rmdir()
+
+    return unlinked

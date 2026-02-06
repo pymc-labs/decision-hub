@@ -98,21 +98,21 @@ def publish_command(
         bump_level = _resolve_bump_level(patch, minor, major)
         version = _auto_bump_version(api_url, token, org, name, bump_level, bump_version, FIRST_VERSION)
 
-    console.print(f"Packaging skill from [cyan]{path.resolve()}[/]...")
-    zip_data = _create_zip(path)
+    with console.status("Packaging skill..."):
+        zip_data = _create_zip(path)
 
-    console.print(f"Publishing version [cyan]{version}[/]...")
     metadata = json.dumps(
         {"org_slug": org, "skill_name": name, "version": version}
     )
 
-    with httpx.Client(timeout=60) as client:
-        resp = client.post(
-            f"{api_url}/v1/publish",
-            headers=build_headers(token),
-            files={"zip_file": ("skill.zip", zip_data, "application/zip")},
-            data={"metadata": metadata},
-        )
+    with console.status(f"Publishing {org}/{name}@{version}..."):
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(
+                f"{api_url}/v1/publish",
+                headers=build_headers(token),
+                files={"zip_file": ("skill.zip", zip_data, "application/zip")},
+                data={"metadata": metadata},
+            )
         if resp.status_code == 409:
             console.print(
                 f"[red]Error: Version {version} already exists for "
@@ -485,37 +485,34 @@ def install_command(
     base_url = get_api_url()
 
     # Resolve the version to a concrete download URL and checksum
-    console.print(f"Resolving {org_slug}/{skill_name}@{version}...")
     resolve_params: dict[str, str] = {"spec": version}
     if allow_risky:
         resolve_params["allow_risky"] = "true"
-    with httpx.Client() as client:
-        resp = client.get(
-            f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
-            params=resolve_params,
-            headers=headers,
-        )
-        if resp.status_code == 404:
-            console.print(
-                f"[red]Error: Skill '{skill_ref}' not found.[/]"
+    with console.status(f"Resolving {org_slug}/{skill_name}@{version}..."):
+        with httpx.Client() as client:
+            resp = client.get(
+                f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
+                params=resolve_params,
+                headers=headers,
             )
-            raise typer.Exit(1)
-        resp.raise_for_status()
-        data = resp.json()
+            if resp.status_code == 404:
+                console.print(
+                    f"[red]Error: Skill '{skill_ref}' not found.[/]"
+                )
+                raise typer.Exit(1)
+            resp.raise_for_status()
+            data = resp.json()
 
     resolved_version: str = data["version"]
     download_url: str = data["download_url"]
     expected_checksum: str = data["checksum"]
 
-    # Download the zip
-    console.print(f"Downloading {org_slug}/{skill_name}@{resolved_version}...")
-    with httpx.Client() as client:
-        resp = client.get(download_url)
-        resp.raise_for_status()
-        zip_data = resp.content
-
-    # Verify integrity
-    console.print("Verifying checksum...")
+    # Download and verify
+    with console.status(f"Downloading {org_slug}/{skill_name}@{resolved_version}..."):
+        with httpx.Client() as client:
+            resp = client.get(download_url)
+            resp.raise_for_status()
+            zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
 
     # Extract to the canonical skill path
@@ -542,3 +539,30 @@ def install_command(
             console.print(
                 f"[green]Linked to {agent} at {link_path}[/]"
             )
+
+
+def uninstall_command(
+    skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
+) -> None:
+    """Remove a locally installed skill and its agent symlinks."""
+    from dhub.core.install import uninstall_skill
+
+    parts = skill_ref.split("/", 1)
+    if len(parts) != 2:
+        console.print(
+            "[red]Error: Skill reference must be in org/skill format.[/]"
+        )
+        raise typer.Exit(1)
+    org_slug, skill_name = parts
+
+    try:
+        unlinked = uninstall_skill(org_slug, skill_name)
+    except FileNotFoundError:
+        console.print(
+            f"[red]Error: Skill '{skill_ref}' is not installed.[/]"
+        )
+        raise typer.Exit(1)
+
+    console.print(f"[green]Uninstalled {org_slug}/{skill_name}[/]")
+    if unlinked:
+        console.print(f"[green]Removed symlinks from: {', '.join(unlinked)}[/]")
