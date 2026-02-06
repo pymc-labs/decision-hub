@@ -49,6 +49,19 @@ def login_command(
     console.print(f"[green]Authenticated as @{token_data['username']}[/]")
 
 
+def logout_command() -> None:
+    """Log out by removing the stored token."""
+    from dhub.cli.config import CONFIG_FILE, CliConfig, load_config, save_config
+
+    config = load_config()
+    if not config.token:
+        console.print("Not logged in.")
+        return
+
+    save_config(CliConfig(api_url=config.api_url, token=None))
+    console.print("[green]Logged out.[/]")
+
+
 def _poll_for_token(
     base_url: str,
     device_code: str,

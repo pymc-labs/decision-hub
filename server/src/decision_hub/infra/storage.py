@@ -51,6 +51,17 @@ def upload_skill_zip(
     )
 
 
+def delete_skill_zip(client: BaseClient, bucket: str, s3_key: str) -> None:
+    """Delete a skill zip file from S3.
+
+    Args:
+        client: Configured S3 client.
+        bucket: S3 bucket name containing the object.
+        s3_key: Object key to delete.
+    """
+    client.delete_object(Bucket=bucket, Key=s3_key)
+
+
 def generate_presigned_url(
     client: BaseClient,
     bucket: str,
@@ -85,43 +96,3 @@ def compute_checksum(data: bytes) -> str:
         Lowercase hex string of the SHA256 digest.
     """
     return hashlib.sha256(data).hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Search index storage (Sprint 4)
-# ---------------------------------------------------------------------------
-
-_INDEX_KEY = "index/skills.jsonl"
-
-
-def upload_index(client: BaseClient, bucket: str, content: str) -> None:
-    """Upload the JSONL skill search index to S3.
-
-    Args:
-        client: Configured S3 client.
-        bucket: Target S3 bucket name.
-        content: JSONL string of the skill index.
-    """
-    client.put_object(
-        Bucket=bucket,
-        Key=_INDEX_KEY,
-        Body=content.encode(),
-        ContentType="application/jsonl",
-    )
-
-
-def download_index(client: BaseClient, bucket: str) -> str | None:
-    """Download the JSONL skill search index from S3.
-
-    Args:
-        client: Configured S3 client.
-        bucket: S3 bucket name.
-
-    Returns:
-        The index content as a string, or None if the index doesn't exist.
-    """
-    try:
-        response = client.get_object(Bucket=bucket, Key=_INDEX_KEY)
-        return response["Body"].read().decode()
-    except client.exceptions.NoSuchKey:
-        return None

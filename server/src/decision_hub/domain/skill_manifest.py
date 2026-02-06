@@ -196,6 +196,37 @@ def _parse_agent_target(data: dict) -> AgentTestTarget:
     )
 
 
+def extract_description(content: str) -> str:
+    """Extract the description field from SKILL.md content.
+
+    Parses the YAML frontmatter and returns the description string.
+    Falls back to regex extraction when YAML parsing fails (e.g. when
+    the description contains unquoted colons).
+    Returns an empty string if the description is missing.
+    """
+    try:
+        frontmatter_str, _ = _split_frontmatter(content)
+    except ValueError:
+        return ""
+
+    # Try standard YAML parsing first
+    try:
+        data = yaml.safe_load(frontmatter_str)
+        if isinstance(data, dict):
+            desc = data.get("description")
+            return str(desc) if desc else ""
+    except yaml.YAMLError:
+        pass
+
+    # Fallback: extract description line directly via regex.
+    # Handles values with unquoted YAML-special characters like colons.
+    match = re.search(r"^description:\s*(.+)$", frontmatter_str, re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+
+    return ""
+
+
 def validate_manifest(manifest: SkillManifest) -> list[str]:
     """Validate a parsed manifest. Returns list of error messages (empty = valid)."""
     errors: list[str] = []

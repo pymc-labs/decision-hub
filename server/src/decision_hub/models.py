@@ -39,6 +39,7 @@ class Skill:
     id: UUID
     org_id: UUID
     name: str
+    description: str
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,8 @@ class Version:
     checksum: str
     runtime_config: dict | None
     eval_status: str
+    created_at: datetime | None = None
+    published_by: str = ""
 
 
 @dataclass(frozen=True)
@@ -159,3 +162,4 @@ class SkillIndexEntry:
     latest_version: str
     eval_status: str
     trust_score: str
+    author: str = ""

@@ -1,7 +1,8 @@
 """FastAPI application factory."""
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from decision_hub.api.deps import get_current_user
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
 from decision_hub.settings import Settings
@@ -11,6 +12,8 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application.
 
     Initialises the database engine, S3 client, and registers all routers.
+    When ``require_github_org`` is set, all non-auth routes require a valid
+    JWT (enforced via an app-wide dependency).
 
     Returns:
         A fully-configured FastAPI instance.
@@ -36,11 +39,20 @@ def create_app() -> FastAPI:
     from decision_hub.api.registry_routes import router as registry_router
     from decision_hub.api.search_routes import router as search_router
 
+    # Auth routes are always public (users need them to obtain a token).
     app.include_router(auth_router)
-    app.include_router(org_router)
-    app.include_router(invite_router)
-    app.include_router(registry_router)
-    app.include_router(keys_router)
-    app.include_router(search_router)
+
+    # When an org restriction is active, require a valid JWT on every
+    # non-auth route. This locks down the otherwise-public endpoints
+    # (search, skill listing, resolve) without touching each route.
+    global_deps: list = []
+    if settings.require_github_org:
+        global_deps = [Depends(get_current_user)]
+
+    app.include_router(org_router, dependencies=global_deps)
+    app.include_router(invite_router, dependencies=global_deps)
+    app.include_router(registry_router, dependencies=global_deps)
+    app.include_router(keys_router, dependencies=global_deps)
+    app.include_router(search_router, dependencies=global_deps)
 
     return app

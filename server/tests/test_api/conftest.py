@@ -25,6 +25,8 @@ def test_settings() -> MagicMock:
     settings.fernet_key = Fernet.generate_key().decode()
     settings.github_client_id = "test-client-id"
     settings.s3_bucket = "test-bucket"
+    settings.google_api_key = ""
+    settings.require_github_org = ""
     return settings
 
 

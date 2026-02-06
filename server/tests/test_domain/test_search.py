@@ -1,8 +1,7 @@
-"""Tests for domain/search.py -- index building and serialization."""
+"""Tests for domain/search.py -- index building and trust scoring."""
 
 from decision_hub.domain.search import (
     build_index_entry,
-    deserialize_index,
     format_trust_score,
     serialize_index,
 )
@@ -37,19 +36,17 @@ def test_build_index_entry():
     assert entry.trust_score == "A"
 
 
-def test_serialize_deserialize_roundtrip():
+def test_serialize_index():
     entries = [
         build_index_entry("org1", "skill1", "Desc 1", "1.0.0", "passed"),
         build_index_entry("org2", "skill2", "Desc 2", "0.1.0", "pending"),
     ]
     jsonl = serialize_index(entries)
-    restored = deserialize_index(jsonl)
 
-    assert len(restored) == 2
-    assert restored[0].org_slug == "org1"
-    assert restored[0].trust_score == "A"
-    assert restored[1].org_slug == "org2"
-    assert restored[1].trust_score == "C"
+    lines = jsonl.strip().split("\n")
+    assert len(lines) == 2
+    assert "org1" in lines[0]
+    assert "org2" in lines[1]
 
 
 def test_serialize_empty():

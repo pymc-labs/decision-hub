@@ -7,6 +7,7 @@ app = modal.App("decision-hub")
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install_from_pyproject("pyproject.toml")
+    .add_local_dir("src/decision_hub", remote_path="/root/decision_hub")
 )
 
 

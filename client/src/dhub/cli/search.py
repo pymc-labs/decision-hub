@@ -3,6 +3,7 @@
 import httpx
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 
 console = Console()
@@ -30,7 +31,7 @@ def ask_command(
         data = resp.json()
 
     console.print(Panel(
-        data["results"],
+        Markdown(data["results"]),
         title=f"Results for: {data['query']}",
         border_style="blue",
     ))

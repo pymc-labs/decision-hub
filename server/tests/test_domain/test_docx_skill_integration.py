@@ -16,7 +16,7 @@ from decision_hub.domain.evals import (
     check_safety_scan,
     run_static_checks,
 )
-from decision_hub.domain.search import build_index_entry, serialize_index, deserialize_index
+from decision_hub.domain.search import build_index_entry
 
 
 DOCX_SKILL_PATH = Path.home() / ".claude" / "skills" / "docx"
@@ -130,7 +130,7 @@ class TestS3KeyBuilding:
 
 
 class TestSearchIndexEntry:
-    """Build and serialize/deserialize index entries for docx."""
+    """Build index entries for docx skill."""
 
     def test_build_index_entry_fields(self) -> None:
         manifest = parse_skill_md(DOCX_SKILL_PATH / "SKILL.md")
@@ -157,36 +157,3 @@ class TestSearchIndexEntry:
             eval_status="pending",
         )
         assert entry.trust_score == "C"
-
-    def test_serialize_deserialize_roundtrip(self) -> None:
-        manifest = parse_skill_md(DOCX_SKILL_PATH / "SKILL.md")
-        entry = build_index_entry(
-            org_slug="example-org",
-            skill_name="docx",
-            description=manifest.description,
-            latest_version="1.0.0",
-            eval_status="passed",
-        )
-        serialized = serialize_index([entry])
-        deserialized = deserialize_index(serialized)
-        assert len(deserialized) == 1
-        roundtripped = deserialized[0]
-        assert roundtripped.org_slug == entry.org_slug
-        assert roundtripped.skill_name == entry.skill_name
-        assert roundtripped.description == entry.description
-        assert roundtripped.latest_version == entry.latest_version
-        assert roundtripped.eval_status == entry.eval_status
-        assert roundtripped.trust_score == entry.trust_score
-
-    def test_serialize_deserialize_multiple_entries(self) -> None:
-        entries = [
-            build_index_entry("org-a", "docx", "desc A", "1.0.0", "passed"),
-            build_index_entry("org-b", "docx", "desc B", "2.0.0", "failed"),
-        ]
-        serialized = serialize_index(entries)
-        deserialized = deserialize_index(serialized)
-        assert len(deserialized) == 2
-        assert deserialized[0].org_slug == "org-a"
-        assert deserialized[0].trust_score == "A"
-        assert deserialized[1].org_slug == "org-b"
-        assert deserialized[1].trust_score == "F"

@@ -1,4 +1,4 @@
-"""Tests for dhub.cli.registry -- publish and install commands."""
+"""Tests for dhub.cli.registry -- publish, install, list, and delete commands."""
 
 import io
 import zipfile
@@ -324,3 +324,145 @@ class TestInstallCommand:
         mock_link_all.assert_called_once_with("myorg", "my-skill")
         assert "claude" in result.output
         assert "cursor" in result.output
+
+
+# ---------------------------------------------------------------------------
+# list_command
+# ---------------------------------------------------------------------------
+
+class TestListCommand:
+
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    @patch("dhub.cli.registry.httpx.Client")
+    def test_list_command(
+        self,
+        mock_client_cls: MagicMock,
+        _mock_url: MagicMock,
+    ) -> None:
+        """List displays a table when skills exist."""
+        resp = _ok_response(
+            json_data=[
+                {
+                    "org_slug": "acme",
+                    "skill_name": "doc-writer",
+                    "description": "Writes docs",
+                    "latest_version": "1.0.0",
+                    "updated_at": "2025-06-01",
+                    "safety_rating": "A",
+                    "author": "alice",
+                },
+            ],
+        )
+        mock_client_cls.return_value = _make_mock_client(resp)
+
+        result = runner.invoke(app, ["list"])
+
+        assert result.exit_code == 0
+        assert "Registry:" in result.output
+        assert "http://test:8000" in result.output
+        assert "Author" in result.output
+        assert "acme" in result.output
+        assert "doc-writer" in result.output
+        assert "1.0.0" in result.output
+        assert "alice" in result.output
+
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    @patch("dhub.cli.registry.httpx.Client")
+    def test_list_command_empty(
+        self,
+        mock_client_cls: MagicMock,
+        _mock_url: MagicMock,
+    ) -> None:
+        """List prints a message when no skills are published."""
+        resp = _ok_response(json_data=[])
+        mock_client_cls.return_value = _make_mock_client(resp)
+
+        result = runner.invoke(app, ["list"])
+
+        assert result.exit_code == 0
+        assert "Registry:" in result.output
+        assert "No skills published yet" in result.output
+
+
+# ---------------------------------------------------------------------------
+# delete_command
+# ---------------------------------------------------------------------------
+
+class TestDeleteCommand:
+
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    @patch("dhub.cli.registry.httpx.Client")
+    def test_delete_success(
+        self,
+        mock_client_cls: MagicMock,
+        _mock_url: MagicMock,
+        _mock_token: MagicMock,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        resp = _ok_response(status_code=200)
+        mock_client.delete.return_value = resp
+        mock_client_cls.return_value = mock_client
+
+        result = runner.invoke(
+            app, ["delete", "myorg/my-skill", "--version", "1.0.0"]
+        )
+
+        assert result.exit_code == 0
+        assert "Deleted: myorg/my-skill@1.0.0" in result.output
+        mock_client.delete.assert_called_once()
+
+    def test_delete_invalid_skill_ref(self) -> None:
+        """Delete should reject a skill reference without a slash."""
+        result = runner.invoke(
+            app, ["delete", "no-slash", "--version", "1.0.0"]
+        )
+
+        assert result.exit_code == 1
+        assert "org/skill format" in result.output
+
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    @patch("dhub.cli.registry.httpx.Client")
+    def test_delete_404_not_found(
+        self,
+        mock_client_cls: MagicMock,
+        _mock_url: MagicMock,
+        _mock_token: MagicMock,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.delete.return_value = _error_response(404)
+        mock_client_cls.return_value = mock_client
+
+        result = runner.invoke(
+            app, ["delete", "myorg/my-skill", "--version", "9.9.9"]
+        )
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    @patch("dhub.cli.registry.httpx.Client")
+    def test_delete_403_forbidden(
+        self,
+        mock_client_cls: MagicMock,
+        _mock_url: MagicMock,
+        _mock_token: MagicMock,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.delete.return_value = _error_response(403)
+        mock_client_cls.return_value = mock_client
+
+        result = runner.invoke(
+            app, ["delete", "myorg/my-skill", "--version", "1.0.0"]
+        )
+
+        assert result.exit_code == 1
+        assert "permission" in result.output

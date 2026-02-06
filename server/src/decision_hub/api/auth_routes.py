@@ -1,6 +1,6 @@
 """Authentication routes – GitHub Device Flow login."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
@@ -8,6 +8,8 @@ from decision_hub.api.deps import get_connection, get_settings
 from decision_hub.domain.auth import create_jwt
 from decision_hub.infra.database import upsert_user
 from decision_hub.infra.github import (
+    AuthorizationPending,
+    check_org_membership,
     get_github_user,
     poll_for_access_token,
     request_device_code,
@@ -74,8 +76,23 @@ def exchange_token(
     Polls GitHub until the user completes authorisation, upserts the user
     in the local database, and returns a signed JWT.
     """
-    gh_token = poll_for_access_token(settings.github_client_id, body.device_code)
+    try:
+        gh_token = poll_for_access_token(settings.github_client_id, body.device_code)
+    except AuthorizationPending:
+        raise HTTPException(status_code=428, detail="authorization_pending")
+
     gh_user = get_github_user(gh_token)
+
+    if settings.require_github_org:
+        username = gh_user["login"]
+        if not check_org_membership(gh_token, settings.require_github_org, username):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Access restricted to members of the "
+                    f"'{settings.require_github_org}' GitHub organization"
+                ),
+            )
 
     user = upsert_user(conn, str(gh_user["id"]), gh_user["login"])
     conn.commit()

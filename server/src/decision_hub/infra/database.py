@@ -124,6 +124,7 @@ skills_table = Table(
         nullable=False,
     ),
     Column("name", String, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
     sa.UniqueConstraint("org_id", "name"),
 )
 
@@ -147,6 +148,13 @@ versions_table = Table(
     Column("checksum", String, nullable=False),
     Column("runtime_config", JSONB, nullable=True),
     Column("eval_status", String, nullable=False, server_default="pending"),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    Column("published_by", String, nullable=False, server_default=""),
     sa.UniqueConstraint("skill_id", "semver"),
 )
 
@@ -234,7 +242,7 @@ def _row_to_org_invite(row: sa.Row) -> OrgInvite:
 
 def _row_to_skill(row: sa.Row) -> Skill:
     """Map a database row to a Skill model."""
-    return Skill(id=row.id, org_id=row.org_id, name=row.name)
+    return Skill(id=row.id, org_id=row.org_id, name=row.name, description=row.description)
 
 
 def _row_to_version(row: sa.Row) -> Version:
@@ -247,6 +255,8 @@ def _row_to_version(row: sa.Row) -> Version:
         checksum=row.checksum,
         runtime_config=row.runtime_config,
         eval_status=row.eval_status,
+        created_at=row.created_at,
+        published_by=row.published_by,
     )
 
 
@@ -527,20 +537,23 @@ def accept_invite(conn: Connection, invite_id: UUID) -> OrgInvite:
 # ---------------------------------------------------------------------------
 
 
-def insert_skill(conn: Connection, org_id: UUID, name: str) -> Skill:
+def insert_skill(
+    conn: Connection, org_id: UUID, name: str, description: str = ""
+) -> Skill:
     """Register a new skill under an organization.
 
     Args:
         conn: Active database connection.
         org_id: UUID of the owning organization.
         name: Skill name (unique within the org).
+        description: Short description from SKILL.md frontmatter.
 
     Returns:
         The newly created Skill.
     """
     stmt = (
         sa.insert(skills_table)
-        .values(org_id=org_id, name=name)
+        .values(org_id=org_id, name=name, description=description)
         .returning(*skills_table.c)
     )
     row = conn.execute(stmt).one()
@@ -570,9 +583,39 @@ def find_skill(conn: Connection, org_id: UUID, name: str) -> Skill | None:
     return _row_to_skill(row)
 
 
+def update_skill_description(
+    conn: Connection, skill_id: UUID, description: str
+) -> None:
+    """Update the description of an existing skill.
+
+    Used during re-publish to keep the description in sync with SKILL.md.
+    """
+    stmt = (
+        sa.update(skills_table)
+        .where(skills_table.c.id == skill_id)
+        .values(description=description)
+    )
+    conn.execute(stmt)
+
+
 # ---------------------------------------------------------------------------
 # Version queries
 # ---------------------------------------------------------------------------
+
+
+def find_version(conn: Connection, skill_id: UUID, semver: str) -> Version | None:
+    """Look up a specific version of a skill by skill ID and semver string.
+
+    Returns the Version if found, or None if the version does not exist.
+    """
+    stmt = sa.select(versions_table).where(
+        sa.and_(
+            versions_table.c.skill_id == skill_id,
+            versions_table.c.semver == semver,
+        )
+    )
+    row = conn.execute(stmt).first()
+    return _row_to_version(row) if row else None
 
 
 def insert_version(
@@ -582,6 +625,8 @@ def insert_version(
     s3_key: str,
     checksum: str,
     runtime_config: dict | None,
+    published_by: str = "",
+    eval_status: str = "pending",
 ) -> Version:
     """Record a new published version of a skill.
 
@@ -592,9 +637,11 @@ def insert_version(
         s3_key: S3 object key where the skill zip is stored.
         checksum: SHA256 hex digest of the skill zip.
         runtime_config: Optional runtime configuration as a JSON-compatible dict.
+        published_by: GitHub username of the publisher.
+        eval_status: Evaluation result (pending/passed/failed).
 
     Returns:
-        The newly created Version with status 'pending'.
+        The newly created Version.
     """
     stmt = (
         sa.insert(versions_table)
@@ -604,6 +651,8 @@ def insert_version(
             s3_key=s3_key,
             checksum=checksum,
             runtime_config=runtime_config,
+            published_by=published_by,
+            eval_status=eval_status,
         )
         .returning(*versions_table.c)
     )
@@ -674,6 +723,27 @@ def resolve_version(
     if row is None:
         return None
     return _row_to_version(row)
+
+
+def delete_version(conn: Connection, skill_id: UUID, semver: str) -> bool:
+    """Delete a specific version of a skill.
+
+    Args:
+        conn: Active database connection.
+        skill_id: UUID of the parent skill.
+        semver: Semantic version string to delete.
+
+    Returns:
+        True if a version was deleted, False if no matching version was found.
+    """
+    stmt = sa.delete(versions_table).where(
+        sa.and_(
+            versions_table.c.skill_id == skill_id,
+            versions_table.c.semver == semver,
+        )
+    )
+    result = conn.execute(stmt)
+    return result.rowcount > 0
 
 
 # ---------------------------------------------------------------------------
@@ -777,6 +847,8 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
             versions_table.c.skill_id,
             versions_table.c.semver,
             versions_table.c.eval_status,
+            versions_table.c.created_at,
+            versions_table.c.published_by,
             sa.func.row_number()
             .over(
                 partition_by=versions_table.c.skill_id,
@@ -790,8 +862,11 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
         sa.select(
             organizations_table.c.slug.label("org_slug"),
             skills_table.c.name.label("skill_name"),
+            skills_table.c.description,
             latest_version.c.semver.label("latest_version"),
             latest_version.c.eval_status,
+            latest_version.c.created_at,
+            latest_version.c.published_by,
         )
         .select_from(
             skills_table.join(
@@ -812,8 +887,11 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
         {
             "org_slug": row.org_slug,
             "skill_name": row.skill_name,
+            "description": row.description,
             "latest_version": row.latest_version,
             "eval_status": row.eval_status,
+            "created_at": row.created_at,
+            "published_by": row.published_by,
         }
         for row in rows
     ]

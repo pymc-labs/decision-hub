@@ -34,3 +34,7 @@ class Settings(BaseSettings):
     # Sprint 4: Gemini Search
     google_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
+
+    # Access control: restrict login to members of a GitHub org.
+    # Leave empty to allow all authenticated GitHub users.
+    require_github_org: str = ""

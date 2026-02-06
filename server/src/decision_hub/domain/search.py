@@ -11,6 +11,7 @@ def build_index_entry(
     description: str,
     latest_version: str,
     eval_status: str,
+    author: str = "",
 ) -> SkillIndexEntry:
     """Create a search index entry from skill metadata.
 
@@ -20,6 +21,7 @@ def build_index_entry(
         description: Skill description from SKILL.md.
         latest_version: Latest published version string.
         eval_status: Current evaluation status (pending/passed/failed).
+        author: GitHub username of the publisher.
 
     Returns:
         A SkillIndexEntry with a computed trust score.
@@ -31,6 +33,7 @@ def build_index_entry(
         latest_version=latest_version,
         eval_status=eval_status,
         trust_score=format_trust_score(eval_status),
+        author=author,
     )
 
 
@@ -70,31 +73,9 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
             "version": entry.latest_version,
             "eval_status": entry.eval_status,
             "trust": entry.trust_score,
+            "author": entry.author,
         }
         lines.append(json.dumps(obj))
     return "\n".join(lines)
 
 
-def deserialize_index(jsonl: str) -> list[SkillIndexEntry]:
-    """Deserialize a JSONL string back into index entries.
-
-    Args:
-        jsonl: JSONL string with one entry per line.
-
-    Returns:
-        List of SkillIndexEntry objects.
-    """
-    entries = []
-    for line in jsonl.strip().split("\n"):
-        if not line.strip():
-            continue
-        obj = json.loads(line)
-        entries.append(SkillIndexEntry(
-            org_slug=obj["org"],
-            skill_name=obj["skill"],
-            description=obj["description"],
-            latest_version=obj["version"],
-            eval_status=obj["eval_status"],
-            trust_score=obj["trust"],
-        ))
-    return entries

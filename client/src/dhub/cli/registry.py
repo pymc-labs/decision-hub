@@ -1,4 +1,4 @@
-"""Publish and install commands for the skill registry."""
+"""Publish, install, list, and delete commands for the skill registry."""
 
 import io
 import json
@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import typer
 from rich.console import Console
+from rich.table import Table
 
 console = Console()
 
@@ -88,6 +89,85 @@ def _create_zip(path: Path) -> bytes:
                 continue
             zf.write(file, relative)
     return buf.getvalue()
+
+
+def list_command() -> None:
+    """List all published skills on the registry."""
+    from dhub.cli.config import get_api_url, get_token
+
+    api_url = get_api_url()
+
+    with httpx.Client(timeout=30) as client:
+        resp = client.get(
+            f"{api_url}/v1/skills",
+            headers={"Authorization": f"Bearer {get_token()}"},
+        )
+        resp.raise_for_status()
+        skills = resp.json()
+
+    console.print(f"Registry: [dim]{api_url}[/]")
+
+    if not skills:
+        console.print("No skills published yet.")
+        return
+
+    table = Table(title="Published Skills", show_lines=True)
+    table.add_column("Org", style="cyan")
+    table.add_column("Skill", style="green")
+    table.add_column("Version")
+    table.add_column("Updated")
+    table.add_column("Safety")
+    table.add_column("Author")
+    table.add_column("Description")
+
+    for s in skills:
+        table.add_row(
+            s["org_slug"],
+            s["skill_name"],
+            s["latest_version"],
+            s.get("updated_at", ""),
+            s.get("safety_rating", ""),
+            s.get("author", ""),
+            s.get("description", ""),
+        )
+
+    console.print(table)
+
+
+def delete_command(
+    skill_ref: str = typer.Argument(help="Skill reference: org/skill"),
+    version: str = typer.Option(..., "--version", "-v", help="Version to delete"),
+) -> None:
+    """Delete a published skill version from the registry."""
+    from dhub.cli.config import get_api_url, get_token
+
+    parts = skill_ref.split("/", 1)
+    if len(parts) != 2:
+        console.print(
+            "[red]Error: Skill reference must be in org/skill format.[/]"
+        )
+        raise typer.Exit(1)
+    org_slug, skill_name = parts
+
+    with httpx.Client(timeout=60) as client:
+        resp = client.delete(
+            f"{get_api_url()}/v1/skills/{org_slug}/{skill_name}/{version}",
+            headers={"Authorization": f"Bearer {get_token()}"},
+        )
+        if resp.status_code == 404:
+            console.print(
+                f"[red]Error: Version {version} not found for "
+                f"{org_slug}/{skill_name}.[/]"
+            )
+            raise typer.Exit(1)
+        if resp.status_code == 403:
+            console.print(
+                "[red]Error: You don't have permission to delete this version.[/]"
+            )
+            raise typer.Exit(1)
+        resp.raise_for_status()
+
+    console.print(f"[green]Deleted: {org_slug}/{skill_name}@{version}[/]")
 
 
 def install_command(

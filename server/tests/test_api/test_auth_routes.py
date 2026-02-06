@@ -74,6 +74,66 @@ class TestExchangeToken:
         mock_gh_user.assert_called_once_with("gh-access-token-xyz")
         mock_upsert.assert_called_once()
 
+    @patch("decision_hub.api.auth_routes.check_org_membership")
+    @patch("decision_hub.api.auth_routes.upsert_user")
+    @patch("decision_hub.api.auth_routes.get_github_user")
+    @patch("decision_hub.api.auth_routes.poll_for_access_token")
+    def test_rejects_user_not_in_required_org(
+        self,
+        mock_poll: MagicMock,
+        mock_gh_user: MagicMock,
+        mock_upsert: MagicMock,
+        mock_check_org: MagicMock,
+        client: TestClient,
+        test_settings: MagicMock,
+    ) -> None:
+        """When require_github_org is set, users outside that org get 403."""
+        test_settings.require_github_org = "pymc-labs"
+        mock_poll.return_value = "gh-access-token-xyz"
+        mock_gh_user.return_value = {"id": 42, "login": "outsider"}
+        mock_check_org.return_value = False
+
+        resp = client.post(
+            "/auth/github/token",
+            json={"device_code": "dev-code-abc"},
+        )
+
+        assert resp.status_code == 403
+        assert "pymc-labs" in resp.json()["detail"]
+        mock_upsert.assert_not_called()
+
+    @patch("decision_hub.api.auth_routes.check_org_membership")
+    @patch("decision_hub.api.auth_routes.upsert_user")
+    @patch("decision_hub.api.auth_routes.get_github_user")
+    @patch("decision_hub.api.auth_routes.poll_for_access_token")
+    def test_allows_user_in_required_org(
+        self,
+        mock_poll: MagicMock,
+        mock_gh_user: MagicMock,
+        mock_upsert: MagicMock,
+        mock_check_org: MagicMock,
+        client: TestClient,
+        test_settings: MagicMock,
+    ) -> None:
+        """When require_github_org is set, members of that org can log in."""
+        test_settings.require_github_org = "pymc-labs"
+        mock_poll.return_value = "gh-access-token-xyz"
+        mock_gh_user.return_value = {"id": 42, "login": "alice"}
+        mock_check_org.return_value = True
+        mock_upsert.return_value = User(
+            id=UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+            github_id="42",
+            username="alice",
+        )
+
+        resp = client.post(
+            "/auth/github/token",
+            json={"device_code": "dev-code-abc"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["username"] == "alice"
+
     @patch("decision_hub.api.auth_routes.poll_for_access_token")
     def test_propagates_github_error(
         self,
