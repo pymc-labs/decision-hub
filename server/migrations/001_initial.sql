@@ -30,6 +30,7 @@ CREATE TABLE skills (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES organizations(id),
   name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
   UNIQUE(org_id, name)
 );
 
@@ -41,6 +42,8 @@ CREATE TABLE versions (
   checksum TEXT NOT NULL,
   runtime_config JSONB,
   eval_status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  published_by TEXT NOT NULL DEFAULT '',
   UNIQUE(skill_id, semver)
 );
 

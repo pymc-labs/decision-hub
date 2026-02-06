@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI
 from decision_hub.api.deps import get_current_user
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
-from decision_hub.settings import Settings
+from decision_hub.settings import create_settings
 
 
 def create_app() -> FastAPI:
@@ -18,7 +18,7 @@ def create_app() -> FastAPI:
     Returns:
         A fully-configured FastAPI instance.
     """
-    settings = Settings()
+    settings = create_settings()
 
     engine = create_engine(settings.database_url)
 

@@ -1,8 +1,13 @@
 """Modal deployment entry point for Decision Hub API."""
 
+import os
+
 import modal
 
-app = modal.App("decision-hub")
+env = os.environ.get("DHUB_ENV", "prod")
+suffix = "" if env == "prod" else f"-{env}"
+
+app = modal.App(f"decision-hub{suffix}")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -14,14 +19,14 @@ image = (
 @app.function(
     image=image,
     secrets=[
-        modal.Secret.from_name("decision-hub-db"),
-        modal.Secret.from_name("decision-hub-secrets"),
-        modal.Secret.from_name("decision-hub-aws"),
+        modal.Secret.from_name(f"decision-hub-db{suffix}"),
+        modal.Secret.from_name(f"decision-hub-secrets{suffix}"),
+        modal.Secret.from_name(f"decision-hub-aws{suffix}"),
     ],
     scaledown_window=300,
 )
 @modal.concurrent(max_inputs=100)
-@modal.asgi_app(label="api")
+@modal.asgi_app(label=f"api{suffix}")
 def web():
     """Serve the Decision Hub FastAPI application."""
     from decision_hub.api.app import create_app

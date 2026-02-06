@@ -8,6 +8,8 @@ build/
 *.egg
 
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 

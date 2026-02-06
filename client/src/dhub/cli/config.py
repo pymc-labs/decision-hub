@@ -1,4 +1,4 @@
-"""CLI configuration file management for ~/.dhub/config.json."""
+"""CLI configuration file management for ~/.dhub/config.{env}.json."""
 
 import json
 import os
@@ -8,41 +8,71 @@ from pathlib import Path
 import typer
 
 CONFIG_DIR = Path.home() / ".dhub"
-CONFIG_FILE = CONFIG_DIR / "config.json"
-DEFAULT_API_URL = "https://decision-hub--api.modal.run"
+
+# Per-environment default API URLs
+_DEFAULT_API_URLS: dict[str, str] = {
+    "dev": "https://lfiaschi--api-dev.modal.run",
+    "prod": "https://lfiaschi--api.modal.run",
+}
+
+
+def get_env() -> str:
+    """Return current environment name from DHUB_ENV (default: 'prod')."""
+    return os.environ.get("DHUB_ENV", "prod")
+
+
+def default_api_url(env: str | None = None) -> str:
+    """Return the default API URL for the given environment."""
+    env = env or get_env()
+    return _DEFAULT_API_URLS.get(env, _DEFAULT_API_URLS["prod"])
+
+
+def config_file(env: str | None = None) -> Path:
+    """Return the config file path for the given environment."""
+    env = env or get_env()
+    return CONFIG_DIR / f"config.{env}.json"
 
 
 @dataclass(frozen=True)
 class CliConfig:
     """Immutable CLI configuration."""
 
-    api_url: str = DEFAULT_API_URL
+    api_url: str = ""
     token: str | None = None
 
 
 def load_config() -> CliConfig:
-    """Load CLI config from ~/.dhub/config.json.
+    """Load CLI config from ~/.dhub/config.{env}.json.
 
-    Returns defaults if the file does not exist or contains
-    incomplete data.
+    Falls back to the legacy ~/.dhub/config.json if the env-specific
+    file does not exist yet (smooth migration for existing users).
+    Returns defaults if neither file exists.
     """
-    if not CONFIG_FILE.exists():
-        return CliConfig()
+    env = get_env()
+    path = config_file(env)
+    # Migration: fall back to legacy config.json for existing prod users
+    if not path.exists():
+        legacy_path = CONFIG_DIR / "config.json"
+        if env == "prod" and legacy_path.exists():
+            path = legacy_path
+        else:
+            return CliConfig(api_url=default_api_url(env))
 
-    raw = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8"))
     return CliConfig(
-        api_url=raw.get("api_url", DEFAULT_API_URL),
+        api_url=raw.get("api_url", default_api_url()),
         token=raw.get("token"),
     )
 
 
 def save_config(config: CliConfig) -> None:
-    """Save CLI config to ~/.dhub/config.json.
+    """Save CLI config to ~/.dhub/config.{env}.json.
 
     Creates the ~/.dhub directory if it does not already exist.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(
+    path = config_file()
+    path.write_text(
         json.dumps(asdict(config), indent=2) + "\n",
         encoding="utf-8",
     )

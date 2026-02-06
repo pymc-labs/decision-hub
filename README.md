@@ -128,6 +128,42 @@ testing:
 System prompt for the agent goes here.
 ```
 
+## Environments
+
+The project uses a `DHUB_ENV` environment variable to separate dev and prod stacks. **Default is `prod`** (for end-users installing from PyPI).
+
+| | Dev | Prod |
+|---|---|---|
+| `DHUB_ENV` | `dev` | `prod` (default) |
+| Server URL | `https://lfiaschi--api-dev.modal.run` | `https://lfiaschi--api.modal.run` |
+| Server env file | `server/.env.dev` | `server/.env.prod` |
+| CLI config | `~/.dhub/config.dev.json` | `~/.dhub/config.prod.json` |
+| Modal app | `decision-hub-dev` | `decision-hub` |
+| Modal secrets | `*-dev` suffix | no suffix |
+
+Check the active environment:
+
+```bash
+DHUB_ENV=dev dhub env
+```
+
+### Switching environments
+
+All CLI and server commands respect `DHUB_ENV`. For development, add to your shell profile:
+
+```bash
+export DHUB_ENV=dev
+```
+
+Auth tokens are stored per-environment, so you need to login once per environment:
+
+```bash
+DHUB_ENV=dev dhub login    # dev token → ~/.dhub/config.dev.json
+dhub login                 # prod token → ~/.dhub/config.prod.json
+```
+
+`DHUB_API_URL` still overrides the API URL for any environment (e.g. pointing at localhost).
+
 ## Development
 
 ```bash
@@ -140,13 +176,30 @@ uv run --package dhub pytest client/tests/
 # Run server tests
 uv run --package decision-hub-server pytest server/tests/
 
-# Start local API server
-uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --factory --reload
+# Start local dev server
+DHUB_ENV=dev uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --factory --reload
 
-# Deploy to Modal
+# Deploy dev to Modal
+cd server && DHUB_ENV=dev modal deploy modal_app.py
+
+# Deploy prod to Modal
 cd server && modal deploy modal_app.py
+```
+
+### Database setup
+
+Initialize a new database from the migration script:
+
+```bash
+cd server
+DHUB_ENV=dev uv run --package decision-hub-server python -c "
+from decision_hub.settings import create_settings
+from decision_hub.infra.database import metadata, create_engine
+engine = create_engine(create_settings().database_url)
+metadata.create_all(engine)
+"
 ```
 
 ## Configuration
 
-Copy `server/.env.example` to `server/.env` and fill in your values. See the example file for all available settings.
+Copy `server/.env.example` to `server/.env.dev` (and/or `server/.env.prod`) and fill in your values. See the example file for all available settings.

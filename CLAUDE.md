@@ -18,6 +18,21 @@ This is a **uv workspace monorepo** with two independent packages:
 
 **Important**: Always use `uv run` to execute Python code, not `python` directly.
 
+## Environments (Dev / Prod)
+
+The project has two independent stacks controlled by `DHUB_ENV` (`dev` | `prod`, default: `prod`).
+
+**Always work against dev unless explicitly told to use prod.** Prefix all CLI, server, and deploy commands with `DHUB_ENV=dev`:
+
+```bash
+DHUB_ENV=dev dhub list                          # CLI against dev
+DHUB_ENV=dev modal deploy modal_app.py          # deploy dev Modal app (from server/)
+DHUB_ENV=dev uv run --package decision-hub-server uvicorn ...  # local dev server
+```
+
+- **Dev**: `https://lfiaschi--api-dev.modal.run`, config at `~/.dhub/config.dev.json`, env file `server/.env.dev`
+- **Prod**: `https://lfiaschi--api.modal.run`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
+
 ## Running Tests
 
 ```bash
