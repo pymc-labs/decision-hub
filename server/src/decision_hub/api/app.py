@@ -1,7 +1,9 @@
 """FastAPI application factory."""
 
-from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse
+import json as _json
+
+from fastapi import Depends, FastAPI
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from decision_hub.api.deps import get_current_user
 from decision_hub.infra.database import create_engine
@@ -12,6 +14,59 @@ from decision_hub.settings import create_settings
 def _parse_semver(v: str) -> tuple[int, ...]:
     """Parse '1.2.3' into (1, 2, 3) for comparison."""
     return tuple(int(x) for x in v.split("."))
+
+
+class CLIVersionMiddleware:
+    """Pure ASGI middleware that rejects outdated CLI versions.
+
+    Unlike BaseHTTPMiddleware (``@app.middleware("http")``), this passes
+    the ``receive`` channel through unchanged, avoiding the known
+    deadlock with multipart file uploads.
+    """
+
+    def __init__(self, app: ASGIApp, min_version: str) -> None:
+        self.app = app
+        self.min_version = min_version
+        self._min_parsed = _parse_semver(min_version)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path: str = scope.get("path", "")
+        if not path.startswith("/v1/"):
+            await self.app(scope, receive, send)
+            return
+
+        # Extract X-DHub-Client-Version from raw ASGI headers
+        client_ver = ""
+        for name, value in scope.get("headers", []):
+            if name == b"x-dhub-client-version":
+                client_ver = value.decode("latin-1")
+                break
+
+        if not client_ver or _parse_semver(client_ver) < self._min_parsed:
+            body = _json.dumps({
+                "detail": (
+                    f"Your CLI version ({client_ver or 'unknown'}) is below the "
+                    f"minimum required ({self.min_version}). "
+                    "Run 'uv tool install --upgrade dhub-cli' or "
+                    "'pip install --upgrade dhub-cli' to update."
+                ),
+            }).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 426,
+                "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"content-length", str(len(body)).encode()],
+                ],
+            })
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        await self.app(scope, receive, send)
 
 
 def create_app() -> FastAPI:
@@ -39,26 +94,11 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.s3_client = s3_client
 
-    @app.middleware("http")
-    async def check_cli_version(request: Request, call_next):  # noqa: ANN001
-        """Reject requests from outdated CLI versions on /v1/ routes."""
-        if request.url.path.startswith("/v1/"):
-            min_ver = settings.min_cli_version
-            if min_ver:
-                client_ver = request.headers.get("X-DHub-Client-Version", "")
-                if not client_ver or _parse_semver(client_ver) < _parse_semver(min_ver):
-                    return JSONResponse(
-                        status_code=426,
-                        content={
-                            "detail": (
-                                f"Your CLI version ({client_ver or 'unknown'}) is below the "
-                                f"minimum required ({min_ver}). "
-                                "Run 'uv tool install --upgrade dhub-cli' or "
-                                "'pip install --upgrade dhub-cli' to update."
-                            ),
-                        },
-                    )
-        return await call_next(request)
+    if settings.min_cli_version:
+        app.add_middleware(
+            CLIVersionMiddleware,
+            min_version=settings.min_cli_version,
+        )
 
     from decision_hub.api.auth_routes import router as auth_router
     from decision_hub.api.keys_routes import router as keys_router
