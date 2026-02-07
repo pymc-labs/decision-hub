@@ -151,42 +151,41 @@ def run_skill_tests_in_sandbox(
 
     outputs: list[tuple[str, int]] = []
 
-    with modal.enable_output():
-        sb = modal.Sandbox.create(
-            image=image,
-            secrets=[modal.Secret.from_dict(env)],
-            app=app,
-        )
+    sb = modal.Sandbox.create(
+        image=image,
+        secrets=[modal.Secret.from_dict(env)],
+        app=app,
+    )
 
-        # Set up skill directory
-        _run_in_sandbox(sb, "mkdir", "-p", skill_path)
+    # Set up skill directory
+    _run_in_sandbox(sb, "mkdir", "-p", skill_path)
 
-        # Transfer and extract skill zip via base64 + Python zipfile
-        b64_zip = base64.b64encode(skill_zip).decode()
-        _run_in_sandbox(
-            sb,
-            "python3", "-c",
-            f"import base64,zipfile,io; "
-            f"data=base64.b64decode('{b64_zip}'); "
-            f"zipfile.ZipFile(io.BytesIO(data)).extractall('{skill_path}')",
-        )
+    # Transfer and extract skill zip via base64 + Python zipfile
+    b64_zip = base64.b64encode(skill_zip).decode()
+    _run_in_sandbox(
+        sb,
+        "python3", "-c",
+        f"import base64,zipfile,io; "
+        f"data=base64.b64decode('{b64_zip}'); "
+        f"zipfile.ZipFile(io.BytesIO(data)).extractall('{skill_path}')",
+    )
 
-        # Install Python deps if pyproject.toml exists
-        _run_in_sandbox(
-            sb,
-            "python3", "-c",
-            f"import os,subprocess; "
-            f"os.path.isfile('{skill_path}/pyproject.toml') and "
-            f"subprocess.run(['uv','sync','--directory','{skill_path}'])",
-        )
+    # Install Python deps if pyproject.toml exists
+    _run_in_sandbox(
+        sb,
+        "python3", "-c",
+        f"import os,subprocess; "
+        f"os.path.isfile('{skill_path}/pyproject.toml') and "
+        f"subprocess.run(['uv','sync','--directory','{skill_path}'])",
+    )
 
-        # Run each test prompt through the agent
-        for prompt in test_prompts:
-            cmd = build_agent_run_command(agent_config, prompt)
-            stdout, exit_code = _run_in_sandbox(sb, *cmd)
-            outputs.append((stdout, exit_code))
+    # Run each test prompt through the agent
+    for prompt in test_prompts:
+        cmd = build_agent_run_command(agent_config, prompt)
+        stdout, exit_code = _run_in_sandbox(sb, *cmd)
+        outputs.append((stdout, exit_code))
 
-        sb.terminate()
+    sb.terminate()
 
     return SandboxResult(outputs=tuple(outputs))
 
@@ -214,38 +213,41 @@ def _create_skill_sandbox(
     app = modal.App.lookup("decision-hub-eval", create_if_missing=True)
     skill_path = f"/root/{agent_config.skills_path}/{org_slug}/{skill_name}"
 
-    with modal.enable_output():
-        sb = modal.Sandbox.create(
-            image=image,
-            secrets=[modal.Secret.from_dict(env)],
-            app=app,
-        )
+    # modal.enable_output() removed — it blocks in non-main threads and
+    # inside Modal containers (no interactive terminal for output display).
+    sb = modal.Sandbox.create(
+        image=image,
+        secrets=[modal.Secret.from_dict(env)],
+        app=app,
+        memory=2048,
+        timeout=600,
+    )
 
-        # Set up skill directory
-        _run_in_sandbox(sb, "mkdir", "-p", skill_path)
+    # Set up skill directory
+    _run_in_sandbox(sb, "mkdir", "-p", skill_path)
 
-        # Transfer and extract skill zip via base64 + Python zipfile
-        b64_zip = base64.b64encode(skill_zip).decode()
-        _run_in_sandbox(
-            sb,
-            "python3",
-            "-c",
-            f"import base64,zipfile,io; "
-            f"data=base64.b64decode('{b64_zip}'); "
-            f"zipfile.ZipFile(io.BytesIO(data)).extractall('{skill_path}')",
-        )
+    # Transfer and extract skill zip via base64 + Python zipfile
+    b64_zip = base64.b64encode(skill_zip).decode()
+    _run_in_sandbox(
+        sb,
+        "python3",
+        "-c",
+        f"import base64,zipfile,io; "
+        f"data=base64.b64decode('{b64_zip}'); "
+        f"zipfile.ZipFile(io.BytesIO(data)).extractall('{skill_path}')",
+    )
 
-        # Install Python deps if pyproject.toml exists
-        _run_in_sandbox(
-            sb,
-            "python3",
-            "-c",
-            f"import os,subprocess; "
-            f"os.path.isfile('{skill_path}/pyproject.toml') and "
-            f"subprocess.run(['uv','sync','--directory','{skill_path}'])",
-        )
+    # Install Python deps if pyproject.toml exists
+    _run_in_sandbox(
+        sb,
+        "python3",
+        "-c",
+        f"import os,subprocess; "
+        f"os.path.isfile('{skill_path}/pyproject.toml') and "
+        f"subprocess.run(['uv','sync','--directory','{skill_path}'])",
+    )
 
-        return sb, skill_path
+    return sb, skill_path
 
 
 def run_eval_case_in_sandbox(

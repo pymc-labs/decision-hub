@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
@@ -39,7 +39,6 @@ from decision_hub.infra.database import (
     insert_version,
     resolve_latest_version,
     resolve_version,
-    update_eval_report,
     update_skill_description,
 )
 from decision_hub.infra.storage import (
@@ -154,9 +153,12 @@ class EvalReportResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+# Sync ``def`` so FastAPI runs it in a threadpool.  Using ``async def``
+# would block the event loop during synchronous DB/S3/gauntlet calls and
+# also requires ``await zip_file.read()`` which deadlocks under
+# BaseHTTPMiddleware (see CLIVersionMiddleware docstring in app.py).
 @router.post("/publish", response_model=PublishResponse, status_code=201)
 def publish_skill(
-    background_tasks: BackgroundTasks,
     metadata: str = Form(...),
     zip_file: UploadFile = File(...),
     conn: Connection = Depends(get_connection),
@@ -263,8 +265,14 @@ def publish_skill(
         llm_reasoning=llm_reasoning,
     )
 
+    # Commit now so the version row is visible to the background eval thread.
+    # BackgroundTasks run inside the dependency lifecycle — before the
+    # connection context manager commits — so a long-running eval would hold
+    # the transaction open for minutes, leaking idle-in-transaction sessions
+    # and blocking concurrent writes on the same rows.
+    conn.commit()
+
     eval_report_status = _maybe_trigger_agent_assessment(
-        background_tasks=background_tasks,
         eval_config=eval_config,
         eval_cases=eval_cases,
         file_bytes=file_bytes,
@@ -757,7 +765,6 @@ def _try_parse_assessment_cases(file_bytes: bytes):
 
 
 def _maybe_trigger_agent_assessment(
-    background_tasks: BackgroundTasks,
     eval_config,
     eval_cases: tuple,
     file_bytes: bytes,
@@ -767,18 +774,39 @@ def _maybe_trigger_agent_assessment(
     settings: Settings,
     user_id,
 ):
-    """Conditionally trigger background agent evaluation if eval config present."""
+    """Conditionally trigger background agent evaluation if eval config present.
+
+    Uses Modal's ``Function.spawn()`` so the eval runs in its own container,
+    fully independent of the web server's lifecycle.  The caller must commit
+    the version row before calling this function.
+    """
     if eval_config and eval_cases:
-        background_tasks.add_task(
-            _run_assessment_background,
-            version_id=version_id,
-            eval_config=eval_config,
-            eval_cases=eval_cases,
+        import modal
+
+        # Serialize EvalCase dataclasses to dicts for Modal transport
+        cases_dicts = [
+            {
+                "name": c.name,
+                "description": c.description,
+                "prompt": c.prompt,
+                "judge_criteria": c.judge_criteria,
+            }
+            for c in eval_cases
+        ]
+
+        run_eval = modal.Function.from_name(
+            settings.modal_app_name,
+            "run_eval_task",
+        )
+        run_eval.spawn(
+            version_id=str(version_id),
+            eval_agent=eval_config.agent,
+            eval_judge_model=eval_config.judge_model,
+            eval_cases_dicts=cases_dicts,
             skill_zip=file_bytes,
             org_slug=org_slug,
             skill_name=skill_name,
-            settings=settings,
-            user_id=user_id,
+            user_id=str(user_id),
         )
         return "pending"
     return None
@@ -803,33 +831,38 @@ def _run_assessment_background(
 
     try:
         engine = create_engine(settings.database_url)
+
+        # --- Phase 1: read API keys then release the connection ---
+        # The connection must be closed before the pipeline runs because
+        # Modal sandbox + agent execution takes 5-10 minutes. PgBouncer
+        # kills idle-in-transaction connections well before that.
+        agent_config = get_agent_config(eval_config.agent)
+        required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
         with engine.connect() as conn:
-            # Decrypt API keys needed by the target agent
-            agent_config = get_agent_config(eval_config.agent)
-            required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
+            conn.commit()
 
-            fernet = Fernet(settings.fernet_key.encode())
-            agent_env_vars = {
-                name: fernet.decrypt(value).decode()
-                for name, value in encrypted_keys.items()
-            }
+        fernet = Fernet(settings.fernet_key.encode())
+        agent_env_vars = {
+            name: fernet.decrypt(value).decode()
+            for name, value in encrypted_keys.items()
+        }
 
-            # Run the pipeline
-            case_results, passed, total, total_duration_ms = run_eval_pipeline(
-                skill_zip=skill_zip,
-                eval_config=eval_config,
-                eval_cases=eval_cases,
-                agent_env_vars=agent_env_vars,
-                org_slug=org_slug,
-                skill_name=skill_name,
-            )
+        # --- Phase 2: run eval pipeline (no DB connection held) ---
+        case_results, passed, total, total_duration_ms = run_eval_pipeline(
+            skill_zip=skill_zip,
+            eval_config=eval_config,
+            eval_cases=eval_cases,
+            agent_env_vars=agent_env_vars,
+            org_slug=org_slug,
+            skill_name=skill_name,
+        )
 
-            # Determine overall status
-            all_passed = all(r["verdict"] == "pass" for r in case_results)
-            status = "completed" if all_passed else "failed"
+        # --- Phase 3: store results in a fresh connection ---
+        all_passed = all(r["verdict"] == "pass" for r in case_results)
+        status = "completed" if all_passed else "failed"
 
-            # Store report
+        with engine.connect() as conn:
             insert_eval_report(
                 conn,
                 version_id=version_id,
@@ -845,15 +878,28 @@ def _run_assessment_background(
 
     except Exception as e:
         logger.error(f"Agent assessment failed for version {version_id}: {e}")
-        engine = create_engine(settings.database_url)
-        with engine.connect() as conn:
-            update_eval_report(
-                conn,
-                version_id=version_id,
-                status="failed",
-                error_message=str(e),
+        # INSERT an error report — no row exists yet because the failure
+        # happened before insert_eval_report() was reached in the happy path.
+        try:
+            err_engine = create_engine(settings.database_url)
+            with err_engine.connect() as err_conn:
+                insert_eval_report(
+                    err_conn,
+                    version_id=version_id,
+                    agent=eval_config.agent,
+                    judge_model=eval_config.judge_model,
+                    case_results=[],
+                    passed=0,
+                    total=len(eval_cases),
+                    total_duration_ms=0,
+                    status="failed",
+                    error_message=str(e),
+                )
+                err_conn.commit()
+        except Exception as inner:
+            logger.error(
+                f"Failed to store error report for version {version_id}: {inner}"
             )
-            conn.commit()
 
 
 def _reconstruct_runtime_config(runtime_dict: dict | None):

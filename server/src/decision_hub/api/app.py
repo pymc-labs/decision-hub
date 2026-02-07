@@ -19,9 +19,15 @@ def _parse_semver(v: str) -> tuple[int, ...]:
 class CLIVersionMiddleware:
     """Pure ASGI middleware that rejects outdated CLI versions.
 
-    Unlike BaseHTTPMiddleware (``@app.middleware("http")``), this passes
-    the ``receive`` channel through unchanged, avoiding the known
-    deadlock with multipart file uploads.
+    Implemented as a raw ASGI middleware instead of using Starlette's
+    ``BaseHTTPMiddleware`` / ``@app.middleware("http")``.  BaseHTTPMiddleware
+    wraps the ASGI ``receive`` callable, which deadlocks when a downstream
+    endpoint reads a multipart file upload (e.g. ``UploadFile``).  When the
+    request hangs long enough to time out, PgBouncer keeps the connection's
+    transaction open (``idle in transaction``), and the held row locks block
+    every subsequent UPDATE on the same rows — making the problem look like a
+    DB issue rather than a middleware one.  Passing ``receive`` through
+    unchanged avoids the deadlock entirely.
     """
 
     def __init__(self, app: ASGIApp, min_version: str) -> None:
