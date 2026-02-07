@@ -124,10 +124,17 @@ def _write_claude_md_from_skill_zip(
         return
 
     # Prepend skill directory context so the agent can find scripts
+    # and uses the pre-installed venv instead of system Python
     full_body = (
         f"## Skill directory\n\n"
         f"The skill files (scripts, data, configs) are located at: `{skill_path}`\n"
         f"Always `cd {skill_path}` before running any scripts.\n\n"
+        f"## Python environment\n\n"
+        f"A virtual environment with all dependencies pre-installed exists at "
+        f"`{skill_path}/.venv`. Always use `{skill_path}/.venv/bin/python` to "
+        f"run Python scripts. Do NOT use `python3` or `python` directly — "
+        f"the system Python does not have the required packages.\n\n"
+        f"Example: `{skill_path}/.venv/bin/python {skill_path}/run_ab_test.py`\n\n"
         f"{body}"
     )
 
@@ -421,7 +428,15 @@ def _create_skill_sandbox(
         f"echo 'uv sync exit code:' $?; "
         f"else echo 'No pyproject.toml found'; fi",
     )
-    print(f"[sandbox] Dep install result: exit={exit_code}, stdout={stdout[:1000]}", flush=True)
+    print(f"[sandbox] Dep install result: exit={exit_code}, stdout={stdout[:2000]}", flush=True)
+
+    # Verify the venv was actually created and has a python binary
+    verify_stdout, _ = _run_in_sandbox(
+        sb, "bash", "-c",
+        f"ls -la {skill_path}/.venv/bin/python 2>&1 && "
+        f"{skill_path}/.venv/bin/python --version 2>&1",
+    )
+    print(f"[sandbox] Venv check: {verify_stdout.strip()}", flush=True)
 
     # Extract SKILL.md body and write it as CLAUDE.md at the project root.
     # Claude Code reads CLAUDE.md as project instructions (system prompt).
