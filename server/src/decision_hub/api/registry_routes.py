@@ -1,10 +1,10 @@
 """Skill registry routes -- publish, resolve, and delete."""
 
 import json
-import logging
-import tempfile
-from pathlib import Path
+from collections.abc import Callable
 from uuid import UUID
+
+from loguru import logger
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
@@ -20,7 +20,7 @@ from decision_hub.domain.publish import (
     validate_skill_name,
 )
 from decision_hub.domain.search import format_trust_score
-from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md
+from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md_string
 from decision_hub.infra.database import (
     delete_all_versions,
     delete_skill as delete_skill_record,
@@ -48,10 +48,17 @@ from decision_hub.infra.storage import (
     generate_presigned_url,
     upload_skill_zip,
 )
-from decision_hub.models import GauntletReport, Organization, User
+from decision_hub.models import (
+    EvalCase,
+    EvalConfig,
+    EvalReport,
+    GauntletReport,
+    Organization,
+    RuntimeConfig,
+    SkillManifest,
+    User,
+)
 from decision_hub.settings import Settings
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["registry"])
 
@@ -575,20 +582,15 @@ def _require_org_membership(
 def _parse_manifest_from_content(
     skill_md_content: str,
     file_bytes: bytes,
-) -> tuple[dict | None, object | None, tuple]:
+) -> tuple[dict | None, EvalConfig | None, tuple[EvalCase, ...]]:
     """Parse SKILL.md and extract runtime config, eval config, and eval cases.
 
-    Uses a temp file because parse_skill_md expects a file path.
     Returns (runtime_config_dict, eval_config, eval_cases).  Falls back to
     (None, None, ()) when the manifest is malformed — the gauntlet will
     catch those issues downstream.
     """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as tmp:
-        tmp.write(skill_md_content)
-        tmp_path = Path(tmp.name)
-
     try:
-        manifest = parse_skill_md(tmp_path)
+        manifest = parse_skill_md_string(skill_md_content)
         return (
             _extract_runtime_config_dict(manifest),
             _extract_assessment_config(manifest),
@@ -596,8 +598,6 @@ def _parse_manifest_from_content(
         )
     except ValueError:
         return None, None, ()
-    finally:
-        tmp_path.unlink()
 
 
 def _run_gauntlet_pipeline(
@@ -619,10 +619,10 @@ def _run_gauntlet_pipeline(
         source_files,
         skill_name=skill_name,
         skill_description=description,
-        analyze_fn=_build_analyze_fn(settings),
+        analyze_fn=_build_gemini_callback(settings, "analyze_code_safety"),
         skill_md_body=skill_md_body,
         allowed_tools=None,
-        analyze_prompt_fn=_build_analyze_prompt_fn(settings),
+        analyze_prompt_fn=_build_gemini_callback(settings, "analyze_prompt_safety"),
         is_verified_org=True,
     )
 
@@ -680,8 +680,16 @@ def _quarantine_rejected_skill(
     )
 
 
-def _build_analyze_fn(settings: Settings):
-    """Build a Gemini analyze callback if google_api_key is configured.
+def _build_gemini_callback(
+    settings: Settings,
+    fn_name: str,
+) -> None | Callable:
+    """Build a Gemini analysis callback if google_api_key is configured.
+
+    Args:
+        settings: Application settings (must have google_api_key, gemini_model).
+        fn_name: Name of the function to import from the gemini module
+            ('analyze_code_safety' or 'analyze_prompt_safety').
 
     Returns None if no API key is set, which causes the safety scan
     to run in strict regex-only mode.
@@ -689,48 +697,28 @@ def _build_analyze_fn(settings: Settings):
     if not settings.google_api_key:
         return None
 
-    from decision_hub.infra.gemini import analyze_code_safety, create_gemini_client
+    from decision_hub.infra import gemini as gemini_mod
 
-    gemini_client = create_gemini_client(settings.google_api_key)
+    gemini_client: dict[str, str] = gemini_mod.create_gemini_client(settings.google_api_key)
+    analyze_fn = getattr(gemini_mod, fn_name)
 
-    def analyze_fn(snippets, skill_name, skill_description):
-        return analyze_code_safety(
+    def callback(
+        items: list[dict],
+        skill_name: str,
+        skill_description: str,
+    ) -> list[dict]:
+        return analyze_fn(
             gemini_client,
-            snippets,
+            items,
             skill_name,
             skill_description,
             model=settings.gemini_model,
         )
 
-    return analyze_fn
+    return callback
 
 
-def _build_analyze_prompt_fn(settings: Settings):
-    """Build a Gemini prompt analyze callback if google_api_key is configured.
-
-    Returns None if no API key is set, which causes the prompt safety scan
-    to run in strict regex-only mode.
-    """
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_prompt_safety, create_gemini_client
-
-    gemini_client = create_gemini_client(settings.google_api_key)
-
-    def analyze_prompt_fn(prompt_hits, skill_name, skill_description):
-        return analyze_prompt_safety(
-            gemini_client,
-            prompt_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_prompt_fn
-
-
-def _extract_runtime_config_dict(manifest) -> dict | None:
+def _extract_runtime_config_dict(manifest: SkillManifest) -> dict | None:
     """Extract runtime config as a JSON-compatible dict for database storage."""
     if manifest.runtime is None:
         return None
@@ -755,12 +743,12 @@ def _extract_runtime_config_dict(manifest) -> dict | None:
     return runtime_dict
 
 
-def _extract_assessment_config(manifest):
+def _extract_assessment_config(manifest: SkillManifest) -> EvalConfig | None:
     """Extract eval config from manifest (returns None if not present)."""
     return manifest.evals
 
 
-def _try_parse_assessment_cases(file_bytes: bytes):
+def _try_parse_assessment_cases(file_bytes: bytes) -> tuple[EvalCase, ...]:
     """Try to parse eval cases from zip. Returns empty tuple if evals/ not present."""
     from decision_hub.domain.skill_manifest import parse_eval_cases_from_zip
 
@@ -771,15 +759,15 @@ def _try_parse_assessment_cases(file_bytes: bytes):
 
 
 def _maybe_trigger_agent_assessment(
-    eval_config,
-    eval_cases: tuple,
+    eval_config: EvalConfig | None,
+    eval_cases: tuple[EvalCase, ...],
     file_bytes: bytes,
-    version_id,
+    version_id: UUID,
     org_slug: str,
     skill_name: str,
     settings: Settings,
-    user_id,
-):
+    user_id: UUID,
+) -> str | None:
     """Conditionally trigger background agent evaluation if eval config present.
 
     Uses Modal's ``Function.spawn()`` so the eval runs in its own container,
@@ -819,15 +807,15 @@ def _maybe_trigger_agent_assessment(
 
 
 def _run_assessment_background(
-    version_id,
-    eval_config,
-    eval_cases: tuple,
+    version_id: UUID,
+    eval_config: EvalConfig,
+    eval_cases: tuple[EvalCase, ...],
     skill_zip: bytes,
     org_slug: str,
     skill_name: str,
     settings: Settings,
-    user_id,
-):
+    user_id: UUID,
+) -> None:
     """Background task to run agent assessments and store report."""
     from cryptography.fernet import Fernet
 
@@ -836,7 +824,7 @@ def _run_assessment_background(
     from decision_hub.infra.modal_client import get_agent_config, validate_api_key
 
     try:
-        print(f"[assessment] Phase 1: loading API keys for {org_slug}/{skill_name}", flush=True)
+        logger.info("Phase 1: loading API keys for {}/{}", org_slug, skill_name)
         engine = create_engine(settings.database_url)
 
         # --- Phase 1: read API keys then release the connection ---
@@ -849,7 +837,7 @@ def _run_assessment_background(
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
             conn.commit()
 
-        print(f"[assessment] Got {len(encrypted_keys)} keys: {list(encrypted_keys.keys())}", flush=True)
+        logger.info("Got {} keys: {}", len(encrypted_keys), list(encrypted_keys.keys()))
 
         fernet = Fernet(settings.fernet_key.encode())
         agent_env_vars = {
@@ -860,10 +848,10 @@ def _run_assessment_background(
         # Fail fast if the API key is invalid instead of hanging in a sandbox
         for key_name, key_value in agent_env_vars.items():
             validate_api_key(key_name, key_value)
-        print("[assessment] API key validation passed", flush=True)
+        logger.info("API key validation passed")
 
         # --- Phase 2: run pipeline (no DB connection held) ---
-        print(f"[assessment] Phase 2: running pipeline ({len(eval_cases)} cases)", flush=True)
+        logger.info("Phase 2: running pipeline ({} cases)", len(eval_cases))
         case_results, passed, total, total_duration_ms = run_eval_pipeline(
             skill_zip=skill_zip,
             eval_config=eval_config,
@@ -877,7 +865,7 @@ def _run_assessment_background(
         all_passed = all(r["verdict"] == "pass" for r in case_results)
         status = "completed" if all_passed else "failed"
 
-        print(f"[assessment] Phase 3: storing results — {passed}/{total} passed, status={status}", flush=True)
+        logger.info("Phase 3: storing results — {}/{} passed, status={}", passed, total, status)
         with engine.connect() as conn:
             insert_eval_report(
                 conn,
@@ -892,11 +880,10 @@ def _run_assessment_background(
             )
             conn.commit()
 
-        print(f"[assessment] Done — {passed}/{total} passed in {total_duration_ms}ms", flush=True)
+        logger.info("Done — {}/{} passed in {}ms", passed, total, total_duration_ms)
 
     except Exception as e:
-        logger.error(f"Agent assessment failed for version {version_id}: {e}")
-        print(f"[assessment] ERROR: {e}", flush=True)
+        logger.error("Agent assessment failed for version {}: {}", version_id, e)
         # INSERT an error report — no row exists yet because the failure
         # happened before insert_eval_report() was reached in the happy path.
         try:
@@ -917,16 +904,16 @@ def _run_assessment_background(
                 err_conn.commit()
         except Exception as inner:
             logger.error(
-                f"Failed to store error report for version {version_id}: {inner}"
+                "Failed to store error report for version {}: {}", version_id, inner
             )
 
 
-def _reconstruct_runtime_config(runtime_dict: dict | None):
+def _reconstruct_runtime_config(runtime_dict: dict | None) -> RuntimeConfig | None:
     """Reconstruct a RuntimeConfig from a stored dict (for testing/validation)."""
     if runtime_dict is None:
         return None
 
-    from decision_hub.models import DependencySpec, RuntimeConfig
+    from decision_hub.models import DependencySpec
 
     deps_dict = runtime_dict.get("dependencies")
     dependencies = None
@@ -949,7 +936,7 @@ def _reconstruct_runtime_config(runtime_dict: dict | None):
     )
 
 
-def _report_to_response(report) -> EvalReportResponse:
+def _report_to_response(report: EvalReport) -> EvalReportResponse:
     """Convert an EvalReport model to a response schema."""
     case_results_responses = [
         EvalCaseResultResponse(

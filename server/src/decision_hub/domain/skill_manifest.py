@@ -34,7 +34,18 @@ def parse_skill_md(path: Path) -> SkillManifest:
         ValueError: If the file format is invalid or required fields are missing.
         FileNotFoundError: If the path does not exist.
     """
-    content = path.read_text()
+    return parse_skill_md_string(path.read_text())
+
+
+def parse_skill_md_string(content: str) -> SkillManifest:
+    """Parse a SKILL.md content string into a SkillManifest.
+
+    Same as parse_skill_md() but accepts raw text instead of a file path.
+    Useful when the content is already in memory (e.g. extracted from a zip).
+
+    Raises:
+        ValueError: If the file format is invalid or required fields are missing.
+    """
     frontmatter_str, body = _split_frontmatter(content)
     data = _parse_frontmatter_yaml(frontmatter_str)
 

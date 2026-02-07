@@ -2,6 +2,8 @@
 
 import httpx
 
+from decision_hub.infra.parsing import parse_json_or_fallback
+
 _GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
@@ -107,8 +109,6 @@ def analyze_code_safety(
     Returns:
         List of dicts with keys 'file', 'label', 'dangerous' (bool), 'reason'.
     """
-    import json
-
     prompt = (
         "You are a security reviewer for Decision Hub, a package registry for "
         "AI agent skills. A regex pre-scan flagged the following code patterns "
@@ -152,25 +152,9 @@ def analyze_code_safety(
                  "reason": "LLM returned no response"} for s in source_snippets]
 
     text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-
-    # Strip markdown code fences if present
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
-
-    try:
-        results = json.loads(text)
-        if isinstance(results, list):
-            return results
-    except json.JSONDecodeError:
-        pass
-
-    # Fallback: treat everything as dangerous if we can't parse the response
-    return [{"file": s["file"], "label": s["label"], "dangerous": True,
-             "reason": "Could not parse LLM response"} for s in source_snippets]
+    fallback = [{"file": s["file"], "label": s["label"], "dangerous": True}
+                for s in source_snippets]
+    return parse_json_or_fallback(text, fallback)
 
 
 def analyze_prompt_safety(
@@ -198,8 +182,6 @@ def analyze_prompt_safety(
         List of dicts with keys 'label', 'dangerous' (bool),
         'ambiguous' (bool), 'reason' (str).
     """
-    import json
-
     prompt = (
         "You are a security reviewer for Decision Hub, a package registry for "
         "AI agent skills. A regex pre-scan flagged the following patterns in a "
@@ -246,22 +228,6 @@ def analyze_prompt_safety(
                  "reason": "LLM returned no response"} for h in prompt_hits]
 
     text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-
-    # Strip markdown code fences if present
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
-
-    try:
-        results = json.loads(text)
-        if isinstance(results, list):
-            return results
-    except json.JSONDecodeError:
-        pass
-
-    # Fallback: treat everything as dangerous if we can't parse
-    return [{"label": h["label"], "dangerous": True, "ambiguous": False,
-             "reason": "Could not parse LLM response"} for h in prompt_hits]
+    fallback = [{"label": h["label"], "dangerous": True, "ambiguous": False}
+                for h in prompt_hits]
+    return parse_json_or_fallback(text, fallback)

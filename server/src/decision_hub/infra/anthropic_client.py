@@ -5,11 +5,11 @@ avoiding a heavy SDK dependency.
 """
 
 import json
-import logging
 
 import httpx
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from decision_hub.infra.parsing import strip_markdown_fences
 
 _ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 
@@ -83,13 +83,7 @@ def _parse_judge_response(raw_text: str) -> dict:
 
     Handles JSON wrapped in markdown code blocks (```json ... ```).
     """
-    import re
-
-    # Strip markdown code block wrappers if present
-    cleaned = raw_text.strip()
-    match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
-    if match:
-        cleaned = match.group(1).strip()
+    cleaned = strip_markdown_fences(raw_text)
 
     try:
         result = json.loads(cleaned)

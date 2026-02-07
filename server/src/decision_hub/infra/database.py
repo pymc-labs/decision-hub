@@ -236,6 +236,24 @@ eval_reports_table = Table(
 # ---------------------------------------------------------------------------
 
 
+def _semver_order_columns() -> tuple[sa.Cast, sa.Cast, sa.Cast]:
+    """Return (major, minor, patch) SQL expressions for numeric semver ordering.
+
+    Splits the versions_table.semver column on '.' and casts each part to
+    Integer so that '2.10.0' sorts higher than '2.9.0'.
+    """
+    major = sa.cast(
+        sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
+    )
+    minor = sa.cast(
+        sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
+    )
+    patch = sa.cast(
+        sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
+    )
+    return major, minor, patch
+
+
 def create_engine(database_url: str) -> Engine:
     """Create a SQLAlchemy engine configured for Supabase PgBouncer compatibility.
 
@@ -688,16 +706,7 @@ def resolve_version(
     base = base.where(versions_table.c.eval_status.in_(allowed_statuses))
 
     if spec == "latest":
-        # Split semver into major.minor.patch and sort numerically descending
-        major = sa.cast(
-            sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
-        )
-        minor = sa.cast(
-            sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
-        )
-        patch = sa.cast(
-            sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
-        )
+        major, minor, patch = _semver_order_columns()
         stmt = base.order_by(
             major.desc(), minor.desc(), patch.desc()
         ).limit(1)
@@ -727,15 +736,7 @@ def resolve_latest_version(
         skills_table.c.org_id == organizations_table.c.id,
     )
 
-    major = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
-    )
-    minor = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
-    )
-    patch = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
-    )
+    major, minor, patch = _semver_order_columns()
 
     stmt = (
         sa.select(versions_table)
@@ -893,15 +894,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
     version per skill (ordered by semver parts numerically).
     """
     # Subquery: for each skill, find the highest semver
-    major = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
-    )
-    minor = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
-    )
-    patch = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
-    )
+    major, minor, patch = _semver_order_columns()
 
     latest_version = (
         sa.select(
