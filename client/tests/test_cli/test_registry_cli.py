@@ -103,7 +103,7 @@ class TestPublishCommand:
         _write_skill_md(tmp_path)
 
         respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
-            return_value=httpx.Response(200, json={"version": "1.2.3"})
+            return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
         respx.post("http://test:8000/v1/publish").mock(
             return_value=httpx.Response(200, json={})
@@ -131,7 +131,7 @@ class TestPublishCommand:
         _write_skill_md(tmp_path)
 
         respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
-            return_value=httpx.Response(200, json={"version": "1.2.3"})
+            return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
         respx.post("http://test:8000/v1/publish").mock(
             return_value=httpx.Response(200, json={})
@@ -159,7 +159,7 @@ class TestPublishCommand:
         _write_skill_md(tmp_path)
 
         respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
-            return_value=httpx.Response(200, json={"version": "1.2.3"})
+            return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
         respx.post("http://test:8000/v1/publish").mock(
             return_value=httpx.Response(200, json={})
@@ -240,6 +240,42 @@ class TestPublishCommand:
 
         assert result.exit_code == 1
         assert "Only one" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_skips_when_unchanged(
+        self,
+        _mock_url,
+        _mock_token,
+        tmp_path: Path,
+    ) -> None:
+        """Auto-bump should skip publish when local checksum matches remote."""
+        _write_skill_md(tmp_path)
+
+        # Compute the checksum of the zip that _create_zip will produce
+        from dhub.cli.registry import _create_zip
+        from dhub.core.install import compute_checksum
+
+        zip_data = _create_zip(tmp_path)
+        local_checksum = compute_checksum(zip_data)
+
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
+            return_value=httpx.Response(200, json={"version": "1.0.0", "checksum": local_checksum})
+        )
+        publish_route = respx.post("http://test:8000/v1/publish").mock(
+            return_value=httpx.Response(200, json={})
+        )
+
+        result = runner.invoke(
+            app,
+            ["publish", "myorg/my-skill", str(tmp_path)],
+        )
+
+        assert result.exit_code == 0
+        assert "No changes detected" in result.output
+        assert "1.0.0" in result.output
+        assert not publish_route.called
 
 
 # ---------------------------------------------------------------------------

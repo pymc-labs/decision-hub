@@ -91,15 +91,23 @@ def publish_command(
 
     validate_skill_name(name)
 
+    with console.status("Packaging skill..."):
+        zip_data = _create_zip(path)
+
     # Resolve version: explicit --version wins, otherwise auto-bump
     if version is not None:
         validate_semver(version)
     else:
-        bump_level = _resolve_bump_level(patch, minor, major)
-        version = _auto_bump_version(api_url, token, org, name, bump_level, bump_version, FIRST_VERSION)
+        from dhub.core.install import compute_checksum
 
-    with console.status("Packaging skill..."):
-        zip_data = _create_zip(path)
+        local_checksum = compute_checksum(zip_data)
+        bump_level = _resolve_bump_level(patch, minor, major)
+        version, latest_checksum, current_version = _auto_bump_version(
+            api_url, token, org, name, bump_level, bump_version, FIRST_VERSION,
+        )
+        if latest_checksum is not None and local_checksum == latest_checksum:
+            console.print(f"No changes detected. Already at [cyan]{current_version}[/].")
+            return
 
     metadata = json.dumps(
         {"org_slug": org, "skill_name": name, "version": version}
@@ -210,8 +218,12 @@ def _auto_bump_version(
     bump_level: str,
     bump_version_fn,
     first_version: str,
-) -> str:
-    """Fetch the latest version from the registry and auto-bump it."""
+) -> tuple[str, str | None, str | None]:
+    """Fetch the latest version from the registry and auto-bump it.
+
+    Returns (bumped_version, latest_checksum, current_version).
+    On first publish (404), latest_checksum and current_version are None.
+    """
     from dhub.cli.config import build_headers
 
     with httpx.Client(timeout=60) as client:
@@ -223,13 +235,15 @@ def _auto_bump_version(
     if resp.status_code == 404:
         version = first_version
         console.print(f"First publish — using version [cyan]{version}[/]")
-        return version
+        return version, None, None
 
     resp.raise_for_status()
-    current = resp.json()["version"]
+    data = resp.json()
+    current = data["version"]
+    latest_checksum = data.get("checksum")
     version = bump_version_fn(current, bump_level)
     console.print(f"Auto-bumped: {current} -> [cyan]{version}[/]")
-    return version
+    return version, latest_checksum, current
 
 
 def _create_zip(path: Path) -> bytes:

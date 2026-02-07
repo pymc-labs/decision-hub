@@ -86,6 +86,7 @@ class DeleteResponse(BaseModel):
 class LatestVersionResponse(BaseModel):
     """Latest version of a skill."""
     version: str
+    checksum: str
 
 
 class DeleteAllResponse(BaseModel):
@@ -336,7 +337,7 @@ def get_latest_version(
             status_code=404,
             detail=f"No versions found for {org_slug}/{skill_name}",
         )
-    return LatestVersionResponse(version=version.semver)
+    return LatestVersionResponse(version=version.semver, checksum=version.checksum)
 
 
 @router.get("/resolve/{org_slug}/{skill_name}", response_model=ResolveResponse)

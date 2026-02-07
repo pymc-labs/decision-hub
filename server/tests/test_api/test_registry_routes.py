@@ -964,6 +964,7 @@ class TestGetLatestVersion:
 
         assert resp.status_code == 200
         assert resp.json()["version"] == "2.3.1"
+        assert resp.json()["checksum"] == "abc123def456"
 
     @patch("decision_hub.api.registry_routes.resolve_latest_version")
     def test_latest_version_not_found(

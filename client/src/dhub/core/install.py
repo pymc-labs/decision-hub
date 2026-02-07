@@ -19,6 +19,11 @@ AGENT_SKILL_PATHS: dict[str, Path] = {
 }
 
 
+def compute_checksum(data: bytes) -> str:
+    """Compute SHA-256 hex digest of data."""
+    return hashlib.sha256(data).hexdigest()
+
+
 def verify_checksum(data: bytes, expected: str) -> None:
     """Verify that the SHA-256 checksum of data matches the expected value.
 
