@@ -1,0 +1,288 @@
+---
+name: dhub-cli-guide
+description: Guide for using the dhub CLI — the package manager for AI agent skills. Covers authentication, publishing, installing, running skills, managing API keys, eval reports, and troubleshooting. Use when users ask about dhub commands, skill publishing workflows, or need help with the Decision Hub CLI.
+---
+# dhub CLI Guide
+
+`dhub` is the CLI package manager for AI agent skills. It publishes, discovers, installs, and runs Skills — modular packages (code + prompts) that agents like Claude, Cursor, Codex, and Gemini can use.
+
+## Installation
+
+```bash
+uv tool install dhub-cli    # via uv (recommended)
+pipx install dhub-cli       # via pipx
+```
+
+## Command Overview
+
+```
+dhub login              Authenticate via GitHub
+dhub logout             Remove stored token
+dhub env                Show active environment, config path, API URL
+dhub init [path]        Scaffold a new skill project
+dhub publish [ref]      Publish a skill to the registry
+dhub install org/skill  Install a skill from the registry
+dhub uninstall org/skill  Remove a locally installed skill
+dhub list               List all published skills
+dhub delete org/skill   Delete skill versions from registry
+dhub run org/skill      Run a locally installed skill
+dhub ask "query"        Natural language skill search
+dhub eval-report org/skill@version  View eval report
+dhub org list           List your namespaces
+dhub keys add <name>    Store an API key for evals
+dhub keys list          List stored API key names
+dhub keys remove <name> Remove a stored API key
+dhub --version          Show CLI version
+```
+
+See `references/command_reference.md` for full details on every command, flag, and option.
+
+## Environments (Dev / Prod)
+
+dhub supports two independent stacks controlled by `DHUB_ENV`:
+
+| Env | API URL | Config File |
+|-----|---------|-------------|
+| `prod` (default) | `https://lfiaschi--api.modal.run` | `~/.dhub/config.prod.json` |
+| `dev` | `https://lfiaschi--api-dev.modal.run` | `~/.dhub/config.dev.json` |
+
+Always prefix commands with `DHUB_ENV=dev` when working against the dev stack:
+
+```bash
+DHUB_ENV=dev dhub login
+DHUB_ENV=dev dhub list
+DHUB_ENV=dev dhub publish
+```
+
+The `dhub env` command shows the currently active environment, config path, and API URL.
+
+## Authentication
+
+dhub uses GitHub Device Flow (OAuth2). Run `dhub login` and follow the prompts:
+
+1. dhub requests a device code from the server
+2. You open `https://github.com/login/device` and enter the displayed code
+3. dhub polls until you authorize (up to 5 minutes)
+4. Token is saved to `~/.dhub/config.{env}.json`
+
+All subsequent commands use this token automatically. Run `dhub logout` to clear it.
+
+You can override the API URL with `dhub login --api-url <url>` for custom deployments.
+
+## Publishing Workflow
+
+### Quick publish (auto-detect everything)
+
+From a directory containing a valid SKILL.md:
+
+```bash
+dhub publish              # auto-detects org, name, bumps patch version
+dhub publish --minor      # bump minor version instead
+dhub publish --major      # bump major version
+dhub publish --version 2.0.0  # explicit version
+```
+
+### Explicit publish
+
+```bash
+dhub publish myorg/my-skill          # specify org/skill, auto-bump patch
+dhub publish myorg/my-skill ./path   # specify path to skill directory
+```
+
+### How auto-detection works
+
+1. **Skill name** — read from `name` field in SKILL.md frontmatter
+2. **Organization** — auto-detected if you belong to exactly one org. If you have multiple, specify explicitly: `dhub publish myorg/my-skill`
+3. **Version** — fetches latest version from registry, bumps patch by default. First publish uses `0.1.0`
+
+### Argument disambiguation
+
+The first positional argument is interpreted as:
+- A **path** if it starts with `.`, `/`, `~`, or is an existing directory
+- An **org/skill reference** otherwise
+
+So `dhub publish .` and `dhub publish myorg/skill` both work as expected.
+
+### Safety grading
+
+After publishing, the server runs safety checks and assigns a grade:
+
+| Grade | Meaning | Effect |
+|-------|---------|--------|
+| **A** | Clean — no elevated permissions or risky patterns | Normal installation |
+| **B** | Elevated permissions detected | Warning shown on install |
+| **C** | Ambiguous/risky patterns | Users need `--allow-risky` flag to install |
+| **F** | Rejected — fails safety checks | Publish is rejected (HTTP 422) |
+
+If the skill has an `evals` block, agent evaluation runs in the background after publish.
+
+### What gets zipped
+
+The publish command creates a zip of the skill directory, excluding:
+- Hidden files (names starting with `.`)
+- `__pycache__/` directories
+
+## Installing Skills
+
+```bash
+dhub install myorg/my-skill                          # latest version
+dhub install myorg/my-skill --version 1.2.0          # specific version
+dhub install myorg/my-skill --agent claude            # install + link to Claude
+dhub install myorg/my-skill --agent all               # link to all agents
+dhub install myorg/my-skill --allow-risky             # allow Grade C skills
+```
+
+### Where skills get installed
+
+- **Canonical path**: `~/.dhub/skills/{org}/{skill}/`
+- **Agent symlinks** (when using `--agent`):
+
+| Agent | Symlink Location |
+|-------|-----------------|
+| claude | `~/.claude/skills/{org}--{skill}` |
+| cursor | `~/.cursor/skills/{org}--{skill}` |
+| codex | `~/.codex/skills/{org}--{skill}` |
+| opencode | `~/.config/opencode/skills/{org}--{skill}` |
+| gemini | `~/.gemini/skills/{org}--{skill}` |
+
+Symlinks point to the canonical `~/.dhub/skills/` path, so the skill is stored once and shared across agents.
+
+### Integrity verification
+
+Downloads are verified via SHA-256 checksum before extraction. If the checksum doesn't match, installation aborts.
+
+## Running Skills Locally
+
+```bash
+dhub run myorg/my-skill              # run the skill
+dhub run myorg/my-skill -- --flag    # pass extra args to the entrypoint
+```
+
+### Prerequisites
+
+- The skill must be installed locally (`dhub install` first)
+- The skill must have a `runtime` block in its SKILL.md
+- `uv` must be available on PATH
+- Required environment variables (from `runtime.env`) must be set
+- Only `language: python` is supported
+
+### What happens
+
+1. Parses SKILL.md to get runtime config
+2. Validates prerequisites (uv, lockfile, entrypoint, env vars)
+3. Runs `uv sync --directory {skill_dir}` to install dependencies
+4. Runs `uv run --directory {skill_dir} python {entrypoint} [extra_args]`
+
+## Eval Reports
+
+View evaluation results for a published skill version:
+
+```bash
+dhub eval-report myorg/my-skill@1.0.0
+```
+
+The report shows:
+- **Agent** used for the eval run
+- **Judge model** that evaluated the output
+- **Status**: passed, failed, error, pending
+- **Results**: pass/fail count and per-case details with reasoning
+
+Evals run automatically in the background after publishing a skill that has an `evals` block. Use `dhub eval-report` to check results.
+
+## API Key Management
+
+Skills that use third-party APIs during evaluation need API keys stored in Decision Hub:
+
+```bash
+dhub keys add OPENAI_API_KEY        # prompts securely for the value
+dhub keys list                      # show stored key names
+dhub keys remove OPENAI_API_KEY     # delete a stored key
+```
+
+Keys are stored server-side (encrypted) and injected into eval sandbox environments. Key names must match the `runtime.env` entries in SKILL.md.
+
+## Organization Management
+
+```bash
+dhub org list    # list namespaces you can publish to
+```
+
+Your namespaces are derived from your GitHub account and org memberships. Run `dhub login` to refresh memberships after joining new GitHub orgs.
+
+## Skill Discovery
+
+```bash
+dhub ask "analyze A/B test results"
+dhub ask "generate presentation slides"
+```
+
+Natural language search across all published skills. Returns matching skills with descriptions and install instructions.
+
+## Scaffolding a New Skill
+
+```bash
+dhub init                  # interactive — prompts for name and description
+dhub init ./my-skill       # create in a specific directory
+```
+
+Creates:
+```
+my-skill/
+  SKILL.md     # frontmatter + body skeleton
+  src/         # source code directory
+```
+
+## SKILL.md Format (Quick Reference)
+
+```yaml
+---
+name: my-skill                 # 1-64 chars, lowercase + hyphens
+description: What it does      # 1-1024 chars, triggers skill activation
+license: MIT                   # optional
+runtime:                       # optional — for executable skills
+  language: python
+  entrypoint: src/main.py
+  env: [OPENAI_API_KEY]
+  dependencies:
+    package_manager: uv
+    lockfile: uv.lock
+evals:                         # optional — for testable skills
+  agent: claude
+  judge_model: claude-sonnet-4-5-20250929
+---
+System prompt for the agent goes here.
+```
+
+## Troubleshooting
+
+### "Connection timed out" or slow first request
+Modal cold starts take 30-60s. Retry after a minute. All dhub HTTP calls use 60s timeouts internally.
+
+### "No namespaces available"
+Run `dhub login` to refresh GitHub org memberships. You need at least one org to publish.
+
+### "You have multiple namespaces"
+Specify the org explicitly: `dhub publish myorg/my-skill` instead of `dhub publish`.
+
+### "Version X already exists"
+Versions are immutable. Bump the version: `dhub publish --patch` (or `--minor`, `--major`), or use `--version` with a new number.
+
+### "Rejected (Grade F)"
+The skill failed safety checks. Review your SKILL.md and scripts for dangerous patterns (shell injection, credential exfiltration, etc.).
+
+### "Skill not installed" when running
+Install first with `dhub install org/skill`, then `dhub run org/skill`.
+
+### "This skill has no runtime configuration"
+Only skills with a `runtime` block can be run via `dhub run`. Prompt-only skills don't need `dhub run`.
+
+### "Checksum mismatch"
+Download was corrupted. Retry `dhub install`. If it persists, the server package may be damaged — try re-publishing.
+
+### Wrong environment
+Check with `dhub env`. Set `DHUB_ENV=dev` or `DHUB_ENV=prod` before commands.
+
+### Config file location
+- Dev: `~/.dhub/config.dev.json`
+- Prod: `~/.dhub/config.prod.json`
+- Override API URL: `DHUB_API_URL` env var (highest priority)

@@ -117,3 +117,9 @@ After implementing significant changes, always check if the README.md needs upda
 - Architectural changes that affect how the system works
 
 Do NOT document implementation details - only high-level features and usage.
+
+## dhub CLI Skill
+
+The `bootstrap-skills/dhub-cli-guide/` skill is a reference guide for the dhub CLI. When making significant changes to CLI commands (adding, removing, renaming commands or flags, changing behavior), update this skill to match:
+- `bootstrap-skills/dhub-cli-guide/SKILL.md` — command overview, workflows, troubleshooting
+- `bootstrap-skills/dhub-cli-guide/references/command_reference.md` — detailed per-command reference
