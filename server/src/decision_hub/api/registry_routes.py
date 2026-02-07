@@ -833,9 +833,10 @@ def _run_assessment_background(
 
     from decision_hub.domain.evals import run_eval_pipeline
     from decision_hub.infra.database import create_engine, get_api_keys_for_eval
-    from decision_hub.infra.modal_client import get_agent_config
+    from decision_hub.infra.modal_client import get_agent_config, validate_api_key
 
     try:
+        print(f"[assessment] Phase 1: loading API keys for {org_slug}/{skill_name}", flush=True)
         engine = create_engine(settings.database_url)
 
         # --- Phase 1: read API keys then release the connection ---
@@ -848,13 +849,21 @@ def _run_assessment_background(
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
             conn.commit()
 
+        print(f"[assessment] Got {len(encrypted_keys)} keys: {list(encrypted_keys.keys())}", flush=True)
+
         fernet = Fernet(settings.fernet_key.encode())
         agent_env_vars = {
             name: fernet.decrypt(value).decode()
             for name, value in encrypted_keys.items()
         }
 
-        # --- Phase 2: run eval pipeline (no DB connection held) ---
+        # Fail fast if the API key is invalid instead of hanging in a sandbox
+        for key_name, key_value in agent_env_vars.items():
+            validate_api_key(key_name, key_value)
+        print("[assessment] API key validation passed", flush=True)
+
+        # --- Phase 2: run pipeline (no DB connection held) ---
+        print(f"[assessment] Phase 2: running pipeline ({len(eval_cases)} cases)", flush=True)
         case_results, passed, total, total_duration_ms = run_eval_pipeline(
             skill_zip=skill_zip,
             eval_config=eval_config,
@@ -868,6 +877,7 @@ def _run_assessment_background(
         all_passed = all(r["verdict"] == "pass" for r in case_results)
         status = "completed" if all_passed else "failed"
 
+        print(f"[assessment] Phase 3: storing results — {passed}/{total} passed, status={status}", flush=True)
         with engine.connect() as conn:
             insert_eval_report(
                 conn,
@@ -882,8 +892,11 @@ def _run_assessment_background(
             )
             conn.commit()
 
+        print(f"[assessment] Done — {passed}/{total} passed in {total_duration_ms}ms", flush=True)
+
     except Exception as e:
         logger.error(f"Agent assessment failed for version {version_id}: {e}")
+        print(f"[assessment] ERROR: {e}", flush=True)
         # INSERT an error report — no row exists yet because the failure
         # happened before insert_eval_report() was reached in the happy path.
         try:

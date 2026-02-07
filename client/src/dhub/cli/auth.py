@@ -41,11 +41,23 @@ def login_command(
     with console.status("Waiting for authorization..."):
         token_data = _poll_for_token(base_url, device_code, poll_interval)
 
-    # Step 4: Persist the token
-    new_config = CliConfig(api_url=base_url, token=token_data["access_token"])
+    # Step 4: Persist the token and synced orgs
+    orgs = tuple(token_data.get("orgs", ()))
+    default_org = _prompt_default_org(orgs)
+
+    new_config = CliConfig(
+        api_url=base_url,
+        token=token_data["access_token"],
+        orgs=orgs,
+        default_org=default_org,
+    )
     save_config(new_config)
 
     console.print(f"[green]Authenticated as @{token_data['username']}[/]")
+    if orgs:
+        console.print(f"Namespaces: {', '.join(orgs)}")
+    if default_org:
+        console.print(f"Default namespace: [cyan]{default_org}[/]")
 
 
 def logout_command() -> None:
@@ -57,8 +69,30 @@ def logout_command() -> None:
         console.print("Not logged in.")
         return
 
-    save_config(CliConfig(api_url=config.api_url, token=None))
+    save_config(CliConfig(api_url=config.api_url, token=None, orgs=(), default_org=None))
     console.print("[green]Logged out.[/]")
+
+
+def _prompt_default_org(orgs: tuple[str, ...]) -> str | None:
+    """Prompt the user to set a default namespace if they have multiple.
+
+    Returns the chosen org slug, or None if only one org or user declines.
+    """
+    if len(orgs) <= 1:
+        return orgs[0] if orgs else None
+
+    console.print("\nYou belong to multiple namespaces.")
+    choices = list(orgs) + ["(none)"]
+    choice = console.input(
+        f"Set a default namespace for publishing? [{'/'.join(orgs)}/(none)]: "
+    ).strip().lower()
+
+    if choice in orgs:
+        return choice
+    if not choice:
+        # Default to first org
+        return orgs[0]
+    return None
 
 
 def _poll_for_token(

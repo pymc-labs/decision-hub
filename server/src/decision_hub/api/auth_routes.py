@@ -10,10 +10,12 @@ from sqlalchemy.engine import Connection
 from decision_hub.api.deps import get_connection, get_settings
 from decision_hub.domain.auth import create_jwt
 from decision_hub.infra.database import upsert_user
+from decision_hub.domain.orgs import sync_user_orgs
 from decision_hub.infra.github import (
     AuthorizationPending,
     check_org_membership,
     get_github_user,
+    list_user_orgs as github_list_user_orgs,
     poll_for_access_token,
     request_device_code,
 )
@@ -46,6 +48,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     username: str
+    orgs: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -107,15 +110,22 @@ async def exchange_token(
                 ),
             )
 
-    user = upsert_user(conn, str(gh_user["id"]), gh_user["login"])
+    username = gh_user["login"]
+    user = upsert_user(conn, str(gh_user["id"]), username)
 
-    # Embed GitHub org slugs in the JWT so downstream endpoints can
-    # check membership without a DB lookup.  Currently we only know
-    # the required org (if configured); a future enhancement will
-    # fetch all orgs via the GitHub API.
-    github_orgs: list[str] = []
-    if settings.require_github_org:
-        github_orgs = [settings.require_github_org]
+    # Fetch the user's GitHub orgs and sync to DB
+    github_org_logins: list[str] = []
+    try:
+        gh_orgs = await github_list_user_orgs(gh_token)
+        github_org_logins = [o["login"] for o in gh_orgs]
+    except Exception:
+        logger.warning(
+            "Failed to fetch GitHub orgs for %s; falling back to personal namespace only",
+            username,
+            exc_info=True,
+        )
+
+    org_slugs = sync_user_orgs(conn, user.id, github_org_logins, username)
 
     jwt_token = create_jwt(
         str(user.id),
@@ -123,6 +133,6 @@ async def exchange_token(
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.jwt_expiry_hours,
-        github_orgs=github_orgs,
+        github_orgs=org_slugs,
     )
-    return TokenResponse(access_token=jwt_token, username=user.username)
+    return TokenResponse(access_token=jwt_token, username=user.username, orgs=org_slugs)

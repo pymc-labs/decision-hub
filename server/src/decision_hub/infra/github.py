@@ -17,6 +17,7 @@ from decision_hub.models import DeviceCodeResponse
 GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
 GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
+GITHUB_USER_ORGS_URL = "https://api.github.com/user/orgs"
 
 _ACCEPT_JSON = "application/json"
 
@@ -134,6 +135,57 @@ async def get_github_user(access_token: str) -> dict:
         )
     response.raise_for_status()
     return response.json()
+
+
+def _parse_next_link(link_header: str) -> str | None:
+    """Extract the 'next' URL from a GitHub Link header.
+
+    GitHub uses RFC 5988 Link headers for pagination, e.g.:
+        <https://api.github.com/user/orgs?page=2>; rel="next", ...
+
+    Returns the URL for rel="next", or None if there is no next page.
+    """
+    for part in link_header.split(","):
+        if 'rel="next"' in part:
+            url = part.split(";")[0].strip().strip("<>")
+            return url
+    return None
+
+
+async def list_user_orgs(access_token: str) -> list[dict]:
+    """Fetch all organizations the authenticated user belongs to.
+
+    Paginates through all results using the GitHub Link header.
+    Each returned dict has at least a 'login' key with the org name.
+
+    Args:
+        access_token: A valid GitHub OAuth access token.
+
+    Returns:
+        A list of org dicts from the GitHub API.
+
+    Raises:
+        httpx.HTTPStatusError: If the GitHub API returns an error response.
+    """
+    orgs: list[dict] = []
+    url: str | None = f"{GITHUB_USER_ORGS_URL}?per_page=100"
+
+    async with httpx.AsyncClient() as client:
+        while url is not None:
+            response = await client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": _ACCEPT_JSON,
+                },
+            )
+            response.raise_for_status()
+            orgs.extend(response.json())
+
+            link = response.headers.get("Link", "")
+            url = _parse_next_link(link) if link else None
+
+    return orgs
 
 
 async def check_org_membership(access_token: str, org: str, username: str) -> bool:

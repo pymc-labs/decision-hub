@@ -40,6 +40,8 @@ class CliConfig:
 
     api_url: str = ""
     token: str | None = None
+    orgs: tuple[str, ...] = ()
+    default_org: str | None = None
 
 
 def load_config() -> CliConfig:
@@ -73,6 +75,8 @@ def load_config() -> CliConfig:
     return CliConfig(
         api_url=raw.get("api_url", default_api_url()),
         token=raw.get("token"),
+        orgs=tuple(raw.get("orgs", ())),
+        default_org=raw.get("default_org"),
     )
 
 
@@ -98,12 +102,16 @@ def get_api_url() -> str:
 
 
 def get_token() -> str:
-    """Get the stored auth token.
+    """Get the auth token from DHUB_TOKEN env var or saved config.
 
     Raises:
-        typer.Exit: If no token is stored (user not logged in).
+        typer.Exit: If no token is available (user not logged in).
     """
     from rich.console import Console
+
+    env_token = os.environ.get("DHUB_TOKEN")
+    if env_token:
+        return env_token
 
     token = load_config().token
     if not token:
@@ -113,6 +121,14 @@ def get_token() -> str:
         )
         raise typer.Exit(1)
     return token
+
+
+def get_default_org() -> str | None:
+    """Get the default org from DHUB_DEFAULT_ORG env var or saved config."""
+    env_org = os.environ.get("DHUB_DEFAULT_ORG")
+    if env_org:
+        return env_org
+    return load_config().default_org
 
 
 def get_client_version() -> str:

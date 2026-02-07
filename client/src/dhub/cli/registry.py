@@ -162,13 +162,37 @@ def publish_command(
 
 
 def _auto_detect_org(api_url: str, token: str) -> str:
-    """Auto-detect the org when the user belongs to exactly one.
+    """Auto-detect the org for publishing.
 
-    Fetches the user's org list from the API. If they belong to exactly
-    one org, returns its slug. Otherwise, prints an error and exits.
+    Checks in order:
+    1. DHUB_DEFAULT_ORG env var or config default_org
+    2. Cached orgs from config (if exactly one)
+    3. Falls back to API call (for old configs without cached orgs)
     """
-    from dhub.cli.config import build_headers
+    from dhub.cli.config import build_headers, get_default_org, load_config
 
+    # 1. Check default org (env var takes priority over config)
+    default = get_default_org()
+    if default:
+        console.print(f"Using default namespace: [cyan]{default}[/]")
+        return default
+
+    # 2. Check cached orgs from config
+    config = load_config()
+    if config.orgs:
+        if len(config.orgs) == 1:
+            console.print(f"Auto-detected namespace: [cyan]{config.orgs[0]}[/]")
+            return config.orgs[0]
+        slugs = ", ".join(config.orgs)
+        console.print(
+            f"[red]Error: You have multiple namespaces ({slugs}). "
+            f"Run 'dhub config default-org' to set a default, "
+            f"or set DHUB_DEFAULT_ORG, "
+            f"or specify: dhub publish <org>/<skill>[/]"
+        )
+        raise typer.Exit(1)
+
+    # 3. Fall back to API (old config without cached orgs)
     with httpx.Client(timeout=60) as client:
         resp = client.get(
             f"{api_url}/v1/orgs",
@@ -188,7 +212,9 @@ def _auto_detect_org(api_url: str, token: str) -> str:
         slugs = ", ".join(o["slug"] for o in orgs)
         console.print(
             f"[red]Error: You have multiple namespaces ({slugs}). "
-            f"Please specify which one: dhub publish <org>/<skill>[/]"
+            f"Run 'dhub config default-org' to set a default, "
+            f"or set DHUB_DEFAULT_ORG, "
+            f"or specify: dhub publish <org>/<skill>[/]"
         )
         raise typer.Exit(1)
 

@@ -36,7 +36,7 @@ def web():
     return create_app()
 
 
-@app.function(image=image, secrets=secrets, timeout=900)
+@app.function(image=image, secrets=secrets, timeout=1800)
 def run_eval_task(
     version_id: str,
     eval_agent: str,
@@ -53,11 +53,16 @@ def run_eval_task(
     has its own lifecycle and doesn't get killed when the web
     container scales down.
     """
+    import sys
     from uuid import UUID
 
     from decision_hub.api.registry_routes import _run_assessment_background
     from decision_hub.models import EvalCase, EvalConfig
     from decision_hub.settings import create_settings
+
+    print(f"[run_eval_task] Starting eval for {org_slug}/{skill_name} "
+          f"version={version_id} agent={eval_agent} cases={len(eval_cases_dicts)}",
+          flush=True)
 
     settings = create_settings()
     config = EvalConfig(agent=eval_agent, judge_model=eval_judge_model)
@@ -71,6 +76,9 @@ def run_eval_task(
         for d in eval_cases_dicts
     )
 
+    print(f"[run_eval_task] Settings loaded, calling _run_assessment_background",
+          flush=True)
+
     _run_assessment_background(
         version_id=UUID(version_id),
         eval_config=config,
@@ -81,3 +89,5 @@ def run_eval_task(
         settings=settings,
         user_id=UUID(user_id),
     )
+
+    print(f"[run_eval_task] Completed for {org_slug}/{skill_name}", flush=True)

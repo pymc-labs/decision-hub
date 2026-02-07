@@ -48,11 +48,13 @@ app.command("run")(run_command)
 app.command("ask")(ask_command)
 
 # Register subcommand groups
+from dhub.cli.config_cmd import config_app  # noqa: E402
 from dhub.cli.keys import keys_app  # noqa: E402
 from dhub.cli.org import org_app  # noqa: E402
 
 app.add_typer(org_app, name="org")
 app.add_typer(keys_app, name="keys")
+app.add_typer(config_app, name="config")
 
 
 def run() -> None:

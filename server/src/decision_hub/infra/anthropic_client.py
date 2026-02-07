@@ -79,9 +79,20 @@ def judge_eval_output(
 
 
 def _parse_judge_response(raw_text: str) -> dict:
-    """Parse the judge's JSON response, handling malformed output gracefully."""
+    """Parse the judge's JSON response, handling malformed output gracefully.
+
+    Handles JSON wrapped in markdown code blocks (```json ... ```).
+    """
+    import re
+
+    # Strip markdown code block wrappers if present
+    cleaned = raw_text.strip()
+    match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
+    if match:
+        cleaned = match.group(1).strip()
+
     try:
-        result = json.loads(raw_text)
+        result = json.loads(cleaned)
         verdict = result.get("verdict", "error")
         if verdict not in ("pass", "fail"):
             return {"verdict": "error", "reasoning": f"Invalid verdict: {verdict}. Raw: {raw_text}"}

@@ -102,6 +102,51 @@ The server enforces a minimum CLI version via the `MIN_CLI_VERSION` setting in `
 2. Update `MIN_CLI_VERSION` in both `server/.env.dev` and `server/.env.prod` to match
 3. Redeploy the server so the middleware rejects stale clients with a clear upgrade message
 
+## Debugging Modal Sandboxes
+
+When eval pipelines fail or hang, **do not** blindly poll the eval-report endpoint. Spin up a sandbox interactively and test each step in isolation:
+
+```python
+# From server/ directory:
+# DHUB_ENV=dev uv run --package decision-hub-server python3 -c "..."
+
+import modal
+from decision_hub.infra.modal_client import build_eval_image, AGENT_CONFIGS
+
+config = AGENT_CONFIGS['claude']
+image = build_eval_image(config)
+app = modal.App.lookup('decision-hub-eval', create_if_missing=True)
+sb = modal.Sandbox.create(image=image, app=app, timeout=120)
+
+# 1. Verify the agent binary
+proc = sb.exec('which', 'claude'); proc.wait()
+print(proc.stdout.read())
+
+# 2. Run agent with output to file (avoids I/O blocking)
+proc = sb.exec('bash', '-c',
+    'nohup claude -p --dangerously-skip-permissions "Say hi" '
+    '> /tmp/out.txt 2>/tmp/err.txt &')
+proc.wait()
+
+import time; time.sleep(15)
+
+# 3. Read stdout AND stderr
+proc = sb.exec('bash', '-c',
+    'echo STDOUT: && cat /tmp/out.txt '
+    '&& echo STDERR: && cat /tmp/err.txt')
+proc.wait()
+print(proc.stdout.read())
+
+sb.terminate()
+```
+
+**Common issues:**
+- **Exit 137 near the timeout duration** = sandbox timeout kill, not OOM. Correlate duration with the configured timeout.
+- **Exit 137 well before timeout** = actual OOM. Increase `memory` in `Sandbox.create`.
+- **`Invalid API key`** = stored `ANTHROPIC_API_KEY` expired/revoked. Claude Code hangs waiting for user input. Verify the key directly: `httpx.post('https://api.anthropic.com/v1/messages', headers={'x-api-key': key, 'anthropic-version': '2023-06-01'}, ...)`
+- **`--dangerously-skip-permissions cannot be used with root`** = the sandbox image creates a `sandbox` user; agent commands must run via `sudo -E -u sandbox`.
+- **Zero stdout from agent** = always check stderr. Use `nohup` + file redirect and inspect after a few seconds instead of waiting for the full timeout.
+
 ## Testing
 
 - Use `pytest` with fixtures in `conftest.py`
