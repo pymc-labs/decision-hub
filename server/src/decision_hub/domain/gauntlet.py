@@ -52,7 +52,7 @@ _ELEVATED_PERMISSION_PATTERNS: dict[str, list[str]] = {
         r"\bsocket\b", r"\baiohttp\b",
     ],
     "fs_write": [
-        r"\.write\s*\(", r"open\s*\(.*['\"]w",
+        r"\bopen\s*\(.*['\"]w",
         r"\bshutil\b", r"\bos\.remove\b", r"\bos\.unlink\b",
     ],
     "env_var": [
@@ -491,5 +491,14 @@ def run_static_checks(
     elevated = detect_elevated_permissions(source_files, allowed_tools)
     result_tuple = tuple(results)
     grade = compute_grade(result_tuple, elevated, is_verified_org)
+
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "Gauntlet grading: elevated=%s is_verified=%s grade=%s fs_write_patterns=%s source_files=%s",
+        elevated, is_verified_org, grade,
+        _ELEVATED_PERMISSION_PATTERNS.get("fs_write"),
+        [name for name, _ in source_files],
+    )
 
     return GauntletReport(results=result_tuple, grade=grade)

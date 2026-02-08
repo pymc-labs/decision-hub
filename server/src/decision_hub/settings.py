@@ -37,9 +37,16 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
 
-    # Access control: restrict login to members of a GitHub org.
-    # Leave empty to allow all authenticated GitHub users.
+    # Access control: comma-separated list of GitHub orgs.
+    # User must belong to at least one. Leave empty to allow all.
     require_github_org: str = ""
+
+    @property
+    def required_github_orgs(self) -> list[str]:
+        """Parse comma-separated org list into individual org slugs."""
+        if not self.require_github_org:
+            return []
+        return [o.strip() for o in self.require_github_org.split(",") if o.strip()]
 
     # Minimum CLI version allowed to call /v1/ endpoints.
     # Empty string disables enforcement (backward-compatible rollout).

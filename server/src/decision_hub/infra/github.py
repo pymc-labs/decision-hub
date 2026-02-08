@@ -46,7 +46,7 @@ async def request_device_code(client_id: str) -> DeviceCodeResponse:
     async with httpx.AsyncClient() as client:
         response = await client.post(
             GITHUB_DEVICE_CODE_URL,
-            data={"client_id": client_id},
+            data={"client_id": client_id, "scope": "read:org"},
             headers={"Accept": _ACCEPT_JSON},
         )
     response.raise_for_status()

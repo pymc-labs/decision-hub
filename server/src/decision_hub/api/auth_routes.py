@@ -99,14 +99,20 @@ async def exchange_token(
         logger.warning("GitHub device flow error: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc))
 
-    if settings.require_github_org:
+    allowed_orgs = settings.required_github_orgs
+    if allowed_orgs:
         username = gh_user["login"]
-        if not await check_org_membership(gh_token, settings.require_github_org, username):
+        is_member = False
+        for org in allowed_orgs:
+            if await check_org_membership(gh_token, org, username):
+                is_member = True
+                break
+        if not is_member:
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    f"Access restricted to members of the "
-                    f"'{settings.require_github_org}' GitHub organization"
+                    f"Access restricted to members of: "
+                    f"{', '.join(allowed_orgs)}"
                 ),
             )
 

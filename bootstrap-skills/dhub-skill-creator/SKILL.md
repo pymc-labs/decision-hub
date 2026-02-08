@@ -1,8 +1,8 @@
 ---
-name: superskill-creator
+name: dhub-skill-creator
 description: Guide for creating effective skills for Claude Code agents. Covers skill design, implementation, validation, packaging, and optionally runtime environments and automated evaluations for Decision Hub publishing. Use when users want to create, improve, or package a skill.
 ---
-# Superskill Creator
+# Decision Hub Skill Creator
 
 Create modular skill packages (SKILL.md + optional resources) that turn Claude into a specialist. This skill guides the full lifecycle: define the domain, design the architecture, build and validate the skill, and package it for distribution.
 
@@ -82,7 +82,7 @@ Choose the structural pattern and identify resources. Read `references/skill_pat
 
 1. **Scaffold.** Run `scripts/init_skill.py` to create the directory:
    ```
-   python internal-skills/superskill-creator/scripts/init_skill.py <name> --path <dir> [--with-runtime] [--with-evals] [--description "..."]
+   python internal-skills/dhub-skill-creator/scripts/init_skill.py <name> --path <dir> [--with-runtime] [--with-evals] [--description "..."]
    ```
 
 2. **Write the SKILL.md body.** Follow the writing guidelines below. The body is the agent system prompt — procedural knowledge the agent cannot infer on its own.
@@ -164,8 +164,8 @@ For simple cases, a single sentence works: `"PASS if the agent creates a valid C
 Run validation during development to catch issues early:
 
 ```
-python internal-skills/superskill-creator/scripts/validate_skill.py <skill-dir>
-python internal-skills/superskill-creator/scripts/validate_skill.py <skill-dir> --strict
+python internal-skills/dhub-skill-creator/scripts/validate_skill.py <skill-dir>
+python internal-skills/dhub-skill-creator/scripts/validate_skill.py <skill-dir> --strict
 ```
 
 Fix all errors before packaging. Address warnings to improve quality.
@@ -175,7 +175,7 @@ Fix all errors before packaging. Address warnings to improve quality.
 Create a distributable zip (runs validation first):
 
 ```
-python internal-skills/superskill-creator/scripts/package_skill.py <skill-dir> [--output-dir <dir>]
+python internal-skills/dhub-skill-creator/scripts/package_skill.py <skill-dir> [--output-dir <dir>]
 ```
 
 ### Iterate
