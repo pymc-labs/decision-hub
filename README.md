@@ -1,6 +1,6 @@
-# Decision Hub
-
-The package manager & runtime for AI agent skills.
+<p align="center">
+  <img src="images/banner.png" alt="Decision Hub — The Package Manager For Data Science Agents Skills" width="100%">
+</p>
 
 Decision Hub is a CLI-first registry that allows developers to publish, discover, and securely install "Skills" -- modular capabilities (code + prompts) that agents like Claude, Cursor, and Gemini can use.
 
