@@ -39,6 +39,7 @@ dhub run my-org/my-skill
 |---------|-------------|
 | `dhub login` | Authenticate via GitHub Device Flow |
 | `dhub publish` | Publish a skill to the registry |
+| `dhub publish-repo` | Publish all skills from a git repository |
 | `dhub install` | Install a skill |
 | `dhub list` | List installed skills |
 | `dhub delete` | Delete a skill from the registry |

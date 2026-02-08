@@ -21,6 +21,7 @@ dhub logout             Remove stored token
 dhub env                Show active environment, config path, API URL
 dhub init [path]        Scaffold a new skill project
 dhub publish [ref]      Publish a skill to the registry
+dhub publish-repo URL   Publish all skills from a git repo
 dhub install org/skill  Install a skill from the registry
 dhub uninstall org/skill  Remove a locally installed skill
 dhub list               List all published skills
@@ -121,6 +122,33 @@ If the skill has an `evals` block, agent evaluation runs in the background after
 The publish command creates a zip of the skill directory, excluding:
 - Hidden files (names starting with `.`)
 - `__pycache__/` directories
+
+## Publishing from a Git Repository
+
+Publish all skills found in a git repository in one command:
+
+```bash
+dhub publish-repo https://github.com/myorg/my-skills-repo
+dhub publish-repo git@github.com:myorg/my-skills-repo.git --ref v2.0
+dhub publish-repo https://github.com/myorg/repo --org myorg --minor
+```
+
+The command clones the repository, recursively discovers all directories containing a valid SKILL.md, and publishes each one. This is useful for monorepos containing multiple skills.
+
+### How discovery works
+
+1. The repo is cloned (shallow clone with `--depth 1`)
+2. All `SKILL.md` files are found recursively
+3. Hidden directories (`.git`, etc.), `node_modules`, and `__pycache__` are skipped
+4. Each `SKILL.md` is validated — only directories with valid frontmatter (name + description) are published
+5. Skills are published one by one; failures don't stop the remaining skills
+
+### Options
+
+- `--org` — target namespace (auto-detected if you belong to one)
+- `--ref` — branch, tag, or commit to checkout
+- `--version` — explicit semver for all skills
+- `--patch` / `--minor` / `--major` — version bump level (default: patch)
 
 ## Installing Skills
 

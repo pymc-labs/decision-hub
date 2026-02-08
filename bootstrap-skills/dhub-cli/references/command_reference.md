@@ -110,6 +110,46 @@ dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major]
 
 ---
 
+## dhub publish-repo
+
+Publish all skills discovered in a git repository.
+
+```
+dhub publish-repo REPO_URL [--org ORG] [--ref REF] [--version VER] [--patch] [--minor] [--major]
+```
+
+| Argument/Option | Required | Default | Description |
+|----------------|----------|---------|-------------|
+| `REPO_URL` | yes | — | Git-cloneable URL (HTTPS or SSH) |
+| `--org` | no | auto-detect | Target namespace |
+| `--ref` | no | default branch | Branch, tag, or commit to checkout |
+| `--version` | no | auto-bump | Explicit semver applied to all skills |
+| `--patch` | no | true (default bump) | Bump patch version |
+| `--minor` | no | false | Bump minor version |
+| `--major` | no | false | Bump major version |
+
+**Steps:**
+1. Clone the repository (shallow, `--depth 1`) into a temporary directory
+2. Recursively find all `SKILL.md` files, skipping hidden dirs, `node_modules`, `__pycache__`
+3. Validate each `SKILL.md` — only directories with valid frontmatter are included
+4. Publish each discovered skill using the same flow as `dhub publish`
+5. Clean up the temporary clone
+
+**Behavior:**
+- Skill names are read from each `SKILL.md` frontmatter `name` field
+- If one skill fails to publish, the remaining skills still get published
+- A summary is printed at the end: X published, Y skipped, Z failed
+- Exit code 1 if any skill failed to publish
+
+**Examples:**
+```bash
+dhub publish-repo https://github.com/myorg/skills-repo
+dhub publish-repo git@github.com:myorg/repo.git --org myorg --ref main
+dhub publish-repo https://github.com/myorg/repo --minor
+```
+
+---
+
 ## dhub install
 
 Install a skill from the registry.
