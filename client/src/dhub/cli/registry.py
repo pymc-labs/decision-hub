@@ -467,7 +467,7 @@ def eval_report_command(
     total = data["total"]
     duration = data["total_duration_ms"] / 1000
 
-    status_colors = {"passed": "green", "failed": "red", "error": "red", "pending": "yellow"}
+    status_colors = {"completed": "green", "failed": "red", "error": "red", "pending": "yellow"}
     status_color = status_colors.get(status, "white")
 
     console.print(f"\nEval Report: {org_slug}/{skill_name}@{version}")

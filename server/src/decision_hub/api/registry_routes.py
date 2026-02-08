@@ -674,6 +674,9 @@ def _quarantine_rejected_skill(
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=q_key,
     )
+    # Commit the audit record before raising so it survives the
+    # transaction rollback that engine.begin() performs on exception.
+    conn.commit()
     raise HTTPException(
         status_code=422,
         detail=f"Gauntlet checks failed: {report.summary}",
@@ -845,6 +848,12 @@ def _run_assessment_background(
         # kills idle-in-transaction connections well before that.
         agent_config = get_agent_config(eval_config.agent)
         required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
+        # The judge always calls the Anthropic API, so we need an
+        # ANTHROPIC_API_KEY even when the agent under test uses a different
+        # provider (e.g. codex uses CODEX_API_KEY, gemini uses GEMINI_API_KEY).
+        judge_key_name = "ANTHROPIC_API_KEY"
+        if judge_key_name not in required_keys:
+            required_keys.append(judge_key_name)
         with engine.connect() as conn:
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
             conn.commit()
@@ -864,6 +873,7 @@ def _run_assessment_background(
 
         # --- Phase 2: run pipeline (no DB connection held) ---
         print(f"[assessment] Phase 2: running pipeline ({len(eval_cases)} cases)", flush=True)
+        judge_api_key = agent_env_vars.get(judge_key_name, "")
         case_results, passed, total, total_duration_ms = run_eval_pipeline(
             skill_zip=skill_zip,
             eval_config=eval_config,
@@ -871,6 +881,7 @@ def _run_assessment_background(
             agent_env_vars=agent_env_vars,
             org_slug=org_slug,
             skill_name=skill_name,
+            judge_api_key=judge_api_key,
         )
 
         # --- Phase 3: store results in a fresh connection ---

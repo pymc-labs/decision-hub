@@ -17,6 +17,7 @@ def run_eval_pipeline(
     org_slug: str,
     skill_name: str,
     runtime=None,
+    judge_api_key: str = "",
 ) -> tuple[list[dict], int, int, int]:
     """Execute eval cases in Modal sandbox and judge outputs.
 
@@ -35,11 +36,18 @@ def run_eval_pipeline(
         org_slug: Organization slug.
         skill_name: Skill name.
         runtime: Optional RuntimeConfig (reserved for future use).
+        judge_api_key: Anthropic API key for the LLM judge. When empty,
+            falls back to the agent's own key (works for Claude agent).
 
     Returns:
         Tuple of (case_results, passed_count, total_count, total_duration_ms).
     """
     agent_config = get_agent_config(eval_config.agent)
+
+    # The judge always calls the Anthropic API. Use the dedicated judge key
+    # when provided, falling back to the agent key for Claude (where the
+    # agent runtime key and judge key are the same ANTHROPIC_API_KEY).
+    effective_judge_key = judge_api_key or agent_env_vars.get(agent_config.key_env_var, "")
 
     case_results: list[dict] = []
     passed = 0
@@ -90,7 +98,7 @@ def run_eval_pipeline(
         # Stage 3: Judge the output with LLM
         try:
             judgment = judge_eval_output(
-                api_key=agent_env_vars.get(agent_config.key_env_var, ""),
+                api_key=effective_judge_key,
                 model=eval_config.judge_model,
                 eval_case_name=case.name,
                 eval_criteria=case.judge_criteria,
