@@ -80,29 +80,74 @@ AnalyzePromptFn = Callable[
 
 
 def check_manifest_schema(content: str) -> EvalResult:
-    """Validate that SKILL.md frontmatter contains required fields.
+    """Validate that SKILL.md YAML frontmatter contains required fields.
 
-    Performs a lightweight check that 'name' and 'description' are present
-    in the YAML frontmatter.
+    Parses the frontmatter block (between --- delimiters) as YAML rather
+    than regex-matching the full file body, preventing spoofed field names
+    in markdown content from passing validation.
     """
-    has_name = bool(re.search(r"^name\s*:", content, re.MULTILINE))
-    has_desc = bool(re.search(r"^description\s*:", content, re.MULTILINE))
+    import yaml
 
-    if has_name and has_desc:
+    # Extract frontmatter between --- delimiters
+    lines = content.split("\n")
+    start = 0
+    while start < len(lines) and lines[start].strip() == "":
+        start += 1
+
+    if start >= len(lines) or lines[start].strip() != "---":
         return EvalResult(
             check_name="manifest_schema",
-            severity="pass",
-            message="SKILL.md contains required fields",
+            severity="fail",
+            message="SKILL.md missing YAML frontmatter (no opening ---)",
         )
+
+    end = None
+    for i in range(start + 1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+
+    if end is None:
+        return EvalResult(
+            check_name="manifest_schema",
+            severity="fail",
+            message="SKILL.md missing YAML frontmatter (no closing ---)",
+        )
+
+    frontmatter_str = "\n".join(lines[start + 1 : end])
+    try:
+        data = yaml.safe_load(frontmatter_str)
+    except yaml.YAMLError as exc:
+        return EvalResult(
+            check_name="manifest_schema",
+            severity="fail",
+            message=f"SKILL.md frontmatter is not valid YAML: {exc}",
+        )
+
+    if not isinstance(data, dict):
+        return EvalResult(
+            check_name="manifest_schema",
+            severity="fail",
+            message="SKILL.md frontmatter must be a YAML mapping",
+        )
+
     missing = []
-    if not has_name:
+    if not data.get("name"):
         missing.append("name")
-    if not has_desc:
+    if not data.get("description"):
         missing.append("description")
+
+    if missing:
+        return EvalResult(
+            check_name="manifest_schema",
+            severity="fail",
+            message=f"SKILL.md missing required fields: {', '.join(missing)}",
+        )
+
     return EvalResult(
         check_name="manifest_schema",
-        severity="fail",
-        message=f"SKILL.md missing required fields: {', '.join(missing)}",
+        severity="pass",
+        message="SKILL.md contains required fields",
     )
 
 

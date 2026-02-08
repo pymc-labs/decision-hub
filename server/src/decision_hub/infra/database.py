@@ -52,7 +52,7 @@ users_table = Table(
         server_default=sa.func.gen_random_uuid(),
     ),
     Column("github_id", String, nullable=False, unique=True),
-    Column("username", String, nullable=False),
+    Column("username", String, nullable=False, unique=True),
 )
 
 organizations_table = Table(

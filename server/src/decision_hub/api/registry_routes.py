@@ -811,9 +811,10 @@ def _parse_manifest_from_content(
     """Parse SKILL.md and extract runtime config, eval config, and eval cases.
 
     Uses a temp file because parse_skill_md expects a file path.
-    Returns (runtime_config_dict, eval_config, eval_cases).  Falls back to
-    (None, None, ()) when the manifest is malformed — the gauntlet will
-    catch those issues downstream.
+    Returns (runtime_config_dict, eval_config, eval_cases).
+
+    Raises HTTPException(422) if the manifest is malformed — fail-closed
+    to prevent publishing skills with unparseable manifests.
     """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as tmp:
         tmp.write(skill_md_content)
@@ -826,8 +827,12 @@ def _parse_manifest_from_content(
             _extract_assessment_config(manifest),
             _try_parse_assessment_cases(file_bytes),
         )
-    except ValueError:
-        return None, None, ()
+    except ValueError as exc:
+        logger.warning("Manifest parse failed (rejecting publish): %s", exc)
+        raise HTTPException(
+            status_code=422,
+            detail=f"SKILL.md manifest is malformed: {exc}",
+        )
     finally:
         tmp_path.unlink()
 
@@ -890,9 +895,12 @@ def _quarantine_rejected_skill(
     llm_reasoning: dict | None,
     publisher: str,
 ) -> None:
-    """Upload rejected zip to quarantine, log the rejection, and raise 422."""
+    """Upload rejected zip to quarantine, log the rejection, and raise 422.
+
+    Inserts and commits the audit log before uploading to quarantine S3,
+    so the rejection record is durable even if the S3 upload fails.
+    """
     q_key = build_quarantine_s3_key(org_slug, skill_name, version)
-    upload_skill_zip(s3_client, bucket, q_key, file_bytes)
 
     insert_audit_log(
         conn,
@@ -906,6 +914,13 @@ def _quarantine_rejected_skill(
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=q_key,
     )
+    # Commit the audit record before raising (or uploading to S3) so it
+    # survives the transaction rollback that engine.begin() performs on
+    # exception. This ensures rejection forensics are always preserved.
+    conn.commit()
+
+    upload_skill_zip(s3_client, bucket, q_key, file_bytes)
+
     raise HTTPException(
         status_code=422,
         detail=f"Gauntlet checks failed: {report.summary}",
@@ -993,13 +1008,21 @@ def _extract_assessment_config(manifest):
 
 
 def _try_parse_assessment_cases(file_bytes: bytes):
-    """Try to parse eval cases from zip. Returns empty tuple if evals/ not present."""
+    """Parse eval cases from zip. Returns empty tuple if no evals/ directory.
+
+    Raises HTTPException(422) if eval files exist but are malformed —
+    fail-closed to prevent bypassing the eval pipeline with broken YAML.
+    """
     from decision_hub.domain.skill_manifest import parse_eval_cases_from_zip
 
     try:
         return parse_eval_cases_from_zip(file_bytes)
-    except ValueError:
-        return ()
+    except ValueError as exc:
+        logger.warning("Eval case parse failed (rejecting publish): %s", exc)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Eval case files are malformed: {exc}",
+        )
 
 
 def _maybe_trigger_agent_assessment(
@@ -1017,7 +1040,16 @@ def _maybe_trigger_agent_assessment(
     Uses Modal's ``Function.spawn()`` so the eval runs in its own container,
     fully independent of the web server's lifecycle.  The caller must commit
     the version row before calling this function.
+
+    Raises HTTPException(422) if eval config is declared in the manifest
+    but no valid eval case files were found — prevents bypassing the eval
+    pipeline by omitting case files while keeping the config.
     """
+    if eval_config and not eval_cases:
+        raise HTTPException(
+            status_code=422,
+            detail="Eval config declared in manifest but no eval case files found in evals/",
+        )
     if eval_config and eval_cases:
         import modal
 
@@ -1077,6 +1109,12 @@ def _run_assessment_background(
         # kills idle-in-transaction connections well before that.
         agent_config = get_agent_config(eval_config.agent)
         required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
+        # The judge always calls the Anthropic API, so we need an
+        # ANTHROPIC_API_KEY even when the agent under test uses a different
+        # provider (e.g. codex uses CODEX_API_KEY, gemini uses GEMINI_API_KEY).
+        judge_key_name = "ANTHROPIC_API_KEY"
+        if judge_key_name not in required_keys:
+            required_keys.append(judge_key_name)
         with engine.connect() as conn:
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
             conn.commit()
@@ -1096,6 +1134,7 @@ def _run_assessment_background(
 
         # --- Phase 2: run pipeline (no DB connection held) ---
         print(f"[assessment] Phase 2: running pipeline ({len(eval_cases)} cases)", flush=True)
+        judge_api_key = agent_env_vars.get(judge_key_name, "")
         case_results, passed, total, total_duration_ms = run_eval_pipeline(
             skill_zip=skill_zip,
             eval_config=eval_config,
@@ -1103,6 +1142,7 @@ def _run_assessment_background(
             agent_env_vars=agent_env_vars,
             org_slug=org_slug,
             skill_name=skill_name,
+            judge_api_key=judge_api_key,
         )
 
         # --- Phase 3: store results in a fresh connection ---

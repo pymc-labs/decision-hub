@@ -106,6 +106,11 @@ def create_app() -> FastAPI:
             min_version=settings.min_cli_version,
         )
 
+    @app.get("/cli/latest-version", tags=["cli"])
+    def latest_version() -> dict[str, str]:
+        """Return the latest published CLI version for upgrade checks."""
+        return {"latest_version": settings.latest_cli_version}
+
     from decision_hub.api.auth_routes import router as auth_router
     from decision_hub.api.keys_routes import router as keys_router
     from decision_hub.api.org_routes import org_router

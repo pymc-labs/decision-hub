@@ -305,7 +305,10 @@ def _create_zip(path: Path) -> bytes:
 
 def list_command() -> None:
     """List all published skills on the registry."""
+    from dhub.cli.banner import check_and_show_update, print_banner
     from dhub.cli.config import build_headers, get_api_url, get_optional_token
+
+    print_banner(console)
 
     api_url = get_api_url()
 
@@ -321,6 +324,7 @@ def list_command() -> None:
 
     if not skills:
         console.print("No skills published yet.")
+        check_and_show_update(console)
         return
 
     table = Table(title="Published Skills", show_lines=True)
@@ -349,6 +353,8 @@ def list_command() -> None:
         )
 
     console.print(table)
+
+    check_and_show_update(console)
 
 
 def delete_command(
@@ -472,7 +478,7 @@ def eval_report_command(
     total = data["total"]
     duration = data["total_duration_ms"] / 1000
 
-    status_colors = {"passed": "green", "failed": "red", "error": "red", "pending": "yellow"}
+    status_colors = {"completed": "green", "failed": "red", "error": "red", "pending": "yellow"}
     status_color = status_colors.get(status, "white")
 
     console.print(f"\nEval Report: {org_slug}/{skill_name}@{version}")

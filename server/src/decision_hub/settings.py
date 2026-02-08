@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # Empty string disables enforcement (backward-compatible rollout).
     min_cli_version: str = ""
 
+    # Latest published CLI version. Served via /cli/latest-version so the
+    # CLI can suggest upgrades. Empty string disables the check.
+    latest_cli_version: str = ""
+
 
 def get_env() -> str:
     """Return current environment name from DHUB_ENV (default: 'prod')."""

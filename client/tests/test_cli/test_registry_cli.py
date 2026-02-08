@@ -472,10 +472,12 @@ class TestInstallCommand:
 class TestListCommand:
 
     @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_list_command(
         self,
         _mock_url,
+        _mock_token,
     ) -> None:
         """List displays a table when skills exist."""
         respx.get("http://test:8000/v1/skills").mock(
@@ -492,6 +494,9 @@ class TestListCommand:
                 },
             ])
         )
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
+        )
 
         result = runner.invoke(app, ["list"])
 
@@ -507,14 +512,19 @@ class TestListCommand:
         assert "5" in result.output
 
     @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_list_command_empty(
         self,
         _mock_url,
+        _mock_token,
     ) -> None:
         """List prints a message when no skills are published."""
         respx.get("http://test:8000/v1/skills").mock(
             return_value=httpx.Response(200, json=[])
+        )
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
         )
 
         result = runner.invoke(app, ["list"])

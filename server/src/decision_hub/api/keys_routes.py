@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_connection, get_current_user, get_settings
 from decision_hub.domain.crypto import encrypt_value
@@ -54,7 +55,13 @@ def store_key(
     the raw value is never stored or returned.
     """
     encrypted = encrypt_value(body.value, settings.fernet_key)
-    key_record = insert_api_key(conn, current_user.id, body.key_name, encrypted)
+    try:
+        key_record = insert_api_key(conn, current_user.id, body.key_name, encrypted)
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Key '{body.key_name}' already exists",
+        )
 
     return StoreKeyResponse(
         key_name=key_record.key_name,

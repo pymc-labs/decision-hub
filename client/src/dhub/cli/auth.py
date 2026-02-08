@@ -14,7 +14,10 @@ def login_command(
     api_url: str = typer.Option(None, "--api-url", help="API URL override"),
 ) -> None:
     """Authenticate with Decision Hub via GitHub."""
+    from dhub.cli.banner import check_and_show_update, print_banner
     from dhub.cli.config import CliConfig, build_headers, get_api_url, save_config
+
+    print_banner(console)
 
     base_url = api_url or get_api_url()
 
@@ -58,6 +61,8 @@ def login_command(
         console.print(f"Namespaces: {', '.join(orgs)}")
     if default_org:
         console.print(f"Default namespace: [cyan]{default_org}[/]")
+
+    check_and_show_update(console)
 
 
 def logout_command() -> None:
