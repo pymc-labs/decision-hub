@@ -85,6 +85,23 @@ dhub visibility my-org/my-skill org     # make org-private
 dhub visibility my-org/my-skill public  # make public again
 ```
 
+### Access Grants (Sharing Private Skills)
+
+Private (org-visibility) skills can be shared with other orgs or users. Since every user has a personal org (their username), granting to a user is the same as granting to their personal org.
+
+```bash
+# Grant access to another org or user
+dhub access grant my-org/my-skill partner-org
+
+# Revoke access
+dhub access revoke my-org/my-skill partner-org
+
+# List all access grants
+dhub access list my-org/my-skill
+```
+
+Only org admins can manage access grants.
+
 ### Installing Skills
 
 Only skills that have passed evaluation can be installed:

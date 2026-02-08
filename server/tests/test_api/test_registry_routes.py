@@ -1505,3 +1505,314 @@ class TestPublishWithVisibility:
 
         assert resp.status_code == 422
         assert "Invalid visibility" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Access grant endpoints
+# ---------------------------------------------------------------------------
+
+class TestGrantAccess:
+    """POST /v1/skills/{org}/{skill}/access -- grant access to a private skill."""
+
+    @patch("decision_hub.api.registry_routes.insert_skill_access_grant")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    def test_grant_access_success(
+        self,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_org: MagicMock,
+        mock_insert_grant: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Admin can grant access to another org."""
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org, visibility="org")
+        grantee_org = Organization(id=uuid4(), slug="grantee-org", owner_id=uuid4())
+
+        # find_org_by_slug is called twice: once for the owning org (in _require_org_membership),
+        # and once for the grantee org
+        mock_find_org.side_effect = [org, grantee_org]
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_find_skill.return_value = skill
+        mock_insert_grant.return_value = MagicMock()
+
+        resp = client.post(
+            "/v1/skills/test-org/my-skill/access",
+            headers=auth_headers,
+            json={"grantee_org_slug": "grantee-org"},
+        )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["org_slug"] == "test-org"
+        assert data["skill_name"] == "my-skill"
+        assert data["grantee_org_slug"] == "grantee-org"
+        mock_insert_grant.assert_called_once()
+
+    def test_grant_access_no_auth(self, client: TestClient) -> None:
+        """Granting access without auth should return 401."""
+        resp = client.post(
+            "/v1/skills/test-org/my-skill/access",
+            json={"grantee_org_slug": "other-org"},
+        )
+        assert resp.status_code == 401
+
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    def test_grant_access_forbidden_for_member(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Regular members cannot grant access."""
+        org = _make_org(sample_user_id)
+        mock_find_org.return_value = org
+        mock_find_member.return_value = OrgMember(
+            org_id=org.id, user_id=sample_user_id, role="member",
+        )
+
+        resp = client.post(
+            "/v1/skills/test-org/my-skill/access",
+            headers=auth_headers,
+            json={"grantee_org_slug": "other-org"},
+        )
+
+        assert resp.status_code == 403
+
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    def test_grant_access_skill_not_found(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Granting access to a non-existent skill should return 404."""
+        org = _make_org(sample_user_id)
+        mock_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_find_skill.return_value = None
+
+        resp = client.post(
+            "/v1/skills/test-org/no-skill/access",
+            headers=auth_headers,
+            json={"grantee_org_slug": "other-org"},
+        )
+
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    def test_grant_access_grantee_org_not_found(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Granting access to a non-existent grantee org should return 404."""
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org)
+        # First call returns owning org, second returns None for grantee
+        mock_find_org.side_effect = [org, None]
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_find_skill.return_value = skill
+
+        resp = client.post(
+            "/v1/skills/test-org/my-skill/access",
+            headers=auth_headers,
+            json={"grantee_org_slug": "no-such-org"},
+        )
+
+        assert resp.status_code == 404
+        assert "no-such-org" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_routes.insert_skill_access_grant")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    def test_grant_access_duplicate_returns_409(
+        self,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_org: MagicMock,
+        mock_insert_grant: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Duplicate grant should return 409."""
+        import sqlalchemy as sa
+
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org, visibility="org")
+        grantee_org = Organization(id=uuid4(), slug="grantee-org", owner_id=uuid4())
+
+        mock_find_org.side_effect = [org, grantee_org]
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_find_skill.return_value = skill
+        mock_insert_grant.side_effect = sa.exc.IntegrityError(
+            statement="INSERT", params={}, orig=Exception("unique violation"),
+        )
+
+        resp = client.post(
+            "/v1/skills/test-org/my-skill/access",
+            headers=auth_headers,
+            json={"grantee_org_slug": "grantee-org"},
+        )
+
+        assert resp.status_code == 409
+        assert "already granted" in resp.json()["detail"].lower()
+
+
+class TestRevokeAccess:
+    """DELETE /v1/skills/{org}/{skill}/access/{grantee} -- revoke access."""
+
+    @patch("decision_hub.api.registry_routes.delete_skill_access_grant")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    def test_revoke_access_success(
+        self,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_org: MagicMock,
+        mock_delete_grant: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Admin can revoke access."""
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org, visibility="org")
+        grantee_org = Organization(id=uuid4(), slug="grantee-org", owner_id=uuid4())
+
+        mock_find_org.side_effect = [org, grantee_org]
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_find_skill.return_value = skill
+        mock_delete_grant.return_value = True
+
+        resp = client.delete(
+            "/v1/skills/test-org/my-skill/access/grantee-org",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["grantee_org_slug"] == "grantee-org"
+        mock_delete_grant.assert_called_once()
+
+    def test_revoke_access_no_auth(self, client: TestClient) -> None:
+        """Revoking without auth should return 401."""
+        resp = client.delete("/v1/skills/test-org/my-skill/access/other-org")
+        assert resp.status_code == 401
+
+    @patch("decision_hub.api.registry_routes.delete_skill_access_grant")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    def test_revoke_access_not_found(
+        self,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_org: MagicMock,
+        mock_delete_grant: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Revoking a non-existent grant should return 404."""
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org)
+        grantee_org = Organization(id=uuid4(), slug="grantee-org", owner_id=uuid4())
+
+        mock_find_org.side_effect = [org, grantee_org]
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_find_skill.return_value = skill
+        mock_delete_grant.return_value = False
+
+        resp = client.delete(
+            "/v1/skills/test-org/my-skill/access/grantee-org",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 404
+        assert "No access grant" in resp.json()["detail"]
+
+
+class TestListAccess:
+    """GET /v1/skills/{org}/{skill}/access -- list access grants."""
+
+    @patch("decision_hub.api.registry_routes.list_skill_access_grants")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    def test_list_access_empty(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_list_grants: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Listing grants on a skill with no grants returns empty list."""
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org)
+        mock_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_find_skill.return_value = skill
+        mock_list_grants.return_value = []
+
+        resp = client.get(
+            "/v1/skills/test-org/my-skill/access",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_list_access_no_auth(self, client: TestClient) -> None:
+        """Listing without auth should return 401."""
+        resp = client.get("/v1/skills/test-org/my-skill/access")
+        assert resp.status_code == 401
+
+    @patch("decision_hub.api.registry_routes.find_org_member")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    def test_list_access_forbidden_for_member(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Regular members cannot list access grants."""
+        org = _make_org(sample_user_id)
+        mock_find_org.return_value = org
+        mock_find_member.return_value = OrgMember(
+            org_id=org.id, user_id=sample_user_id, role="member",
+        )
+
+        resp = client.get(
+            "/v1/skills/test-org/my-skill/access",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 403

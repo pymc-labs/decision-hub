@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
+import sqlalchemy as sa
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user, get_optional_user, get_s3_client, get_settings
@@ -22,8 +23,11 @@ from decision_hub.domain.publish import (
 from decision_hub.domain.search import format_trust_score
 from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md
 from decision_hub.infra.database import (
+    organizations_table,
+    users_table,
     delete_all_versions,
     delete_skill as delete_skill_record,
+    delete_skill_access_grant,
     delete_version,
     fetch_all_skills_for_index,
     find_audit_logs,
@@ -37,7 +41,9 @@ from decision_hub.infra.database import (
     insert_audit_log,
     insert_eval_report,
     insert_skill,
+    insert_skill_access_grant,
     insert_version,
+    list_skill_access_grants,
     list_user_org_ids,
     resolve_latest_version,
     resolve_version,
@@ -165,6 +171,25 @@ class VisibilityResponse(BaseModel):
     org_slug: str
     skill_name: str
     visibility: str
+
+
+class AccessGrantRequest(BaseModel):
+    """Request body for granting access to a private skill."""
+    grantee_org_slug: str
+
+
+class AccessGrantResponse(BaseModel):
+    """Confirmation of an access grant."""
+    org_slug: str
+    skill_name: str
+    grantee_org_slug: str
+
+
+class AccessGrantListEntry(BaseModel):
+    """A single access grant entry."""
+    grantee_org_slug: str
+    granted_by: str
+    created_at: str | None
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -526,6 +551,142 @@ def change_visibility(
         skill_name=skill_name,
         visibility=body.visibility,
     )
+
+
+@router.post(
+    "/skills/{org_slug}/{skill_name}/access",
+    response_model=AccessGrantResponse,
+    status_code=201,
+)
+def grant_access(
+    org_slug: str,
+    skill_name: str,
+    body: AccessGrantRequest,
+    conn: Connection = Depends(get_connection),
+    current_user: User = Depends(get_current_user),
+) -> AccessGrantResponse:
+    """Grant an org (or user) access to a private skill.
+
+    Only org admins of the owning org can grant access. Since every user
+    has a personal org (their username), granting to a user is the same
+    as granting to their personal org.
+    """
+    org = _require_org_membership(conn, org_slug, current_user.id, admin_only=True)
+    skill = find_skill(conn, org.id, skill_name)
+    if skill is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found in {org_slug}",
+        )
+
+    grantee_org = find_org_by_slug(conn, body.grantee_org_slug)
+    if grantee_org is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Organisation '{body.grantee_org_slug}' not found",
+        )
+
+    try:
+        insert_skill_access_grant(conn, skill.id, grantee_org.id, current_user.id)
+    except sa.exc.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Access already granted to '{body.grantee_org_slug}'",
+        )
+
+    return AccessGrantResponse(
+        org_slug=org_slug,
+        skill_name=skill_name,
+        grantee_org_slug=body.grantee_org_slug,
+    )
+
+
+@router.delete(
+    "/skills/{org_slug}/{skill_name}/access/{grantee_org_slug}",
+    response_model=AccessGrantResponse,
+)
+def revoke_access(
+    org_slug: str,
+    skill_name: str,
+    grantee_org_slug: str,
+    conn: Connection = Depends(get_connection),
+    current_user: User = Depends(get_current_user),
+) -> AccessGrantResponse:
+    """Revoke an org's access to a private skill.
+
+    Only org admins of the owning org can revoke access.
+    """
+    org = _require_org_membership(conn, org_slug, current_user.id, admin_only=True)
+    skill = find_skill(conn, org.id, skill_name)
+    if skill is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found in {org_slug}",
+        )
+
+    grantee_org = find_org_by_slug(conn, grantee_org_slug)
+    if grantee_org is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Organisation '{grantee_org_slug}' not found",
+        )
+
+    deleted = delete_skill_access_grant(conn, skill.id, grantee_org.id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No access grant found for '{grantee_org_slug}'",
+        )
+
+    return AccessGrantResponse(
+        org_slug=org_slug,
+        skill_name=skill_name,
+        grantee_org_slug=grantee_org_slug,
+    )
+
+
+@router.get(
+    "/skills/{org_slug}/{skill_name}/access",
+    response_model=list[AccessGrantListEntry],
+)
+def list_access(
+    org_slug: str,
+    skill_name: str,
+    conn: Connection = Depends(get_connection),
+    current_user: User = Depends(get_current_user),
+) -> list[AccessGrantListEntry]:
+    """List all access grants for a private skill.
+
+    Only org admins of the owning org can list grants.
+    """
+    org = _require_org_membership(conn, org_slug, current_user.id, admin_only=True)
+    skill = find_skill(conn, org.id, skill_name)
+    if skill is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found in {org_slug}",
+        )
+
+    grants = list_skill_access_grants(conn, skill.id)
+
+    # Resolve grantee org slugs
+    results = []
+    for grant in grants:
+        grantee_org = conn.execute(
+            sa.select(organizations_table.c.slug)
+            .where(organizations_table.c.id == grant.grantee_org_id)
+        ).scalar()
+        granted_by_username = conn.execute(
+            sa.select(users_table.c.username)
+            .where(users_table.c.id == grant.granted_by)
+        ).scalar()
+        results.append(AccessGrantListEntry(
+            grantee_org_slug=grantee_org or str(grant.grantee_org_id),
+            granted_by=granted_by_username or str(grant.granted_by),
+            created_at=grant.created_at.isoformat() if grant.created_at else None,
+        ))
+
+    return results
 
 
 @router.delete(

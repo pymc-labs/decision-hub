@@ -45,6 +45,15 @@ class Skill:
 
 
 @dataclass(frozen=True)
+class SkillAccessGrant:
+    id: UUID
+    skill_id: UUID
+    grantee_org_id: UUID
+    granted_by: UUID
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class Version:
     id: UUID
     skill_id: UUID

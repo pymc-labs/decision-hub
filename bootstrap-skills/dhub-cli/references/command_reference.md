@@ -271,6 +271,77 @@ The `@VERSION` is required. Format: `myorg/my-skill@1.0.0`.
 
 ---
 
+## dhub access grant
+
+Grant an org (or user) access to a private skill.
+
+```
+dhub access grant ORG/SKILL GRANTEE
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+| `GRANTEE` | yes | Org or user slug to grant access to |
+
+Since every user has a personal org (their username), granting to a user is the same as granting to their personal org.
+
+Only org admins of the owning org can grant access.
+
+**API:** POST `/v1/skills/{org}/{skill}/access`
+
+**Error codes:**
+- HTTP 403 → only org admins can manage access
+- HTTP 404 → skill or grantee org not found
+- HTTP 409 → access already granted
+
+---
+
+## dhub access revoke
+
+Revoke an org's access to a private skill.
+
+```
+dhub access revoke ORG/SKILL GRANTEE
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+| `GRANTEE` | yes | Org or user slug to revoke access from |
+
+Only org admins of the owning org can revoke access.
+
+**API:** DELETE `/v1/skills/{org}/{skill}/access/{grantee}`
+
+**Error codes:**
+- HTTP 403 → only org admins can manage access
+- HTTP 404 → skill, grantee org, or grant not found
+
+---
+
+## dhub access list
+
+List all access grants for a private skill.
+
+```
+dhub access list ORG/SKILL
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+
+Displays a table with grantee org slug, granted-by username, and date. Only org admins of the owning org can list grants.
+
+**API:** GET `/v1/skills/{org}/{skill}/access`
+
+**Error codes:**
+- HTTP 403 → only org admins can view access grants
+- HTTP 404 → skill not found
+
+---
+
 ## dhub org list
 
 List namespaces you can publish to.
