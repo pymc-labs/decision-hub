@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
-from decision_hub.api.deps import get_connection, get_current_user, get_s3_client, get_settings
+from decision_hub.api.deps import get_connection, get_current_user, get_optional_user, get_s3_client, get_settings
 from decision_hub.domain.gauntlet import run_static_checks
 from decision_hub.domain.publish import (
     build_quarantine_s3_key,
@@ -38,9 +38,11 @@ from decision_hub.infra.database import (
     insert_eval_report,
     insert_skill,
     insert_version,
+    list_user_org_ids,
     resolve_latest_version,
     resolve_version,
     update_skill_description,
+    update_skill_visibility,
 )
 from decision_hub.infra.storage import (
     compute_checksum,
@@ -107,6 +109,7 @@ class SkillSummary(BaseModel):
     safety_rating: str
     author: str
     download_count: int = 0
+    visibility: str = "public"
 
 
 class AuditLogResponse(BaseModel):
@@ -152,6 +155,21 @@ class EvalReportResponse(BaseModel):
     created_at: str | None
 
 
+class VisibilityRequest(BaseModel):
+    """Request body for changing skill visibility."""
+    visibility: str
+
+
+class VisibilityResponse(BaseModel):
+    """Confirmation of a visibility change."""
+    org_slug: str
+    skill_name: str
+    visibility: str
+
+
+_VALID_VISIBILITIES = {"public", "org"}
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -183,6 +201,12 @@ def publish_skill(
 
     meta = json.loads(metadata)
     org_slug, skill_name, version = meta["org_slug"], meta["skill_name"], meta["version"]
+    visibility = meta.get("visibility", "public")
+    if visibility not in _VALID_VISIBILITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid visibility '{visibility}'. Must be 'public' or 'org'.",
+        )
     validate_skill_name(skill_name)
     validate_semver(version)
 
@@ -231,9 +255,10 @@ def publish_skill(
     eval_status = report.grade
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
-        skill = insert_skill(conn, org.id, skill_name, description)
+        skill = insert_skill(conn, org.id, skill_name, description, visibility=visibility)
     else:
         update_skill_description(conn, skill.id, description)
+        update_skill_visibility(conn, skill.id, visibility)
 
     if find_version(conn, skill.id, version) is not None:
         raise HTTPException(
@@ -299,12 +324,15 @@ def publish_skill(
 @router.get("/skills", response_model=list[SkillSummary])
 def list_skills(
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_optional_user),
 ) -> list[SkillSummary]:
     """List all published skills with their latest version info.
 
-    Public endpoint — no authentication required.
+    Uses optional auth: unauthenticated callers see only public skills.
+    Authenticated callers also see org-private skills from their orgs.
     """
-    rows = fetch_all_skills_for_index(conn)
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    rows = fetch_all_skills_for_index(conn, user_org_ids=user_org_ids)
     return [
         SkillSummary(
             org_slug=row["org_slug"],
@@ -315,6 +343,7 @@ def list_skills(
             safety_rating=format_trust_score(row["eval_status"]),
             author=row.get("published_by", ""),
             download_count=row.get("download_count", 0),
+            visibility=row.get("visibility", "public"),
         )
         for row in rows
     ]
@@ -352,14 +381,19 @@ def resolve_skill(
     conn: Connection = Depends(get_connection),
     s3_client=Depends(get_s3_client),
     settings: Settings = Depends(get_settings),
+    current_user: User | None = Depends(get_optional_user),
 ) -> ResolveResponse:
     """Resolve a skill version and return a pre-signed download URL.
 
     The ``spec`` query parameter can be ``latest`` or an exact semver string.
     Set ``allow_risky=true`` to also include C-grade versions.
+
+    Org-private skills require authentication + org membership.
     """
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     version = resolve_version(
         conn, org_slug, skill_name, spec, allow_risky=allow_risky,
+        user_org_ids=user_org_ids,
     )
     if version is None:
         raise HTTPException(
@@ -455,6 +489,43 @@ def get_eval_report_by_version_path(
     if report is None:
         return None
     return _report_to_response(report)
+
+
+@router.put(
+    "/skills/{org_slug}/{skill_name}/visibility",
+    response_model=VisibilityResponse,
+)
+def change_visibility(
+    org_slug: str,
+    skill_name: str,
+    body: VisibilityRequest,
+    conn: Connection = Depends(get_connection),
+    current_user: User = Depends(get_current_user),
+) -> VisibilityResponse:
+    """Change the visibility of a skill.
+
+    Only organisation owners and admins can change visibility.
+    """
+    if body.visibility not in _VALID_VISIBILITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid visibility '{body.visibility}'. Must be 'public' or 'org'.",
+        )
+    org = _require_org_membership(conn, org_slug, current_user.id, admin_only=True)
+    skill = find_skill(conn, org.id, skill_name)
+    if skill is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found in {org_slug}",
+        )
+
+    update_skill_visibility(conn, skill.id, body.visibility)
+
+    return VisibilityResponse(
+        org_slug=org_slug,
+        skill_name=skill_name,
+        visibility=body.visibility,
+    )
 
 
 @router.delete(

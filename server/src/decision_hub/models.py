@@ -9,6 +9,7 @@ from uuid import UUID
 CheckSeverity = Literal["pass", "warn", "fail"]
 SafetyGrade = Literal["A", "B", "C", "F"]
 EvalReportStatus = Literal["pending", "completed", "failed", "error"]
+SkillVisibility = Literal["public", "org"]
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class Skill:
     name: str
     description: str
     download_count: int = 0
+    visibility: SkillVisibility = "public"
 
 
 @dataclass(frozen=True)

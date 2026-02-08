@@ -30,7 +30,7 @@ def main(
 from dhub.cli.auth import login_command, logout_command  # noqa: E402
 from dhub.cli.env import env_command  # noqa: E402
 from dhub.cli.init import init_command  # noqa: E402
-from dhub.cli.registry import delete_command, eval_report_command, install_command, list_command, publish_command, uninstall_command  # noqa: E402
+from dhub.cli.registry import delete_command, eval_report_command, install_command, list_command, publish_command, uninstall_command, visibility_command  # noqa: E402
 from dhub.cli.runtime import run_command  # noqa: E402
 from dhub.cli.search import ask_command  # noqa: E402
 
@@ -46,6 +46,7 @@ app.command("delete")(delete_command)
 app.command("eval-report")(eval_report_command)
 app.command("run")(run_command)
 app.command("ask")(ask_command)
+app.command("visibility")(visibility_command)
 
 # Register subcommand groups
 from dhub.cli.config_cmd import config_app  # noqa: E402

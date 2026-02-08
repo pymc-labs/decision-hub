@@ -24,6 +24,7 @@ dhub publish [ref]      Publish a skill to the registry
 dhub install org/skill  Install a skill from the registry
 dhub uninstall org/skill  Remove a locally installed skill
 dhub list               List all published skills
+dhub visibility org/skill LEVEL  Change skill visibility (public/org)
 dhub delete org/skill   Delete skill versions from registry
 dhub run org/skill      Run a locally installed skill
 dhub ask "query"        Natural language skill search
@@ -87,6 +88,7 @@ dhub publish --version 2.0.0  # explicit version
 ```bash
 dhub publish myorg/my-skill          # specify org/skill, auto-bump patch
 dhub publish myorg/my-skill ./path   # specify path to skill directory
+dhub publish myorg/my-skill --private  # publish as org-private
 ```
 
 ### How auto-detection works
@@ -121,6 +123,24 @@ If the skill has an `evals` block, agent evaluation runs in the background after
 The publish command creates a zip of the skill directory, excluding:
 - Hidden files (names starting with `.`)
 - `__pycache__/` directories
+
+## Skill Visibility
+
+Skills have two visibility levels:
+
+| Level | Who can see/install | Listed/searchable? |
+|-------|--------------------|--------------------|
+| `public` (default) | Anyone | Yes, always |
+| `org` | Org members only | Only for org members |
+
+```bash
+dhub publish myorg/my-skill --private     # publish as org-private
+dhub publish myorg/my-skill               # default: public
+dhub visibility myorg/my-skill org        # change to org-private after publish
+dhub visibility myorg/my-skill public     # change back to public
+```
+
+Only org admins can change visibility after publish. Unauthenticated users only see public skills in `dhub list` and `dhub ask`.
 
 ## Installing Skills
 

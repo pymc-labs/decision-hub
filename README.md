@@ -65,6 +65,24 @@ dhub publish --org my-org --name my-skill --major
 
 # Explicit version (overrides auto-bump)
 dhub publish --org my-org --name my-skill --version 1.0.0
+
+# Publish as org-private (only visible to org members)
+dhub publish my-org/my-skill --private
+```
+
+### Skill Visibility
+
+Skills have two visibility levels:
+
+| Level | Who can see/install | Listed/searchable? |
+|-------|--------------------|--------------------|
+| `public` (default) | Anyone | Yes, always |
+| `org` | Org members only | Only for org members |
+
+```bash
+# Change visibility after publish (org admins only)
+dhub visibility my-org/my-skill org     # make org-private
+dhub visibility my-org/my-skill public  # make public again
 ```
 
 ### Installing Skills

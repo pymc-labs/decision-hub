@@ -101,6 +101,17 @@ def get_api_url() -> str:
     return load_config().api_url
 
 
+def get_optional_token() -> str | None:
+    """Get the auth token if available, otherwise return None.
+
+    Used by endpoints where auth is optional (list, search).
+    """
+    env_token = os.environ.get("DHUB_TOKEN")
+    if env_token:
+        return env_token
+    return load_config().token
+
+
 def get_token() -> str:
     """Get the auth token from DHUB_TOKEN env var or saved config.
 

@@ -80,7 +80,7 @@ skill-name/
 Publish a skill to the registry.
 
 ```
-dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major]
+dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [--private]
 ```
 
 | Argument/Option | Required | Default | Description |
@@ -91,6 +91,7 @@ dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major]
 | `--patch` | no | true (default bump) | Bump patch version |
 | `--minor` | no | false | Bump minor version |
 | `--major` | no | false | Bump major version |
+| `--private` | no | false | Publish as org-private (visible only to org members) |
 
 **Positional argument disambiguation:**
 - Starts with `.`, `/`, `~`, or is an existing directory → treated as PATH
@@ -160,6 +161,31 @@ dhub list
 
 No options. Displays a table with columns: Org, Skill, Version, Updated, Safety (grade), Author, Description.
 
+**Visibility:** Unauthenticated users see only public skills. Authenticated users also see org-private skills from their orgs.
+
+---
+
+## dhub visibility
+
+Change the visibility of a published skill.
+
+```
+dhub visibility ORG/SKILL VISIBILITY
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+| `VISIBILITY` | yes | `public` or `org` |
+
+Only org admins can change visibility. Set to `org` to make a skill visible only to org members. Set to `public` to make it visible to everyone.
+
+**API:** PUT `/v1/skills/{org}/{skill}/visibility`
+
+**Error codes:**
+- HTTP 403 → only org admins can change visibility
+- HTTP 404 → skill not found
+
 ---
 
 ## dhub delete
@@ -217,6 +243,8 @@ dhub ask "QUERY"
 ```
 
 Searches across all published skills. Returns markdown-formatted results in a Rich panel.
+
+**Visibility:** Unauthenticated users search only public skills. Authenticated users also search org-private skills from their orgs.
 
 **API:** GET `/v1/search?q={query}`
 

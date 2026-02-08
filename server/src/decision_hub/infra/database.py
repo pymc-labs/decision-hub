@@ -108,6 +108,7 @@ skills_table = Table(
     Column("name", String, nullable=False),
     Column("description", Text, nullable=False, server_default=""),
     Column("download_count", sa.Integer, nullable=False, server_default="0"),
+    Column("visibility", String(10), nullable=False, server_default="public"),
     sa.UniqueConstraint("org_id", "name"),
 )
 
@@ -278,7 +279,7 @@ def _row_to_org_member(row: sa.Row) -> OrgMember:
 
 def _row_to_skill(row: sa.Row) -> Skill:
     """Map a database row to a Skill model."""
-    return Skill(id=row.id, org_id=row.org_id, name=row.name, description=row.description, download_count=row.download_count)
+    return Skill(id=row.id, org_id=row.org_id, name=row.name, description=row.description, download_count=row.download_count, visibility=row.visibility)
 
 
 def _row_to_version(row: sa.Row) -> Version:
@@ -429,6 +430,15 @@ def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
     return [_row_to_organization(row) for row in rows]
 
 
+def list_user_org_ids(conn: Connection, user_id: UUID) -> list[UUID]:
+    """List all org IDs a user belongs to (lightweight version for filtering)."""
+    stmt = sa.select(org_members_table.c.org_id).where(
+        org_members_table.c.user_id == user_id
+    )
+    rows = conn.execute(stmt).all()
+    return [row.org_id for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Org member queries
 # ---------------------------------------------------------------------------
@@ -505,7 +515,7 @@ def find_org_member(
 
 
 def insert_skill(
-    conn: Connection, org_id: UUID, name: str, description: str = ""
+    conn: Connection, org_id: UUID, name: str, description: str = "", visibility: str = "public",
 ) -> Skill:
     """Register a new skill under an organization.
 
@@ -514,13 +524,14 @@ def insert_skill(
         org_id: UUID of the owning organization.
         name: Skill name (unique within the org).
         description: Short description from SKILL.md frontmatter.
+        visibility: Skill visibility level ('public' or 'org').
 
     Returns:
         The newly created Skill.
     """
     stmt = (
         sa.insert(skills_table)
-        .values(org_id=org_id, name=name, description=description)
+        .values(org_id=org_id, name=name, description=description, visibility=visibility)
         .returning(*skills_table.c)
     )
     row = conn.execute(stmt).one()
@@ -561,6 +572,18 @@ def update_skill_description(
         sa.update(skills_table)
         .where(skills_table.c.id == skill_id)
         .values(description=description)
+    )
+    conn.execute(stmt)
+
+
+def update_skill_visibility(
+    conn: Connection, skill_id: UUID, visibility: str
+) -> None:
+    """Update the visibility of an existing skill."""
+    stmt = (
+        sa.update(skills_table)
+        .where(skills_table.c.id == skill_id)
+        .values(visibility=visibility)
     )
     conn.execute(stmt)
 
@@ -643,6 +666,7 @@ def resolve_version(
     skill_name: str,
     spec: str,
     allow_risky: bool = False,
+    user_org_ids: list[UUID] | None = None,
 ) -> Version | None:
     """Resolve a version specification to a concrete Version record.
 
@@ -652,12 +676,16 @@ def resolve_version(
     Semver ordering splits on '.' and casts each part to integer, so
     '2.10.0' correctly sorts higher than '2.9.0'.
 
+    Visibility: public skills are available to all. Org-private skills
+    require user_org_ids to include the skill's org.
+
     Args:
         conn: Active database connection.
         org_slug: Organization slug that owns the skill.
         skill_name: Name of the skill.
         spec: Either "latest" or an exact semver string.
         allow_risky: If True, also include C-grade (risky) versions.
+        user_org_ids: Org IDs the user is a member of (for visibility check).
 
     Returns:
         The resolved Version, or None if no matching version exists.
@@ -680,6 +708,20 @@ def resolve_version(
             )
         )
     )
+
+    # Visibility filter
+    if user_org_ids:
+        base = base.where(
+            sa.or_(
+                skills_table.c.visibility == "public",
+                sa.and_(
+                    skills_table.c.visibility == "org",
+                    skills_table.c.org_id.in_(user_org_ids),
+                ),
+            )
+        )
+    else:
+        base = base.where(skills_table.c.visibility == "public")
 
     # Filter by grade: A/B (and legacy "passed") by default, add C if allow_risky
     allowed_statuses = ["A", "B", "passed"]
@@ -885,12 +927,17 @@ def delete_api_key(conn: Connection, user_id: UUID, key_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
+def fetch_all_skills_for_index(
+    conn: Connection, user_org_ids: list[UUID] | None = None,
+) -> list[dict]:
     """Fetch all skills with their latest version info for the search index.
 
+    Visibility filtering: always includes public skills. If user_org_ids is
+    provided, also includes org-private skills from those orgs. If
+    user_org_ids is None (unauthenticated), only public skills are returned.
+
     Returns a list of dicts, each with keys: org_slug, skill_name,
-    latest_version, eval_status. Uses a subquery to find the latest
-    version per skill (ordered by semver parts numerically).
+    latest_version, eval_status, visibility, etc.
     """
     # Subquery: for each skill, find the highest semver
     major = sa.cast(
@@ -925,6 +972,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
             skills_table.c.name.label("skill_name"),
             skills_table.c.description,
             skills_table.c.download_count,
+            skills_table.c.visibility,
             latest_version.c.semver.label("latest_version"),
             latest_version.c.eval_status,
             latest_version.c.created_at,
@@ -944,6 +992,20 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
         )
     )
 
+    # Visibility filter: public OR user's own orgs
+    if user_org_ids:
+        stmt = stmt.where(
+            sa.or_(
+                skills_table.c.visibility == "public",
+                sa.and_(
+                    skills_table.c.visibility == "org",
+                    skills_table.c.org_id.in_(user_org_ids),
+                ),
+            )
+        )
+    else:
+        stmt = stmt.where(skills_table.c.visibility == "public")
+
     rows = conn.execute(stmt).all()
     return [
         {
@@ -951,6 +1013,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
             "skill_name": row.skill_name,
             "description": row.description,
             "download_count": row.download_count,
+            "visibility": row.visibility,
             "latest_version": row.latest_version,
             "eval_status": row.eval_status,
             "created_at": row.created_at,
