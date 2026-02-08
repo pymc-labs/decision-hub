@@ -4,6 +4,7 @@ Provides functions to build agent-specific container images and run
 skill tests inside Modal sandboxes with injected API keys.
 """
 
+import shlex
 from dataclasses import dataclass
 
 from decision_hub.models import AgentSandboxConfig
@@ -236,12 +237,22 @@ def _run_agent_in_sandbox(
     # Launch agent in background, capture output to files, write exit code
     # when done. Use su -m to preserve env vars (API keys from Modal secrets).
     # cd $HOME first so Claude Code discovers CLAUDE.md as project instructions.
+    #
+    # The agent command is written to a separate inner script to avoid
+    # nested shell quoting issues with su -c. This prevents prompt content
+    # containing quotes from breaking out of the shell command.
+    inner_script = (
+        f"#!/bin/bash\n"
+        f"{path_prefix}cd $HOME && {shell_cmd}\n"
+    )
     launch_script = (
         f"#!/bin/bash\n"
-        f"su -m sandbox -c '{path_prefix}cd $HOME && {shell_cmd}' > {out_file} 2> {err_file}\n"
+        f"su -m sandbox /tmp/run_inner.sh > {out_file} 2> {err_file}\n"
         f"echo $? > {rc_file}\n"
     )
-    # Write the wrapper script and run it in background
+    # Write the inner script (agent command) and outer script (su wrapper).
+    # Using quoted heredoc (<<'EOF') prevents shell expansion of script contents.
+    _run_in_sandbox(sb, "bash", "-c", f"cat > /tmp/run_inner.sh << 'INNER_EOF'\n{inner_script}INNER_EOF\nchmod +x /tmp/run_inner.sh")
     _run_in_sandbox(sb, "bash", "-c", f"cat > /tmp/run_agent.sh << 'SCRIPT_EOF'\n{launch_script}SCRIPT_EOF\nchmod +x /tmp/run_agent.sh")
     _run_in_sandbox(sb, "bash", "-c", f"nohup /tmp/run_agent.sh &\necho $! > {pid_file}")
 
@@ -493,7 +504,7 @@ def run_eval_case_in_sandbox(
         # Run the prompt through the agent as non-root 'sandbox' user.
         # Claude Code refuses --dangerously-skip-permissions as root.
         cmd = build_agent_run_command(agent_config, prompt)
-        shell_cmd = " ".join(f"'{c}'" for c in cmd)
+        shell_cmd = " ".join(shlex.quote(c) for c in cmd)
         print(f"[sandbox] Running agent as sandbox user: {cmd[0]} (prompt len={len(prompt)})", flush=True)
 
         stdout, stderr, exit_code, duration_ms = _run_agent_in_sandbox(

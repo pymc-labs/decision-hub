@@ -358,7 +358,11 @@ class TestPublishSkill:
         sample_user_id: UUID,
         test_settings: MagicMock,
     ) -> None:
-        """Publish should return 422 when Gauntlet static checks fail."""
+        """Publish should return 422 when SKILL.md manifest is malformed.
+
+        With fail-closed parsing, a malformed manifest is rejected before
+        the gauntlet static checks run — no quarantine or audit log.
+        """
         test_settings.google_api_key = "test-key"
         org = _make_org(sample_user_id)
         mock_find_org.return_value = org
@@ -369,18 +373,7 @@ class TestPublishSkill:
         resp = _publish_request(client, auth_headers, zip_bytes=zip_bytes)
 
         assert resp.status_code == 422
-        assert "Gauntlet checks failed" in resp.json()["detail"]
-        # Rejected zip uploaded to quarantine in S3
-        mock_upload.assert_called_once()
-        s3_key = mock_upload.call_args[0][2]
-        assert s3_key.startswith("rejected/")
-        # Audit log should still be inserted for F-grade rejections
-        mock_insert_audit.assert_called_once()
-        call_kwargs = mock_insert_audit.call_args
-        assert call_kwargs.kwargs.get("grade") == "F" or (
-            len(call_kwargs.args) > 4 and call_kwargs.args[4] == "F"
-        )
-        assert call_kwargs.kwargs.get("quarantine_s3_key") == s3_key
+        assert "malformed" in resp.json()["detail"].lower()
 
     @patch("decision_hub.api.registry_routes._build_analyze_prompt_fn", return_value=None)
     @patch("decision_hub.api.registry_routes._build_analyze_fn", return_value=None)
