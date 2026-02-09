@@ -1,16 +1,15 @@
 """Authentication routes – GitHub Device Flow login."""
 
-import logging
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_settings
 from decision_hub.domain.auth import create_jwt
-from decision_hub.infra.database import upsert_user
 from decision_hub.domain.orgs import sync_user_orgs
+from decision_hub.infra.database import upsert_user
 from decision_hub.infra.github import (
     AuthorizationPending,
     check_org_membership,
@@ -20,8 +19,6 @@ from decision_hub.infra.github import (
     request_device_code,
 )
 from decision_hub.settings import Settings
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -90,13 +87,13 @@ async def exchange_token(
     except AuthorizationPending:
         raise HTTPException(status_code=428, detail="authorization_pending")
     except httpx.HTTPStatusError as exc:
-        logger.warning("GitHub API returned %s: %s", exc.response.status_code, exc)
+        logger.warning("GitHub API returned {}: {}", exc.response.status_code, exc)
         raise HTTPException(
             status_code=502,
             detail=f"GitHub API error: {exc.response.status_code}",
         )
     except RuntimeError as exc:
-        logger.warning("GitHub device flow error: %s", exc)
+        logger.warning("GitHub device flow error: {}", exc)
         raise HTTPException(status_code=502, detail=str(exc))
 
     allowed_orgs = settings.required_github_orgs
@@ -108,6 +105,7 @@ async def exchange_token(
                 is_member = True
                 break
         if not is_member:
+            logger.warning("User {} denied access — not in required orgs {}", username, allowed_orgs)
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -118,6 +116,7 @@ async def exchange_token(
 
     username = gh_user["login"]
     user = upsert_user(conn, str(gh_user["id"]), username)
+    logger.info("User authenticated: {} (id={})", username, user.id)
 
     # Fetch the user's GitHub orgs and sync to DB
     github_org_logins: list[str] = []
@@ -125,13 +124,13 @@ async def exchange_token(
         gh_orgs = await github_list_user_orgs(gh_token)
         github_org_logins = [o["login"] for o in gh_orgs]
     except Exception:
-        logger.warning(
-            "Failed to fetch GitHub orgs for %s; falling back to personal namespace only",
+        logger.opt(exception=True).warning(
+            "Failed to fetch GitHub orgs for {}; falling back to personal namespace only",
             username,
-            exc_info=True,
         )
 
     org_slugs = sync_user_orgs(conn, user.id, github_org_logins, username)
+    logger.debug("Synced orgs for {}: {}", username, org_slugs)
 
     jwt_token = create_jwt(
         str(user.id),

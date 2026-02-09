@@ -1,12 +1,10 @@
 """Organization validation and sync logic."""
 
-import logging
 import re
 from uuid import UUID
 
+from loguru import logger
 from sqlalchemy.engine import Connection
-
-logger = logging.getLogger(__name__)
 
 VALID_ROLES: tuple[str, ...] = ("owner", "admin", "member")
 
@@ -99,7 +97,7 @@ def sync_user_orgs(
 
         # Skip slugs that don't match our validation rules
         if not _SLUG_PATTERN.match(slug):
-            logger.debug("Skipping invalid org slug from GitHub: %r", login)
+            logger.debug("Skipping invalid org slug from GitHub: {!r}", login)
             continue
 
         # Skip if it's the same as the personal namespace

@@ -11,6 +11,7 @@ the FastAPI async event loop.
 """
 
 import httpx
+from loguru import logger
 
 from decision_hub.models import DeviceCodeResponse
 
@@ -104,8 +105,10 @@ async def poll_for_access_token(
             "Device code expired. Please restart the login flow."
         )
     if error == "access_denied":
+        logger.warning("User denied authorization request")
         raise RuntimeError("User denied the authorization request.")
 
+    logger.warning("Unexpected device flow error: {} - {}", error, data.get("error_description", ""))
     raise RuntimeError(
         f"Unexpected error during device flow polling: {error} - "
         f"{data.get('error_description', 'no description')}"

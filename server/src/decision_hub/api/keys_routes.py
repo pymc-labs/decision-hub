@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
@@ -58,6 +59,7 @@ def store_key(
     try:
         key_record = insert_api_key(conn, current_user.id, body.key_name, encrypted)
     except IntegrityError:
+        logger.warning("Duplicate API key '{}' for user={}", body.key_name, current_user.username)
         raise HTTPException(
             status_code=409,
             detail=f"Key '{body.key_name}' already exists",

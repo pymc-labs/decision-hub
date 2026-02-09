@@ -5,11 +5,9 @@ avoiding a heavy SDK dependency.
 """
 
 import json
-import logging
 
 import httpx
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 _ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 
@@ -64,6 +62,7 @@ def judge_eval_output(
         "content-type": "application/json",
     }
 
+    logger.debug("Calling Anthropic judge API model={} case={}", model, eval_case_name)
     response = httpx.post(
         _ANTHROPIC_API_URL,
         json=payload,
@@ -75,7 +74,9 @@ def judge_eval_output(
     data = response.json()
     raw_text = data["content"][0]["text"]
 
-    return _parse_judge_response(raw_text)
+    result = _parse_judge_response(raw_text)
+    logger.debug("Judge verdict for '{}': {}", eval_case_name, result["verdict"])
+    return result
 
 
 def _parse_judge_response(raw_text: str) -> dict:
@@ -98,4 +99,5 @@ def _parse_judge_response(raw_text: str) -> dict:
             return {"verdict": "error", "reasoning": f"Invalid verdict: {verdict}. Raw: {raw_text}"}
         return {"verdict": verdict, "reasoning": result.get("reasoning", "")}
     except (json.JSONDecodeError, KeyError):
+        logger.warning("Failed to parse judge response: {}", raw_text[:300])
         return {"verdict": "error", "reasoning": f"Failed to parse judge response: {raw_text[:500]}"}

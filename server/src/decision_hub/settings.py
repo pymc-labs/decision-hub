@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # CLI can suggest upgrades. Empty string disables the check.
     latest_cli_version: str = ""
 
+    # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
+    log_level: str = "INFO"
+
 
 def get_env() -> str:
     """Return current environment name from DHUB_ENV (default: 'prod')."""

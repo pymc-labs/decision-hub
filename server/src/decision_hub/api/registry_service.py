@@ -5,12 +5,12 @@ and eval triggering. Route handlers call these instead of inlining
 the logic, making the business rules testable without HTTP mocking.
 """
 
-import logging
 import tempfile
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import HTTPException
+from loguru import logger
 from sqlalchemy.engine import Connection
 
 from decision_hub.domain.classification import (
@@ -30,8 +30,6 @@ from decision_hub.infra.database import (
 from decision_hub.infra.storage import upload_skill_zip
 from decision_hub.models import GauntletReport, Organization
 from decision_hub.settings import Settings
-
-logger = logging.getLogger(__name__)
 
 
 def require_org_membership(
@@ -88,7 +86,7 @@ def parse_manifest_from_content(
             try_parse_assessment_cases(file_bytes),
         )
     except ValueError as exc:
-        logger.warning("Manifest parse failed (rejecting publish): %s", exc)
+        logger.warning("Manifest parse failed (rejecting publish): {}", exc)
         raise HTTPException(
             status_code=422,
             detail=f"SKILL.md manifest is malformed: {exc}",
@@ -160,6 +158,10 @@ def quarantine_rejected_skill(
     Inserts and commits the audit log before uploading to quarantine S3,
     so the rejection record is durable even if the S3 upload fails.
     """
+    logger.warning(
+        "Quarantining {}/{} v{} — grade={} summary={}",
+        org_slug, skill_name, version, report.grade, report.summary,
+    )
     q_key = build_quarantine_s3_key(org_slug, skill_name, version)
 
     insert_audit_log(
@@ -316,7 +318,7 @@ def try_parse_assessment_cases(file_bytes: bytes):
     try:
         return parse_eval_cases_from_zip(file_bytes)
     except ValueError as exc:
-        logger.warning("Eval case parse failed (rejecting publish): %s", exc)
+        logger.warning("Eval case parse failed (rejecting publish): {}", exc)
         raise HTTPException(
             status_code=422,
             detail=f"Eval case files are malformed: {exc}",
@@ -377,6 +379,11 @@ def maybe_trigger_agent_assessment(
             )
             eval_conn.commit()
 
+        logger.info(
+            "Spawning eval task run_id={} agent={} cases={} for {}/{}",
+            eval_run.id, eval_config.agent, len(eval_cases), org_slug, skill_name,
+        )
+
         # Serialize EvalCase dataclasses to dicts for Modal transport
         cases_dicts = [
             {
@@ -431,7 +438,7 @@ def run_assessment_background(
     from decision_hub.infra.modal_client import get_agent_config, validate_api_key
 
     try:
-        print(f"[assessment] Phase 1: loading API keys for {org_slug}/{skill_name}", flush=True)
+        logger.info("Assessment phase 1: loading API keys for {}/{}", org_slug, skill_name)
         engine = create_engine(settings.database_url)
 
         # --- Phase 1: read API keys then release the connection ---
@@ -444,7 +451,7 @@ def run_assessment_background(
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
             conn.commit()
 
-        print(f"[assessment] Got {len(encrypted_keys)} keys: {list(encrypted_keys.keys())}", flush=True)
+        logger.info("Got {} API keys: {}", len(encrypted_keys), list(encrypted_keys.keys()))
 
         fernet = Fernet(settings.fernet_key.encode())
         agent_env_vars = {
@@ -454,7 +461,7 @@ def run_assessment_background(
 
         for key_name, key_value in agent_env_vars.items():
             validate_api_key(key_name, key_value)
-        print("[assessment] API key validation passed", flush=True)
+        logger.info("API key validation passed")
 
         judge_api_key = agent_env_vars.get(judge_key_name, "")
 
@@ -471,7 +478,10 @@ def run_assessment_background(
             )
             log_s3_prefix = f"eval-logs/{run_id}/"
 
-            print(f"[assessment] Phase 2: running streaming pipeline ({len(assessment_cases)} cases)", flush=True)
+            logger.info(
+                "Assessment phase 2: running streaming pipeline ({} cases) for {}/{}",
+                len(assessment_cases), org_slug, skill_name,
+            )
             run_streaming_eval(
                 run_id=run_id,
                 version_id=version_id,
@@ -487,12 +497,15 @@ def run_assessment_background(
                 s3_bucket=settings.s3_bucket,
                 log_s3_prefix=log_s3_prefix,
             )
-            print(f"[assessment] Streaming pipeline completed for {org_slug}/{skill_name}", flush=True)
+            logger.info("Streaming pipeline completed for {}/{}", org_slug, skill_name)
         else:
             # Original batch pipeline (backward compat)
             from decision_hub.domain.evals import run_eval_pipeline
 
-            print(f"[assessment] Phase 2: running batch pipeline ({len(assessment_cases)} cases)", flush=True)
+            logger.info(
+                "Assessment phase 2: running batch pipeline ({} cases) for {}/{}",
+                len(assessment_cases), org_slug, skill_name,
+            )
             case_results, passed, total, total_duration_ms = run_eval_pipeline(
                 skill_zip=skill_zip,
                 eval_config=assessment_config,
@@ -506,7 +519,10 @@ def run_assessment_background(
             all_passed = all(r["verdict"] == "pass" for r in case_results)
             status = "completed" if all_passed else "failed"
 
-            print(f"[assessment] Phase 3: storing results — {passed}/{total} passed, status={status}", flush=True)
+            logger.info(
+                "Assessment phase 3: storing results — {}/{} passed, status={}",
+                passed, total, status,
+            )
             with engine.connect() as conn:
                 from decision_hub.infra.database import insert_eval_report
 
@@ -523,11 +539,10 @@ def run_assessment_background(
                 )
                 conn.commit()
 
-            print(f"[assessment] Done — {passed}/{total} passed in {total_duration_ms}ms", flush=True)
+            logger.info("Assessment done — {}/{} passed in {}ms", passed, total, total_duration_ms)
 
     except Exception as e:
-        logger.error(f"Agent assessment failed for version {version_id}: {e}")
-        print(f"[assessment] ERROR: {e}", flush=True)
+        logger.error("Agent assessment failed for version {}: {}", version_id, e)
 
         # Update run row if using streaming pipeline
         if run_id is not None:
@@ -547,7 +562,7 @@ def run_assessment_background(
                     )
                     err_conn.commit()
             except Exception as inner:
-                logger.error(f"Failed to update run {run_id}: {inner}")
+                logger.error("Failed to update run {}: {}", run_id, inner)
 
         # INSERT an error report
         try:
@@ -571,7 +586,7 @@ def run_assessment_background(
                 err_conn.commit()
         except Exception as inner:
             logger.error(
-                f"Failed to store error report for version {version_id}: {inner}"
+                "Failed to store error report for version {}: {}", version_id, inner,
             )
 
 

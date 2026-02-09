@@ -537,12 +537,10 @@ def run_static_checks(
     result_tuple = tuple(results)
     grade = compute_grade(result_tuple, elevated, is_verified_org)
 
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.warning(
-        "Gauntlet grading: elevated=%s is_verified=%s grade=%s fs_write_patterns=%s source_files=%s",
+    from loguru import logger
+    logger.info(
+        "Gauntlet grading: elevated={} is_verified={} grade={} source_files={}",
         elevated, is_verified_org, grade,
-        _ELEVATED_PERMISSION_PATTERNS.get("fs_write"),
         [name for name, _ in source_files],
     )
 

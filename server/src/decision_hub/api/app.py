@@ -6,11 +6,13 @@ from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from decision_hub.api.deps import get_current_user
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
+from decision_hub.logging import RequestLoggingMiddleware, setup_logging
 from decision_hub.settings import create_settings
 
 # Frontend dist directory — populated at deploy time by the build script.
@@ -95,6 +97,7 @@ def create_app() -> FastAPI:
         A fully-configured FastAPI instance.
     """
     settings = create_settings()
+    setup_logging(settings.log_level)
 
     engine = create_engine(settings.database_url)
 
@@ -108,6 +111,10 @@ def create_app() -> FastAPI:
     app.state.engine = engine
     app.state.settings = settings
     app.state.s3_client = s3_client
+
+    # Request logging with correlation IDs — outermost middleware (added first
+    # so Starlette wraps it last, ensuring it runs before everything else).
+    app.add_middleware(RequestLoggingMiddleware)
 
     if settings.min_cli_version:
         app.add_middleware(
@@ -170,4 +177,5 @@ def create_app() -> FastAPI:
         def spa_fallback(full_path: str):
             return FileResponse(_index_html)
 
+    logger.info("Decision Hub app ready (log_level={})", settings.log_level)
     return app

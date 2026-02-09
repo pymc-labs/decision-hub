@@ -94,6 +94,32 @@ uv run --package dhub pytest client/tests/ && uv run --package decision-hub-serv
 - **Don't worship backward compatibility**: Don't freeze bad designs to avoid breaking changes. Provide clear migration paths instead of stacking hacks 
 - **DRY** do not repetat yourself, refactor the code and ensure each piece of logic has a single, clear, authoritative implementation instead of being duplicated across the codebase
 
+## Logging
+
+The server uses **loguru** (`from loguru import logger`). The client does not — it uses Rich console output directly. Logging is configured once at startup via `setup_logging()` in `decision_hub.logging`. Log level is controlled by `LOG_LEVEL` in `server/.env.dev` / `.env.prod` (default: `INFO`). All output goes to **stderr** — no log files. A `RequestLoggingMiddleware` assigns an 8-char request ID to every HTTP request for correlation.
+
+**Use `{}` placeholders, not f-strings** — loguru defers evaluation so arguments are only computed when the level is active:
+
+```python
+logger.info("Publishing {}/{} version={}", org_slug, skill_name, version_id)
+```
+
+**Use `logger.opt(exception=True)`** to attach tracebacks — don't format exceptions into the message string.
+
+**Log in API/infra layers, not in domain functions.** Domain functions return values or raise — the caller decides what to log.
+
+**Include greppable identifiers** (org, skill, case name, status code) — not just human prose.
+
+### Inspecting Logs
+
+```bash
+# Stream live logs from Modal
+modal app logs decision-hub          # prod
+modal app logs decision-hub-dev      # dev
+
+# Filter by request ID to trace a single request
+modal app logs decision-hub-dev 2>&1 | grep "a1b2c3d4"
+```
 
 ## Client / Server Version Sync
 

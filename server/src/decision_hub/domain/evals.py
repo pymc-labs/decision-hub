@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from typing import Generator
 from uuid import UUID
 
+from loguru import logger
+
 from decision_hub.infra.anthropic_client import judge_eval_output
 from decision_hub.infra.modal_client import get_agent_config, run_eval_case_in_sandbox, stream_eval_case_in_sandbox
 from decision_hub.models import EvalCase, EvalConfig
@@ -100,12 +102,15 @@ def run_eval_pipeline(
     # agent runtime key and judge key are the same ANTHROPIC_API_KEY).
     effective_judge_key = judge_api_key or agent_env_vars.get(agent_config.key_env_var, "")
 
+    logger.info("Starting eval pipeline: {} cases, agent={}", len(eval_cases), eval_config.agent)
+
     case_results: list[dict] = []
     passed = 0
     total_duration_ms = 0
 
     for case in eval_cases:
         # Stage 1: Run in sandbox
+        logger.info("Running eval case '{}' in sandbox", case.name)
         try:
             stdout, stderr, exit_code, duration_ms = run_eval_case_in_sandbox(
                 skill_zip=skill_zip,
@@ -116,6 +121,7 @@ def run_eval_pipeline(
                 skill_name=skill_name,
             )
         except Exception as e:
+            logger.error("Sandbox error for case '{}': {}", case.name, e)
             case_results.append({
                 "name": case.name,
                 "description": case.description,
@@ -130,6 +136,7 @@ def run_eval_pipeline(
             continue
 
         total_duration_ms += duration_ms
+        logger.debug("Case '{}': exit_code={} duration={}ms stdout_len={}", case.name, exit_code, duration_ms, len(stdout))
 
         # Stage 2: Check exit code — non-zero means agent failed
         if exit_code != 0:
@@ -147,6 +154,7 @@ def run_eval_pipeline(
             continue
 
         # Stage 3: Judge the output with LLM
+        logger.info("Judging case '{}' with model={}", case.name, eval_config.judge_model)
         try:
             judgment = judge_eval_output(
                 api_key=effective_judge_key,
@@ -159,6 +167,7 @@ def run_eval_pipeline(
             reasoning = judgment["reasoning"]
             stage = "judge"
         except Exception as e:
+            logger.error("Judge error for case '{}': {}", case.name, e)
             verdict = "error"
             reasoning = f"Judge error: {e}"
             stage = "judge"
@@ -389,6 +398,7 @@ def run_streaming_eval(
     from decision_hub.infra.storage import upload_eval_log_chunk
 
     engine = create_engine(database_url)
+    logger.info("Starting streaming eval run_id={} ({} cases)", run_id, len(eval_cases))
 
     # Mark run as provisioning
     with engine.connect() as conn:
@@ -489,6 +499,7 @@ def run_streaming_eval(
                 conn.commit()
 
     except Exception as e:
+        logger.error("Streaming eval failed for run_id={}: {}", run_id, e)
         # Flush any remaining events
         _flush_buffer()
 

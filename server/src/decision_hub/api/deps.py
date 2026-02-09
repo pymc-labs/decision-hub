@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
 from jose import JWTError
+from loguru import logger
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.domain.auth import decode_jwt
@@ -68,11 +69,13 @@ def get_current_user(
     try:
         payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
     except JWTError:
+        logger.warning("Invalid JWT from {}", request.client.host if request.client else "unknown")
         raise HTTPException(status_code=401, detail="Invalid token")
 
     # Tokens issued before the org refactor lack the github_orgs claim.
     # Prompt the user to re-authenticate so they get a fresh token.
     if "github_orgs" not in payload:
+        logger.warning("Outdated token for user={} (missing github_orgs claim)", payload.get("username"))
         raise HTTPException(
             status_code=401,
             detail="Your session is outdated. Run 'dhub login' to refresh.",

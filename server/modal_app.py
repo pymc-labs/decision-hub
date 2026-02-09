@@ -71,19 +71,24 @@ def run_eval_task(
     """
     from uuid import UUID
 
+    from loguru import logger
+
     from decision_hub.api.registry_service import run_assessment_background
     from decision_hub.infra.storage import create_s3_client
+    from decision_hub.logging import setup_logging
     from decision_hub.models import EvalCase, EvalConfig
     from decision_hub.settings import create_settings
 
-    print(f"[run_eval_task] Starting assessment for {org_slug}/{skill_name} "
-          f"version={version_id} run={eval_run_id} agent={eval_agent} "
-          f"cases={len(eval_cases_dicts)}",
-          flush=True)
-
     settings = create_settings()
+    setup_logging(settings.log_level)
 
-    print(f"[run_eval_task] Downloading skill zip from s3://{s3_bucket}/{s3_key}", flush=True)
+    logger.info(
+        "Starting eval task for {}/{} version={} run={} agent={} cases={}",
+        org_slug, skill_name, version_id, eval_run_id, eval_agent,
+        len(eval_cases_dicts),
+    )
+
+    logger.info("Downloading skill zip from s3://{}/{}", s3_bucket, s3_key)
     s3_client = create_s3_client(
         region=settings.aws_region,
         access_key_id=settings.aws_access_key_id,
@@ -91,7 +96,7 @@ def run_eval_task(
     )
     response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
     skill_zip = response["Body"].read()
-    print(f"[run_eval_task] Downloaded {len(skill_zip)} bytes", flush=True)
+    logger.info("Downloaded {} bytes", len(skill_zip))
 
     config = EvalConfig(agent=eval_agent, judge_model=eval_judge_model)
     cases = tuple(
@@ -116,4 +121,4 @@ def run_eval_task(
         run_id=UUID(eval_run_id) if eval_run_id else None,
     )
 
-    print(f"[run_eval_task] Completed for {org_slug}/{skill_name}", flush=True)
+    logger.info("Eval task completed for {}/{}", org_slug, skill_name)

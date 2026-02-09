@@ -1,6 +1,7 @@
 """Gemini LLM client for skill search."""
 
 import httpx
+from loguru import logger
 
 _GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -62,6 +63,7 @@ def search_skills_with_llm(
         ],
     }
 
+    logger.debug("Gemini search query: '{}' model={}", query[:100], model)
     with httpx.Client(timeout=30) as http_client:
         resp = http_client.post(
             url,
@@ -231,6 +233,7 @@ def analyze_code_safety(
         pass
 
     # Fallback: treat everything as dangerous if we can't parse the response
+    logger.warning("Could not parse Gemini code safety response for '{}'", skill_name)
     return [{"file": s["file"], "label": s["label"], "dangerous": True,
              "reason": "Could not parse LLM response"} for s in source_snippets]
 
@@ -325,5 +328,6 @@ def analyze_prompt_safety(
         pass
 
     # Fallback: treat everything as dangerous if we can't parse
+    logger.warning("Could not parse Gemini prompt safety response for '{}'", skill_name)
     return [{"label": h["label"], "dangerous": True, "ambiguous": False,
              "reason": "Could not parse LLM response"} for h in prompt_hits]

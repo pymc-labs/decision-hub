@@ -9,6 +9,7 @@ import hashlib
 
 import boto3
 from botocore.client import BaseClient
+from loguru import logger
 
 
 def create_s3_client(
@@ -43,6 +44,7 @@ def upload_skill_zip(
         s3_key: Object key within the bucket (e.g. 'skills/org/name/1.0.0.zip').
         data: Raw bytes of the zip file to upload.
     """
+    logger.info("Uploading skill zip to s3://{}/{} ({} bytes)", bucket, s3_key, len(data))
     client.put_object(
         Bucket=bucket,
         Key=s3_key,
@@ -59,6 +61,7 @@ def delete_skill_zip(client: BaseClient, bucket: str, s3_key: str) -> None:
         bucket: S3 bucket name containing the object.
         s3_key: Object key to delete.
     """
+    logger.info("Deleting s3://{}/{}", bucket, s3_key)
     client.delete_object(Bucket=bucket, Key=s3_key)
 
 

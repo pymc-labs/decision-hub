@@ -7,6 +7,8 @@ skill tests inside Modal sandboxes with injected API keys.
 import shlex
 from dataclasses import dataclass
 
+from loguru import logger
+
 from decision_hub.models import AgentSandboxConfig
 
 
@@ -82,7 +84,7 @@ def validate_api_key(key_env_var: str, key_value: str) -> None:
     try:
         resp = httpx.get(spec["url"], headers=spec["headers"](key_value), timeout=10)
     except httpx.HTTPError as e:
-        print(f"[validate_api_key] Network error validating {key_env_var}: {e}", flush=True)
+        logger.warning("Network error validating {}: {}", key_env_var, e)
         return  # Don't block on transient network issues
 
     if resp.status_code == 401:
@@ -146,7 +148,7 @@ def _write_claude_md_from_skill_zip(
         f"open('{home_dir}/CLAUDE.md', 'w').write("
         f"base64.b64decode('{b64_body}').decode())",
     )
-    print(f"[sandbox] Wrote CLAUDE.md ({len(full_body)} chars)", flush=True)
+    logger.debug("Wrote CLAUDE.md ({} chars)", len(full_body))
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +274,7 @@ def _run_agent_in_sandbox(
             break
     else:
         # Timed out waiting for agent
+        logger.warning("Agent timed out after {}s, killing", max_wait)
         _run_in_sandbox(
             sb, "bash", "-c",
             f"kill $(cat {pid_file} 2>/dev/null) 2>/dev/null; echo 137 > {rc_file}",
@@ -387,7 +390,7 @@ def _create_skill_sandbox(
     import base64
     import modal
 
-    print(f"[sandbox] Building image for agent={agent_config.npm_package}", flush=True)
+    logger.info("Building sandbox image for agent={}", agent_config.npm_package)
     image = build_eval_image(agent_config)
 
     # Merge agent-specific extra env with the user's decrypted keys
@@ -402,7 +405,7 @@ def _create_skill_sandbox(
     # Add HOME to env so tools resolve paths correctly
     env["HOME"] = home_dir
 
-    print(f"[sandbox] Creating sandbox (memory=4096, timeout=900)", flush=True)
+    logger.info("Creating sandbox (memory=4096, timeout=900)")
     sb = modal.Sandbox.create(
         image=image,
         secrets=[modal.Secret.from_dict(env)],
@@ -412,11 +415,11 @@ def _create_skill_sandbox(
     )
 
     # Set up skill directory (as root, then chown to sandbox user)
-    print(f"[sandbox] Creating skill dir: {skill_path}", flush=True)
+    logger.debug("Creating skill dir: {}", skill_path)
     _run_in_sandbox(sb, "mkdir", "-p", skill_path)
 
     # Transfer and extract skill zip via base64 + Python zipfile
-    print(f"[sandbox] Transferring skill zip ({len(skill_zip)} bytes)", flush=True)
+    logger.info("Transferring skill zip ({} bytes)", len(skill_zip))
     b64_zip = base64.b64encode(skill_zip).decode()
     _run_in_sandbox(
         sb,
@@ -428,7 +431,7 @@ def _create_skill_sandbox(
     )
 
     # Install Python deps if pyproject.toml exists
-    print(f"[sandbox] Installing deps (uv sync if pyproject.toml exists)", flush=True)
+    logger.info("Installing deps (uv sync if pyproject.toml exists)")
     stdout, exit_code = _run_in_sandbox(
         sb,
         "bash",
@@ -439,7 +442,7 @@ def _create_skill_sandbox(
         f"echo 'uv sync exit code:' $?; "
         f"else echo 'No pyproject.toml found'; fi",
     )
-    print(f"[sandbox] Dep install result: exit={exit_code}, stdout={stdout[:2000]}", flush=True)
+    logger.info("Dep install result: exit={} stdout={}", exit_code, stdout[:500])
 
     # Verify the venv was actually created and has a python binary
     verify_stdout, _ = _run_in_sandbox(
@@ -447,7 +450,7 @@ def _create_skill_sandbox(
         f"ls -la {skill_path}/.venv/bin/python 2>&1 && "
         f"{skill_path}/.venv/bin/python --version 2>&1",
     )
-    print(f"[sandbox] Venv check: {verify_stdout.strip()}", flush=True)
+    logger.debug("Venv check: {}", verify_stdout.strip())
 
     # Extract SKILL.md body and write it as CLAUDE.md at the project root.
     # Claude Code reads CLAUDE.md as project instructions (system prompt).
@@ -463,6 +466,7 @@ def _create_skill_sandbox(
     # Make everything owned by sandbox user so agent runs as non-root
     _run_in_sandbox(sb, "chown", "-R", "sandbox:sandbox", home_dir)
 
+    logger.info("Sandbox ready for {}/{}", org_slug, skill_name)
     return sb, skill_path
 
 
@@ -474,6 +478,8 @@ def _create_skill_sandbox(
 # Tails agent stdout/stderr files using seek offsets and prints structured
 # lines that the parent process can parse. Exits when the agent writes its
 # exit code file or timeout is reached.
+# NOTE: This script runs INSIDE the sandbox — it uses print() for the
+# structured protocol (OUT:/ERR:/RC:), not for logging.
 MONITOR_SCRIPT = r"""
 import base64
 import os
@@ -565,6 +571,7 @@ def stream_eval_case_in_sandbox(
         # Launch agent (same approach as _run_agent_in_sandbox)
         cmd = build_agent_run_command(agent_config, prompt)
         shell_cmd = " ".join(shlex.quote(c) for c in cmd)
+        logger.info("Streaming agent execution: {} (prompt_len={})", cmd[0], len(prompt))
 
         out_file = "/tmp/agent_stdout.txt"
         err_file = "/tmp/agent_stderr.txt"
@@ -616,6 +623,7 @@ def stream_eval_case_in_sandbox(
 
         monitor_proc.wait()
         duration_ms = int((time.monotonic() - start) * 1000)
+        logger.info("Streaming agent finished: exit={} duration={}ms", exit_code, duration_ms)
 
         return "".join(full_stdout), "".join(full_stderr), exit_code, duration_ms
     finally:
@@ -661,13 +669,15 @@ def run_eval_case_in_sandbox(
         # Claude Code refuses --dangerously-skip-permissions as root.
         cmd = build_agent_run_command(agent_config, prompt)
         shell_cmd = " ".join(shlex.quote(c) for c in cmd)
-        print(f"[sandbox] Running agent as sandbox user: {cmd[0]} (prompt len={len(prompt)})", flush=True)
+        logger.info("Running agent as sandbox user: {} (prompt_len={})", cmd[0], len(prompt))
 
         stdout, stderr, exit_code, duration_ms = _run_agent_in_sandbox(
             sb, shell_cmd, skill_path=skill_path,
         )
-        print(f"[sandbox] Agent finished: exit={exit_code}, duration={duration_ms}ms, "
-              f"stdout_len={len(stdout)}", flush=True)
+        logger.info(
+            "Agent finished: exit={} duration={}ms stdout_len={}",
+            exit_code, duration_ms, len(stdout),
+        )
 
         return stdout, stderr, exit_code, duration_ms
     finally:

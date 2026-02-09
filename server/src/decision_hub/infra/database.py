@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import sqlalchemy as sa
+from loguru import logger
 from sqlalchemy import (
     Boolean,
     Column,
@@ -400,7 +401,9 @@ def upsert_user(conn: Connection, github_id: str, username: str) -> User:
         .returning(*users_table.c)
     )
     row = conn.execute(stmt).one()
-    return _row_to_user(row)
+    user = _row_to_user(row)
+    logger.debug("Upserted user github_id={} username={} id={}", github_id, username, user.id)
+    return user
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +431,9 @@ def insert_organization(
         .returning(*organizations_table.c)
     )
     row = conn.execute(stmt).one()
-    return _row_to_organization(row)
+    org = _row_to_organization(row)
+    logger.debug("Created org slug={} owner={} id={}", slug, owner_id, org.id)
+    return org
 
 
 def find_org_by_slug(conn: Connection, slug: str) -> Organization | None:
@@ -500,6 +505,7 @@ def insert_org_member(
         .returning(*org_members_table.c)
     )
     row = conn.execute(stmt).one()
+    logger.debug("Added org member org={} user={} role={}", org_id, user_id, role)
     return _row_to_org_member(row)
 
 
@@ -571,7 +577,9 @@ def insert_skill(
         .returning(*skills_table.c)
     )
     row = conn.execute(stmt).one()
-    return _row_to_skill(row)
+    skill = _row_to_skill(row)
+    logger.debug("Inserted skill name={} org={} id={}", name, org_id, skill.id)
+    return skill
 
 
 def find_skill(conn: Connection, org_id: UUID, name: str) -> Skill | None:
@@ -693,7 +701,9 @@ def insert_version(
         .returning(*versions_table.c)
     )
     row = conn.execute(stmt).one()
-    return _row_to_version(row)
+    ver = _row_to_version(row)
+    logger.debug("Inserted version skill={} semver={} eval_status={} id={}", skill_id, semver, eval_status, ver.id)
+    return ver
 
 
 def resolve_version(
@@ -836,6 +846,7 @@ def delete_all_versions(conn: Connection, skill_id: UUID) -> list[str]:
         versions_table.c.skill_id == skill_id
     )
     conn.execute(delete_stmt)
+    logger.debug("Deleted {} versions for skill={}", len(s3_keys), skill_id)
     return s3_keys
 
 
@@ -843,6 +854,7 @@ def delete_skill(conn: Connection, skill_id: UUID) -> None:
     """Delete a skill record (after all versions have been removed)."""
     stmt = sa.delete(skills_table).where(skills_table.c.id == skill_id)
     conn.execute(stmt)
+    logger.debug("Deleted skill id={}", skill_id)
 
 
 def delete_version(conn: Connection, skill_id: UUID, semver: str) -> bool:
@@ -863,7 +875,10 @@ def delete_version(conn: Connection, skill_id: UUID, semver: str) -> bool:
         )
     )
     result = conn.execute(stmt)
-    return result.rowcount > 0
+    deleted = result.rowcount > 0
+    if deleted:
+        logger.debug("Deleted version skill={} semver={}", skill_id, semver)
+    return deleted
 
 
 # ---------------------------------------------------------------------------
@@ -898,6 +913,7 @@ def insert_api_key(
         .returning(*user_api_keys_table.c)
     )
     row = conn.execute(stmt).one()
+    logger.debug("Stored API key '{}' for user={}", key_name, user_id)
     return _row_to_user_api_key(row)
 
 
@@ -936,7 +952,10 @@ def delete_api_key(conn: Connection, user_id: UUID, key_name: str) -> bool:
         )
     )
     result = conn.execute(stmt)
-    return result.rowcount > 0
+    deleted = result.rowcount > 0
+    if deleted:
+        logger.debug("Deleted API key '{}' for user={}", key_name, user_id)
+    return deleted
 
 
 # ---------------------------------------------------------------------------
@@ -1126,6 +1145,7 @@ def insert_audit_log(
         .returning(*eval_audit_logs_table.c)
     )
     row = conn.execute(stmt).one()
+    logger.debug("Audit log: {}/{} v{} grade={} by={}", org_slug, skill_name, semver, grade, publisher)
     return _row_to_audit_log_entry(row)
 
 
@@ -1229,6 +1249,7 @@ def insert_eval_report(
         .returning(*eval_reports_table.c)
     )
     row = conn.execute(stmt).one()
+    logger.debug("Inserted eval report version={} status={} passed={}/{}", version_id, status, passed, total)
     return _row_to_eval_report(row)
 
 
@@ -1380,7 +1401,9 @@ def insert_eval_run(
         .returning(*eval_runs_table.c)
     )
     row = conn.execute(stmt).one()
-    return _row_to_eval_run(row)
+    run = _row_to_eval_run(row)
+    logger.debug("Inserted eval run version={} agent={} cases={} id={}", version_id, agent, total_cases, run.id)
+    return run
 
 
 def update_eval_run_status(
@@ -1418,6 +1441,8 @@ def update_eval_run_status(
         .values(**values)
     )
     conn.execute(stmt)
+    if status is not None:
+        logger.debug("Eval run {} → status={} stage={}", run_id, status, stage)
 
 
 def update_eval_run_heartbeat(conn: Connection, run_id: UUID) -> None:

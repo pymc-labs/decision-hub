@@ -1,6 +1,7 @@
 """Organisation management routes -- create and list."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
@@ -58,6 +59,7 @@ def create_organisation(
         org = insert_organization(conn, body.slug, current_user.id)
         insert_org_member(conn, org.id, current_user.id, role="owner")
     except IntegrityError:
+        logger.warning("Duplicate org slug '{}' by user={}", body.slug, current_user.username)
         raise HTTPException(
             status_code=409,
             detail=f"Organisation '{body.slug}' already exists",
