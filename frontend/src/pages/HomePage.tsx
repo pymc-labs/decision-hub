@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
-import { Package, Building2, Shield, Zap, ArrowRight, Download, Star, Terminal } from "lucide-react";
+import { Package, Building2, Shield, Zap, ArrowRight, Download, Star, Bot, Terminal } from "lucide-react";
 import { listSkills } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
+import AnimatedTerminal from "../components/AnimatedTerminal";
 import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
 
@@ -74,15 +75,13 @@ export default function HomePage() {
         </NeonCard>
       </section>
 
-      {/* CLI First */}
+      {/* Agent First */}
       <section className={styles.cliSection}>
         <h2 className={styles.sectionTitle}>
-          <Terminal size={20} />
-          CLI First
+          <Bot size={20} />
+          Agent First
         </h2>
-        <TerminalBlock title="~">
-          {`# Install the CLI\nuv tool install dhub-cli\n\n# Login via GitHub\ndhub login`}
-        </TerminalBlock>
+        <AnimatedTerminal />
       </section>
 
       {/* Featured Skills */}
@@ -167,6 +166,28 @@ export default function HomePage() {
               </p>
             </div>
           </NeonCard>
+        </div>
+      </section>
+
+      {/* How to Install */}
+      <section className={styles.installSection}>
+        <h2 className={styles.sectionTitle}>
+          <Terminal size={20} />
+          How to Install
+        </h2>
+        <div className={styles.installGrid}>
+          <div className={styles.installStep}>
+            <span className={styles.installLabel}>1. Install the CLI</span>
+            <TerminalBlock title="~">
+              {`# Install the CLI\nuv tool install dhub-cli\n\n# Login via GitHub\ndhub login`}
+            </TerminalBlock>
+          </div>
+          <div className={styles.installStep}>
+            <span className={styles.installLabel}>2. Install a skill to your agents</span>
+            <TerminalBlock title="~">
+              {`# Search for skills\ndhub ask "I need to solve a Bayesian Statistics Problem, what can I do?"\n\n# Install to Claude, Cursor, Codex...\ndhub install pymc-labs/bayesian-stats --agent all`}
+            </TerminalBlock>
+          </div>
         </div>
       </section>
     </div>
