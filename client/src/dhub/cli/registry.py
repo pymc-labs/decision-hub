@@ -405,8 +405,11 @@ def _create_zip(path: Path) -> bytes:
     return buf.getvalue()
 
 
-def list_command() -> None:
-    """List all published skills on the registry."""
+def list_command(
+    page: int = typer.Option(1, "--page", "-p", min=1, help="Page number"),
+    page_size: int = typer.Option(20, "--page-size", "-n", min=1, max=100, help="Items per page"),
+) -> None:
+    """List published skills on the registry."""
     from dhub.cli.banner import check_and_show_update, print_banner
     from dhub.cli.config import build_headers, get_api_url, get_token
 
@@ -417,10 +420,16 @@ def list_command() -> None:
     with httpx.Client(timeout=60) as client:
         resp = client.get(
             f"{api_url}/v1/skills",
+            params={"page": page, "page_size": page_size},
             headers=build_headers(get_token()),
         )
         resp.raise_for_status()
-        skills = resp.json()
+        data = resp.json()
+
+    skills = data.get("items", [])
+    total = data.get("total", 0)
+    total_pages = data.get("total_pages", 1)
+    current_page = data.get("page", page)
 
     console.print(f"Registry: [dim]{api_url}[/]")
 
@@ -455,6 +464,9 @@ def list_command() -> None:
         )
 
     console.print(table)
+    console.print(
+        f"Page {current_page} of {total_pages} ({total} total skills)"
+    )
 
     check_and_show_update(console)
 

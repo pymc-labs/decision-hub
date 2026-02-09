@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Search, Package, Download, Filter, User } from "lucide-react";
+import { Search, Package, Download, Filter, User, ChevronLeft, ChevronRight } from "lucide-react";
 import { listSkills } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
@@ -8,20 +8,29 @@ import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import styles from "./SkillsPage.module.css";
 
+const PAGE_SIZE = 12;
+
 export default function SkillsPage() {
-  const { data: skills, loading, error } = useApi(() => listSkills(), []);
+  const [page, setPage] = useState(1);
+  const { data, loading, error } = useApi(
+    () => listSkills(page, PAGE_SIZE),
+    [page]
+  );
+
+  const skills = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = data?.total_pages ?? 1;
+
   const [search, setSearch] = useState("");
   const [orgFilter, setOrgFilter] = useState<string>("all");
   const [gradeFilter, setGradeFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "downloads" | "updated">("updated");
 
   const orgs = useMemo(() => {
-    if (!skills) return [];
     return [...new Set(skills.map((s) => s.org_slug))].sort();
   }, [skills]);
 
   const filtered = useMemo(() => {
-    if (!skills) return [];
     let result = [...skills];
 
     if (search) {
@@ -55,6 +64,10 @@ export default function SkillsPage() {
     return result;
   }, [skills, search, orgFilter, gradeFilter, sortBy]);
 
+  const goToPage = useCallback((p: number) => {
+    setPage(Math.max(1, Math.min(p, totalPages)));
+  }, [totalPages]);
+
   if (loading) return <LoadingSpinner text="Loading skills..." />;
   if (error) {
     return (
@@ -74,7 +87,7 @@ export default function SkillsPage() {
           Skill Registry
         </h1>
         <p className={styles.subtitle}>
-          {skills?.length ?? 0} skills published across {orgs.length} organizations
+          {total} skills published across {orgs.length} organizations
         </p>
       </div>
 
@@ -170,6 +183,31 @@ export default function SkillsPage() {
               </NeonCard>
             </Link>
           ))}
+        </div>
+      )}
+
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className={styles.pagination}>
+          <button
+            className={styles.pageButton}
+            onClick={() => goToPage(page - 1)}
+            disabled={page <= 1}
+          >
+            <ChevronLeft size={16} />
+            Prev
+          </button>
+          <span className={styles.pageInfo}>
+            Page {page} of {totalPages}
+          </span>
+          <button
+            className={styles.pageButton}
+            onClick={() => goToPage(page + 1)}
+            disabled={page >= totalPages}
+          >
+            Next
+            <ChevronRight size={16} />
+          </button>
         </div>
       )}
     </div>
