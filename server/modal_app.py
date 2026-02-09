@@ -12,6 +12,8 @@ app = modal.App(app_name)
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .add_local_dir("../shared", remote_path="/tmp/dhub-core", copy=True)
+    .run_commands("pip install /tmp/dhub-core")
     .pip_install_from_pyproject("pyproject.toml")
     .add_local_dir("src/decision_hub", remote_path="/root/decision_hub")
 )

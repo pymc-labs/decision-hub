@@ -1,13 +1,20 @@
-# dhub
+# dhub-cli: The Package Manager for AI Agent Skills
 
-The CLI package manager for AI agent skills.
+**Decision Hub** is a CLI-first registry for publishing, discovering, and installing *Skills* — modular packages of code and prompts that AI coding agents (Claude, Cursor, Codex, Gemini, OpenCode) can use. Think `npm` or `cargo` for agent capabilities.
 
-`dhub` lets you publish, discover, and install **Skills** — modular capabilities (code + prompts) that agents like Claude, Cursor, and Gemini can use.
+## Why Decision Hub?
+
+- **🏢 Organization Namespaces:** Publish skills to your GitHub organization's namespace (`acme-corp/deploy-tool`) for your team to use. Zero config—just login and publish.
+- **🛡️ Secure by Default:** Every skill runs in an isolated environment (via `uv`) and passes a "Security Gauntlet" scan before publishing. No more running untrusted code on your bare metal.
+- **⚡ Agent-Agnostic:** Install a skill once, and it's instantly available to all your AI agents (Claude, Cursor, Gemini).
+- **🧪 Automated Evals:** Skills aren't just hosted; they're graded. Automated sandboxed evaluations ensure skills actually work before you install them.
+- **🧠 Natural Language Search:** Don't remember the package name? Just `dhub ask "tool to analyze logs"` and let the LLM find it for you.
+- **🔓 Open Source & Self-Hostable:** Run the public CLI or deploy your own private registry server. Your skills, your infrastructure.
 
 ## Installation
 
 ```bash
-# Via uv
+# Via uv (recommended)
 uv tool install dhub-cli
 
 # Via pipx
@@ -17,36 +24,32 @@ pipx install dhub-cli
 ## Quick Start
 
 ```bash
-# Authenticate via GitHub
+# 1. Authenticate via GitHub
 dhub login
 
-# Publish a skill
-dhub publish --org my-org --name my-skill --version 1.0.0
-
-# Install a skill
-dhub install my-org/my-skill
-
-# Search for skills
+# 2. Search for skills using natural language
 dhub ask "analyze A/B test results"
 
-# Run a skill locally
-dhub run my-org/my-skill
+# 3. Install a skill for all your agents
+dhub install pymc-labs/causalpy
+
+# 4. Scaffold a new skill
+dhub init my-new-skill
+
+# 5. Publish it under your namespace
+# (Run this inside the skill directory)
+dhub publish .
 ```
 
-## Commands
+## Supported Agents
 
-| Command | Description |
-|---------|-------------|
-| `dhub login` | Authenticate via GitHub Device Flow |
-| `dhub publish` | Publish skill(s) from a directory or git repo |
-| `dhub install` | Install a skill |
-| `dhub list` | List installed skills |
-| `dhub delete` | Delete a skill from the registry |
-| `dhub run` | Run a locally installed skill |
-| `dhub ask` | Natural language skill search |
-| `dhub org` | Manage organizations |
-| `dhub keys` | Manage API keys for evaluations |
+Skills are installed as symlinks into each agent's skill directory, making them immediately available:
+
+- **Claude:** `~/.claude/skills`
+- **Cursor:** `~/.cursor/skills`
+- **Gemini:** `~/.gemini/skills`
+- **OpenCode:** `~/.config/opencode/skills`
 
 ## Documentation
 
-See the [main repository](https://github.com/lfiaschi/decision-hub) for full documentation.
+For full documentation on creating skills, the `SKILL.md` format, and running your own registry server, see the [main repository](https://github.com/lfiaschi/decision-hub).
