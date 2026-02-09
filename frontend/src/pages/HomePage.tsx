@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
-import { Package, Building2, Shield, Zap, ArrowRight, Download, Star } from "lucide-react";
+import { Package, Building2, Shield, Zap, ArrowRight, Download, Star, Terminal } from "lucide-react";
 import { listSkills } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
+import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
 
 export default function HomePage() {
@@ -24,7 +25,7 @@ export default function HomePage() {
           <span className={styles.heroMain}>HUB</span>
         </h1>
         <p className={styles.heroSub}>
-          The skill registry for AI agents. Discover, install, and share
+          The skill registry for data science agents. Discover, install, and share
           executable skills with built-in safety grading and automated
           evaluations.
         </p>
@@ -71,6 +72,17 @@ export default function HomePage() {
             <span className={styles.statLabel}>Safety Grading</span>
           </div>
         </NeonCard>
+      </section>
+
+      {/* CLI First */}
+      <section className={styles.cliSection}>
+        <h2 className={styles.sectionTitle}>
+          <Terminal size={20} />
+          CLI First
+        </h2>
+        <TerminalBlock title="~">
+          {`# Install the CLI\nuv tool install dhub-cli\n\n# Login via GitHub\ndhub login`}
+        </TerminalBlock>
       </section>
 
       {/* Featured Skills */}

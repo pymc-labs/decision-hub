@@ -1,11 +1,12 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Zap, Package, Building2, Home } from "lucide-react";
+import { Zap, Package, Building2, Home, BookOpen } from "lucide-react";
 import styles from "./Layout.module.css";
 
 const NAV_ITEMS = [
   { path: "/", label: "Home", icon: Home },
   { path: "/skills", label: "Skills", icon: Package },
   { path: "/orgs", label: "Organizations", icon: Building2 },
+  { path: "/how-it-works", label: "How it Works", icon: BookOpen },
 ];
 
 export default function Layout() {
@@ -45,7 +46,7 @@ export default function Layout() {
         <div className={styles.footerInner}>
           <span className={styles.footerGlow}>DECISION HUB</span>
           <span className={styles.footerText}>
-            Skill Registry for AI Agents
+            Skill Registry for Data Science Agents
           </span>
         </div>
       </footer>

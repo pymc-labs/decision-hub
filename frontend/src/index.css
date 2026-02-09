@@ -15,6 +15,9 @@
   --glow-purple: 0 0 10px #b400ff, 0 0 20px #b400ff80, 0 0 40px #b400ff40;
   --glow-green: 0 0 10px #39ff14, 0 0 20px #39ff1480, 0 0 40px #39ff1440;
 
+  --glow-text-subtle: 0 0 8px rgba(0, 240, 255, 0.15);
+  --glow-text-strong: 0 0 10px rgba(0, 240, 255, 0.3);
+
   --bg-darkest: #0a0a12;
   --bg-dark: #12121f;
   --bg-card: #1a1a2e;

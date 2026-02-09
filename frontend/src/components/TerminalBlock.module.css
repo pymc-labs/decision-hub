@@ -1,0 +1,39 @@
+.terminal {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-darkest);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.title {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.body {
+  padding: 16px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--neon-green);
+  line-height: 1.7;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0;
+}

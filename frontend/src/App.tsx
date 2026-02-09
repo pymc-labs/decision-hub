@@ -5,6 +5,7 @@ import SkillsPage from "./pages/SkillsPage";
 import SkillDetailPage from "./pages/SkillDetailPage";
 import OrgsPage from "./pages/OrgsPage";
 import OrgDetailPage from "./pages/OrgDetailPage";
+import HowItWorksPage from "./pages/HowItWorksPage";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/skills/:orgSlug/:skillName" element={<SkillDetailPage />} />
         <Route path="/orgs" element={<OrgsPage />} />
         <Route path="/orgs/:orgSlug" element={<OrgDetailPage />} />
+        <Route path="/how-it-works" element={<HowItWorksPage />} />
       </Route>
     </Routes>
   );

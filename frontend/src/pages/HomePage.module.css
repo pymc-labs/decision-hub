@@ -142,6 +142,16 @@
   text-transform: uppercase;
 }
 
+/* CLI Section */
+.cliSection {
+  max-width: 600px;
+  margin: 48px auto;
+}
+
+.cliSection .sectionTitle {
+  margin-bottom: 16px;
+}
+
 /* Featured */
 .featured {
   margin: 48px 0;
