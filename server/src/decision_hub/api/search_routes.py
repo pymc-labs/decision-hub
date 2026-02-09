@@ -6,7 +6,11 @@ from pydantic import BaseModel
 from decision_hub.api.deps import get_connection, get_settings
 from decision_hub.domain.search import build_index_entry, serialize_index
 from decision_hub.infra.database import fetch_all_skills_for_index
-from decision_hub.infra.gemini import create_gemini_client, search_skills_with_llm
+from decision_hub.infra.gemini import (
+    check_query_topicality,
+    create_gemini_client,
+    search_skills_with_llm,
+)
 from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["search"])
@@ -35,6 +39,22 @@ def search_skills(
             detail="Search is not configured (missing GOOGLE_API_KEY)",
         )
 
+    # Intent guard: reject off-topic queries before hitting the DB or main LLM
+    gemini = create_gemini_client(settings.google_api_key)
+    guard = check_query_topicality(gemini, q, settings.gemini_model)
+    if not guard["is_skill_query"]:
+        return SearchResponse(
+            query=q,
+            results=(
+                "This doesn't look like a skill search query. "
+                "`dhub ask` searches the skill registry for tools and capabilities.\n\n"
+                "**Try something like:**\n"
+                "- `dhub ask 'data validation'`\n"
+                "- `dhub ask 'causal inference tools'`\n"
+                "- `dhub ask 'A/B test analysis'`"
+            ),
+        )
+
     # Build index directly from the database (single source of truth)
     rows = fetch_all_skills_for_index(conn)
     if not rows:
@@ -53,8 +73,7 @@ def search_skills(
     ]
     index_content = serialize_index(entries)
 
-    # Search with Gemini
-    gemini = create_gemini_client(settings.google_api_key)
+    # Search with Gemini (reuse client from guard call above)
     result_text = search_skills_with_llm(
         gemini, q, index_content, settings.gemini_model,
     )

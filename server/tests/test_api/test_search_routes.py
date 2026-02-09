@@ -60,10 +60,12 @@ class TestSearchSkills:
         assert "GOOGLE_API_KEY" in resp.json()["detail"]
 
     @respx.mock
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value={"is_skill_query": True, "reason": ""})
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_success(
         self,
         mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
         """End-to-end ask flow: canned DB rows through real domain logic and Gemini response parsing."""
@@ -110,10 +112,12 @@ class TestSearchSkills:
         assert "translate" in sent_payload
 
     @respx.mock
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value={"is_skill_query": True, "reason": ""})
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_gemini_empty_candidates(
         self,
         mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
         """When Gemini returns no candidates, the fallback message propagates through the route."""
@@ -136,10 +140,12 @@ class TestSearchSkills:
         assert resp.status_code == 200
         assert "No recommendations found" in resp.json()["results"]
 
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value={"is_skill_query": True, "reason": ""})
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_empty_database(
         self,
         mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
         """When the database has no skills, should return a message without calling the LLM."""
@@ -151,3 +157,116 @@ class TestSearchSkills:
         data = resp.json()
         assert data["query"] == "anything"
         assert "No skills" in data["results"]
+
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value={"is_skill_query": False, "reason": "off-topic"})
+    def test_search_off_topic_rejected(
+        self,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Off-topic queries are rejected before hitting the DB or main LLM."""
+        resp = search_client.get(
+            "/v1/search", params={"q": "chocolate cake recipe"}
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["query"] == "chocolate cake recipe"
+        assert "doesn't look like a skill search" in data["results"]
+        assert "dhub ask" in data["results"]
+
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value={"is_skill_query": False, "reason": "off-topic"})
+    @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
+    def test_search_off_topic_skips_db(
+        self,
+        mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Off-topic rejection must not query the database at all."""
+        search_client.get("/v1/search", params={"q": "tell me a joke"})
+
+        mock_fetch.assert_not_called()
+
+
+class TestTopicalityGuard:
+    """Unit tests for check_query_topicality Gemini guard."""
+
+    @respx.mock
+    def test_on_topic_query(self) -> None:
+        from decision_hub.infra.gemini import check_query_topicality, create_gemini_client
+
+        respx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        ).mock(return_value=httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"text": '{"is_skill_query": true, "reason": "asks about data tools"}'}]}}],
+        }))
+
+        client = create_gemini_client("fake-key")
+        result = check_query_topicality(client, "data validation library")
+
+        assert result["is_skill_query"] is True
+
+    @respx.mock
+    def test_off_topic_query(self) -> None:
+        from decision_hub.infra.gemini import check_query_topicality, create_gemini_client
+
+        respx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        ).mock(return_value=httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"text": '{"is_skill_query": false, "reason": "cooking recipe"}'}]}}],
+        }))
+
+        client = create_gemini_client("fake-key")
+        result = check_query_topicality(client, "chocolate cake recipe")
+
+        assert result["is_skill_query"] is False
+        assert "cooking" in result["reason"]
+
+    @respx.mock
+    def test_guard_fails_open_on_api_error(self) -> None:
+        """When the guard API call fails, queries should pass through (fail-open)."""
+        from decision_hub.infra.gemini import check_query_topicality, create_gemini_client
+
+        respx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        ).mock(return_value=httpx.Response(500))
+
+        client = create_gemini_client("fake-key")
+        result = check_query_topicality(client, "anything")
+
+        assert result["is_skill_query"] is True
+        assert result["reason"] == "guard_error"
+
+    @respx.mock
+    def test_guard_fails_open_on_malformed_json(self) -> None:
+        """When the guard returns unparseable JSON, queries should pass through."""
+        from decision_hub.infra.gemini import check_query_topicality, create_gemini_client
+
+        respx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        ).mock(return_value=httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"text": "not valid json at all"}]}}],
+        }))
+
+        client = create_gemini_client("fake-key")
+        result = check_query_topicality(client, "anything")
+
+        assert result["is_skill_query"] is True
+        assert result["reason"] == "guard_error"
+
+    @respx.mock
+    def test_guard_strips_markdown_fences(self) -> None:
+        """Guard should handle responses wrapped in markdown code fences."""
+        from decision_hub.infra.gemini import check_query_topicality, create_gemini_client
+
+        respx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        ).mock(return_value=httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"text": '```json\n{"is_skill_query": false, "reason": "off-topic"}\n```'}]}}],
+        }))
+
+        client = create_gemini_client("fake-key")
+        result = check_query_topicality(client, "write me a poem")
+
+        assert result["is_skill_query"] is False
