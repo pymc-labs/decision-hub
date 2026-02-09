@@ -66,6 +66,16 @@ def parse_skill_md(path: Path) -> SkillManifest:
     metadata = data.get("metadata")
     allowed_tools = data.get("allowed_tools")
 
+    # Optional version field (semver)
+    version_raw = data.get("version")
+    version_str: str | None = None
+    if version_raw is not None:
+        version_str = str(version_raw)
+        if not re.match(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$", version_str):
+            raise ValueError(
+                f"Invalid version '{version_str}': must be a valid semver (e.g. 1.2.3)."
+            )
+
     # Optional structured blocks
     runtime = parse_runtime(data.get("runtime"))
     evals = parse_evals(data.get("evals"))
@@ -81,6 +91,7 @@ def parse_skill_md(path: Path) -> SkillManifest:
         evals=evals,
         body=body,
         testing=testing,
+        version=version_str,
     )
 
     errors = validate_manifest(manifest)

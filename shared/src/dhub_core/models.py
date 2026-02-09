@@ -20,6 +20,7 @@ class SkillManifest:
     evals: "EvalConfig | None"
     body: str
     testing: "TestingConfig | None" = None  # Legacy field for backward compatibility
+    version: str | None = None
 
 
 @dataclass(frozen=True)

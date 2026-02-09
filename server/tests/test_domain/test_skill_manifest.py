@@ -1,6 +1,12 @@
-"""Tests for decision_hub.domain.skill_manifest -- extract_description."""
+"""Tests for decision_hub.domain.skill_manifest -- extract_description and version parsing."""
+
+from pathlib import Path
+from textwrap import dedent
+
+import pytest
 
 from decision_hub.domain.skill_manifest import extract_description
+from dhub_core.manifest import parse_skill_md
 
 
 class TestExtractDescription:
@@ -34,3 +40,45 @@ class TestExtractDescription:
         """The --- in the body should not break parsing."""
         content = "---\nname: my-skill\ndescription: Works well\n---\nBody\n\n---\n\nMore body\n"
         assert extract_description(content) == "Works well"
+
+
+class TestVersionParsing:
+    """parse_skill_md extracts optional version from frontmatter."""
+
+    def test_parses_version_from_frontmatter(self, tmp_path: Path) -> None:
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_text(dedent("""\
+            ---
+            name: my-skill
+            description: A test skill
+            version: 1.2.3
+            ---
+            Body text here
+        """))
+        manifest = parse_skill_md(skill_md)
+        assert manifest.version == "1.2.3"
+
+    def test_version_none_when_omitted(self, tmp_path: Path) -> None:
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_text(dedent("""\
+            ---
+            name: my-skill
+            description: A test skill
+            ---
+            Body text here
+        """))
+        manifest = parse_skill_md(skill_md)
+        assert manifest.version is None
+
+    def test_invalid_version_raises(self, tmp_path: Path) -> None:
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_text(dedent("""\
+            ---
+            name: my-skill
+            description: A test skill
+            version: abc
+            ---
+            Body text here
+        """))
+        with pytest.raises(ValueError, match="Invalid version"):
+            parse_skill_md(skill_md)

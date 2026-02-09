@@ -1599,6 +1599,48 @@ def find_due_trackers(conn: Connection) -> list[SkillTracker]:
     return [_row_to_skill_tracker(row) for row in rows]
 
 
+def claim_due_trackers(conn: Connection) -> list[SkillTracker]:
+    """Atomically claim all due trackers for processing.
+
+    Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent concurrent runs
+    from double-processing the same tracker. Claims each selected row
+    by setting last_checked_at = now(), so the next run will skip it.
+
+    Returns the claimed SkillTracker objects (with their pre-claim state).
+    """
+    now = sa.func.now()
+    due_filter = sa.and_(
+        skill_trackers_table.c.enabled.is_(True),
+        sa.or_(
+            skill_trackers_table.c.last_checked_at.is_(None),
+            now > (
+                skill_trackers_table.c.last_checked_at
+                + sa.func.make_interval(
+                    mins=skill_trackers_table.c.poll_interval_minutes,
+                )
+            ),
+        ),
+    )
+
+    # Select due tracker IDs with row-level locking, skipping already-locked rows
+    locked_ids_cte = (
+        sa.select(skill_trackers_table.c.id)
+        .where(due_filter)
+        .with_for_update(skip_locked=True)
+        .cte("locked_ids")
+    )
+
+    # Claim by bumping last_checked_at, returning full rows
+    update_stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(sa.select(locked_ids_cte.c.id)))
+        .values(last_checked_at=now)
+        .returning(*skill_trackers_table.c)
+    )
+    rows = conn.execute(update_stmt).all()
+    return [_row_to_skill_tracker(row) for row in rows]
+
+
 def update_skill_tracker(
     conn: Connection,
     tracker_id: UUID,

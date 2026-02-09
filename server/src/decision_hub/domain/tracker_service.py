@@ -28,14 +28,13 @@ from decision_hub.settings import Settings
 logger = logging.getLogger(__name__)
 
 
-def process_tracker(tracker: SkillTracker, settings: Settings) -> None:
+def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
     """Check a single tracker for updates and republish if needed.
 
     This is the main entry point called by the scheduled function.
     On any error, updates last_error on the tracker row.
     """
     from decision_hub.infra.database import (
-        create_engine,
         find_org_by_slug,
         find_skill,
         find_version,
@@ -48,13 +47,14 @@ def process_tracker(tracker: SkillTracker, settings: Settings) -> None:
     )
     from decision_hub.infra.storage import compute_checksum, create_s3_client, upload_skill_zip
 
-    engine = create_engine(settings.database_url)
     now = datetime.now(timezone.utc)
+    github_token = _resolve_github_token(engine, tracker, settings)
 
     try:
         owner, repo = parse_github_repo_url(tracker.repo_url)
         changed, current_sha = has_new_commits(
             owner, repo, tracker.branch, tracker.last_commit_sha,
+            github_token=github_token,
         )
 
         if not changed:
@@ -72,7 +72,7 @@ def process_tracker(tracker: SkillTracker, settings: Settings) -> None:
             return
 
         # Clone the repo at the target branch
-        repo_root = _clone_repo(tracker.repo_url, tracker.branch)
+        repo_root = _clone_repo(tracker.repo_url, tracker.branch, github_token=github_token)
 
         try:
             skill_dirs = _discover_skills(repo_root)
@@ -144,13 +144,25 @@ def process_tracker(tracker: SkillTracker, settings: Settings) -> None:
             logger.error("Failed to update tracker %s error state: %s", tracker.id, inner)
 
 
-def _clone_repo(repo_url: str, branch: str) -> Path:
-    """Clone a git repo into a temp directory."""
+def _clone_repo(repo_url: str, branch: str, *, github_token: str | None = None) -> Path:
+    """Clone a git repo into a temp directory.
+
+    When a github_token is provided, rewrites the URL to use HTTPS
+    token authentication (supports private repos).
+    """
+    clone_url = repo_url
+    if github_token:
+        clone_url = _build_authenticated_url(repo_url, github_token)
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-tracker-"))
-    cmd = ["git", "clone", "--depth", "1", "--branch", branch, repo_url, str(tmp_dir / "repo")]
+    cmd = ["git", "clone", "--depth", "1", "--branch", branch, clone_url, str(tmp_dir / "repo")]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"git clone failed: {result.stderr.strip()}")
+        # Sanitize token from error messages
+        stderr = result.stderr.strip()
+        if github_token:
+            stderr = stderr.replace(github_token, "***")
+        raise RuntimeError(f"git clone failed: {stderr}")
     return tmp_dir / "repo"
 
 
@@ -191,6 +203,44 @@ def _bump_version(current_semver: str) -> str:
     parts = current_semver.split(".")
     parts[2] = str(int(parts[2]) + 1)
     return ".".join(parts)
+
+
+def _parse_semver(v: str) -> tuple[int, int, int]:
+    """Parse a semver string into a comparable (major, minor, patch) tuple."""
+    parts = v.split(".")
+    return int(parts[0]), int(parts[1]), int(parts[2])
+
+
+def _resolve_github_token(engine, tracker: SkillTracker, settings: Settings) -> str | None:
+    """Resolve the best available GitHub token for a tracker.
+
+    Priority:
+    1. User's stored GITHUB_TOKEN from user_api_keys (decrypted)
+    2. System-wide settings.github_token fallback
+    3. None if neither exists
+    """
+    from decision_hub.domain.crypto import decrypt_value
+    from decision_hub.infra.database import get_api_keys_for_eval
+
+    with engine.connect() as conn:
+        keys = get_api_keys_for_eval(conn, tracker.user_id, ["GITHUB_TOKEN"])
+
+    if "GITHUB_TOKEN" in keys:
+        return decrypt_value(keys["GITHUB_TOKEN"], settings.fernet_key)
+
+    if settings.github_token:
+        return settings.github_token
+
+    return None
+
+
+def _build_authenticated_url(repo_url: str, token: str) -> str:
+    """Rewrite a GitHub repo URL to use HTTPS token authentication.
+
+    Handles both HTTPS and SSH URL formats.
+    """
+    owner, repo = parse_github_repo_url(repo_url)
+    return f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
 
 
 def _publish_skill_from_tracker(
@@ -244,9 +294,11 @@ def _publish_skill_from_tracker(
             logger.info("Tracker: no content changes for %s/%s, skipping", org_slug, skill_name)
             return
 
-        # Determine version
+        # Determine version: prefer manifest version if present and higher
         if latest is None:
-            version = "0.1.0"
+            version = manifest.version or "0.1.0"
+        elif manifest.version and _parse_semver(manifest.version) > _parse_semver(latest.semver):
+            version = manifest.version
         else:
             version = _bump_version(latest.semver)
 
@@ -347,11 +399,11 @@ def _publish_skill_from_tracker(
 
 def check_all_due_trackers(settings: Settings) -> int:
     """Find all due trackers and process them. Returns count of trackers processed."""
-    from decision_hub.infra.database import create_engine, find_due_trackers
+    from decision_hub.infra.database import claim_due_trackers, create_engine
 
     engine = create_engine(settings.database_url)
     with engine.connect() as conn:
-        trackers = find_due_trackers(conn)
+        trackers = claim_due_trackers(conn)
         conn.commit()
 
     logger.info("Found %d due tracker(s)", len(trackers))
@@ -359,7 +411,7 @@ def check_all_due_trackers(settings: Settings) -> int:
     processed = 0
     for tracker in trackers:
         try:
-            process_tracker(tracker, settings)
+            process_tracker(tracker, settings, engine)
             processed += 1
         except Exception as e:
             logger.error("Tracker %s failed: %s", tracker.id, e)
