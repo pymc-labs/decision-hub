@@ -647,7 +647,6 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
 
 def run_crawler(
     github_token: str | None = None,
-    max_repos: int | None = None,
     max_skills: int | None = None,
     env: str = "dev",
     strategies: list[str] | None = None,
@@ -731,10 +730,8 @@ def run_crawler(
         print("No repos discovered.")
         return stats
 
-    # Sort by stars, apply max_repos, filter processed
+    # Sort by stars, filter already-processed
     sorted_repos = sorted(all_repos.values(), key=lambda r: r.stars, reverse=True)
-    if max_repos:
-        sorted_repos = sorted_repos[:max_repos]
     pending_repos = [r for r in sorted_repos if r.full_name not in already_processed]
     stats.repos_skipped_checkpoint = len(sorted_repos) - len(pending_repos)
 
@@ -865,8 +862,6 @@ def main():
     parser = argparse.ArgumentParser(description="Multi-strategy GitHub skills crawler")
     parser.add_argument("--github-token", default=None,
                         help="GitHub PAT (recommended for rate limits)")
-    parser.add_argument("--max-repos", type=int, default=None,
-                        help="Max repos to process")
     parser.add_argument("--max-skills", type=int, default=None,
                         help="Stop after publishing this many skills (e.g. 5000)")
     parser.add_argument("--env", default="dev", choices=["dev", "prod"],
@@ -889,7 +884,6 @@ def main():
 
     run_crawler(
         github_token=args.github_token,
-        max_repos=args.max_repos,
         max_skills=args.max_skills,
         env=args.env,
         strategies=args.strategies,
