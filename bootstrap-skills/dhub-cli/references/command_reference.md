@@ -80,20 +80,22 @@ skill-name/
 Publish a skill to the registry.
 
 ```
-dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [--private]
+dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [--private] [--ref REF]
 ```
 
 | Argument/Option | Required | Default | Description |
 |----------------|----------|---------|-------------|
-| `SKILL_REF` | no | auto-detect from SKILL.md | Org/skill reference (e.g. `myorg/my-skill`) |
+| `SKILL_REF` | no | auto-detect from SKILL.md | Org/skill reference, path, or git URL |
 | `PATH` | no | `.` | Path to skill directory |
 | `--version` | no | auto-bump | Explicit semver (e.g. `1.2.3`) |
 | `--patch` | no | true (default bump) | Bump patch version |
 | `--minor` | no | false | Bump minor version |
 | `--major` | no | false | Bump major version |
 | `--private` | no | false | Publish as org-private (visible only to org members) |
+| `--ref` | no | default branch | Branch/tag/commit (git URLs only) |
 
 **Positional argument disambiguation:**
+- Git URL (starts with `https://`, `http://`, `git@`, `ssh://`, `git://`, or ends with `.git`) → clone repo and publish all discovered skills
 - Starts with `.`, `/`, `~`, or is an existing directory → treated as PATH
 - Contains `/` but not a directory → treated as SKILL_REF (org/skill)
 
@@ -108,6 +110,25 @@ dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [-
 - HTTP 503 → server LLM judge not configured
 
 **Output:** Published reference with safety grade (A/B/C). If evals are configured, reports "evaluation running in background."
+
+**Git repository mode:**
+
+When the first argument is a git URL, publish clones the repo and discovers all skills:
+
+```bash
+dhub publish https://github.com/myorg/skills-repo
+dhub publish git@github.com:myorg/repo.git --ref main
+dhub publish https://github.com/myorg/repo --minor
+```
+
+Steps:
+1. Clone the repository (shallow, `--depth 1`) into a temporary directory
+2. Recursively find all `SKILL.md` files, skipping hidden dirs, `node_modules`, `__pycache__`
+3. Validate each `SKILL.md` — only directories with valid frontmatter are included
+4. Publish each discovered skill, reading names from SKILL.md frontmatter
+5. Clean up the temporary clone
+
+If one skill fails to publish, the remaining skills still get published. A summary is printed at the end: X published, Y skipped, Z failed.
 
 ---
 
