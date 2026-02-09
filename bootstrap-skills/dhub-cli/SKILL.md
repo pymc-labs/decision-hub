@@ -180,16 +180,43 @@ dhub track remove abc12345
 ### How it works
 
 1. A Modal scheduled function runs every 5 minutes
-2. For each tracker whose poll interval has elapsed, it checks the GitHub API for new commits
-3. If the branch SHA has changed, it clones the repo and discovers all SKILL.md files
-4. Each skill goes through the full publish pipeline (gauntlet security checks + version bump + S3 upload)
-5. Skills with unchanged content (same checksum) are skipped
-6. The tracker records the latest commit SHA, last check time, and any errors
+2. Due trackers are atomically claimed (prevents double-processing in concurrent runs)
+3. For each claimed tracker, it checks the GitHub API for new commits
+4. If the branch SHA has changed, it clones the repo and discovers all SKILL.md files
+5. Each skill goes through the full publish pipeline (gauntlet security checks + version bump + S3 upload)
+6. Skills with unchanged content (same checksum) are skipped
+7. The tracker records the latest commit SHA, last check time, and any errors
+
+### Version determination
+
+When the tracker publishes a new version, it determines the version as follows:
+
+1. If the SKILL.md declares a `version` field (e.g. `version: 2.0.0`) and it's higher than the latest published version, that version is used
+2. Otherwise, the latest published version is patch-bumped (e.g. `1.0.0` → `1.0.1`)
+3. For the first publish, the SKILL.md `version` is used if present, otherwise `0.1.0`
+
+This allows authors to control version jumps (e.g. major bumps) by setting `version` in SKILL.md, while getting automatic patch bumps for routine updates.
+
+### Private repos and GitHub tokens
+
+Trackers support private repositories. The tracker resolves a GitHub token in this order:
+
+1. **User-level token** — if you've stored a `GITHUB_TOKEN` via `dhub keys add GITHUB_TOKEN`, the tracker uses it (decrypted at runtime)
+2. **System-level fallback** — a server-wide GitHub token configured by the administrator
+3. **No token** — unauthenticated access (public repos only, 60 requests/hour API limit)
+
+To track a private repo:
+
+```bash
+dhub keys add GITHUB_TOKEN    # store your GitHub personal access token
+dhub track add https://github.com/myorg/private-repo
+```
+
+The token is used for both GitHub API calls (checking for new commits) and `git clone`. Tokens are never exposed in error messages.
 
 ### Limitations
 
 - Only GitHub repos are supported (both HTTPS and SSH URLs)
-- Public repos use unauthenticated GitHub API (60 requests/hour limit)
 - Minimum poll interval is 5 minutes
 
 ## Installing Skills
@@ -335,6 +362,7 @@ my-skill/
 ---
 name: my-skill                 # 1-64 chars, lowercase + hyphens
 description: What it does      # 1-1024 chars, triggers skill activation
+version: 1.0.0                 # optional — explicit semver for tracked repos
 license: MIT                   # optional
 runtime:                       # optional — for executable skills
   language: python

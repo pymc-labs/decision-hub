@@ -373,6 +373,10 @@ dhub track add REPO_URL [--branch BRANCH] [--interval MINUTES]
 
 Creates a server-side tracker that polls the GitHub API for new commits. When changes are detected, all skills in the repo are automatically republished through the full pipeline (gauntlet + version bump + upload).
 
+**Private repos:** To track a private repo, first store a GitHub personal access token via `dhub keys add GITHUB_TOKEN`. The tracker uses it for both API calls and cloning. Falls back to a system-wide token if configured, or unauthenticated access for public repos.
+
+**Version resolution:** If a tracked skill's SKILL.md declares `version: X.Y.Z` and it's higher than the latest published version, that version is used. Otherwise, the latest version is patch-bumped automatically.
+
 **Error codes:**
 - HTTP 409 → tracker for this repo/branch already exists
 - HTTP 422 → invalid GitHub URL or interval < 5 minutes
