@@ -4,12 +4,19 @@
 
 ## Why Decision Hub?
 
-- **🏢 Organization Namespaces:** Publish skills to your GitHub organization's namespace (`acme-corp/deploy-tool`) for your team to use. Zero config—just login and publish.
-- **🛡️ Secure by Default:** Every skill runs in an isolated environment (via `uv`) and passes a "Security Gauntlet" scan before publishing. No more running untrusted code on your bare metal.
-- **⚡ Agent-Agnostic:** Install a skill once, and it's instantly available to all your AI agents (Claude, Cursor, Gemini).
-- **🧪 Automated Evals:** Skills aren't just hosted; they're graded. Automated sandboxed evaluations ensure skills actually work before you install them.
-- **🧠 Natural Language Search:** Don't remember the package name? Just `dhub ask "tool to analyze logs"` and let the LLM find it for you.
-- **🔓 Open Source & Self-Hostable:** Run the public CLI or deploy your own private registry server. Your skills, your infrastructure.
+**Agents that extend themselves.** Install Decision Hub as a skill into any supported agent, and the agent can discover new skills in natural language — then install and use them mid-conversation without human intervention.
+
+**Publish from anywhere.** Point `dhub publish` at a local directory or a GitHub repo URL and every valid `SKILL.md` inside is discovered, versioned, and published.
+
+**Private skills for your team.** Skills can be scoped to your GitHub organization so proprietary tooling stays internal.
+
+**Install once, use everywhere.** A single `dhub install` symlinks a skill into every agent's skill directory — Claude, Cursor, Codex, Gemini, OpenCode. No duplication, no per-agent setup.
+
+**Security gauntlet.** Every publish is scanned for dangerous patterns. Skills get a trust grade (A/B/C/F) before they reach the registry.
+
+**Automated evals in sandboxes.** Skills ship with eval cases that run on publish in isolated sandboxes, scored by an LLM judge.
+
+**Executable skills with SKILL.md.** Builds on the [Agent Skills spec](https://agentskills.io/specification) with `runtime` and `evals` blocks — skills are runnable programs, not just static prompts.
 
 ## Installation
 

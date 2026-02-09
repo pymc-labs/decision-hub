@@ -6,15 +6,21 @@
 
 ## Why Decision Hub
 
-**The AI Skill Manager for Data Science Agents.**
-Publish, discover, and securely install skills that work across Claude, Cursor, Gemini, and more.
+**Agents that extend themselves.** Decision Hub ships as a skill itself. Install it into Claude Code (or any supported agent), and the agent can discover new skills in natural language mid-conversation — `dhub ask "analyze A/B test results"` — then install and use them without human intervention. The registry becomes a live capability layer that agents draw from on demand.
 
-- **🏢 Organization Namespaces:** Publish skills to your GitHub organization's namespace (`acme-corp/deploy-tool`) for your team to use. Zero config—just login and publish.
-- **🛡️ Secure by Default:** Every skill runs in an isolated environment (via `uv`) and passes a "Security Gauntlet" scan before publishing. No more running untrusted code on your bare metal.
-- **⚡ Agent-Agnostic:** Install a skill once, and it's instantly available to all your AI agents (Claude, Cursor, Gemini).
-- **🧪 Automated Evals:** Skills aren't just hosted; they're graded. Automated sandboxed evaluations ensure skills actually work before you install them.
-- **🧠 Natural Language Search:** Don't remember the package name? Just `dhub ask "tool to analyze logs"` and let the LLM find it for you.
-- **🔓 Open Source & Self-Hostable:** Run the public CLI or deploy your own private registry server. Your skills, your infrastructure.
+**Publish from anywhere.** Point `dhub publish` at a local directory or a GitHub repo URL and every valid `SKILL.md` inside is discovered, versioned, and published. One command turns a monorepo of skills into a registry.
+
+**Private skills for your team.** Skills can be scoped to your GitHub organization. Only members see and install them — so proprietary tooling stays internal while still benefiting from the same registry workflow.
+
+**Install once, use everywhere.** A single `dhub install` downloads a skill once and symlinks it into every agent's skill directory — Claude, Cursor, Codex, Gemini, OpenCode. No duplication, no per-agent setup.
+
+**Security gauntlet.** Every publish is scanned for shell injection, credential exfiltration, and other dangerous patterns. Skills get a trust grade (A/B/C/F) before they ever reach the registry. Grade F is rejected outright; Grade C requires an explicit `--allow-risky` flag to install.
+
+**Automated evals in sandboxes.** Skills ship with eval cases that run automatically on publish — each case executes in an isolated Modal sandbox with the configured agent, an LLM judge scores the output, and the results are published as a report.
+
+**Executable skills with the SKILL.md format.** Builds on the [Agent Skills spec](https://agentskills.io/specification) with `runtime` (language, entrypoint, dependencies, env vars) and `evals` (agent, judge model) blocks — so skills can be runnable programs with reproducible environments, not just static prompts.
+
+**Zero-config namespaces.** Your GitHub username and org memberships become your publishing namespaces automatically on login. No accounts to create, no orgs to manage.
 
 ## Installation
 
