@@ -108,7 +108,7 @@ dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [-
 - HTTP 422 → Grade F, safety checks failed
 - HTTP 503 → server LLM judge not configured
 
-**Output:** Published reference with safety grade (A/B/C). If evals are configured, reports "evaluation running in background."
+**Output:** Published reference with safety grade (A/B/C). If evals are configured, the CLI automatically attaches to the eval log stream (see `dhub logs`).
 
 **Git repository mode:**
 
@@ -304,6 +304,18 @@ dhub org list
 ```
 
 Shows organization slugs derived from your GitHub account and org memberships.
+
+---
+
+## dhub config default-org
+
+Set the default namespace for publishing so you don't have to specify it each time.
+
+```
+dhub config default-org
+```
+
+Interactive — prompts you to choose from your available namespaces. The selection is saved to `~/.dhub/config.{env}.json`.
 
 ---
 

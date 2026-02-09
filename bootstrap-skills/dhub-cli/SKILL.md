@@ -30,6 +30,7 @@ dhub ask "query"        Natural language skill search
 dhub eval-report org/skill@version  View eval report
 dhub logs [ref] [-f]    View or tail eval run logs
 dhub org list           List your namespaces
+dhub config default-org Set default namespace for publishing
 dhub keys add <name>    Store an API key for evals
 dhub keys list          List stored API key names
 dhub keys remove <name> Remove a stored API key
@@ -115,7 +116,7 @@ After publishing, the server runs safety checks and assigns a grade:
 | **C** | Ambiguous/risky patterns | Users need `--allow-risky` flag to install |
 | **F** | Rejected — fails safety checks | Publish is rejected (HTTP 422) |
 
-If the skill has an `evals` block, agent evaluation runs in the background after publish.
+If the skill has an `evals` block, agent evaluation runs after publish and the CLI automatically attaches to the live log stream. Press Ctrl-C to detach; re-attach later with `dhub logs`.
 
 ### What gets zipped
 
