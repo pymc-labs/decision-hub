@@ -18,7 +18,7 @@ image = (
     .add_local_dir("../shared", remote_path="/tmp/dhub-core", copy=True)
     .run_commands("pip install /tmp/dhub-core")
     .pip_install_from_pyproject("pyproject.toml")
-    .add_local_dir("src/decision_hub", remote_path="/root/decision_hub")
+    .add_local_dir("src/decision_hub", remote_path="/root/decision_hub", copy=True)
 )
 
 # Include the frontend build when it exists (produced by deploy script).
