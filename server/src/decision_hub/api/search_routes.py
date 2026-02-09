@@ -1,6 +1,6 @@
 """Skill search routes -- natural language discovery via LLM."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from decision_hub.api.deps import get_connection, get_settings
@@ -16,11 +16,13 @@ class SearchResponse(BaseModel):
     """Search results from LLM-powered skill discovery."""
     query: str
     results: str
+    category: str | None = None
 
 
 @router.get("/search", response_model=SearchResponse)
 def search_skills(
     q: str,
+    category: str | None = Query(None, description="Filter results to a specific category"),
     settings: Settings = Depends(get_settings),
     conn=Depends(get_connection),
 ) -> SearchResponse:
@@ -28,6 +30,7 @@ def search_skills(
 
     Queries the database for all published skills, formats them as a
     JSONL index, then uses Gemini to rank and recommend matches.
+    Optionally filters to a single category before sending to the LLM.
     """
     if not settings.google_api_key:
         raise HTTPException(
@@ -38,7 +41,7 @@ def search_skills(
     # Build index directly from the database (single source of truth)
     rows = fetch_all_skills_for_index(conn)
     if not rows:
-        return SearchResponse(query=q, results="No skills in the index yet.")
+        return SearchResponse(query=q, results="No skills in the index yet.", category=category)
 
     entries = [
         build_index_entry(
@@ -52,6 +55,17 @@ def search_skills(
         )
         for row in rows
     ]
+
+    # Filter by category if specified
+    if category:
+        entries = [e for e in entries if e.category == category]
+        if not entries:
+            return SearchResponse(
+                query=q,
+                results=f"No skills found in category '{category}'.",
+                category=category,
+            )
+
     index_content = serialize_index(entries)
 
     # Search with Gemini
@@ -60,4 +74,4 @@ def search_skills(
         gemini, q, index_content, settings.gemini_model,
     )
 
-    return SearchResponse(query=q, results=result_text)
+    return SearchResponse(query=q, results=result_text, category=category)

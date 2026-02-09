@@ -10,6 +10,7 @@ export interface SkillSummary {
   author: string;
   download_count: number;
   is_personal_org: boolean;
+  category: string;
 }
 
 export interface OrgSummary {

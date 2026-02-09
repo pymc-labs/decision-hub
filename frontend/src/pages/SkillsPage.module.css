@@ -170,6 +170,79 @@
   color: var(--text-muted);
 }
 
+/* Category badge on cards */
+.cardCategory {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--neon-pink);
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 0, 170, 0.25);
+  border-radius: 4px;
+  width: fit-content;
+}
+
+/* View toggle button */
+.viewToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.viewToggle:hover {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+
+.viewToggleActive {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.08);
+}
+
+/* Grouped view */
+.groupedContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.categorySection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.categoryHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--neon-pink);
+  text-shadow: 0 0 8px rgba(255, 0, 170, 0.3);
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 0, 170, 0.2);
+}
+
+.categoryCount {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 /* Empty */
 .empty {
   display: flex;
