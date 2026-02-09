@@ -1,0 +1,82 @@
+.terminal {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-darkest);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.title {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.body {
+  padding: 16px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85rem;
+  line-height: 1.7;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0;
+  min-height: 280px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.prompt {
+  color: var(--neon-green);
+}
+
+.agent {
+  color: var(--neon-cyan);
+}
+
+.dim {
+  color: var(--text-muted);
+}
+
+.success {
+  color: var(--neon-green);
+}
+
+.output {
+  color: var(--text-primary);
+  min-height: 0.5em;
+}
+
+.cursor {
+  color: var(--neon-green);
+  animation: blink 1s step-end infinite;
+}
+
+.replay {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-align: center;
+  padding-top: 8px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

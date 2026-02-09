@@ -30,6 +30,7 @@ dhub ask "query"        Natural language skill search
 dhub eval-report org/skill@version  View eval report
 dhub logs [ref] [-f]    View or tail eval run logs
 dhub org list           List your namespaces
+dhub config default-org Set default namespace for publishing
 dhub keys add <name>    Store an API key for evals
 dhub keys list          List stored API key names
 dhub keys remove <name> Remove a stored API key
@@ -115,7 +116,7 @@ After publishing, the server runs safety checks and assigns a grade:
 | **C** | Ambiguous/risky patterns | Users need `--allow-risky` flag to install |
 | **F** | Rejected — fails safety checks | Publish is rejected (HTTP 422) |
 
-If the skill has an `evals` block, agent evaluation runs in the background after publish.
+If the skill has an `evals` block, agent evaluation runs after publish and the CLI automatically attaches to the live log stream. Press Ctrl-C to detach; re-attach later with `dhub logs`.
 
 ### What gets zipped
 
@@ -171,6 +172,18 @@ dhub install myorg/my-skill --allow-risky             # allow Grade C skills
 | gemini | `~/.gemini/skills/{skill}` |
 
 Symlinks point to the canonical `~/.dhub/skills/` path, so the skill is stored once and shared across agents.
+
+### After installation: load the skill immediately
+
+When you install a skill on behalf of the user, **always read it into the current conversation** so it's usable right away. Don't tell the user to start a new session.
+
+After `dhub install` succeeds:
+1. Read the installed skill's `SKILL.md` from `~/.dhub/skills/{org}/{skill}/SKILL.md`
+2. Confirm to the user that the skill is loaded and ready to use now
+
+Don't read reference files upfront — the SKILL.md itself will tell you when to consult specific references.
+
+The user installed a skill because they want to use it — treat installation as implicit activation.
 
 ### Integrity verification
 

@@ -185,7 +185,7 @@ If the skill includes an `evals` block and `evals/*.yaml` cases, an automated ev
 2. **Exit code check** — non-zero exits are recorded as errors
 3. **LLM judge** — an LLM evaluates the agent's output against the expected criteria
 
-View results with `dhub eval-report org/skill@version`.
+The CLI auto-attaches to the live log stream after publish. View results with `dhub eval-report org/skill@version` or tail logs with `dhub logs org/skill --follow`.
 
 ## Architecture
 

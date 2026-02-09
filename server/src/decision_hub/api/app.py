@@ -1,16 +1,23 @@
 """FastAPI application factory."""
 
 import json as _json
+from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from decision_hub.api.deps import get_current_user
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
-from decision_hub.logging import setup_logging
+from decision_hub.logging import RequestLoggingMiddleware, setup_logging
 from decision_hub.settings import create_settings
+
+# Frontend dist directory — populated at deploy time by the build script.
+# When the directory exists the app serves the SPA; otherwise API-only mode.
+_FRONTEND_DIR = Path("/root/frontend_dist")
 
 
 def _parse_semver(v: str) -> tuple[int, ...]:
@@ -54,7 +61,9 @@ class CLIVersionMiddleware:
                 client_ver = value.decode("latin-1")
                 break
 
-        if not client_ver or _parse_semver(client_ver) < self._min_parsed:
+        # Only enforce version check for CLI requests (those sending the header).
+        # Browser / frontend requests don't send the header and should pass through.
+        if client_ver and _parse_semver(client_ver) < self._min_parsed:
             body = _json.dumps({
                 "detail": (
                     f"Your CLI version ({client_ver or 'unknown'}) is below the "
@@ -103,6 +112,10 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.s3_client = s3_client
 
+    # Request logging with correlation IDs — outermost middleware (added first
+    # so Starlette wraps it last, ensuring it runs before everything else).
+    app.add_middleware(RequestLoggingMiddleware)
+
     if settings.min_cli_version:
         app.add_middleware(
             CLIVersionMiddleware,
@@ -117,15 +130,22 @@ def create_app() -> FastAPI:
     from decision_hub.api.auth_routes import router as auth_router
     from decision_hub.api.keys_routes import router as keys_router
     from decision_hub.api.org_routes import org_router
+    from decision_hub.api.registry_routes import public_router as registry_public_router
     from decision_hub.api.registry_routes import router as registry_router
     from decision_hub.api.search_routes import router as search_router
 
     # Auth routes are always public (users need them to obtain a token).
     app.include_router(auth_router)
 
+    # Public read-only registry endpoints (skill listing, download, eval
+    # reports, audit logs). These are accessible without auth so the
+    # frontend can display skills. When private skills are added, visibility
+    # filtering will happen at the query layer, not the route layer.
+    app.include_router(registry_public_router)
+
     # When an org restriction is active, require a valid JWT on every
-    # non-auth route. This locks down the otherwise-public endpoints
-    # (search, skill listing, resolve) without touching each route.
+    # non-public route. This locks down write operations (publish, delete)
+    # and user-specific endpoints (eval runs, API keys).
     global_deps: list = []
     if settings.require_github_org:
         global_deps = [Depends(get_current_user)]
@@ -134,6 +154,28 @@ def create_app() -> FastAPI:
     app.include_router(registry_router, dependencies=global_deps)
     app.include_router(keys_router, dependencies=global_deps)
     app.include_router(search_router, dependencies=global_deps)
+
+    # --- Frontend SPA serving ---
+    # If the frontend build was baked into the image, serve it from the
+    # same origin.  Static assets (JS/CSS) are served from /assets/ and
+    # every other non-API path falls back to index.html for client-side
+    # routing.  When _FRONTEND_DIR is absent the app runs in API-only mode.
+    _index_html = _FRONTEND_DIR / "index.html"
+    if _FRONTEND_DIR.is_dir() and _index_html.is_file():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=_FRONTEND_DIR / "assets"),
+            name="frontend-assets",
+        )
+
+        @app.get("/vite.svg", include_in_schema=False)
+        def favicon():
+            return FileResponse(_FRONTEND_DIR / "vite.svg")
+
+        # SPA catch-all: any path not matched by API routes returns index.html
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa_fallback(full_path: str):
+            return FileResponse(_index_html)
 
     logger.info("Decision Hub app ready (log_level={})", settings.log_level)
     return app

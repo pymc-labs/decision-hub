@@ -97,8 +97,8 @@ def get_api_url() -> str:
     """Get API URL from the DHUB_API_URL env var, falling back to saved config."""
     env_url = os.environ.get("DHUB_API_URL")
     if env_url:
-        return env_url
-    return load_config().api_url
+        return env_url.rstrip("/")
+    return load_config().api_url.rstrip("/")
 
 
 def get_token() -> str:

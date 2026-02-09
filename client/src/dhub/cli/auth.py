@@ -19,7 +19,7 @@ def login_command(
 
     print_banner(console)
 
-    base_url = api_url or get_api_url()
+    base_url = (api_url or get_api_url()).rstrip("/")
 
     # Step 1: Request a device code from the API
     with httpx.Client(timeout=60) as client:

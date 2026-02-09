@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
@@ -53,6 +53,7 @@ from decision_hub.infra.database import (
 from decision_hub.infra.storage import (
     compute_checksum,
     delete_skill_zip,
+    download_skill_zip as download_zip_from_s3,
     generate_presigned_url,
     list_eval_log_chunks,
     read_eval_log_chunk,
@@ -62,6 +63,7 @@ from decision_hub.models import User
 from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["registry"])
+public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +119,7 @@ class SkillSummary(BaseModel):
     safety_rating: str
     author: str
     download_count: int = 0
+    is_personal_org: bool = False
 
 
 class AuditLogResponse(BaseModel):
@@ -338,7 +341,7 @@ def publish_skill(
     )
 
 
-@router.get("/skills", response_model=list[SkillSummary])
+@public_router.get("/skills", response_model=list[SkillSummary])
 def list_skills(
     conn: Connection = Depends(get_connection),
 ) -> list[SkillSummary]:
@@ -354,12 +357,13 @@ def list_skills(
             safety_rating=format_trust_score(row["eval_status"]),
             author=row.get("published_by", ""),
             download_count=row.get("download_count", 0),
+            is_personal_org=row.get("is_personal_org", False),
         )
         for row in rows
     ]
 
 
-@router.get(
+@public_router.get(
     "/skills/{org_slug}/{skill_name}/latest-version",
     response_model=LatestVersionResponse,
 )
@@ -414,7 +418,35 @@ def resolve_skill(
     )
 
 
-@router.get(
+@public_router.get("/skills/{org_slug}/{skill_name}/download")
+def download_skill(
+    org_slug: str,
+    skill_name: str,
+    spec: str = "latest",
+    conn: Connection = Depends(get_connection),
+    s3_client=Depends(get_s3_client),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """Download a skill zip file, proxied through the server to avoid CORS issues."""
+    version = resolve_version(conn, org_slug, skill_name, spec, allow_risky=True)
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
+        )
+
+    increment_skill_downloads(conn, version.skill_id)
+
+    data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
+    filename = f"{org_slug}_{skill_name}_{version.semver}.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@public_router.get(
     "/skills/{org_slug}/{skill_name}/audit-log",
     response_model=list[AuditLogResponse],
 )
@@ -444,7 +476,7 @@ def get_audit_log(
     ]
 
 
-@router.get(
+@public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
 )
@@ -461,7 +493,7 @@ def get_eval_report_by_skill(
     return _report_to_response(report)
 
 
-@router.get(
+@public_router.get(
     "/skills/{org_slug}/{skill_name}/versions/{semver}/eval-report",
     response_model=EvalReportResponse | None,
 )

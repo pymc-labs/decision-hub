@@ -35,6 +35,7 @@ class Organization:
     id: UUID
     slug: str
     owner_id: UUID
+    is_personal: bool = False
 
 
 @dataclass(frozen=True)

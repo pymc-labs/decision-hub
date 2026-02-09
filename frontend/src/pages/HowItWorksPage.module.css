@@ -1,0 +1,59 @@
+.page {
+  padding: 40px 0 60px;
+}
+
+.intro {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.pageTitle {
+  font-size: 1.8rem;
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-text-strong);
+  margin-bottom: 12px;
+}
+
+.pageSubtitle {
+  max-width: 600px;
+  margin: 0 auto;
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sectionIcon {
+  color: var(--neon-cyan);
+}
+
+.sectionTitle {
+  font-size: 1.1rem;
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-text-subtle);
+}
+
+.sectionText {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}

@@ -1,0 +1,85 @@
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.cyan {
+  border-color: rgba(0, 240, 255, 0.12);
+}
+
+.cyan::before {
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+}
+
+.cyan:hover {
+  border-color: rgba(0, 240, 255, 0.3);
+  box-shadow: 0 4px 30px rgba(0, 240, 255, 0.08), inset 0 1px 0 rgba(0, 240, 255, 0.1);
+}
+
+.pink {
+  border-color: rgba(255, 45, 149, 0.12);
+}
+
+.pink::before {
+  background: linear-gradient(90deg, transparent, var(--neon-pink), transparent);
+}
+
+.pink:hover {
+  border-color: rgba(255, 45, 149, 0.3);
+  box-shadow: 0 4px 30px rgba(255, 45, 149, 0.08), inset 0 1px 0 rgba(255, 45, 149, 0.1);
+}
+
+.purple {
+  border-color: rgba(180, 0, 255, 0.12);
+}
+
+.purple::before {
+  background: linear-gradient(90deg, transparent, var(--neon-purple), transparent);
+}
+
+.purple:hover {
+  border-color: rgba(180, 0, 255, 0.3);
+  box-shadow: 0 4px 30px rgba(180, 0, 255, 0.08), inset 0 1px 0 rgba(180, 0, 255, 0.1);
+}
+
+.green {
+  border-color: rgba(57, 255, 20, 0.12);
+}
+
+.green::before {
+  background: linear-gradient(90deg, transparent, var(--neon-green), transparent);
+}
+
+.green:hover {
+  border-color: rgba(57, 255, 20, 0.3);
+  box-shadow: 0 4px 30px rgba(57, 255, 20, 0.08), inset 0 1px 0 rgba(57, 255, 20, 0.1);
+}
