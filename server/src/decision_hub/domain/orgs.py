@@ -90,7 +90,8 @@ def sync_user_orgs(
     all_slugs: list[str] = []
     _ensure_org_membership(conn, user_id, username.lower(), "owner",
                            find_org_by_slug, insert_organization,
-                           find_org_member, insert_org_member)
+                           find_org_member, insert_org_member,
+                           is_personal=True)
     all_slugs.append(username.lower())
 
     for login in github_org_logins:
@@ -107,7 +108,8 @@ def sync_user_orgs(
 
         _ensure_org_membership(conn, user_id, slug, "member",
                                find_org_by_slug, insert_organization,
-                               find_org_member, insert_org_member)
+                               find_org_member, insert_org_member,
+                               is_personal=False)
         all_slugs.append(slug)
 
     return sorted(set(all_slugs))
@@ -122,12 +124,14 @@ def _ensure_org_membership(
     insert_org_fn,
     find_member_fn,
     insert_member_fn,
+    *,
+    is_personal: bool = False,
 ) -> None:
     """Ensure a user is a member of an org, creating both if needed."""
     org = find_org_fn(conn, slug)
     if org is None:
         # Create org with user as owner
-        org = insert_org_fn(conn, slug, user_id)
+        org = insert_org_fn(conn, slug, user_id, is_personal=is_personal)
         insert_member_fn(conn, org.id, user_id, "owner")
         return
 

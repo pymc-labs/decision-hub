@@ -1,14 +1,21 @@
 """FastAPI application factory."""
 
 import json as _json
+from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from decision_hub.api.deps import get_current_user
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
 from decision_hub.settings import create_settings
+
+# Frontend dist directory — populated at deploy time by the build script.
+# When the directory exists the app serves the SPA; otherwise API-only mode.
+_FRONTEND_DIR = Path("/root/frontend_dist")
 
 
 def _parse_semver(v: str) -> tuple[int, ...]:
@@ -131,5 +138,27 @@ def create_app() -> FastAPI:
     app.include_router(registry_router, dependencies=global_deps)
     app.include_router(keys_router, dependencies=global_deps)
     app.include_router(search_router, dependencies=global_deps)
+
+    # --- Frontend SPA serving ---
+    # If the frontend build was baked into the image, serve it from the
+    # same origin.  Static assets (JS/CSS) are served from /assets/ and
+    # every other non-API path falls back to index.html for client-side
+    # routing.  When _FRONTEND_DIR is absent the app runs in API-only mode.
+    _index_html = _FRONTEND_DIR / "index.html"
+    if _FRONTEND_DIR.is_dir() and _index_html.is_file():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=_FRONTEND_DIR / "assets"),
+            name="frontend-assets",
+        )
+
+        @app.get("/vite.svg", include_in_schema=False)
+        def favicon():
+            return FileResponse(_FRONTEND_DIR / "vite.svg")
+
+        # SPA catch-all: any path not matched by API routes returns index.html
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa_fallback(full_path: str):
+            return FileResponse(_index_html)
 
     return app

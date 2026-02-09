@@ -96,7 +96,7 @@ class TestSyncUserOrgs:
         def find_org(c, slug):
             return created_orgs.get(slug)
 
-        def insert_org(c, slug, owner_id):
+        def insert_org(c, slug, owner_id, **kwargs):
             org = FakeOrg(id=uuid4(), slug=slug, owner_id=owner_id)
             created_orgs[slug] = org
             return org
@@ -125,7 +125,7 @@ class TestSyncUserOrgs:
         def find_org_side(c, slug):
             return created_orgs.get(slug)
 
-        def insert_org_side(c, slug, owner_id):
+        def insert_org_side(c, slug, owner_id, **kwargs):
             org = FakeOrg(id=uuid4(), slug=slug, owner_id=owner_id)
             created_orgs[slug] = org
             return org
@@ -159,7 +159,7 @@ class TestSyncUserOrgs:
         def find_org_side(c, slug):
             return created_orgs.get(slug)
 
-        def insert_org_side(c, slug, owner_id):
+        def insert_org_side(c, slug, owner_id, **kwargs):
             org = FakeOrg(id=uuid4(), slug=slug, owner_id=owner_id)
             created_orgs[slug] = org
             return org
@@ -191,7 +191,7 @@ class TestSyncUserOrgs:
                 return existing_org
             return None
 
-        def insert_org_side(c, slug, owner_id):
+        def insert_org_side(c, slug, owner_id, **kwargs):
             return FakeOrg(id=uuid4(), slug=slug, owner_id=owner_id)
 
         mock_find_org.side_effect = find_org_side
@@ -235,7 +235,7 @@ class TestSyncUserOrgs:
             return None
 
         mock_find_org.side_effect = find_org_side
-        mock_insert_org.side_effect = lambda c, slug, oid: FakeOrg(id=uuid4(), slug=slug, owner_id=oid)
+        mock_insert_org.side_effect = lambda c, slug, oid, **kwargs: FakeOrg(id=uuid4(), slug=slug, owner_id=oid)
         mock_find_member.side_effect = find_member_side
         mock_insert_member.return_value = FakeOrgMember(org_id=uuid4(), user_id=user_id, role="member")
 
@@ -261,7 +261,7 @@ class TestSyncUserOrgs:
         user_id = uuid4()
 
         mock_find_org.return_value = None
-        mock_insert_org.side_effect = lambda c, slug, oid: FakeOrg(id=uuid4(), slug=slug, owner_id=oid)
+        mock_insert_org.side_effect = lambda c, slug, oid, **kwargs: FakeOrg(id=uuid4(), slug=slug, owner_id=oid)
         mock_find_member.return_value = None
         mock_insert_member.return_value = FakeOrgMember(org_id=uuid4(), user_id=user_id, role="owner")
 
@@ -283,7 +283,7 @@ class TestSyncUserOrgs:
         user_id = uuid4()
 
         mock_find_org.return_value = None
-        mock_insert_org.side_effect = lambda c, slug, oid: FakeOrg(id=uuid4(), slug=slug, owner_id=oid)
+        mock_insert_org.side_effect = lambda c, slug, oid, **kwargs: FakeOrg(id=uuid4(), slug=slug, owner_id=oid)
         mock_find_member.return_value = None
         mock_insert_member.return_value = FakeOrgMember(org_id=uuid4(), user_id=user_id, role="owner")
 

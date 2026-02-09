@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
@@ -53,6 +53,7 @@ from decision_hub.infra.database import (
 from decision_hub.infra.storage import (
     compute_checksum,
     delete_skill_zip,
+    download_skill_zip as download_zip_from_s3,
     generate_presigned_url,
     list_eval_log_chunks,
     read_eval_log_chunk,
@@ -119,6 +120,7 @@ class SkillSummary(BaseModel):
     safety_rating: str
     author: str
     download_count: int = 0
+    is_personal_org: bool = False
 
 
 class AuditLogResponse(BaseModel):
@@ -349,6 +351,7 @@ def list_skills(
             safety_rating=format_trust_score(row["eval_status"]),
             author=row.get("published_by", ""),
             download_count=row.get("download_count", 0),
+            is_personal_org=row.get("is_personal_org", False),
         )
         for row in rows
     ]
@@ -405,6 +408,34 @@ def resolve_skill(
         version=version.semver,
         download_url=download_url,
         checksum=version.checksum,
+    )
+
+
+@router.get("/skills/{org_slug}/{skill_name}/download")
+def download_skill(
+    org_slug: str,
+    skill_name: str,
+    spec: str = "latest",
+    conn: Connection = Depends(get_connection),
+    s3_client=Depends(get_s3_client),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """Download a skill zip file, proxied through the server to avoid CORS issues."""
+    version = resolve_version(conn, org_slug, skill_name, spec, allow_risky=True)
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
+        )
+
+    increment_skill_downloads(conn, version.skill_id)
+
+    data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
+    filename = f"{org_slug}_{skill_name}_{version.semver}.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

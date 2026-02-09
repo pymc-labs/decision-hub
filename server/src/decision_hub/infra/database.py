@@ -11,6 +11,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -71,6 +72,7 @@ organizations_table = Table(
         ForeignKey("users.id"),
         nullable=False,
     ),
+    Column("is_personal", Boolean, nullable=False, server_default="false"),
 )
 
 org_members_table = Table(
@@ -310,7 +312,7 @@ def _row_to_user(row: sa.Row) -> User:
 
 def _row_to_organization(row: sa.Row) -> Organization:
     """Map a database row to an Organization model."""
-    return Organization(id=row.id, slug=row.slug, owner_id=row.owner_id)
+    return Organization(id=row.id, slug=row.slug, owner_id=row.owner_id, is_personal=row.is_personal)
 
 
 def _row_to_org_member(row: sa.Row) -> OrgMember:
@@ -406,7 +408,7 @@ def upsert_user(conn: Connection, github_id: str, username: str) -> User:
 
 
 def insert_organization(
-    conn: Connection, slug: str, owner_id: UUID
+    conn: Connection, slug: str, owner_id: UUID, *, is_personal: bool = False
 ) -> Organization:
     """Create a new organization.
 
@@ -414,13 +416,14 @@ def insert_organization(
         conn: Active database connection.
         slug: Unique organization slug.
         owner_id: UUID of the owning user.
+        is_personal: Whether this is a personal user namespace.
 
     Returns:
         The newly created Organization.
     """
     stmt = (
         sa.insert(organizations_table)
-        .values(slug=slug, owner_id=owner_id)
+        .values(slug=slug, owner_id=owner_id, is_personal=is_personal)
         .returning(*organizations_table.c)
     )
     row = conn.execute(stmt).one()
@@ -964,6 +967,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
     stmt = (
         sa.select(
             organizations_table.c.slug.label("org_slug"),
+            organizations_table.c.is_personal.label("is_personal_org"),
             skills_table.c.name.label("skill_name"),
             skills_table.c.description,
             skills_table.c.download_count,
@@ -990,6 +994,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
     return [
         {
             "org_slug": row.org_slug,
+            "is_personal_org": row.is_personal_org,
             "skill_name": row.skill_name,
             "description": row.description,
             "download_count": row.download_count,

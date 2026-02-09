@@ -86,6 +86,21 @@ def generate_presigned_url(
     )
 
 
+def download_skill_zip(client: BaseClient, bucket: str, s3_key: str) -> bytes:
+    """Download a skill zip file from S3.
+
+    Args:
+        client: Configured S3 client.
+        bucket: S3 bucket name containing the object.
+        s3_key: Object key to download.
+
+    Returns:
+        Raw bytes of the zip file.
+    """
+    resp = client.get_object(Bucket=bucket, Key=s3_key)
+    return resp["Body"].read()
+
+
 def compute_checksum(data: bytes) -> str:
     """Compute SHA256 hex digest of data.
 
