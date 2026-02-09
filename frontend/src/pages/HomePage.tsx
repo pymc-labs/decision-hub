@@ -185,7 +185,7 @@ export default function HomePage() {
           <div className={styles.installStep}>
             <span className={styles.installLabel}>2. Install a skill to your agents</span>
             <TerminalBlock title="~">
-              {`# Search for skills\ndhub ask "I need to solve a Bayesian Statistics Problem, what can I do?"\n\n# Install to Claude, Cursor, Codex...\ndhub install pymc-labs/bayesian-stats --agent all`}
+              {`# Search for skills\ndhub ask "I need to do Bayesian statistics with PyMC"\n\n# Install to Claude, Cursor, Codex...\ndhub install pymc-labs/pymc-modeling --agent all`}
             </TerminalBlock>
           </div>
         </div>
