@@ -121,8 +121,12 @@ Track GitHub repos for automatic skill updates. When a tracked branch receives n
 | `dhub track remove ID` | Remove a tracker |
 
 ```bash
-# Track a GitHub repo — auto-republish when main gets new commits
+# Track a public repo — auto-republish when main gets new commits
 dhub track add https://github.com/myorg/my-skills --branch main --interval 30
+
+# Track a private repo — store a GitHub token first
+dhub keys add GITHUB_TOKEN
+dhub track add https://github.com/myorg/private-repo
 
 # Check status
 dhub track list
@@ -132,6 +136,8 @@ dhub track status abc12345
 dhub track pause abc12345
 dhub track resume abc12345
 ```
+
+Trackers support private repos via a stored `GITHUB_TOKEN` (see `dhub keys add`). If a tracked skill's `SKILL.md` declares a `version` field (e.g. `version: 2.0.0`) higher than the latest published version, that version is used; otherwise the tracker auto-bumps the patch version.
 
 ### Organizations & Config
 
@@ -153,6 +159,7 @@ name: my-skill                    # 1-64 chars, lowercase alphanumeric + hyphens
 description: >
   What this skill does and when
   the agent should activate it.   # 1-1024 chars
+version: 1.0.0                    # optional — explicit semver for tracked repos
 license: MIT                      # optional
 
 runtime:                           # optional — makes the skill executable
