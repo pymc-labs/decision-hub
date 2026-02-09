@@ -65,8 +65,9 @@ export async function downloadSkillZip(
   skillName: string,
   spec = "latest"
 ): Promise<ArrayBuffer> {
-  const resolved = await resolveSkill(orgSlug, skillName, spec);
-  const res = await fetch(resolved.download_url);
+  const res = await fetch(
+    `${API_BASE}/v1/skills/${orgSlug}/${skillName}/download?spec=${encodeURIComponent(spec)}`
+  );
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   return res.arrayBuffer();
 }
