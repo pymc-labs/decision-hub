@@ -105,6 +105,7 @@ class TestExchangeToken:
     ) -> None:
         """When require_github_org is set, users outside that org get 403."""
         test_settings.require_github_org = "pymc-labs"
+        test_settings.required_github_orgs = ["pymc-labs"]
         respx.post("https://github.com/login/oauth/access_token").mock(
             return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
         )
@@ -139,6 +140,7 @@ class TestExchangeToken:
     ) -> None:
         """When require_github_org is set, members of that org can log in."""
         test_settings.require_github_org = "pymc-labs"
+        test_settings.required_github_orgs = ["pymc-labs"]
         respx.post("https://github.com/login/oauth/access_token").mock(
             return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
         )

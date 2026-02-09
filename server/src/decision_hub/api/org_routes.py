@@ -49,7 +49,10 @@ def create_organisation(
     current_user: User = Depends(get_current_user),
 ) -> CreateOrgResponse:
     """Create an organisation and register the caller as owner."""
-    validate_org_slug(body.slug)
+    try:
+        validate_org_slug(body.slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
     try:
         org = insert_organization(conn, body.slug, current_user.id)

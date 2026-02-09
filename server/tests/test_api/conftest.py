@@ -29,6 +29,7 @@ def test_settings() -> MagicMock:
     settings.s3_bucket = "test-bucket"
     settings.google_api_key = ""
     settings.require_github_org = ""
+    settings.required_github_orgs = []
     settings.min_cli_version = ""
     return settings
 

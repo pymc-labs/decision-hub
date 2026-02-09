@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
-import pytest
 from fastapi.testclient import TestClient
 
 from decision_hub.models import Organization, OrgMember
@@ -47,13 +46,15 @@ class TestCreateOrganisation:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """An invalid slug should raise ValueError from the domain validation."""
-        with pytest.raises(ValueError, match="Invalid org slug"):
-            client.post(
-                "/v1/orgs",
-                json={"slug": "INVALID SLUG!"},
-                headers=auth_headers,
-            )
+        """An invalid slug should return 422."""
+        resp = client.post(
+            "/v1/orgs",
+            json={"slug": "INVALID SLUG!"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 422
+        assert "Invalid org slug" in resp.json()["detail"]
 
     def test_create_org_unauthenticated(self, client: TestClient) -> None:
         """Missing auth header should return 401."""

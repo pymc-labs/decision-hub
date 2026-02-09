@@ -19,7 +19,7 @@ class TestAddKey:
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_add_key_success(self, _mock_url, _mock_token, _mock_prompt):
         route = respx.post("http://test:8000/v1/keys").mock(
-            return_value=httpx.Response(200, json={})
+            return_value=httpx.Response(201, json={})
         )
         result = runner.invoke(app, ["keys", "add", "MY_KEY"])
         assert result.exit_code == 0
@@ -79,7 +79,7 @@ class TestRemoveKey:
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_remove_key_success(self, _mock_url, _mock_token):
         respx.delete("http://test:8000/v1/keys/MY_KEY").mock(
-            return_value=httpx.Response(200, json={})
+            return_value=httpx.Response(204)
         )
         result = runner.invoke(app, ["keys", "remove", "MY_KEY"])
         assert result.exit_code == 0
