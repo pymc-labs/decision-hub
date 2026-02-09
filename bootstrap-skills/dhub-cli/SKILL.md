@@ -34,6 +34,12 @@ dhub config default-org Set default namespace for publishing
 dhub keys add <name>    Store an API key for evals
 dhub keys list          List stored API key names
 dhub keys remove <name> Remove a stored API key
+dhub track add <url>    Track a GitHub repo for auto-updates
+dhub track list         List active trackers
+dhub track status <id>  Show tracker details
+dhub track pause <id>   Pause a tracker
+dhub track resume <id>  Resume a paused tracker
+dhub track remove <id>  Remove a tracker
 dhub --version          Show CLI version
 ```
 
@@ -147,6 +153,44 @@ The command detects that the argument is a git URL (HTTPS, SSH, or `.git` suffix
 ### Git-specific options
 
 - `--ref` — branch, tag, or commit to checkout (only valid with git URLs)
+
+## Tracking GitHub Repos for Auto-Updates
+
+Set up a tracker so skills from a GitHub repo are automatically republished when the tracked branch receives new commits.
+
+```bash
+# Track a repo — polls every 60 minutes by default
+dhub track add https://github.com/myorg/my-skills
+
+# Custom branch and interval
+dhub track add https://github.com/myorg/skills --branch develop --interval 30
+
+# List all trackers
+dhub track list
+
+# View tracker details
+dhub track status abc12345
+
+# Pause / resume / remove
+dhub track pause abc12345
+dhub track resume abc12345
+dhub track remove abc12345
+```
+
+### How it works
+
+1. A Modal scheduled function runs every 5 minutes
+2. For each tracker whose poll interval has elapsed, it checks the GitHub API for new commits
+3. If the branch SHA has changed, it clones the repo and discovers all SKILL.md files
+4. Each skill goes through the full publish pipeline (gauntlet security checks + version bump + S3 upload)
+5. Skills with unchanged content (same checksum) are skipped
+6. The tracker records the latest commit SHA, last check time, and any errors
+
+### Limitations
+
+- Only GitHub repos are supported (both HTTPS and SSH URLs)
+- Public repos use unauthenticated GitHub API (60 requests/hour limit)
+- Minimum poll interval is 5 minutes
 
 ## Installing Skills
 

@@ -52,10 +52,12 @@ app.command("ask")(ask_command)
 from dhub.cli.config_cmd import config_app  # noqa: E402
 from dhub.cli.keys import keys_app  # noqa: E402
 from dhub.cli.org import org_app  # noqa: E402
+from dhub.cli.track import track_app  # noqa: E402
 
 app.add_typer(org_app, name="org")
 app.add_typer(keys_app, name="keys")
 app.add_typer(config_app, name="config")
+app.add_typer(track_app, name="track")
 
 
 def run() -> None:

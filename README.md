@@ -107,6 +107,32 @@ dhub publish myorg/my-skill --version 2.0.0  # exact version
 
 Both arguments are positional and optional. If only one is given, Decision Hub infers whether it's a skill reference or a path. If omitted, defaults to the current directory and requires a default org to be set.
 
+### Skill Update Tracking
+
+Track GitHub repos for automatic skill updates. When a tracked branch receives new commits, the skill is automatically republished.
+
+| Command | Description |
+|---------|-------------|
+| `dhub track add REPO_URL [--branch main] [--interval 60]` | Track a GitHub repo for auto-updates |
+| `dhub track list` | List all active trackers |
+| `dhub track status ID` | Show tracker details |
+| `dhub track pause ID` | Pause a tracker |
+| `dhub track resume ID` | Resume a paused tracker |
+| `dhub track remove ID` | Remove a tracker |
+
+```bash
+# Track a GitHub repo — auto-republish when main gets new commits
+dhub track add https://github.com/myorg/my-skills --branch main --interval 30
+
+# Check status
+dhub track list
+dhub track status abc12345
+
+# Pause/resume
+dhub track pause abc12345
+dhub track resume abc12345
+```
+
 ### Organizations & Config
 
 | Command | Description |
