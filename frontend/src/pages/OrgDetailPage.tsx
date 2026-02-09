@@ -1,0 +1,98 @@
+import { useMemo } from "react";
+import { useParams, Link } from "react-router-dom";
+import { Building2, Package, Download, ArrowLeft } from "lucide-react";
+import { listSkills } from "../api/client";
+import { useApi } from "../hooks/useApi";
+import NeonCard from "../components/NeonCard";
+import GradeBadge from "../components/GradeBadge";
+import LoadingSpinner from "../components/LoadingSpinner";
+import styles from "./OrgDetailPage.module.css";
+
+export default function OrgDetailPage() {
+  const { orgSlug } = useParams<{ orgSlug: string }>();
+  const { data: allSkills, loading, error } = useApi(() => listSkills(), []);
+
+  const skills = useMemo(() => {
+    if (!allSkills || !orgSlug) return [];
+    return allSkills
+      .filter((s) => s.org_slug === orgSlug)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }, [allSkills, orgSlug]);
+
+  const totalDownloads = skills.reduce((sum, s) => sum + s.download_count, 0);
+
+  if (loading) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
+  if (error) {
+    return (
+      <div className="container">
+        <NeonCard glow="pink">
+          <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+        </NeonCard>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container">
+      <Link to="/orgs" className={styles.back}>
+        <ArrowLeft size={16} />
+        All Organizations
+      </Link>
+
+      <div className={styles.header}>
+        <div className={styles.orgIcon}>
+          <Building2 size={36} />
+        </div>
+        <div>
+          <h1 className={styles.title}>{orgSlug}</h1>
+          <div className={styles.meta}>
+            <span>
+              <Package size={14} /> {skills.length} skills
+            </span>
+            <span>
+              <Download size={14} /> {totalDownloads.toLocaleString()} downloads
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {skills.length === 0 ? (
+        <div className={styles.empty}>
+          <p>No skills published by this organization yet</p>
+        </div>
+      ) : (
+        <div className={styles.grid}>
+          {skills.map((skill) => (
+            <Link
+              key={skill.skill_name}
+              to={`/skills/${skill.org_slug}/${skill.skill_name}`}
+              className={styles.skillLink}
+            >
+              <NeonCard glow="cyan">
+                <div className={styles.card}>
+                  <div className={styles.cardTop}>
+                    <h3 className={styles.cardName}>{skill.skill_name}</h3>
+                    <GradeBadge grade={skill.safety_rating} size="sm" />
+                  </div>
+                  <p className={styles.cardDesc}>{skill.description}</p>
+                  <div className={styles.cardFooter}>
+                    <span className={styles.cardVersion}>
+                      v{skill.latest_version}
+                    </span>
+                    {skill.author && (
+                      <span className={styles.cardAuthor}>by {skill.author}</span>
+                    )}
+                    <span className={styles.cardDownloads}>
+                      <Download size={12} />
+                      {skill.download_count}
+                    </span>
+                  </div>
+                </div>
+              </NeonCard>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

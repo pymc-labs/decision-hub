@@ -1,0 +1,245 @@
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Summary */
+.summary {
+  margin-bottom: 8px;
+}
+
+.summaryInner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.summaryScore {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.summaryNumber {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: var(--neon-green);
+  text-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
+}
+
+.summarySlash {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.5rem;
+  color: var(--text-muted);
+}
+
+.summaryTotal {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+}
+
+.summaryDetails {
+  flex: 1;
+  min-width: 0;
+}
+
+.summaryBar {
+  height: 8px;
+  background: var(--bg-dark);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.summaryBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
+  border-radius: 4px;
+  transition: width 0.5s ease;
+  box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
+}
+
+.summaryMeta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.summaryMeta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.summaryStatus {
+  font-family: 'Share Tech Mono', monospace;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.summaryStatus.completed {
+  color: var(--neon-green);
+}
+
+.summaryStatus.failed {
+  color: var(--neon-pink);
+}
+
+.summaryStatus.pending {
+  color: var(--neon-yellow);
+}
+
+/* Error */
+.errorMsg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--neon-pink);
+  font-size: 0.9rem;
+}
+
+/* Cases */
+.cases {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.caseCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.caseHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.caseName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.caseName h4 {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--text-primary);
+  letter-spacing: 0;
+}
+
+.caseMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.caseDuration {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.caseVerdict {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+
+.caseVerdict.pass {
+  color: var(--neon-green);
+  border-color: rgba(57, 255, 20, 0.3);
+  background: rgba(57, 255, 20, 0.08);
+}
+
+.caseVerdict.fail {
+  color: var(--neon-pink);
+  border-color: rgba(255, 45, 149, 0.3);
+  background: rgba(255, 45, 149, 0.08);
+}
+
+.caseVerdict.error {
+  color: var(--neon-yellow);
+  border-color: rgba(255, 230, 0, 0.3);
+  background: rgba(255, 230, 0, 0.08);
+}
+
+.pass { color: var(--neon-green); }
+.fail { color: var(--neon-pink); }
+.error { color: var(--neon-yellow); }
+
+.caseDesc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.caseSection {
+  margin-top: 4px;
+}
+
+.caseSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.stderrTitle {
+  color: var(--neon-pink);
+}
+
+.casePre {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.stderr {
+  border-color: rgba(255, 45, 149, 0.15);
+  color: var(--neon-pink);
+  opacity: 0.8;
+}
+
+.exitCode {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--neon-pink);
+  padding: 2px 8px;
+  background: rgba(255, 45, 149, 0.08);
+  border-radius: 4px;
+  align-self: flex-start;
+}

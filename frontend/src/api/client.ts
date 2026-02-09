@@ -1,0 +1,71 @@
+import type {
+  SkillSummary,
+  ResolveResponse,
+  EvalReport,
+  AuditLogEntry,
+} from "../types/api";
+
+const API_BASE =
+  import.meta.env.VITE_API_URL ?? "https://lfiaschi--api-dev.modal.run";
+
+async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers,
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`API ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+export async function listSkills(): Promise<SkillSummary[]> {
+  return fetchJSON<SkillSummary[]>("/v1/skills");
+}
+
+export async function resolveSkill(
+  orgSlug: string,
+  skillName: string,
+  spec = "latest",
+  allowRisky = true
+): Promise<ResolveResponse> {
+  return fetchJSON<ResolveResponse>(
+    `/v1/resolve/${orgSlug}/${skillName}?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
+  );
+}
+
+export async function getEvalReport(
+  orgSlug: string,
+  skillName: string,
+  semver: string
+): Promise<EvalReport | null> {
+  return fetchJSON<EvalReport | null>(
+    `/v1/skills/${orgSlug}/${skillName}/eval-report?semver=${encodeURIComponent(semver)}`
+  );
+}
+
+export async function getAuditLog(
+  orgSlug: string,
+  skillName: string,
+  semver?: string
+): Promise<AuditLogEntry[]> {
+  const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
+  return fetchJSON<AuditLogEntry[]>(
+    `/v1/skills/${orgSlug}/${skillName}/audit-log${qs}`
+  );
+}
+
+export async function downloadSkillZip(
+  orgSlug: string,
+  skillName: string,
+  spec = "latest"
+): Promise<ArrayBuffer> {
+  const resolved = await resolveSkill(orgSlug, skillName, spec);
+  const res = await fetch(resolved.download_url);
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  return res.arrayBuffer();
+}
