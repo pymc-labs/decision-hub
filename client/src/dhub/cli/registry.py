@@ -110,11 +110,8 @@ def _publish_skill_directory(
 
 
 def publish_command(
-    skill_ref: str = typer.Argument(
-        None, help="Skill ref (org/skill), path, or git URL"
-    ),
-    path: Path = typer.Argument(
-        None, help="Path to the skill directory (default: current dir)"
+    source: str = typer.Argument(
+        ..., help="Path to a directory containing skills, or a git repo URL"
     ),
     version: str = typer.Option(None, "--version", help="Explicit semver version (overrides auto-bump)"),
     patch: bool = typer.Option(False, "--patch", help="Bump patch version"),
@@ -122,14 +119,13 @@ def publish_command(
     major: bool = typer.Option(False, "--major", help="Bump major version"),
     ref: str = typer.Option(None, "--ref", help="Branch/tag/commit (only for git repo URLs)"),
 ) -> None:
-    """Publish a skill to the registry.
+    """Publish skills to the registry.
 
-    The first argument can be:
+    SOURCE can be:
     - A git repository URL (HTTPS/SSH) — clones the repo, discovers all
       skills, and publishes each one
-    - An org/skill reference (e.g. 'myorg/my-skill')
-    - A path to a local skill directory
-    - Omitted — publishes from the current directory
+    - A local path — discovers all skill directories (containing SKILL.md)
+      under the given path and publishes each one
 
     Version is auto-bumped by default (patch). Use --major or --minor to
     control the bump level, or --version to set an explicit version.
@@ -140,78 +136,92 @@ def publish_command(
     bump_level = _resolve_bump_level(patch, minor, major)
 
     # Detect git URL in the first positional arg
-    if skill_ref is not None and looks_like_git_url(skill_ref):
-        _publish_from_git_repo(skill_ref, ref, version, bump_level)
+    if looks_like_git_url(source):
+        _publish_from_git_repo(source, ref, version, bump_level)
         return
 
     if ref is not None:
         console.print("[red]Error: --ref can only be used with a git repository URL.[/]")
         raise typer.Exit(1)
 
-    _publish_from_directory(skill_ref, path, version, bump_level)
+    _publish_from_directory(Path(source), version, bump_level)
+
+
+def _publish_discovered_skills(
+    skill_dirs: list[Path],
+    root: Path,
+    org: str,
+    version: str | None,
+    bump_level: str,
+    api_url: str,
+    token: str,
+) -> None:
+    """Publish a list of discovered skill directories."""
+    from dhub.core.manifest import parse_skill_md
+
+    console.print(f"Found [cyan]{len(skill_dirs)}[/] skill(s):")
+    for skill_dir in skill_dirs:
+        rel = skill_dir.relative_to(root)
+        console.print(f"  - {rel}")
+    console.print()
+
+    published = 0
+    failed = 0
+    skipped = 0
+    for skill_dir in skill_dirs:
+        manifest = parse_skill_md(skill_dir / "SKILL.md")
+        name = manifest.name
+        rel = skill_dir.relative_to(root)
+        console.print(f"Publishing [cyan]{name}[/] (from {rel})...")
+
+        try:
+            result = _publish_skill_directory(
+                skill_dir, org, name, version, bump_level, api_url, token,
+            )
+            if result:
+                published += 1
+            else:
+                skipped += 1
+        except typer.Exit:
+            failed += 1
+            console.print(f"[red]Failed to publish {name}, continuing...[/]")
+            continue
+
+    console.print()
+    console.print(
+        f"Done: [green]{published} published[/], "
+        f"[yellow]{skipped} skipped[/], "
+        f"[red]{failed} failed[/]"
+    )
+
+    if failed > 0:
+        raise typer.Exit(1)
 
 
 def _publish_from_directory(
-    skill_ref: str | None,
-    path: Path | None,
+    path: Path,
     version: str | None,
     bump_level: str,
 ) -> None:
-    """Publish a single skill from a local directory."""
+    """Discover and publish all skills under a local directory."""
     from dhub.cli.config import get_api_url, get_token
-    from dhub.core.manifest import parse_skill_md
+    from dhub.core.git_repo import discover_skills
 
-    # Disambiguate positional args: if skill_ref looks like a filesystem path
-    # (starts with '.', '/', '~', or is an existing directory) rather than
-    # an org/skill pattern, treat it as the path argument instead.
-    if skill_ref is not None and path is None:
-        candidate = Path(skill_ref)
-        if skill_ref.startswith((".", "/", "~")) or candidate.is_dir():
-            path = candidate
-            skill_ref = None
+    if not path.is_dir():
+        console.print(f"[red]Error: '{path}' is not a directory.[/]")
+        raise typer.Exit(1)
 
-    # Default path to current directory
-    if path is None:
-        path = Path(".")
+    skill_dirs = discover_skills(path)
 
-    # Verify the directory contains a SKILL.md manifest
-    skill_md_path = path / "SKILL.md"
-    if not skill_md_path.exists():
-        console.print(
-            "[red]Error: SKILL.md not found in the specified directory.[/]"
-        )
+    if not skill_dirs:
+        console.print(f"[yellow]No skills found under '{path}'.[/]")
         raise typer.Exit(1)
 
     api_url = get_api_url()
     token = get_token()
+    org = _auto_detect_org(api_url, token)
 
-    manifest = parse_skill_md(skill_md_path)
-
-    # Resolve org and name from skill_ref or auto-detect
-    if skill_ref is not None:
-        parts = skill_ref.split("/", 1)
-        if len(parts) != 2:
-            console.print(
-                "[red]Error: Skill reference must be in org/skill format.[/]"
-            )
-            raise typer.Exit(1)
-        org, name = parts
-        # Warn if the CLI-provided name doesn't match SKILL.md
-        if name != manifest.name:
-            console.print(
-                f"[yellow]Warning: CLI name '{name}' differs from SKILL.md "
-                f"name '{manifest.name}'. Using '{name}'.[/]"
-            )
-    else:
-        # Auto-detect name from SKILL.md
-        name = manifest.name
-        # Auto-detect org: user must belong to exactly one org
-        org = _auto_detect_org(api_url, token)
-
-    result = _publish_skill_directory(path, org, name, version, bump_level, api_url, token)
-    if not result:
-        # No changes detected — already printed a message
-        return
+    _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token)
 
 
 def _publish_from_git_repo(
@@ -223,7 +233,6 @@ def _publish_from_git_repo(
     """Clone a git repo, discover skills, and publish each one."""
     from dhub.cli.config import get_api_url, get_token
     from dhub.core.git_repo import clone_repo, discover_skills
-    from dhub.core.manifest import parse_skill_md
 
     api_url = get_api_url()
     token = get_token()
@@ -243,43 +252,9 @@ def _publish_from_git_repo(
             console.print("[yellow]No skills found in the repository.[/]")
             raise typer.Exit(1)
 
-        console.print(f"Found [cyan]{len(skill_dirs)}[/] skill(s) in the repository:")
-        for skill_dir in skill_dirs:
-            rel = skill_dir.relative_to(repo_root)
-            console.print(f"  - {rel}")
-        console.print()
-
-        published = 0
-        failed = 0
-        skipped = 0
-        for skill_dir in skill_dirs:
-            manifest = parse_skill_md(skill_dir / "SKILL.md")
-            name = manifest.name
-            rel = skill_dir.relative_to(repo_root)
-            console.print(f"Publishing [cyan]{name}[/] (from {rel})...")
-
-            try:
-                result = _publish_skill_directory(
-                    skill_dir, org, name, version, bump_level, api_url, token,
-                )
-                if result:
-                    published += 1
-                else:
-                    skipped += 1
-            except typer.Exit:
-                failed += 1
-                console.print(f"[red]Failed to publish {name}, continuing...[/]")
-                continue
-
-        console.print()
-        console.print(
-            f"Done: [green]{published} published[/], "
-            f"[yellow]{skipped} skipped[/], "
-            f"[red]{failed} failed[/]"
+        _publish_discovered_skills(
+            skill_dirs, repo_root, org, version, bump_level, api_url, token,
         )
-
-        if failed > 0:
-            raise typer.Exit(1)
     finally:
         shutil.rmtree(repo_root.parent, ignore_errors=True)
 

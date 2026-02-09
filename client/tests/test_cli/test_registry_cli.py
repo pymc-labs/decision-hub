@@ -41,12 +41,14 @@ def _make_zip_bytes() -> bytes:
 class TestPublishCommand:
 
     @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_publish_success_explicit_version(
         self,
         _mock_url,
         _mock_token,
+        _mock_org,
         tmp_path: Path,
     ) -> None:
         _write_skill_md(tmp_path)
@@ -56,25 +58,27 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0"],
+            ["publish", str(tmp_path), "--version", "1.0.0"],
         )
 
         assert result.exit_code == 0
-        assert "Published: myorg/my-skill@1.0.0" in result.output
+        assert "Published: myorg/test-skill@1.0.0" in result.output
 
     @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_publish_auto_bump_first_publish(
         self,
         _mock_url,
         _mock_token,
+        _mock_org,
         tmp_path: Path,
     ) -> None:
         """First publish with no --version should default to 0.1.0."""
         _write_skill_md(tmp_path)
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(404)
         )
         respx.post("http://test:8000/v1/publish").mock(
@@ -83,26 +87,28 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path)],
+            ["publish", str(tmp_path)],
         )
 
         assert result.exit_code == 0
         assert "0.1.0" in result.output
-        assert "Published: myorg/my-skill@0.1.0" in result.output
+        assert "Published: myorg/test-skill@0.1.0" in result.output
 
     @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_publish_auto_bump_patch(
         self,
         _mock_url,
         _mock_token,
+        _mock_org,
         tmp_path: Path,
     ) -> None:
         """Auto-bump patch: 1.2.3 -> 1.2.4."""
         _write_skill_md(tmp_path)
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
         respx.post("http://test:8000/v1/publish").mock(
@@ -111,26 +117,28 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path)],
+            ["publish", str(tmp_path)],
         )
 
         assert result.exit_code == 0
         assert "1.2.4" in result.output
-        assert "Published: myorg/my-skill@1.2.4" in result.output
+        assert "Published: myorg/test-skill@1.2.4" in result.output
 
     @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_publish_auto_bump_minor(
         self,
         _mock_url,
         _mock_token,
+        _mock_org,
         tmp_path: Path,
     ) -> None:
         """Auto-bump minor: 1.2.3 -> 1.3.0."""
         _write_skill_md(tmp_path)
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
         respx.post("http://test:8000/v1/publish").mock(
@@ -139,26 +147,28 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path), "--minor"],
+            ["publish", str(tmp_path), "--minor"],
         )
 
         assert result.exit_code == 0
         assert "1.3.0" in result.output
-        assert "Published: myorg/my-skill@1.3.0" in result.output
+        assert "Published: myorg/test-skill@1.3.0" in result.output
 
     @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_publish_auto_bump_major(
         self,
         _mock_url,
         _mock_token,
+        _mock_org,
         tmp_path: Path,
     ) -> None:
         """Auto-bump major: 1.2.3 -> 2.0.0."""
         _write_skill_md(tmp_path)
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
         respx.post("http://test:8000/v1/publish").mock(
@@ -167,34 +177,22 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path), "--major"],
+            ["publish", str(tmp_path), "--major"],
         )
 
         assert result.exit_code == 0
         assert "2.0.0" in result.output
-        assert "Published: myorg/my-skill@2.0.0" in result.output
+        assert "Published: myorg/test-skill@2.0.0" in result.output
 
-    def test_publish_missing_skill_md(self, tmp_path: Path) -> None:
-        """Publish should fail when SKILL.md is absent."""
+    def test_publish_no_skills_found(self, tmp_path: Path) -> None:
+        """Publish should fail when no SKILL.md exists under the path."""
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0"],
+            ["publish", str(tmp_path), "--version", "1.0.0"],
         )
 
         assert result.exit_code == 1
-        assert "SKILL.md not found" in result.output
-
-    def test_publish_invalid_skill_name(self, tmp_path: Path) -> None:
-        """Publish should fail with an invalid skill name."""
-        _write_skill_md(tmp_path)
-
-        result = runner.invoke(
-            app,
-            ["publish", "myorg/INVALID NAME!", str(tmp_path), "--version", "1.0.0"],
-        )
-
-        # validate_skill_name raises ValueError which propagates
-        assert result.exit_code != 0
+        assert "No skills found" in result.output
 
     def test_publish_invalid_semver(self, tmp_path: Path) -> None:
         """Publish should fail with an invalid semver string."""
@@ -202,18 +200,20 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path), "--version", "not-a-version"],
+            ["publish", str(tmp_path), "--version", "not-a-version"],
         )
 
         assert result.exit_code != 0
 
     @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_publish_409_conflict(
         self,
         _mock_url,
         _mock_token,
+        _mock_org,
         tmp_path: Path,
     ) -> None:
         _write_skill_md(tmp_path)
@@ -223,7 +223,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0"],
+            ["publish", str(tmp_path), "--version", "1.0.0"],
         )
 
         assert result.exit_code == 1
@@ -235,19 +235,21 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path), "--minor", "--major"],
+            ["publish", str(tmp_path), "--minor", "--major"],
         )
 
         assert result.exit_code == 1
         assert "Only one" in result.output
 
     @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_publish_skips_when_unchanged(
         self,
         _mock_url,
         _mock_token,
+        _mock_org,
         tmp_path: Path,
     ) -> None:
         """Auto-bump should skip publish when local checksum matches remote."""
@@ -260,7 +262,7 @@ class TestPublishCommand:
         zip_data = _create_zip(tmp_path)
         local_checksum = compute_checksum(zip_data)
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.0.0", "checksum": local_checksum})
         )
         publish_route = respx.post("http://test:8000/v1/publish").mock(
@@ -269,7 +271,7 @@ class TestPublishCommand:
 
         result = runner.invoke(
             app,
-            ["publish", "myorg/my-skill", str(tmp_path)],
+            ["publish", str(tmp_path)],
         )
 
         assert result.exit_code == 0
