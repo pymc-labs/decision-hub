@@ -530,7 +530,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "dhub-cli"
-version = "0.3.0"
+version = "0.3.3"
 source = { editable = "client" }
 dependencies = [
     { name = "dhub-core" },
