@@ -17,22 +17,26 @@ Every `dhub ask` call:
 
 ### Why it breaks at 200k
 
-Each JSONL line is ~170-350 bytes depending on description length (measured from the actual `serialize_index` format). Assuming a typical 100-char description, each line is ~252 bytes.
+Each JSONL line is ~170-350 chars depending on description length (measured from `serialize_index`). A typical line with a 1-sentence description is ~231 chars.
 
-| Skills | Raw size | Token estimate (3-5 chars/tok) | Fits 1M context? |
-|--------|----------|-------------------------------|-------------------|
-| 1,000 | 0.3 MB | 50k-100k | Yes |
-| 5,000 | 1.3 MB | 250k-420k | Yes |
-| 10,000 | 2.5 MB | 500k-840k | Borderline |
-| **~15,000** | **3.8 MB** | **~750k-1.3M** | **Breaking point** |
-| 20,000 | 5.0 MB | 1.0-1.7M | No |
-| 200,000 | 50 MB | 10-17M tokens | **10-17x over limit** |
+**Token estimate**: Gemini's tokenizer averages **~2.7 characters per token** for English text embedded in JSON markup (empirically measured by [GDELT across 400M tokens](https://blog.gdeltproject.org/gemini-at-scale-understanding-tokens-in-the-real-world-a-small-batch-analysis-of-400m-tokens/) — this is below Google's rough "~4 chars/token" guidance because JSON punctuation tokenizes at ~1 char/token). That gives **~86 tokens per skill line**.
 
-- **Token limit**: Gemini 2.0 Flash has a 1M token context window. The index fits comfortably up to ~10k skills, becomes borderline at ~15k, and at 200k it is 10-17x over the limit. The API call will fail outright.
-- **Latency**: Even for skill counts that fit, processing 500k+ tokens takes significant time per query.
-- **Cost**: Every search query pays for the full index in input tokens — at 10k skills that's already ~$0.01-0.03 per query.
-- **Database load**: The `fetch_all_skills_for_index` query does a `ROW_NUMBER()` window function over **all** versions rows, then joins with skills and orgs. At 200k skills (likely 500k+ version rows), this is an expensive full table scan on every search.
-- **Memory**: The server holds the entire serialized index in memory per request.
+| Skills | Raw size | Tokens (~86/skill) | Fits 1M context? |
+|--------|----------|---------------------|-------------------|
+| 1,000 | 0.2 MB | 86k | Yes |
+| 5,000 | 1.2 MB | 428k | Yes |
+| 10,000 | 2.3 MB | 856k | Yes (but slow + expensive) |
+| **~11,700** | **2.7 MB** | **~1M** | **Breaking point** |
+| 15,000 | 3.5 MB | 1.3M | No |
+| 20,000 | 4.6 MB | 1.7M | No |
+| 200,000 | 46 MB | 17.1M | **No (17x over limit)** |
+
+Key concerns at scale:
+- **Token limit**: Gemini 2.0 Flash has a 1M token context window. The index **breaks at ~11,700 skills** and at 200k is 17x over. The API call will fail outright.
+- **Latency**: Near the context limit (e.g. at 10k skills = 856k tokens), inference takes many seconds per query.
+- **Cost**: Every search query pays for the full index — at 10k skills that's ~856k input tokens per query.
+- **Database load**: `fetch_all_skills_for_index` runs a `ROW_NUMBER()` window function over **all** version rows with 3× `split_part`/`CAST` per row. At 200k skills (~500k+ version rows), this is a full table scan on every search/list request.
+- **Memory**: The server serializes the entire index in memory per request.
 
 ### Fix
 
@@ -315,7 +319,7 @@ Called inside `maybe_trigger_agent_assessment` and `run_assessment_background`. 
 
 | Priority | Issue | Impact at 200k |
 |----------|-------|-----------------|
-| **P0** | LLM search sends full index to Gemini | **Breaks at ~15k skills** (10-17x over at 200k) |
+| **P0** | LLM search sends full index to Gemini | **Breaks at ~11.7k skills** (17x over at 200k) |
 | **P0** | `/v1/skills` returns all skills unpaginated | **40MB+ responses**, server/client OOM |
 | **P0** | `fetch_all_skills_for_index` full-table window function | **Seconds-long query** on every list/search |
 | **P1** | No server-side search/filter/sort | Frontend unusable with client-side filtering |
