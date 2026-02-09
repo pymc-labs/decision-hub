@@ -648,6 +648,7 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
 def run_crawler(
     github_token: str | None = None,
     max_repos: int | None = None,
+    max_skills: int | None = None,
     env: str = "dev",
     strategies: list[str] | None = None,
     checkpoint_path: Path = DEFAULT_CHECKPOINT_PATH,
@@ -812,6 +813,13 @@ def run_crawler(
                         published=total_published, failed=total_failed, skipped=total_skipped,
                     )
 
+                    if max_skills and stats.skills_published >= max_skills:
+                        print(f"\nReached --max-skills limit ({max_skills}). Stopping.")
+                        break
+
+                if max_skills and stats.skills_published >= max_skills:
+                    break
+
             except Exception as exc:
                 # Batch-level failure (e.g. Modal connectivity issue)
                 for r in batch:
@@ -859,6 +867,8 @@ def main():
                         help="GitHub PAT (recommended for rate limits)")
     parser.add_argument("--max-repos", type=int, default=None,
                         help="Max repos to process")
+    parser.add_argument("--max-skills", type=int, default=None,
+                        help="Stop after publishing this many skills (e.g. 5000)")
     parser.add_argument("--env", default="dev", choices=["dev", "prod"],
                         help="Decision Hub environment (default: dev)")
     parser.add_argument("--workers", type=int, default=5,
@@ -880,6 +890,7 @@ def main():
     run_crawler(
         github_token=args.github_token,
         max_repos=args.max_repos,
+        max_skills=args.max_skills,
         env=args.env,
         strategies=args.strategies,
         checkpoint_path=args.checkpoint,
