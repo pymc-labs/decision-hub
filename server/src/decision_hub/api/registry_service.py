@@ -13,6 +13,12 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.engine import Connection
 
+from decision_hub.domain.classification import (
+    DEFAULT_CATEGORY,
+    SkillClassification,
+    build_taxonomy_prompt_fragment,
+    parse_classification_response,
+)
 from decision_hub.domain.gauntlet import run_static_checks
 from decision_hub.domain.publish import build_quarantine_s3_key
 from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md
@@ -229,6 +235,44 @@ def _build_analyze_prompt_fn(settings: Settings):
         )
 
     return analyze_prompt_fn
+
+
+def classify_skill_category(
+    skill_name: str,
+    description: str,
+    skill_md_body: str,
+    settings: Settings,
+) -> str:
+    """Run LLM classification to assign a category to a skill.
+
+    Returns the subcategory string (e.g. "Backend & APIs"). Falls back
+    to DEFAULT_CATEGORY if the LLM is unavailable or returns garbage.
+    """
+    if not settings.google_api_key:
+        return DEFAULT_CATEGORY
+
+    from decision_hub.infra.gemini import classify_skill, create_gemini_client
+
+    try:
+        gemini_client = create_gemini_client(settings.google_api_key)
+        taxonomy_fragment = build_taxonomy_prompt_fragment()
+        raw_response = classify_skill(
+            gemini_client,
+            skill_name,
+            description,
+            skill_md_body,
+            taxonomy_fragment,
+            model=settings.gemini_model,
+        )
+        result = parse_classification_response(raw_response)
+        logger.info(
+            "Classified %s as %s (group=%s, confidence=%.2f)",
+            skill_name, result.category, result.group, result.confidence,
+        )
+        return result.category
+    except Exception:
+        logger.warning("Skill classification failed for %s, using default", skill_name, exc_info=True)
+        return DEFAULT_CATEGORY
 
 
 def extract_runtime_config_dict(manifest) -> dict | None:

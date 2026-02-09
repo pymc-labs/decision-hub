@@ -48,6 +48,7 @@ def search_skills(
             latest_version=row["latest_version"],
             eval_status=row["eval_status"],
             author=row.get("published_by", ""),
+            category=row.get("category", ""),
         )
         for row in rows
     ]

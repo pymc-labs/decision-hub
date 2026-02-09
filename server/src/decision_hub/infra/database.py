@@ -111,6 +111,7 @@ skills_table = Table(
     Column("name", String, nullable=False),
     Column("description", Text, nullable=False, server_default=""),
     Column("download_count", sa.Integer, nullable=False, server_default="0"),
+    Column("category", String, nullable=False, server_default=""),
     sa.UniqueConstraint("org_id", "name"),
 )
 
@@ -322,7 +323,7 @@ def _row_to_org_member(row: sa.Row) -> OrgMember:
 
 def _row_to_skill(row: sa.Row) -> Skill:
     """Map a database row to a Skill model."""
-    return Skill(id=row.id, org_id=row.org_id, name=row.name, description=row.description, download_count=row.download_count)
+    return Skill(id=row.id, org_id=row.org_id, name=row.name, description=row.description, download_count=row.download_count, category=row.category)
 
 
 def _row_to_version(row: sa.Row) -> Version:
@@ -550,7 +551,7 @@ def find_org_member(
 
 
 def insert_skill(
-    conn: Connection, org_id: UUID, name: str, description: str = ""
+    conn: Connection, org_id: UUID, name: str, description: str = "", category: str = ""
 ) -> Skill:
     """Register a new skill under an organization.
 
@@ -559,13 +560,14 @@ def insert_skill(
         org_id: UUID of the owning organization.
         name: Skill name (unique within the org).
         description: Short description from SKILL.md frontmatter.
+        category: Classified category from LLM taxonomy.
 
     Returns:
         The newly created Skill.
     """
     stmt = (
         sa.insert(skills_table)
-        .values(org_id=org_id, name=name, description=description)
+        .values(org_id=org_id, name=name, description=description, category=category)
         .returning(*skills_table.c)
     )
     row = conn.execute(stmt).one()
@@ -606,6 +608,18 @@ def update_skill_description(
         sa.update(skills_table)
         .where(skills_table.c.id == skill_id)
         .values(description=description)
+    )
+    conn.execute(stmt)
+
+
+def update_skill_category(
+    conn: Connection, skill_id: UUID, category: str
+) -> None:
+    """Update the category of an existing skill."""
+    stmt = (
+        sa.update(skills_table)
+        .where(skills_table.c.id == skill_id)
+        .values(category=category)
     )
     conn.execute(stmt)
 
@@ -971,6 +985,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
             skills_table.c.name.label("skill_name"),
             skills_table.c.description,
             skills_table.c.download_count,
+            skills_table.c.category,
             latest_version.c.semver.label("latest_version"),
             latest_version.c.eval_status,
             latest_version.c.created_at,
@@ -998,6 +1013,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
             "skill_name": row.skill_name,
             "description": row.description,
             "download_count": row.download_count,
+            "category": row.category,
             "latest_version": row.latest_version,
             "eval_status": row.eval_status,
             "created_at": row.created_at,

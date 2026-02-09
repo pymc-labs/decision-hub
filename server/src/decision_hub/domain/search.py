@@ -12,6 +12,7 @@ def build_index_entry(
     latest_version: str,
     eval_status: str,
     author: str = "",
+    category: str = "",
 ) -> SkillIndexEntry:
     """Create a search index entry from skill metadata.
 
@@ -22,6 +23,7 @@ def build_index_entry(
         latest_version: Latest published version string.
         eval_status: Current evaluation status (pending/passed/failed).
         author: GitHub username of the publisher.
+        category: Classified category from LLM taxonomy.
 
     Returns:
         A SkillIndexEntry with a computed trust score.
@@ -34,6 +36,7 @@ def build_index_entry(
         eval_status=eval_status,
         trust_score=format_trust_score(eval_status),
         author=author,
+        category=category,
     )
 
 
@@ -75,6 +78,7 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
             "eval_status": entry.eval_status,
             "trust": entry.trust_score,
             "author": entry.author,
+            "category": entry.category,
         }
         lines.append(json.dumps(obj))
     return "\n".join(lines)

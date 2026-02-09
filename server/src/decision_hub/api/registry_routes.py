@@ -11,6 +11,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user, get_s3_client, get_settings
 from decision_hub.api.registry_service import (
+    classify_skill_category,
     extract_assessment_config,
     maybe_trigger_agent_assessment,
     parse_manifest_from_content,
@@ -48,6 +49,7 @@ from decision_hub.infra.database import (
     resolve_latest_version,
     resolve_version,
     update_eval_run_status,
+    update_skill_category,
     update_skill_description,
 )
 from decision_hub.infra.storage import (
@@ -122,6 +124,7 @@ class SkillSummary(BaseModel):
     author: str
     download_count: int = 0
     is_personal_org: bool = False
+    category: str = ""
 
 
 class AuditLogResponse(BaseModel):
@@ -268,13 +271,17 @@ def publish_skill(
             publisher=current_user.username,
         )
 
+    # Classify skill into a category (lightweight LLM call after gauntlet)
+    category = classify_skill_category(skill_name, description, skill_md_body, settings)
+
     # Upsert skill record (find or create), then check for duplicate version
     eval_status = report.grade
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
-        skill = insert_skill(conn, org.id, skill_name, description)
+        skill = insert_skill(conn, org.id, skill_name, description, category=category)
     else:
         update_skill_description(conn, skill.id, description)
+        update_skill_category(conn, skill.id, category)
 
     if find_version(conn, skill.id, version) is not None:
         raise HTTPException(
@@ -353,6 +360,7 @@ def list_skills(
             author=row.get("published_by", ""),
             download_count=row.get("download_count", 0),
             is_personal_org=row.get("is_personal_org", False),
+            category=row.get("category", ""),
         )
         for row in rows
     ]
