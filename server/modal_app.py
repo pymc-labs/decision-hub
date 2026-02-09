@@ -38,7 +38,7 @@ secrets = [
 ]
 
 
-@app.function(image=image, secrets=secrets, scaledown_window=300)
+@app.function(image=image, secrets=secrets, scaledown_window=300, cpu=0.5, memory=256)
 @modal.concurrent(max_inputs=100)
 @modal.asgi_app(label=f"api{suffix}")
 def web():

@@ -217,6 +217,18 @@ dhub install myorg/my-skill --allow-risky             # allow Grade C skills
 
 Symlinks point to the canonical `~/.dhub/skills/` path, so the skill is stored once and shared across agents.
 
+### After installation: load the skill immediately
+
+When you install a skill on behalf of the user, **always read it into the current conversation** so it's usable right away. Don't tell the user to start a new session.
+
+After `dhub install` succeeds:
+1. Read the installed skill's `SKILL.md` from `~/.dhub/skills/{org}/{skill}/SKILL.md`
+2. Confirm to the user that the skill is loaded and ready to use now
+
+Don't read reference files upfront — the SKILL.md itself will tell you when to consult specific references.
+
+The user installed a skill because they want to use it — treat installation as implicit activation.
+
 ### Integrity verification
 
 Downloads are verified via SHA-256 checksum before extraction. If the checksum doesn't match, installation aborts.
