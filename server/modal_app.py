@@ -1,6 +1,7 @@
 """Modal deployment entry point for Decision Hub API."""
 
 import os
+from pathlib import Path
 
 import modal
 
@@ -10,6 +11,8 @@ app_name = f"decision-hub{suffix}"
 
 app = modal.App(app_name)
 
+_frontend_dist = Path("../frontend/dist")
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .add_local_dir("../shared", remote_path="/tmp/dhub-core", copy=True)
@@ -17,6 +20,12 @@ image = (
     .pip_install_from_pyproject("pyproject.toml")
     .add_local_dir("src/decision_hub", remote_path="/root/decision_hub")
 )
+
+# Include the frontend build when it exists (produced by deploy script).
+if _frontend_dist.is_dir():
+    image = image.add_local_dir(
+        str(_frontend_dist), remote_path="/root/frontend_dist", copy=True,
+    )
 
 secrets = [
     modal.Secret.from_name(f"decision-hub-db{suffix}"),

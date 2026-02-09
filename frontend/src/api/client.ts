@@ -5,8 +5,9 @@ import type {
   AuditLogEntry,
 } from "../types/api";
 
-const API_BASE =
-  import.meta.env.VITE_API_URL ?? "https://lfiaschi--api-dev.modal.run";
+// When served from Modal (same origin), use "" so fetches are relative.
+// For local dev against a remote API, set VITE_API_URL.
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
