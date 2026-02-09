@@ -1,2 +1,2 @@
 [tool.uv.workspace]
-members = ["client", "server"]
+members = ["client", "server", "shared"]

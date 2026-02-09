@@ -42,7 +42,8 @@ def run_eval_task(
     eval_agent: str,
     eval_judge_model: str,
     eval_cases_dicts: list[dict],
-    skill_zip: bytes,
+    s3_key: str,
+    s3_bucket: str,
     org_slug: str,
     skill_name: str,
     user_id: str,
@@ -52,11 +53,14 @@ def run_eval_task(
     Spawned asynchronously from the publish endpoint so the eval
     has its own lifecycle and doesn't get killed when the web
     container scales down.
+
+    Downloads the skill zip from S3 instead of receiving it as a
+    parameter, avoiding 50 MB payloads in Modal's parameter transport.
     """
-    import sys
     from uuid import UUID
 
-    from decision_hub.api.registry_routes import _run_assessment_background
+    from decision_hub.api.registry_service import run_assessment_background
+    from decision_hub.infra.storage import create_s3_client
     from decision_hub.models import EvalCase, EvalConfig
     from decision_hub.settings import create_settings
 
@@ -65,6 +69,18 @@ def run_eval_task(
           flush=True)
 
     settings = create_settings()
+
+    # Download skill zip from S3 (instead of receiving raw bytes via Modal)
+    print(f"[run_eval_task] Downloading skill zip from s3://{s3_bucket}/{s3_key}", flush=True)
+    s3_client = create_s3_client(
+        region=settings.aws_region,
+        access_key_id=settings.aws_access_key_id,
+        secret_access_key=settings.aws_secret_access_key,
+    )
+    response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
+    skill_zip = response["Body"].read()
+    print(f"[run_eval_task] Downloaded {len(skill_zip)} bytes", flush=True)
+
     config = EvalConfig(agent=eval_agent, judge_model=eval_judge_model)
     cases = tuple(
         EvalCase(
@@ -76,10 +92,10 @@ def run_eval_task(
         for d in eval_cases_dicts
     )
 
-    print(f"[run_eval_task] Settings loaded, calling _run_assessment_background",
+    print(f"[run_eval_task] Settings loaded, calling run_assessment_background",
           flush=True)
 
-    _run_assessment_background(
+    run_assessment_background(
         version_id=UUID(version_id),
         eval_config=config,
         eval_cases=cases,

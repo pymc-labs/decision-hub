@@ -23,6 +23,7 @@ dependencies = [
     "rich>=13.0.0",
     "httpx>=0.27.0",
     "pyyaml>=6.0.0",
+    "dhub-core",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,9 @@ packages = ["src/dhub"]
 Homepage = "https://github.com/lfiaschi/decision-hub"
 Repository = "https://github.com/lfiaschi/decision-hub"
 Issues = "https://github.com/lfiaschi/decision-hub/issues"
+
+[tool.uv.sources]
+dhub-core = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

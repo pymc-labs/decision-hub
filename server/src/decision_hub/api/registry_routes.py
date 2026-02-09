@@ -2,25 +2,29 @@
 
 import json
 import logging
-import tempfile
-from pathlib import Path
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user, get_s3_client, get_settings
-from decision_hub.domain.gauntlet import run_static_checks
+from decision_hub.api.registry_service import (
+    extract_assessment_config,
+    maybe_trigger_agent_assessment,
+    parse_manifest_from_content,
+    quarantine_rejected_skill,
+    require_org_membership,
+    run_assessment_background,
+    run_gauntlet_pipeline,
+)
 from decision_hub.domain.publish import (
-    build_quarantine_s3_key,
     build_s3_key,
     extract_for_evaluation,
     validate_semver,
     validate_skill_name,
 )
 from decision_hub.domain.search import format_trust_score
-from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md
+from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
     delete_all_versions,
     delete_skill as delete_skill_record,
@@ -29,13 +33,10 @@ from decision_hub.infra.database import (
     find_audit_logs,
     find_eval_report_by_skill,
     find_eval_report_by_version,
-    find_org_by_slug,
-    find_org_member,
     find_skill,
     find_version,
     increment_skill_downloads,
     insert_audit_log,
-    insert_eval_report,
     insert_skill,
     insert_version,
     resolve_latest_version,
@@ -48,7 +49,7 @@ from decision_hub.infra.storage import (
     generate_presigned_url,
     upload_skill_zip,
 )
-from decision_hub.models import GauntletReport, Organization, User
+from decision_hub.models import User
 from decision_hub.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -169,12 +170,7 @@ def publish_skill(
     settings: Settings = Depends(get_settings),
     current_user: User = Depends(get_current_user),
 ) -> PublishResponse:
-    """Publish a new skill version.
-
-    Accepts multipart form data with a metadata JSON string and a zip file.
-    Validates org membership, semver, and skill name before running the
-    Gauntlet safety pipeline and recording the version in the database.
-    """
+    """Publish a new skill version."""
     if not settings.google_api_key:
         raise HTTPException(
             status_code=503,
@@ -186,7 +182,7 @@ def publish_skill(
     validate_skill_name(skill_name)
     validate_semver(version)
 
-    org = _require_org_membership(conn, org_slug, current_user.id)
+    org = require_org_membership(conn, org_slug, current_user.id)
 
     # Read file contents with size limit (50 MB) and compute checksum
     max_upload_bytes = 50 * 1024 * 1024
@@ -203,20 +199,20 @@ def publish_skill(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    runtime_config_dict, eval_config, eval_cases = _parse_manifest_from_content(
+    runtime_config_dict, eval_config, eval_cases = parse_manifest_from_content(
         skill_md_content, file_bytes,
     )
 
     description = extract_description(skill_md_content)
     skill_md_body = extract_body(skill_md_content)
 
-    report, check_results_dicts, llm_reasoning = _run_gauntlet_pipeline(
+    report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
         skill_md_content, lockfile_content, source_files,
         skill_name, description, skill_md_body, settings,
     )
 
     if not report.passed:
-        _quarantine_rejected_skill(
+        quarantine_rejected_skill(
             conn, s3_client, settings.s3_bucket, file_bytes,
             org_slug=org_slug,
             skill_name=skill_name,
@@ -269,16 +265,13 @@ def publish_skill(
     )
 
     # Commit now so the version row is visible to the background eval thread.
-    # BackgroundTasks run inside the dependency lifecycle — before the
-    # connection context manager commits — so a long-running eval would hold
-    # the transaction open for minutes, leaking idle-in-transaction sessions
-    # and blocking concurrent writes on the same rows.
     conn.commit()
 
-    eval_report_status = _maybe_trigger_agent_assessment(
+    eval_report_status = maybe_trigger_agent_assessment(
         eval_config=eval_config,
         eval_cases=eval_cases,
-        file_bytes=file_bytes,
+        s3_key=s3_key,
+        s3_bucket=settings.s3_bucket,
         version_id=version_record.id,
         org_slug=org_slug,
         skill_name=skill_name,
@@ -300,10 +293,7 @@ def publish_skill(
 def list_skills(
     conn: Connection = Depends(get_connection),
 ) -> list[SkillSummary]:
-    """List all published skills with their latest version info.
-
-    Public endpoint — no authentication required.
-    """
+    """List all published skills with their latest version info."""
     rows = fetch_all_skills_for_index(conn)
     return [
         SkillSummary(
@@ -329,11 +319,7 @@ def get_latest_version(
     skill_name: str,
     conn: Connection = Depends(get_connection),
 ) -> LatestVersionResponse:
-    """Return the latest published version of a skill (regardless of eval status).
-
-    Used by the CLI for auto-bumping during publish.
-    Public endpoint -- no authentication required.
-    """
+    """Return the latest published version of a skill."""
     version = resolve_latest_version(conn, org_slug, skill_name)
     if version is None:
         raise HTTPException(
@@ -353,11 +339,7 @@ def resolve_skill(
     s3_client=Depends(get_s3_client),
     settings: Settings = Depends(get_settings),
 ) -> ResolveResponse:
-    """Resolve a skill version and return a pre-signed download URL.
-
-    The ``spec`` query parameter can be ``latest`` or an exact semver string.
-    Set ``allow_risky=true`` to also include C-grade versions.
-    """
+    """Resolve a skill version and return a pre-signed download URL."""
     version = resolve_version(
         conn, org_slug, skill_name, spec, allow_risky=allow_risky,
     )
@@ -392,10 +374,7 @@ def get_audit_log(
     semver: str | None = Query(None),
     conn: Connection = Depends(get_connection),
 ) -> list[AuditLogResponse]:
-    """Return evaluation audit log history for a skill.
-
-    Public endpoint — no authentication required.
-    """
+    """Return evaluation audit log history for a skill."""
     entries = find_audit_logs(conn, org_slug, skill_name, semver=semver)
     return [
         AuditLogResponse(
@@ -425,11 +404,7 @@ def get_eval_report_by_skill(
     semver: str = Query(..., description="Semantic version of the skill"),
     conn: Connection = Depends(get_connection),
 ) -> EvalReportResponse | None:
-    """Get the eval report for a specific skill version.
-
-    Public endpoint — no authentication required.
-    Returns None if no eval report exists for this version.
-    """
+    """Get the eval report for a specific skill version."""
     report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
     if report is None:
         return None
@@ -446,11 +421,7 @@ def get_eval_report_by_version_path(
     semver: str,
     conn: Connection = Depends(get_connection),
 ) -> EvalReportResponse | None:
-    """Get the eval report for a specific skill version (path-based).
-
-    Public endpoint — no authentication required.
-    Returns None if no eval report exists for this version.
-    """
+    """Get the eval report for a specific skill version (path-based)."""
     report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
     if report is None:
         return None
@@ -469,11 +440,8 @@ def delete_all_skill_versions(
     settings: Settings = Depends(get_settings),
     current_user: User = Depends(get_current_user),
 ) -> DeleteAllResponse:
-    """Delete all versions of a skill and the skill record itself.
-
-    Only organisation owners and admins can delete skills.
-    """
-    org = _require_org_membership(conn, org_slug, current_user.id, admin_only=True)
+    """Delete all versions of a skill and the skill record itself."""
+    org = require_org_membership(conn, org_slug, current_user.id, admin_only=True)
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
         raise HTTPException(
@@ -507,11 +475,8 @@ def delete_skill_version(
     settings: Settings = Depends(get_settings),
     current_user: User = Depends(get_current_user),
 ) -> DeleteResponse:
-    """Delete a published skill version.
-
-    Only organisation owners and admins can delete versions.
-    """
-    org = _require_org_membership(conn, org_slug, current_user.id, admin_only=True)
+    """Delete a published skill version."""
+    org = require_org_membership(conn, org_slug, current_user.id, admin_only=True)
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
         raise HTTPException(
@@ -538,455 +503,8 @@ def delete_skill_version(
 
 
 # ---------------------------------------------------------------------------
-# Helpers -- org membership, manifest parsing, gauntlet pipeline
+# Response formatting
 # ---------------------------------------------------------------------------
-
-
-def _require_org_membership(
-    conn: Connection,
-    org_slug: str,
-    user_id: UUID,
-    *,
-    admin_only: bool = False,
-) -> Organization:
-    """Verify org exists and user is a member; return the Organisation.
-
-    Raises 404 if org not found, 403 if not a member (or not admin
-    when admin_only=True).
-    """
-    org = find_org_by_slug(conn, org_slug)
-    if org is None:
-        raise HTTPException(status_code=404, detail="Organisation not found")
-
-    member = find_org_member(conn, org.id, user_id)
-    if member is None:
-        raise HTTPException(
-            status_code=403,
-            detail="You are not a member of this organisation",
-        )
-    if admin_only and member.role not in ("owner", "admin"):
-        raise HTTPException(
-            status_code=403,
-            detail="Only org owners and admins can perform this action",
-        )
-    return org
-
-
-def _parse_manifest_from_content(
-    skill_md_content: str,
-    file_bytes: bytes,
-) -> tuple[dict | None, object | None, tuple]:
-    """Parse SKILL.md and extract runtime config, eval config, and eval cases.
-
-    Uses a temp file because parse_skill_md expects a file path.
-    Returns (runtime_config_dict, eval_config, eval_cases).
-
-    Raises HTTPException(422) if the manifest is malformed — fail-closed
-    to prevent publishing skills with unparseable manifests.
-    """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as tmp:
-        tmp.write(skill_md_content)
-        tmp_path = Path(tmp.name)
-
-    try:
-        manifest = parse_skill_md(tmp_path)
-        return (
-            _extract_runtime_config_dict(manifest),
-            _extract_assessment_config(manifest),
-            _try_parse_assessment_cases(file_bytes),
-        )
-    except ValueError as exc:
-        logger.warning("Manifest parse failed (rejecting publish): %s", exc)
-        raise HTTPException(
-            status_code=422,
-            detail=f"SKILL.md manifest is malformed: {exc}",
-        )
-    finally:
-        tmp_path.unlink()
-
-
-def _run_gauntlet_pipeline(
-    skill_md_content: str,
-    lockfile_content: str | None,
-    source_files: list[tuple[str, str]],
-    skill_name: str,
-    description: str,
-    skill_md_body: str,
-    settings: Settings,
-) -> tuple[GauntletReport, list[dict], dict | None]:
-    """Run Gauntlet static checks and serialize results for audit logging.
-
-    Returns (report, check_results_dicts, llm_reasoning).
-    """
-    report = run_static_checks(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        skill_name=skill_name,
-        skill_description=description,
-        analyze_fn=_build_analyze_fn(settings),
-        skill_md_body=skill_md_body,
-        allowed_tools=None,
-        analyze_prompt_fn=_build_analyze_prompt_fn(settings),
-        is_verified_org=True,
-    )
-
-    check_results_dicts = [
-        {
-            "check_name": r.check_name,
-            "severity": r.severity,
-            "message": r.message,
-        }
-        for r in report.results
-    ]
-
-    llm_reasoning = {
-        r.check_name: r.details
-        for r in report.results
-        if r.details is not None
-    } or None
-
-    return report, check_results_dicts, llm_reasoning
-
-
-def _quarantine_rejected_skill(
-    conn: Connection,
-    s3_client,
-    bucket: str,
-    file_bytes: bytes,
-    *,
-    org_slug: str,
-    skill_name: str,
-    version: str,
-    report: GauntletReport,
-    check_results: list[dict],
-    llm_reasoning: dict | None,
-    publisher: str,
-) -> None:
-    """Upload rejected zip to quarantine, log the rejection, and raise 422.
-
-    Inserts and commits the audit log before uploading to quarantine S3,
-    so the rejection record is durable even if the S3 upload fails.
-    """
-    q_key = build_quarantine_s3_key(org_slug, skill_name, version)
-
-    insert_audit_log(
-        conn,
-        org_slug=org_slug,
-        skill_name=skill_name,
-        semver=version,
-        grade=report.grade,
-        check_results=check_results,
-        publisher=publisher,
-        version_id=None,
-        llm_reasoning=llm_reasoning,
-        quarantine_s3_key=q_key,
-    )
-    # Commit the audit record before raising (or uploading to S3) so it
-    # survives the transaction rollback that engine.begin() performs on
-    # exception. This ensures rejection forensics are always preserved.
-    conn.commit()
-
-    upload_skill_zip(s3_client, bucket, q_key, file_bytes)
-
-    raise HTTPException(
-        status_code=422,
-        detail=f"Gauntlet checks failed: {report.summary}",
-    )
-
-
-def _build_analyze_fn(settings: Settings):
-    """Build a Gemini analyze callback if google_api_key is configured.
-
-    Returns None if no API key is set, which causes the safety scan
-    to run in strict regex-only mode.
-    """
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_code_safety, create_gemini_client
-
-    gemini_client = create_gemini_client(settings.google_api_key)
-
-    def analyze_fn(snippets, skill_name, skill_description):
-        return analyze_code_safety(
-            gemini_client,
-            snippets,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_fn
-
-
-def _build_analyze_prompt_fn(settings: Settings):
-    """Build a Gemini prompt analyze callback if google_api_key is configured.
-
-    Returns None if no API key is set, which causes the prompt safety scan
-    to run in strict regex-only mode.
-    """
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_prompt_safety, create_gemini_client
-
-    gemini_client = create_gemini_client(settings.google_api_key)
-
-    def analyze_prompt_fn(prompt_hits, skill_name, skill_description):
-        return analyze_prompt_safety(
-            gemini_client,
-            prompt_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_prompt_fn
-
-
-def _extract_runtime_config_dict(manifest) -> dict | None:
-    """Extract runtime config as a JSON-compatible dict for database storage."""
-    if manifest.runtime is None:
-        return None
-
-    runtime_dict = {
-        "language": manifest.runtime.language,
-        "entrypoint": manifest.runtime.entrypoint,
-        "version_hint": manifest.runtime.version_hint,
-        "env": list(manifest.runtime.env),
-        "capabilities": list(manifest.runtime.capabilities),
-        "repair_strategy": manifest.runtime.repair_strategy,
-    }
-
-    if manifest.runtime.dependencies:
-        runtime_dict["dependencies"] = {
-            "system": list(manifest.runtime.dependencies.system),
-            "package_manager": manifest.runtime.dependencies.package_manager,
-            "packages": list(manifest.runtime.dependencies.packages),
-            "lockfile": manifest.runtime.dependencies.lockfile,
-        }
-
-    return runtime_dict
-
-
-def _extract_assessment_config(manifest):
-    """Extract eval config from manifest (returns None if not present)."""
-    return manifest.evals
-
-
-def _try_parse_assessment_cases(file_bytes: bytes):
-    """Parse eval cases from zip. Returns empty tuple if no evals/ directory.
-
-    Raises HTTPException(422) if eval files exist but are malformed —
-    fail-closed to prevent bypassing the eval pipeline with broken YAML.
-    """
-    from decision_hub.domain.skill_manifest import parse_eval_cases_from_zip
-
-    try:
-        return parse_eval_cases_from_zip(file_bytes)
-    except ValueError as exc:
-        logger.warning("Eval case parse failed (rejecting publish): %s", exc)
-        raise HTTPException(
-            status_code=422,
-            detail=f"Eval case files are malformed: {exc}",
-        )
-
-
-def _maybe_trigger_agent_assessment(
-    eval_config,
-    eval_cases: tuple,
-    file_bytes: bytes,
-    version_id,
-    org_slug: str,
-    skill_name: str,
-    settings: Settings,
-    user_id,
-):
-    """Conditionally trigger background agent evaluation if eval config present.
-
-    Uses Modal's ``Function.spawn()`` so the eval runs in its own container,
-    fully independent of the web server's lifecycle.  The caller must commit
-    the version row before calling this function.
-
-    Raises HTTPException(422) if eval config is declared in the manifest
-    but no valid eval case files were found — prevents bypassing the eval
-    pipeline by omitting case files while keeping the config.
-    """
-    if eval_config and not eval_cases:
-        raise HTTPException(
-            status_code=422,
-            detail="Eval config declared in manifest but no eval case files found in evals/",
-        )
-    if eval_config and eval_cases:
-        import modal
-
-        # Serialize EvalCase dataclasses to dicts for Modal transport
-        cases_dicts = [
-            {
-                "name": c.name,
-                "description": c.description,
-                "prompt": c.prompt,
-                "judge_criteria": c.judge_criteria,
-            }
-            for c in eval_cases
-        ]
-
-        run_eval = modal.Function.from_name(
-            settings.modal_app_name,
-            "run_eval_task",
-        )
-        run_eval.spawn(
-            version_id=str(version_id),
-            eval_agent=eval_config.agent,
-            eval_judge_model=eval_config.judge_model,
-            eval_cases_dicts=cases_dicts,
-            skill_zip=file_bytes,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            user_id=str(user_id),
-        )
-        return "pending"
-    return None
-
-
-def _run_assessment_background(
-    version_id,
-    eval_config,
-    eval_cases: tuple,
-    skill_zip: bytes,
-    org_slug: str,
-    skill_name: str,
-    settings: Settings,
-    user_id,
-):
-    """Background task to run agent assessments and store report."""
-    from cryptography.fernet import Fernet
-
-    from decision_hub.domain.evals import run_eval_pipeline
-    from decision_hub.infra.database import create_engine, get_api_keys_for_eval
-    from decision_hub.infra.modal_client import get_agent_config, validate_api_key
-
-    try:
-        print(f"[assessment] Phase 1: loading API keys for {org_slug}/{skill_name}", flush=True)
-        engine = create_engine(settings.database_url)
-
-        # --- Phase 1: read API keys then release the connection ---
-        # The connection must be closed before the pipeline runs because
-        # Modal sandbox + agent execution takes 5-10 minutes. PgBouncer
-        # kills idle-in-transaction connections well before that.
-        agent_config = get_agent_config(eval_config.agent)
-        required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
-        # The judge always calls the Anthropic API, so we need an
-        # ANTHROPIC_API_KEY even when the agent under test uses a different
-        # provider (e.g. codex uses CODEX_API_KEY, gemini uses GEMINI_API_KEY).
-        judge_key_name = "ANTHROPIC_API_KEY"
-        if judge_key_name not in required_keys:
-            required_keys.append(judge_key_name)
-        with engine.connect() as conn:
-            encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
-            conn.commit()
-
-        print(f"[assessment] Got {len(encrypted_keys)} keys: {list(encrypted_keys.keys())}", flush=True)
-
-        fernet = Fernet(settings.fernet_key.encode())
-        agent_env_vars = {
-            name: fernet.decrypt(value).decode()
-            for name, value in encrypted_keys.items()
-        }
-
-        # Fail fast if the API key is invalid instead of hanging in a sandbox
-        for key_name, key_value in agent_env_vars.items():
-            validate_api_key(key_name, key_value)
-        print("[assessment] API key validation passed", flush=True)
-
-        # --- Phase 2: run pipeline (no DB connection held) ---
-        print(f"[assessment] Phase 2: running pipeline ({len(eval_cases)} cases)", flush=True)
-        judge_api_key = agent_env_vars.get(judge_key_name, "")
-        case_results, passed, total, total_duration_ms = run_eval_pipeline(
-            skill_zip=skill_zip,
-            eval_config=eval_config,
-            eval_cases=eval_cases,
-            agent_env_vars=agent_env_vars,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            judge_api_key=judge_api_key,
-        )
-
-        # --- Phase 3: store results in a fresh connection ---
-        all_passed = all(r["verdict"] == "pass" for r in case_results)
-        status = "completed" if all_passed else "failed"
-
-        print(f"[assessment] Phase 3: storing results — {passed}/{total} passed, status={status}", flush=True)
-        with engine.connect() as conn:
-            insert_eval_report(
-                conn,
-                version_id=version_id,
-                agent=eval_config.agent,
-                judge_model=eval_config.judge_model,
-                case_results=case_results,
-                passed=passed,
-                total=total,
-                total_duration_ms=total_duration_ms,
-                status=status,
-            )
-            conn.commit()
-
-        print(f"[assessment] Done — {passed}/{total} passed in {total_duration_ms}ms", flush=True)
-
-    except Exception as e:
-        logger.error(f"Agent assessment failed for version {version_id}: {e}")
-        print(f"[assessment] ERROR: {e}", flush=True)
-        # INSERT an error report — no row exists yet because the failure
-        # happened before insert_eval_report() was reached in the happy path.
-        try:
-            err_engine = create_engine(settings.database_url)
-            with err_engine.connect() as err_conn:
-                insert_eval_report(
-                    err_conn,
-                    version_id=version_id,
-                    agent=eval_config.agent,
-                    judge_model=eval_config.judge_model,
-                    case_results=[],
-                    passed=0,
-                    total=len(eval_cases),
-                    total_duration_ms=0,
-                    status="failed",
-                    error_message=str(e),
-                )
-                err_conn.commit()
-        except Exception as inner:
-            logger.error(
-                f"Failed to store error report for version {version_id}: {inner}"
-            )
-
-
-def _reconstruct_runtime_config(runtime_dict: dict | None):
-    """Reconstruct a RuntimeConfig from a stored dict (for testing/validation)."""
-    if runtime_dict is None:
-        return None
-
-    from decision_hub.models import DependencySpec, RuntimeConfig
-
-    deps_dict = runtime_dict.get("dependencies")
-    dependencies = None
-    if deps_dict:
-        dependencies = DependencySpec(
-            system=tuple(deps_dict.get("system", [])),
-            package_manager=deps_dict.get("package_manager", ""),
-            packages=tuple(deps_dict.get("packages", [])),
-            lockfile=deps_dict.get("lockfile"),
-        )
-
-    return RuntimeConfig(
-        language=runtime_dict.get("language", ""),
-        entrypoint=runtime_dict.get("entrypoint", ""),
-        version_hint=runtime_dict.get("version_hint"),
-        env=tuple(runtime_dict.get("env", [])),
-        capabilities=tuple(runtime_dict.get("capabilities", [])),
-        dependencies=dependencies,
-        repair_strategy=runtime_dict.get("repair_strategy", "attempt_install"),
-    )
 
 
 def _report_to_response(report) -> EvalReportResponse:
