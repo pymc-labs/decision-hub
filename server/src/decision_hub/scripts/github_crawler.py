@@ -29,6 +29,7 @@ import base64
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -860,8 +861,8 @@ def main():
                         datefmt="%H:%M:%S")
 
     parser = argparse.ArgumentParser(description="Multi-strategy GitHub skills crawler")
-    parser.add_argument("--github-token", default=None,
-                        help="GitHub PAT (recommended for rate limits)")
+    parser.add_argument("--github-token", default=os.environ.get("GITHUB_TOKEN"),
+                        help="GitHub PAT (falls back to $GITHUB_TOKEN env var)")
     parser.add_argument("--max-skills", type=int, default=None,
                         help="Stop after publishing this many skills (e.g. 5000)")
     parser.add_argument("--env", default="dev", choices=["dev", "prod"],
