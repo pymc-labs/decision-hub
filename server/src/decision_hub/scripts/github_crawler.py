@@ -4,10 +4,24 @@ Discovers skills across GitHub using multiple search strategies to work around
 the 1,000-result-per-query API limit, then publishes each skill into Decision Hub
 under its GitHub owner's organization (creating the org if needed).
 
+Resumable: saves discovery results and processing progress to a JSON checkpoint
+file. On restart, skips discovery if the checkpoint exists and resumes processing
+from where it left off.
+
 Usage (from server/):
     DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
         --github-token ghp_... \
         --max-repos 50
+
+    # Resume after a crash (uses existing checkpoint):
+    DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
+        --github-token ghp_... \
+        --resume
+
+    # Force re-discovery (ignore checkpoint):
+    DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
+        --github-token ghp_... \
+        --fresh
 
 Strategies:
     1. File-size partitioning — split filename:SKILL.md by size ranges
@@ -20,15 +34,15 @@ Strategies:
 from __future__ import annotations
 
 import argparse
+import base64
 import io
+import json
 import logging
 import re
 import shutil
-import sys
-import tempfile
 import time
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from uuid import UUID
 
@@ -42,6 +56,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
+
+# Default checkpoint file location (relative to cwd, i.e. server/)
+DEFAULT_CHECKPOINT_PATH = Path("crawl_checkpoint.json")
 
 # Well-known skill topics on GitHub
 SKILL_TOPICS = [
@@ -80,6 +97,12 @@ SIZE_RANGES = [
 # Slug validation pattern (matches the server's org slug rules)
 _SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
 
+# Bot user identity — a special service account that the crawler uses to own
+# orgs and publish skills.  It is added as an "admin" member to every org it
+# touches so it can publish via the normal API path too.
+BOT_GITHUB_ID = "0"
+BOT_USERNAME = "dhub-crawler"
+
 
 @dataclass
 class DiscoveredRepo:
@@ -98,12 +121,51 @@ class CrawlStats:
     queries_made: int = 0
     repos_discovered: int = 0
     repos_processed: int = 0
+    repos_skipped_checkpoint: int = 0
     skills_published: int = 0
     skills_skipped: int = 0
     skills_failed: int = 0
     orgs_created: int = 0
     emails_saved: int = 0
     errors: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint persistence — saves discovery + progress so we can resume
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Checkpoint:
+    """Serialisable crawl state for resume support."""
+    discovered_repos: dict[str, dict] = field(default_factory=dict)
+    processed_repos: list[str] = field(default_factory=list)
+
+    def save(self, path: Path) -> None:
+        path.write_text(json.dumps(asdict(self), indent=2))
+        logger.info("Checkpoint saved: %d discovered, %d processed → %s",
+                     len(self.discovered_repos), len(self.processed_repos), path)
+
+    @classmethod
+    def load(cls, path: Path) -> Checkpoint:
+        data = json.loads(path.read_text())
+        return cls(
+            discovered_repos=data.get("discovered_repos", {}),
+            processed_repos=data.get("processed_repos", []),
+        )
+
+    def mark_processed(self, full_name: str, path: Path) -> None:
+        """Record that a repo was processed and flush to disk immediately."""
+        self.processed_repos.append(full_name)
+        self.save(path)
+
+
+def _repo_to_dict(repo: DiscoveredRepo) -> dict:
+    return asdict(repo)
+
+
+def _dict_to_repo(d: dict) -> DiscoveredRepo:
+    return DiscoveredRepo(**d)
 
 
 # ---------------------------------------------------------------------------
@@ -322,16 +384,14 @@ def parse_curated_lists(
     github_link_pattern = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+)")
 
     for list_repo in CURATED_LIST_REPOS:
-        resp = gh.get(f"/repos/{list_repo}/readme", params={"mediaType": "raw"})
+        resp = gh.get(f"/repos/{list_repo}/readme")
         stats.queries_made += 1
 
         if resp.status_code != 200:
             logger.warning("Could not fetch README for %s: %d", list_repo, resp.status_code)
             continue
 
-        # Decode base64 content from GitHub API
         data = resp.json()
-        import base64
         try:
             content = base64.b64decode(data.get("content", "")).decode("utf-8")
         except Exception:
@@ -341,16 +401,13 @@ def parse_curated_lists(
         matches = github_link_pattern.findall(content)
         unique_refs = set()
         for match in matches:
-            # Strip trailing .git or similar
             ref = match.rstrip("/").removesuffix(".git")
-            # Must have exactly owner/repo format
             if ref.count("/") == 1:
                 unique_refs.add(ref)
 
         for ref in unique_refs:
             if ref in repos:
                 continue
-            # Fetch repo details
             detail_resp = gh.get(f"/repos/{ref}")
             stats.queries_made += 1
             if detail_resp.status_code != 200:
@@ -393,7 +450,6 @@ def _run_code_search(
         stats.queries_made += 1
 
         if resp.status_code == 422:
-            # GitHub returns 422 for invalid search queries
             logger.warning("Search query '%s' returned 422 — skipping", query)
             break
         if resp.status_code != 200:
@@ -450,6 +506,55 @@ def fetch_owner_email(gh: GitHubClient, login: str, owner_type: str) -> str | No
 
 
 # ---------------------------------------------------------------------------
+# Bot user + org membership
+# ---------------------------------------------------------------------------
+
+
+def ensure_crawler_bot_user(conn) -> UUID:
+    """Create or find the dhub-crawler bot user.
+
+    This service account is added as an "admin" member to every org the crawler
+    touches, so it can publish via the normal API auth path as well.
+    """
+    from decision_hub.infra.database import upsert_user
+
+    bot = upsert_user(conn, github_id=BOT_GITHUB_ID, username=BOT_USERNAME)
+    return bot.id
+
+
+def ensure_org(conn, slug: str, bot_user_id: UUID, email: str | None, stats: CrawlStats):
+    """Create org if it doesn't exist, ensure the bot is an admin, update email."""
+    from decision_hub.infra.database import (
+        find_org_by_slug,
+        find_org_member,
+        insert_org_member,
+        insert_organization,
+        update_org_email,
+    )
+
+    org = find_org_by_slug(conn, slug)
+
+    if org is None:
+        org = insert_organization(conn, slug, bot_user_id, is_personal=False)
+        insert_org_member(conn, org.id, bot_user_id, "owner")
+        stats.orgs_created += 1
+        logger.info("Created org: %s", slug)
+    else:
+        # Org already exists — make sure the bot is a member so it can publish
+        existing = find_org_member(conn, org.id, bot_user_id)
+        if existing is None:
+            insert_org_member(conn, org.id, bot_user_id, "admin")
+            logger.info("Added %s as admin to existing org: %s", BOT_USERNAME, slug)
+
+    if email and not org.email:
+        update_org_email(conn, org.id, email)
+        stats.emails_saved += 1
+        logger.info("Saved email for org '%s': %s", slug, email)
+
+    return org
+
+
+# ---------------------------------------------------------------------------
 # Skill publishing pipeline (server-side, bypasses HTTP API)
 # ---------------------------------------------------------------------------
 
@@ -469,41 +574,6 @@ def create_zip(path: Path) -> bytes:
     return buf.getvalue()
 
 
-def ensure_crawler_bot_user(conn) -> UUID:
-    """Create or find the crawler bot user used as org owner for discovered orgs."""
-    from decision_hub.infra.database import upsert_user
-    bot = upsert_user(conn, github_id="0", username="dhub-crawler")
-    return bot.id
-
-
-def ensure_org(conn, slug: str, owner_id: UUID, email: str | None, stats: CrawlStats):
-    """Create org if it doesn't exist, update email if provided."""
-    from decision_hub.infra.database import (
-        find_org_by_slug,
-        insert_org_member,
-        insert_organization,
-        update_org_email,
-    )
-
-    org = find_org_by_slug(conn, slug)
-    if org is None:
-        try:
-            org = insert_organization(conn, slug, owner_id, is_personal=False)
-            insert_org_member(conn, org.id, owner_id, "owner")
-            stats.orgs_created += 1
-            logger.info("Created org: %s", slug)
-        except Exception as exc:
-            logger.warning("Failed to create org '%s': %s", slug, exc)
-            raise
-
-    if email and not org.email:
-        update_org_email(conn, org.id, email)
-        stats.emails_saved += 1
-        logger.info("Saved email for org '%s': %s", slug, email)
-
-    return org
-
-
 def publish_skill_to_db(
     conn,
     s3_client,
@@ -511,7 +581,6 @@ def publish_skill_to_db(
     org,
     skill_dir: Path,
     manifest,
-    bot_user_id: UUID,
     stats: CrawlStats,
 ) -> bool:
     """Publish a single skill directly to DB and S3 (bypasses HTTP layer).
@@ -578,7 +647,7 @@ def publish_skill_to_db(
         s3_key=s3_key,
         checksum=checksum,
         runtime_config=None,
-        published_by="dhub-crawler",
+        published_by=BOT_USERNAME,
         eval_status="pending",
     )
 
@@ -614,7 +683,7 @@ def process_repo(
     # Fetch owner email
     email = fetch_owner_email(gh, repo.owner_login, repo.owner_type)
 
-    # Ensure the org exists
+    # Ensure the org exists and the bot user can publish into it
     org = ensure_org(conn, slug, bot_user_id, email, stats)
 
     # Clone and discover
@@ -633,7 +702,7 @@ def process_repo(
         for skill_dir in skill_dirs:
             try:
                 manifest = parse_skill_md(skill_dir / "SKILL.md")
-                publish_skill_to_db(conn, s3_client, bucket, org, skill_dir, manifest, bot_user_id, stats)
+                publish_skill_to_db(conn, s3_client, bucket, org, skill_dir, manifest, stats)
             except Exception as exc:
                 logger.warning("  Failed to publish skill from %s: %s", skill_dir, exc)
                 stats.skills_failed += 1
@@ -658,6 +727,9 @@ def run_crawler(
     max_repos: int | None = None,
     env: str = "dev",
     strategies: list[str] | None = None,
+    checkpoint_path: Path = DEFAULT_CHECKPOINT_PATH,
+    resume: bool = False,
+    fresh: bool = False,
 ) -> CrawlStats:
     """Run the multi-strategy GitHub skills crawler.
 
@@ -667,6 +739,9 @@ def run_crawler(
         env: Decision Hub environment ('dev' or 'prod').
         strategies: List of strategies to run. Default = all.
             Options: 'size', 'path', 'topic', 'fork', 'curated'
+        checkpoint_path: Path to the JSON checkpoint file.
+        resume: If True, load checkpoint and skip already-processed repos.
+        fresh: If True, delete any existing checkpoint and start from scratch.
     """
     from decision_hub.infra.database import create_engine
     from decision_hub.infra.storage import create_s3_client
@@ -681,33 +756,55 @@ def run_crawler(
     logger.info("Starting multi-strategy GitHub skills crawler (env=%s)", env)
     logger.info("Active strategies: %s", ", ".join(sorted(active)))
 
-    # Phase 1: Discovery — collect unique repos across all strategies
-    all_repos: dict[str, DiscoveredRepo] = {}
+    # ---- Checkpoint handling ----
+    if fresh and checkpoint_path.exists():
+        checkpoint_path.unlink()
+        logger.info("Deleted existing checkpoint (--fresh)")
 
-    if "size" in active:
-        logger.info("=== Strategy 1: File-size partitioned search ===")
-        all_repos.update(search_by_file_size(gh, stats))
+    checkpoint = Checkpoint()
+    already_processed: set[str] = set()
 
-    if "path" in active:
-        logger.info("=== Strategy 2: Path-based search ===")
-        all_repos.update(search_by_path(gh, stats))
+    if resume and checkpoint_path.exists():
+        checkpoint = Checkpoint.load(checkpoint_path)
+        already_processed = set(checkpoint.processed_repos)
+        logger.info("Resumed from checkpoint: %d discovered, %d already processed",
+                     len(checkpoint.discovered_repos), len(already_processed))
 
-    if "topic" in active:
-        logger.info("=== Strategy 3: Topic-based discovery ===")
-        all_repos.update(search_by_topic(gh, stats))
+    # ---- Phase 1: Discovery ----
+    if checkpoint.discovered_repos and resume:
+        # Reuse cached discovery results
+        all_repos = {k: _dict_to_repo(v) for k, v in checkpoint.discovered_repos.items()}
+        logger.info("Using cached discovery: %d repos", len(all_repos))
+    else:
+        all_repos: dict[str, DiscoveredRepo] = {}
 
-    if "curated" in active:
-        logger.info("=== Strategy 5: Curated list parsing ===")
-        all_repos.update(parse_curated_lists(gh, stats))
+        if "size" in active:
+            logger.info("=== Strategy 1: File-size partitioned search ===")
+            all_repos.update(search_by_file_size(gh, stats))
 
-    if "fork" in active:
-        # Scan forks of repos with most stars
-        logger.info("=== Strategy 4: Fork scanning ===")
-        top_repos = sorted(all_repos.values(), key=lambda r: r.stars, reverse=True)[:10]
-        popular_names = [r.full_name for r in top_repos]
-        if popular_names:
-            fork_repos = scan_forks(gh, popular_names, stats)
-            all_repos.update(fork_repos)
+        if "path" in active:
+            logger.info("=== Strategy 2: Path-based search ===")
+            all_repos.update(search_by_path(gh, stats))
+
+        if "topic" in active:
+            logger.info("=== Strategy 3: Topic-based discovery ===")
+            all_repos.update(search_by_topic(gh, stats))
+
+        if "curated" in active:
+            logger.info("=== Strategy 5: Curated list parsing ===")
+            all_repos.update(parse_curated_lists(gh, stats))
+
+        if "fork" in active:
+            logger.info("=== Strategy 4: Fork scanning ===")
+            top_repos = sorted(all_repos.values(), key=lambda r: r.stars, reverse=True)[:10]
+            popular_names = [r.full_name for r in top_repos]
+            if popular_names:
+                fork_repos = scan_forks(gh, popular_names, stats)
+                all_repos.update(fork_repos)
+
+        # Save discovery to checkpoint
+        checkpoint.discovered_repos = {k: _repo_to_dict(v) for k, v in all_repos.items()}
+        checkpoint.save(checkpoint_path)
 
     stats.repos_discovered = len(all_repos)
     logger.info("Discovery complete: %d unique repos found (%d API queries)",
@@ -723,9 +820,23 @@ def run_crawler(
     if max_repos:
         sorted_repos = sorted_repos[:max_repos]
 
-    logger.info("Processing %d repos...", len(sorted_repos))
+    # Filter out already-processed repos
+    pending_repos = [r for r in sorted_repos if r.full_name not in already_processed]
+    stats.repos_skipped_checkpoint = len(sorted_repos) - len(pending_repos)
 
-    # Phase 2: Connect to DB and S3, then process each repo
+    if stats.repos_skipped_checkpoint:
+        logger.info("Skipping %d already-processed repos from checkpoint",
+                     stats.repos_skipped_checkpoint)
+
+    logger.info("Processing %d repos (%d total, %d from checkpoint)...",
+                len(pending_repos), len(sorted_repos), stats.repos_skipped_checkpoint)
+
+    if not pending_repos:
+        logger.info("Nothing to process — all repos already done.")
+        gh.close()
+        return stats
+
+    # ---- Phase 2: Connect to DB and S3, then process each repo ----
     settings = create_settings(env)
     engine = create_engine(settings.database_url)
     s3_client = create_s3_client(
@@ -738,27 +849,31 @@ def run_crawler(
         bot_user_id = ensure_crawler_bot_user(conn)
         conn.commit()
 
-        for i, repo in enumerate(sorted_repos, 1):
+        for i, repo in enumerate(pending_repos, 1):
             logger.info("[%d/%d] Processing %s (★ %d)",
-                        i, len(sorted_repos), repo.full_name, repo.stars)
+                        i, len(pending_repos), repo.full_name, repo.stars)
             process_repo(repo, conn, s3_client, settings.s3_bucket, bot_user_id, gh, stats)
             conn.commit()
 
+            # Flush progress after each repo so a crash loses at most one repo
+            checkpoint.mark_processed(repo.full_name, checkpoint_path)
+
     gh.close()
 
-    # Print summary
+    # ---- Summary ----
     logger.info("=" * 60)
     logger.info("CRAWL COMPLETE")
-    logger.info("  API queries:      %d", stats.queries_made)
-    logger.info("  Repos discovered: %d", stats.repos_discovered)
-    logger.info("  Repos processed:  %d", stats.repos_processed)
-    logger.info("  Skills published: %d", stats.skills_published)
-    logger.info("  Skills skipped:   %d", stats.skills_skipped)
-    logger.info("  Skills failed:    %d", stats.skills_failed)
-    logger.info("  Orgs created:     %d", stats.orgs_created)
-    logger.info("  Emails saved:     %d", stats.emails_saved)
+    logger.info("  API queries:          %d", stats.queries_made)
+    logger.info("  Repos discovered:     %d", stats.repos_discovered)
+    logger.info("  Repos processed:      %d", stats.repos_processed)
+    logger.info("  Repos from checkpoint:%d", stats.repos_skipped_checkpoint)
+    logger.info("  Skills published:     %d", stats.skills_published)
+    logger.info("  Skills skipped:       %d", stats.skills_skipped)
+    logger.info("  Skills failed:        %d", stats.skills_failed)
+    logger.info("  Orgs created:         %d", stats.orgs_created)
+    logger.info("  Emails saved:         %d", stats.emails_saved)
     if stats.errors:
-        logger.info("  Errors:           %d", len(stats.errors))
+        logger.info("  Errors:               %d", len(stats.errors))
         for err in stats.errors[:10]:
             logger.info("    - %s", err)
     logger.info("=" * 60)
@@ -799,13 +914,35 @@ def main():
         default=None,
         help="Which discovery strategies to run (default: all)",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=DEFAULT_CHECKPOINT_PATH,
+        help="Path to checkpoint file (default: crawl_checkpoint.json)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from checkpoint, skipping already-processed repos",
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Delete existing checkpoint and start from scratch",
+    )
     args = parser.parse_args()
+
+    if args.resume and args.fresh:
+        parser.error("--resume and --fresh are mutually exclusive")
 
     run_crawler(
         github_token=args.github_token,
         max_repos=args.max_repos,
         env=args.env,
         strategies=args.strategies,
+        checkpoint_path=args.checkpoint,
+        resume=args.resume,
+        fresh=args.fresh,
     )
 
 
