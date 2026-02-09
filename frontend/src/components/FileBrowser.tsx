@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { File, Folder, ChevronRight, ChevronDown } from "lucide-react";
@@ -163,6 +163,12 @@ export default function FileBrowser({ files }: FileBrowserProps) {
   const [selected, setSelected] = useState<SkillFile | null>(
     files.find((f) => f.path === "SKILL.md") ?? files[0] ?? null
   );
+
+  // Reset selection when files change (e.g. navigating between skills)
+  useEffect(() => {
+    setSelected(files.find((f) => f.path === "SKILL.md") ?? files[0] ?? null);
+  }, [files]);
+
   const tree = buildTree(files);
 
   return (

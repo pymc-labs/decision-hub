@@ -44,6 +44,12 @@ export default function SkillDetailPage() {
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Reset files when navigating to a different skill
+  useEffect(() => {
+    setFiles([]);
+    setFilesError(null);
+  }, [orgSlug, skillName]);
+
   // Fetch all skills and find the one we need
   const { data: allSkills, loading: skillsLoading } = useApi(
     () => listSkills(),
@@ -77,7 +83,7 @@ export default function SkillDetailPage() {
 
   // Load files from zip when "files" tab is selected
   const loadFiles = useCallback(async () => {
-    if (!orgSlug || !skillName || files.length > 0) return;
+    if (!orgSlug || !skillName) return;
     setFilesLoading(true);
     setFilesError(null);
     try {
@@ -101,13 +107,13 @@ export default function SkillDetailPage() {
     } finally {
       setFilesLoading(false);
     }
-  }, [orgSlug, skillName, files.length]);
+  }, [orgSlug, skillName]);
 
   useEffect(() => {
-    if (activeTab === "files") {
+    if (activeTab === "files" && files.length === 0 && !filesLoading) {
       loadFiles();
     }
-  }, [activeTab, loadFiles]);
+  }, [activeTab, files.length, filesLoading, loadFiles]);
 
   const handleDownload = async () => {
     if (!orgSlug || !skillName) return;
