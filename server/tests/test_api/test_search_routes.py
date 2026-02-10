@@ -23,6 +23,8 @@ def search_settings() -> MagicMock:
     settings.google_api_key = "test-google-api-key"
     settings.gemini_model = "gemini-pro"
     settings.s3_bucket = "test-bucket"
+    settings.search_rate_limit = 100  # generous for tests
+    settings.search_rate_window = 60
     return settings
 
 
@@ -187,6 +189,25 @@ class TestSearchSkills:
         search_client.get("/v1/search", params={"q": "tell me a joke"})
 
         mock_fetch.assert_not_called()
+
+    def test_search_rate_limited(self, search_app: FastAPI) -> None:
+        """Exceeding the per-IP rate limit returns 429."""
+        search_app.state.settings.search_rate_limit = 2
+        search_app.state.settings.search_rate_window = 60
+        # Force fresh limiter by clearing any cached one
+        if hasattr(search_app.state, "_search_rate_limiter"):
+            del search_app.state._search_rate_limiter
+
+        client = TestClient(search_app)
+
+        # First two should succeed (or 503 — doesn't matter, we care about 429)
+        client.get("/v1/search", params={"q": "a"})
+        client.get("/v1/search", params={"q": "b"})
+
+        # Third should be rate-limited
+        resp = client.get("/v1/search", params={"q": "c"})
+        assert resp.status_code == 429
+        assert "Rate limit exceeded" in resp.json()["detail"]
 
 
 class TestTopicalityGuard:

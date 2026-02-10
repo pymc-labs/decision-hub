@@ -1,9 +1,10 @@
 """Skill search routes -- natural language discovery via LLM."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from decision_hub.api.deps import get_connection, get_settings
+from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.search import build_index_entry, serialize_index
 from decision_hub.infra.database import fetch_all_skills_for_index
 from decision_hub.infra.gemini import (
@@ -22,7 +23,23 @@ class SearchResponse(BaseModel):
     results: str
 
 
-@router.get("/search", response_model=SearchResponse)
+def _enforce_search_rate_limit(request: Request) -> None:
+    """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
+    state = request.app.state
+    if not hasattr(state, "_search_rate_limiter"):
+        settings: Settings = state.settings
+        state._search_rate_limiter = RateLimiter(
+            max_requests=settings.search_rate_limit,
+            window_seconds=settings.search_rate_window,
+        )
+    state._search_rate_limiter(request)
+
+
+@router.get(
+    "/search",
+    response_model=SearchResponse,
+    dependencies=[Depends(_enforce_search_rate_limit)],
+)
 def search_skills(
     q: str,
     settings: Settings = Depends(get_settings),
