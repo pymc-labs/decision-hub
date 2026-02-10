@@ -305,6 +305,24 @@ eval_runs_table = Table(
 # ---------------------------------------------------------------------------
 
 
+def _semver_order_columns() -> tuple[sa.Cast, sa.Cast, sa.Cast]:
+    """Return (major, minor, patch) SQL expressions for numeric semver ordering.
+
+    Splits the versions_table.semver column on '.' and casts each part to
+    Integer so that '2.10.0' sorts higher than '2.9.0'.
+    """
+    major = sa.cast(
+        sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
+    )
+    minor = sa.cast(
+        sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
+    )
+    patch = sa.cast(
+        sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
+    )
+    return major, minor, patch
+
+
 def create_engine(database_url: str) -> Engine:
     """Create a SQLAlchemy engine configured for Supabase PgBouncer compatibility.
 

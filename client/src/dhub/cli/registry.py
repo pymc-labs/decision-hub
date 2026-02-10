@@ -13,6 +13,28 @@ from rich.table import Table
 
 console = Console()
 
+# Shared grade-to-color mapping used by publish, list, and eval-report display.
+GRADE_COLORS: dict[str, str] = {
+    "A": "green",
+    "B": "yellow",
+    "C": "dark_orange",
+    "F": "red",
+}
+
+
+def _parse_skill_ref(skill_ref: str) -> tuple[str, str]:
+    """Parse an 'org/skill' reference into (org_slug, skill_name).
+
+    Raises typer.Exit(1) with an error message if the format is invalid.
+    """
+    parts = skill_ref.split("/", 1)
+    if len(parts) != 2:
+        console.print(
+            "[red]Error: Skill reference must be in org/skill format.[/]"
+        )
+        raise typer.Exit(1)
+    return parts[0], parts[1]
+
 
 def _publish_skill_directory(
     path: Path,
@@ -29,12 +51,8 @@ def _publish_skill_directory(
     Raises typer.Exit on errors.
     """
     from dhub.cli.config import build_headers
-    from dhub.core.validation import (
-        FIRST_VERSION,
-        bump_version,
-        validate_semver,
-        validate_skill_name,
-    )
+    from dhub.core.validation import validate_semver, validate_skill_name
+
 
     validate_skill_name(name)
 
@@ -49,13 +67,7 @@ def _publish_skill_directory(
 
         local_checksum = compute_checksum(zip_data)
         version, latest_checksum, current_version = _auto_bump_version(
-            api_url,
-            token,
-            org,
-            name,
-            bump_level,
-            bump_version,
-            FIRST_VERSION,
+            api_url, token, org, name, bump_level,
         )
         if latest_checksum is not None and local_checksum == latest_checksum:
             console.print(f"  No changes detected for [cyan]{name}[/]. Already at [cyan]{current_version}[/].")
@@ -87,9 +99,11 @@ def _publish_skill_directory(
     eval_status = data.get("eval_status", "")
     eval_report_status = data.get("eval_report_status")
 
-    grade_colors = {"A": "green", "B": "yellow", "C": "red", "F": "red"}
-    grade_color = grade_colors.get(eval_status, "white")
-    console.print(f"[green]Published: {org}/{name}@{version}[/] (Grade [{grade_color}]{eval_status}[/])")
+    grade_color = GRADE_COLORS.get(eval_status, "white")
+    console.print(
+        f"[green]Published: {org}/{name}@{version}[/] "
+        f"(Grade [{grade_color}]{eval_status}[/])"
+    )
     if eval_status == "B":
         console.print("[yellow]Warning: Grade B — elevated permissions detected.[/]")
     elif eval_status == "C":
@@ -347,8 +361,6 @@ def _auto_bump_version(
     org: str,
     name: str,
     bump_level: str,
-    bump_version_fn,
-    first_version: str,
 ) -> tuple[str, str | None, str | None]:
     """Fetch the latest version from the registry and auto-bump it.
 
@@ -356,6 +368,7 @@ def _auto_bump_version(
     On first publish (404), latest_checksum and current_version are None.
     """
     from dhub.cli.config import build_headers
+    from dhub.core.validation import FIRST_VERSION, bump_version
 
     with httpx.Client(timeout=60) as client:
         resp = client.get(
@@ -364,17 +377,16 @@ def _auto_bump_version(
         )
 
     if resp.status_code == 404:
-        version = first_version
-        console.print(f"First publish — using version [cyan]{version}[/]")
-        return version, None, None
+        console.print(f"First publish — using version [cyan]{FIRST_VERSION}[/]")
+        return FIRST_VERSION, None, None
 
     resp.raise_for_status()
     data = resp.json()
     current = data["version"]
     latest_checksum = data.get("checksum")
-    version = bump_version_fn(current, bump_level)
-    console.print(f"Auto-bumped: {current} -> [cyan]{version}[/]")
-    return version, latest_checksum, current
+    bumped = bump_version(current, bump_level)
+    console.print(f"Auto-bumped: {current} -> [cyan]{bumped}[/]")
+    return bumped, latest_checksum, current
 
 
 def _create_zip(path: Path) -> bytes:
@@ -437,10 +449,9 @@ def list_command() -> None:
     table.add_column("Author")
     table.add_column("Description")
 
-    grade_styles = {"A": "green", "B": "yellow", "C": "dark_orange", "F": "red"}
     for s in skills:
         rating = s.get("safety_rating", "")
-        rating_style = grade_styles.get(rating, "white")
+        rating_style = GRADE_COLORS.get(rating, "white")
         table.add_row(
             s["org_slug"],
             s["skill_name"],
@@ -464,11 +475,7 @@ def delete_command(
     """Delete a published skill version (or all versions) from the registry."""
     from dhub.cli.config import build_headers, get_api_url, get_token
 
-    parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    org_slug, skill_name = _parse_skill_ref(skill_ref)
 
     api_url = get_api_url()
     headers = build_headers(get_token())
@@ -526,11 +533,7 @@ def eval_report_command(
         raise typer.Exit(1)
 
     skill_path, version = skill_ref.rsplit("@", 1)
-    parts = skill_path.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill@version format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    org_slug, skill_name = _parse_skill_ref(skill_path)
 
     api_url = get_api_url()
     headers = build_headers(get_token())
@@ -576,8 +579,8 @@ def eval_report_command(
     console.print("\nCase Results:")
     for case in data["case_results"]:
         verdict = case["verdict"]
-        verdict_colors = {"pass": "green", "fail": "red", "error": "red"}
-        verdict_color = verdict_colors.get(verdict, "white")
+        _verdict_colors = {"pass": "green", "fail": "red", "error": "red"}
+        verdict_color = _verdict_colors.get(verdict, "white")
 
         console.print(f"\n  [{verdict_color}]{case['name']}[/]: {verdict.upper()}")
         console.print(f"    {case['description']}")
@@ -600,12 +603,7 @@ def install_command(
         verify_checksum,
     )
 
-    # Parse skill reference
-    parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    org_slug, skill_name = _parse_skill_ref(skill_ref)
 
     headers = build_headers(get_token())
     base_url = get_api_url()
@@ -943,11 +941,7 @@ def uninstall_command(
     """Remove a locally installed skill and its agent symlinks."""
     from dhub.core.install import uninstall_skill
 
-    parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    org_slug, skill_name = _parse_skill_ref(skill_ref)
 
     try:
         unlinked = uninstall_skill(org_slug, skill_name)

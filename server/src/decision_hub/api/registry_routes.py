@@ -753,7 +753,7 @@ def list_eval_runs(
 # ---------------------------------------------------------------------------
 
 
-def _report_to_response(report) -> EvalReportResponse:
+def _report_to_response(report: EvalReport) -> EvalReportResponse:
     """Convert an EvalReport model to a response schema."""
     case_results_responses = [
         EvalCaseResultResponse(
