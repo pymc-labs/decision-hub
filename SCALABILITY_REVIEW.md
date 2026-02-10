@@ -146,15 +146,13 @@ Only 3 explicit indexes exist (beyond PKs and unique constraints):
 ### Problems
 
 1. **5 pages independently call `listSkills()`** — each navigation triggers a full fetch of all 200k skills.
-2. **No request caching**: The `useApi` hook has no cache, deduplication, or stale-while-revalidate logic. React Query or SWR would solve this.
-3. **Client-side filtering on every keystroke**: `SkillsPage.tsx` runs `O(n)` `.filter()` and `.sort()` on the full skills array for every search character typed.
-4. **No virtual scrolling**: All filtered results render as DOM nodes simultaneously. 10k matching skills = 10k `<NeonCard>` components in the DOM.
-5. **Full ZIP download for file browser**: `SkillDetailPage.tsx` downloads the entire skill ZIP and decompresses all files into memory just to display a file tree.
+2. **Client-side filtering on every keystroke**: `SkillsPage.tsx` runs `O(n)` `.filter()` and `.sort()` on the full skills array for every search character typed.
+3. **No virtual scrolling**: All filtered results render as DOM nodes simultaneously. 10k matching skills = 10k `<NeonCard>` components in the DOM.
+4. **Full ZIP download for file browser**: `SkillDetailPage.tsx` downloads the entire skill ZIP and decompresses all files into memory just to display a file tree.
 
 ### Fix
 
-- Move filtering/sorting/search to server-side query parameters.
-- Implement `useApi` caching (or adopt React Query).
+- Move filtering/sorting/search to server-side query parameters. Once the backend is paginated (50 results per page), the redundant-fetch and client-side-filtering problems disappear — each response is ~3KB, not 40MB.
 - Add virtual scrolling (e.g., `react-window`) for lists.
 - Lazy-load file contents (fetch individual files on click, not entire ZIP).
 
@@ -325,7 +323,7 @@ Called inside `maybe_trigger_agent_assessment` and `run_assessment_background`. 
 | **P1** | No server-side search/filter/sort | Frontend unusable with client-side filtering |
 | **P1** | Semver parsing at query time (no indexed columns) | Slow ORDER BY on every resolve |
 | **P1** | Missing database indexes for common queries | Query degradation under load |
-| **P1** | Frontend fetches all skills 5 times (no caching) | Network/memory waste |
+| **P1** | Frontend fetches all skills 5 times, filters client-side | Solved by backend pagination |
 | **P2** | S3 list/delete without pagination | Silent data loss after 1000 objects |
 | **P2** | Download proxy holds full ZIP in server memory | Memory pressure under concurrent downloads |
 | **P2** | Publish is a sequential blocking pipeline | Threadpool starvation under concurrent publishes |
@@ -343,7 +341,6 @@ Called inside `maybe_trigger_agent_assessment` and `run_assessment_background`. 
 4. **Add missing database indexes**
 5. **Implement server-side filtering/sorting** on the list endpoint
 6. **Add in-process TTL cache** (`cachetools.TTLCache`) for the skills list — no extra infra needed
-7. **Implement frontend request caching** (React Query)
-8. **Add virtual scrolling** to frontend lists
-9. **Fix S3 pagination** for log chunks
-10. **Stream downloads** instead of buffering full ZIPs
+7. **Add virtual scrolling** to frontend lists
+8. **Fix S3 pagination** for log chunks
+9. **Stream downloads** instead of buffering full ZIPs
