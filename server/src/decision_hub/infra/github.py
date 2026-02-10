@@ -186,6 +186,53 @@ async def list_user_orgs(access_token: str) -> list[dict]:
     return orgs
 
 
+async def fetch_org_metadata(access_token: str, org_login: str) -> dict:
+    """Fetch public profile metadata for a GitHub organization.
+
+    Returns a dict with keys: avatar_url, email, description, blog.
+    Missing or empty values are returned as None.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"https://api.github.com/orgs/{org_login}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": _ACCEPT_JSON,
+            },
+        )
+    response.raise_for_status()
+    data = response.json()
+    return {
+        "avatar_url": data.get("avatar_url") or None,
+        "email": data.get("email") or None,
+        "description": data.get("description") or None,
+        "blog": data.get("blog") or None,
+    }
+
+
+async def fetch_user_metadata(access_token: str, username: str) -> dict:
+    """Fetch public profile metadata for a GitHub user (personal namespace).
+
+    Returns a dict with keys: avatar_url, email, description, blog.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"https://api.github.com/users/{username}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": _ACCEPT_JSON,
+            },
+        )
+    response.raise_for_status()
+    data = response.json()
+    return {
+        "avatar_url": data.get("avatar_url") or None,
+        "email": data.get("email") or None,
+        "description": data.get("bio") or None,
+        "blog": data.get("blog") or None,
+    }
+
+
 async def check_org_membership(access_token: str, org: str, username: str) -> bool:
     """Check whether a GitHub user is a member of an organization.
 

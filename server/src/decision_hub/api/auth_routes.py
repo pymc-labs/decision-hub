@@ -8,7 +8,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_settings
 from decision_hub.domain.auth import create_jwt
-from decision_hub.domain.orgs import sync_user_orgs
+from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs
 from decision_hub.infra.database import upsert_user
 from decision_hub.infra.github import (
     AuthorizationPending,
@@ -135,6 +135,15 @@ async def exchange_token(
 
     org_slugs = sync_user_orgs(conn, user.id, github_org_logins, username)
     logger.debug("Synced orgs for {}: {}", username, org_slugs)
+
+    # Sync GitHub metadata (avatar, email, description) for each org.
+    # Best-effort: failures are logged but don't block login.
+    try:
+        await sync_org_github_metadata(conn, gh_token, org_slugs, username)
+    except Exception:
+        logger.opt(exception=True).warning(
+            "Failed to sync GitHub metadata for {}; continuing", username,
+        )
 
     jwt_token = create_jwt(
         str(user.id),

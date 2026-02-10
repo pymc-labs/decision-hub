@@ -1,12 +1,14 @@
 """Tests for decision_hub.domain.orgs -- organisation validation and sync logic."""
 
 from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 
-from decision_hub.domain.orgs import sync_user_orgs, validate_org_slug, validate_role
+from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs, validate_org_slug, validate_role
+from decision_hub.models import Organization
 
 # ---------------------------------------------------------------------------
 # validate_org_slug
@@ -277,3 +279,106 @@ class TestSyncUserOrgs:
         result = sync_user_orgs(conn, user_id, ["z-org", "a-org"], "m-user")
 
         assert result == ["a-org", "m-user", "z-org"]
+
+
+# ---------------------------------------------------------------------------
+# sync_org_github_metadata
+# ---------------------------------------------------------------------------
+
+class TestSyncOrgGithubMetadata:
+    """sync_org_github_metadata should fetch and persist GitHub metadata."""
+
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    @pytest.mark.asyncio
+    async def test_syncs_personal_namespace_via_user_api(
+        self, mock_find_org, mock_fetch_org, mock_fetch_user, mock_update
+    ) -> None:
+        """Personal namespace (slug == username.lower()) should use /users/{username}."""
+        conn = MagicMock()
+        org = Organization(id=uuid4(), slug="alice", owner_id=uuid4(), is_personal=True)
+        mock_find_org.return_value = org
+        mock_fetch_user.return_value = {
+            "avatar_url": "https://avatars.githubusercontent.com/u/1",
+            "email": "alice@example.com",
+            "description": "Dev",
+            "blog": "https://alice.dev",
+        }
+
+        await sync_org_github_metadata(conn, "token", ["alice"], "Alice")
+
+        mock_fetch_user.assert_called_once_with("token", "Alice")
+        mock_fetch_org.assert_not_called()
+        mock_update.assert_called_once_with(
+            conn, org.id,
+            avatar_url="https://avatars.githubusercontent.com/u/1",
+            email="alice@example.com",
+            description="Dev",
+            blog="https://alice.dev",
+        )
+
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    @pytest.mark.asyncio
+    async def test_syncs_team_org_via_org_api(
+        self, mock_find_org, mock_fetch_org, mock_fetch_user, mock_update
+    ) -> None:
+        """Team orgs should use /orgs/{org}."""
+        conn = MagicMock()
+        org = Organization(id=uuid4(), slug="pymc-labs", owner_id=uuid4())
+        mock_find_org.return_value = org
+        mock_fetch_org.return_value = {
+            "avatar_url": "https://avatars.githubusercontent.com/u/2",
+            "email": None,
+            "description": "Bayesian",
+            "blog": None,
+        }
+
+        await sync_org_github_metadata(conn, "token", ["pymc-labs"], "alice")
+
+        mock_fetch_org.assert_called_once_with("token", "pymc-labs")
+        mock_fetch_user.assert_not_called()
+
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    @pytest.mark.asyncio
+    async def test_skips_recently_synced_orgs(
+        self, mock_find_org, mock_fetch_org, mock_fetch_user, mock_update
+    ) -> None:
+        """Orgs synced within the refresh window should be skipped."""
+        conn = MagicMock()
+        org = Organization(
+            id=uuid4(), slug="pymc-labs", owner_id=uuid4(),
+            github_synced_at=datetime.now(timezone.utc),
+        )
+        mock_find_org.return_value = org
+
+        await sync_org_github_metadata(conn, "token", ["pymc-labs"], "alice")
+
+        mock_fetch_org.assert_not_called()
+        mock_update.assert_not_called()
+
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    @pytest.mark.asyncio
+    async def test_continues_on_fetch_error(
+        self, mock_find_org, mock_fetch_org, mock_fetch_user, mock_update
+    ) -> None:
+        """GitHub API errors should be logged and skipped, not raised."""
+        conn = MagicMock()
+        org = Organization(id=uuid4(), slug="bad-org", owner_id=uuid4())
+        mock_find_org.return_value = org
+        mock_fetch_org.side_effect = Exception("API error")
+
+        # Should not raise
+        await sync_org_github_metadata(conn, "token", ["bad-org"], "alice")
+
+        mock_update.assert_not_called()

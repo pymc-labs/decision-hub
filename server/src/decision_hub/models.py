@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+
 # Re-export shared models from dhub_core (single source of truth)
 from dhub_core.models import (  # noqa: F401
     AgentTestTarget,
@@ -36,6 +37,11 @@ class Organization:
     slug: str
     owner_id: UUID
     is_personal: bool = False
+    avatar_url: str | None = None
+    email: str | None = None
+    description: str | None = None
+    blog: str | None = None
+    github_synced_at: datetime | None = None
 
 
 @dataclass(frozen=True)

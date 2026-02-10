@@ -1,5 +1,6 @@
 """Tests for decision_hub.api.org_routes -- organisation management endpoints."""
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
@@ -123,3 +124,86 @@ class TestListOrgs:
         assert len(data) == 2
         assert data[0]["slug"] == "org-one"
         assert data[1]["slug"] == "org-two"
+
+    @patch("decision_hub.api.org_routes.list_user_orgs")
+    def test_list_orgs_includes_avatar_url(
+        self,
+        mock_list: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """OrgSummary should include avatar_url and is_personal."""
+        mock_list.return_value = [
+            Organization(
+                id=UUID("aaaaaaaa-0000-0000-0000-000000000001"),
+                slug="org-one",
+                owner_id=sample_user_id,
+                avatar_url="https://avatars.githubusercontent.com/u/1",
+                is_personal=False,
+            ),
+        ]
+
+        resp = client.get("/v1/orgs", headers=auth_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data[0]["avatar_url"] == "https://avatars.githubusercontent.com/u/1"
+        assert data[0]["is_personal"] is False
+
+
+class TestGetOrg:
+    """GET /v1/orgs/{slug} -- get full org profile."""
+
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_get_org_success(
+        self,
+        mock_find: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Should return full org profile with GitHub metadata."""
+        synced_at = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        mock_find.return_value = Organization(
+            id=UUID("aaaaaaaa-0000-0000-0000-000000000001"),
+            slug="pymc-labs",
+            owner_id=sample_user_id,
+            is_personal=False,
+            avatar_url="https://avatars.githubusercontent.com/u/123",
+            email="info@pymc-labs.com",
+            description="Bayesian modeling",
+            blog="https://pymc-labs.com",
+            github_synced_at=synced_at,
+        )
+
+        resp = client.get("/v1/orgs/pymc-labs", headers=auth_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["slug"] == "pymc-labs"
+        assert data["avatar_url"] == "https://avatars.githubusercontent.com/u/123"
+        assert data["email"] == "info@pymc-labs.com"
+        assert data["description"] == "Bayesian modeling"
+        assert data["blog"] == "https://pymc-labs.com"
+        assert data["github_synced_at"] is not None
+
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_get_org_not_found(
+        self,
+        mock_find: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Should return 404 for unknown org slug."""
+        mock_find.return_value = None
+
+        resp = client.get("/v1/orgs/nonexistent", headers=auth_headers)
+
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"]
+
+    def test_get_org_unauthenticated(self, client: TestClient) -> None:
+        """Missing auth header should return 401."""
+        resp = client.get("/v1/orgs/pymc-labs")
+        assert resp.status_code == 401

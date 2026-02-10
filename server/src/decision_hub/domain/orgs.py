@@ -1,6 +1,7 @@
 """Organization validation and sync logic."""
 
 import re
+from datetime import datetime, timezone
 from uuid import UUID
 
 from loguru import logger
@@ -149,3 +150,59 @@ def _ensure_org_membership(
     member = find_member_fn(conn, org.id, user_id)
     if member is None:
         insert_member_fn(conn, org.id, user_id, default_role)
+
+
+# Metadata refresh threshold: skip orgs synced within this window
+_METADATA_REFRESH_HOURS = 24
+
+
+async def sync_org_github_metadata(
+    conn: Connection,
+    access_token: str,
+    org_slugs: list[str],
+    username: str,
+) -> None:
+    """Fetch GitHub metadata for each org and persist it.
+
+    For personal namespaces (slug == username.lower()), uses the GitHub
+    /users/{username} endpoint. For team orgs, uses /orgs/{org}.
+    Skips orgs that were synced within the last _METADATA_REFRESH_HOURS.
+    Errors on individual orgs are logged and skipped (best-effort).
+    """
+    from decision_hub.infra.database import find_org_by_slug, update_org_github_metadata
+    from decision_hub.infra.github import fetch_org_metadata, fetch_user_metadata
+
+    now = datetime.now(timezone.utc)
+    personal_slug = username.lower()
+
+    for slug in org_slugs:
+        org = find_org_by_slug(conn, slug)
+        if org is None:
+            continue
+
+        # Skip if recently synced
+        if org.github_synced_at is not None:
+            age_hours = (now - org.github_synced_at).total_seconds() / 3600
+            if age_hours < _METADATA_REFRESH_HOURS:
+                continue
+
+        try:
+            if slug == personal_slug:
+                meta = await fetch_user_metadata(access_token, username)
+            else:
+                meta = await fetch_org_metadata(access_token, slug)
+        except Exception:
+            logger.opt(exception=True).warning(
+                "Failed to fetch GitHub metadata for org={}", slug
+            )
+            continue
+
+        update_org_github_metadata(
+            conn,
+            org.id,
+            avatar_url=meta.get("avatar_url"),
+            email=meta.get("email"),
+            description=meta.get("description"),
+            blog=meta.get("blog"),
+        )
+        logger.debug("Synced GitHub metadata for org={}", slug)
