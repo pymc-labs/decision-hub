@@ -59,6 +59,8 @@ users_table = Table(
     ),
     Column("github_id", String, nullable=False, unique=True),
     Column("username", String, nullable=False, unique=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
 )
 
 organizations_table = Table(
@@ -83,6 +85,8 @@ organizations_table = Table(
     Column("description", Text, nullable=True),
     Column("blog", Text, nullable=True),
     Column("github_synced_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
 )
 
 org_members_table = Table(
@@ -101,6 +105,8 @@ org_members_table = Table(
         primary_key=True,
     ),
     Column("role", String, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
 )
 
 skills_table = Table(
@@ -123,7 +129,10 @@ skills_table = Table(
     Column("download_count", sa.Integer, nullable=False, server_default="0"),
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     sa.UniqueConstraint("org_id", "name"),
+    sa.Index("idx_skills_created_at", "created_at"),
 )
 
 versions_table = Table(
@@ -156,6 +165,7 @@ versions_table = Table(
         server_default=sa.func.now(),
     ),
     Column("published_by", String, nullable=False, server_default=""),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     sa.UniqueConstraint("skill_id", "semver"),
     sa.Index(
         "idx_versions_skill_semver_parts",
@@ -169,6 +179,7 @@ versions_table = Table(
         "eval_status",
         postgresql_where=sa.text("eval_status IN ('A', 'B', 'passed')"),
     ),
+    sa.Index("idx_versions_updated_at", "updated_at"),
 )
 
 skill_access_grants_table = Table(
@@ -230,6 +241,7 @@ user_api_keys_table = Table(
         nullable=False,
         server_default=sa.func.now(),
     ),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     sa.UniqueConstraint("user_id", "key_name"),
 )
 
@@ -294,6 +306,8 @@ eval_reports_table = Table(
         nullable=False,
         server_default=sa.func.now(),
     ),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Index("idx_eval_reports_updated_at", "updated_at"),
 )
 
 eval_runs_table = Table(
@@ -335,8 +349,10 @@ eval_runs_table = Table(
         server_default=sa.func.now(),
     ),
     Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     sa.Index("idx_eval_runs_version_created", "version_id", "created_at"),
     sa.Index("idx_eval_runs_user_created", "user_id", "created_at"),
+    sa.Index("idx_eval_runs_updated_at", "updated_at"),
 )
 
 skill_trackers_table = Table(
@@ -423,7 +439,9 @@ def create_engine(database_url: str) -> Engine:
 
 def _row_to_user(row: sa.Row) -> User:
     """Map a database row to a User model."""
-    return User(id=row.id, github_id=row.github_id, username=row.username)
+    return User(
+        id=row.id, github_id=row.github_id, username=row.username, created_at=row.created_at, updated_at=row.updated_at
+    )
 
 
 def _row_to_organization(row: sa.Row) -> Organization:
@@ -438,12 +456,16 @@ def _row_to_organization(row: sa.Row) -> Organization:
         description=row.description,
         blog=row.blog,
         github_synced_at=row.github_synced_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
 def _row_to_org_member(row: sa.Row) -> OrgMember:
     """Map a database row to an OrgMember model."""
-    return OrgMember(org_id=row.org_id, user_id=row.user_id, role=row.role)
+    return OrgMember(
+        org_id=row.org_id, user_id=row.user_id, role=row.role, created_at=row.created_at, updated_at=row.updated_at
+    )
 
 
 def _row_to_skill(row: sa.Row) -> Skill:
@@ -456,6 +478,8 @@ def _row_to_skill(row: sa.Row) -> Skill:
         download_count=row.download_count,
         category=row.category,
         visibility=row.visibility,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -471,6 +495,7 @@ def _row_to_version(row: sa.Row) -> Version:
         eval_status=row.eval_status,
         created_at=row.created_at,
         published_by=row.published_by,
+        updated_at=row.updated_at,
     )
 
 
@@ -482,6 +507,7 @@ def _row_to_user_api_key(row: sa.Row) -> UserApiKey:
         key_name=row.key_name,
         encrypted_value=row.encrypted_value,
         created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -1501,6 +1527,7 @@ def _row_to_eval_report(row: sa.Row) -> EvalReport:
         status=row.status,
         error_message=row.error_message,
         created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -1659,6 +1686,7 @@ def _row_to_eval_run(row: sa.Row) -> EvalRun:
         error_message=row.error_message,
         created_at=row.created_at,
         completed_at=row.completed_at,
+        updated_at=row.updated_at,
     )
 
 

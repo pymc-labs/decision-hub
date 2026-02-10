@@ -30,6 +30,8 @@ class User:
     github_id: str
     username: str
     github_orgs: tuple[str, ...] = ()
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ class Organization:
     description: str | None = None
     blog: str | None = None
     github_synced_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +54,8 @@ class OrgMember:
     org_id: UUID
     user_id: UUID
     role: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +67,8 @@ class Skill:
     download_count: int = 0
     category: str = ""
     visibility: SkillVisibility = "public"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +91,7 @@ class Version:
     eval_status: str
     created_at: datetime | None = None
     published_by: str = ""
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +115,7 @@ class UserApiKey:
     key_name: str
     encrypted_value: bytes
     created_at: datetime
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +169,7 @@ class EvalReport:
     status: EvalReportStatus
     error_message: str | None = None
     created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -181,6 +192,7 @@ class EvalRun:
     error_message: str | None
     created_at: datetime | None
     completed_at: datetime | None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
