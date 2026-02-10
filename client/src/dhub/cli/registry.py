@@ -406,7 +406,7 @@ def _create_zip(path: Path) -> bytes:
 def list_command() -> None:
     """List all published skills on the registry."""
     from dhub.cli.banner import check_and_show_update, print_banner
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token
 
     print_banner(console)
 
@@ -415,7 +415,7 @@ def list_command() -> None:
     with httpx.Client(timeout=60) as client:
         resp = client.get(
             f"{api_url}/v1/skills",
-            headers=build_headers(get_token()),
+            headers=build_headers(get_optional_token()),
         )
         resp.raise_for_status()
         skills = resp.json()
@@ -592,7 +592,7 @@ def install_command(
     allow_risky: bool = typer.Option(False, "--allow-risky", help="Allow installing C-grade (risky) skills"),
 ) -> None:
     """Install a skill from the registry."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token
     from dhub.core.install import (
         get_dhub_skill_path,
         link_skill_to_agent,
@@ -607,7 +607,7 @@ def install_command(
         raise typer.Exit(1)
     org_slug, skill_name = parts
 
-    headers = build_headers(get_token())
+    headers = build_headers(get_optional_token())
     base_url = get_api_url()
 
     # Resolve the version to a concrete download URL and checksum

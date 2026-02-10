@@ -271,7 +271,7 @@ class TestInstallCommand:
     @respx.mock
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_install_success(
         self,
@@ -308,7 +308,7 @@ class TestInstallCommand:
     @respx.mock
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_install_with_allow_risky_flag(
         self,
@@ -352,7 +352,7 @@ class TestInstallCommand:
 
     @respx.mock
     @patch("dhub.core.install.get_dhub_skill_path")
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_install_404_not_found(
         self,
@@ -373,7 +373,7 @@ class TestInstallCommand:
     @patch("dhub.core.install.link_skill_to_agent", return_value=Path("/mock/link"))
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_install_with_agent_flag(
         self,
@@ -410,7 +410,7 @@ class TestInstallCommand:
     @patch("dhub.core.install.link_skill_to_all_agents", return_value=["claude", "cursor"])
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_install_with_agent_all(
         self,
@@ -452,7 +452,7 @@ class TestInstallCommand:
 
 class TestListCommand:
     @respx.mock
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_list_command(
         self,
@@ -495,7 +495,7 @@ class TestListCommand:
         assert "5" in result.output
 
     @respx.mock
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_list_command_empty(
         self,

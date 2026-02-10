@@ -412,7 +412,7 @@ def get_latest_version(
     return LatestVersionResponse(version=version.semver, checksum=version.checksum)
 
 
-@router.get("/resolve/{org_slug}/{skill_name}", response_model=ResolveResponse)
+@public_router.get("/resolve/{org_slug}/{skill_name}", response_model=ResolveResponse)
 def resolve_skill(
     org_slug: str,
     skill_name: str,

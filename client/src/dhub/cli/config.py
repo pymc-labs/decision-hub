@@ -120,6 +120,19 @@ def get_token() -> str:
     return token
 
 
+def get_optional_token() -> str | None:
+    """Get the auth token if available, or ``None`` if not logged in.
+
+    Unlike :func:`get_token`, this never exits — it simply returns
+    ``None`` when no credentials are configured.  Use this for commands
+    that work without authentication (e.g. installing public skills).
+    """
+    env_token = os.environ.get("DHUB_TOKEN")
+    if env_token:
+        return env_token
+    return load_config().token
+
+
 def get_default_org() -> str | None:
     """Get the default org from DHUB_DEFAULT_ORG env var or saved config."""
     env_org = os.environ.get("DHUB_DEFAULT_ORG")
