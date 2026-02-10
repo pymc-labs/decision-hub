@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Sprint 3: Modal
     modal_app_name: str = "decision-hub"
 
+    # GitHub token (system-wide fallback for rate limits / private repos)
+    github_token: str = ""
+
     # Sprint 4: Gemini Search
     google_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"

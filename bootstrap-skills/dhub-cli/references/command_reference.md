@@ -357,6 +357,88 @@ dhub keys remove KEY_NAME
 
 ---
 
+## dhub track add
+
+Track a GitHub repo for automatic skill updates.
+
+```
+dhub track add REPO_URL [--branch BRANCH] [--interval MINUTES]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `REPO_URL` | string | required | GitHub repo URL (HTTPS or SSH) |
+| `--branch`, `-b` | string | `main` | Branch to track |
+| `--interval`, `-i` | int | `60` | Poll interval in minutes (minimum 5) |
+
+Creates a server-side tracker that polls the GitHub API for new commits. When changes are detected, all skills in the repo are automatically republished through the full pipeline (gauntlet + version bump + upload).
+
+**Private repos:** To track a private repo, first store a GitHub personal access token via `dhub keys add GITHUB_TOKEN`. The tracker uses it for both API calls and cloning. Falls back to a system-wide token if configured, or unauthenticated access for public repos.
+
+**Version resolution:** If a tracked skill's SKILL.md declares `version: X.Y.Z` and it's higher than the latest published version, that version is used. Otherwise, the latest version is patch-bumped automatically.
+
+**Error codes:**
+- HTTP 409 → tracker for this repo/branch already exists
+- HTTP 422 → invalid GitHub URL or interval < 5 minutes
+
+---
+
+## dhub track list
+
+List all active skill trackers.
+
+```
+dhub track list
+```
+
+Displays a table with: ID, repo URL, branch, org, interval, enabled status, last checked/published times, and errors.
+
+---
+
+## dhub track status
+
+Show detailed status of a tracker.
+
+```
+dhub track status ID
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ID` | yes | Tracker ID or prefix (minimum unique prefix) |
+
+---
+
+## dhub track pause
+
+Pause a tracker (stop checking for updates).
+
+```
+dhub track pause ID
+```
+
+---
+
+## dhub track resume
+
+Resume a paused tracker.
+
+```
+dhub track resume ID
+```
+
+---
+
+## dhub track remove
+
+Remove a tracker.
+
+```
+dhub track remove ID
+```
+
+---
+
 ## dhub --version
 
 Show the installed CLI version.

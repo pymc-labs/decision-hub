@@ -137,6 +137,7 @@ def create_app() -> FastAPI:
     from decision_hub.api.registry_routes import public_router as registry_public_router
     from decision_hub.api.registry_routes import router as registry_router
     from decision_hub.api.search_routes import router as search_router
+    from decision_hub.api.tracker_routes import router as tracker_router
 
     # Auth routes are always public (users need them to obtain a token).
     app.include_router(auth_router)
@@ -158,6 +159,7 @@ def create_app() -> FastAPI:
     app.include_router(registry_router, dependencies=global_deps)
     app.include_router(keys_router, dependencies=global_deps)
     app.include_router(search_router, dependencies=global_deps)
+    app.include_router(tracker_router, dependencies=global_deps)
 
     # --- Frontend SPA serving ---
     # If the frontend build was baked into the image, serve it from the

@@ -223,6 +223,23 @@ class AuditLogEntry:
 
 
 @dataclass(frozen=True)
+class SkillTracker:
+    """Tracks a GitHub repo for automatic skill republishing."""
+    id: UUID
+    user_id: UUID
+    org_slug: str
+    repo_url: str
+    branch: str
+    last_commit_sha: str | None
+    poll_interval_minutes: int
+    enabled: bool
+    last_checked_at: datetime | None
+    last_published_at: datetime | None
+    last_error: str | None
+    created_at: datetime | None
+
+
+@dataclass(frozen=True)
 class SkillIndexEntry:
     """Entry in the search index."""
 

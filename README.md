@@ -107,6 +107,38 @@ dhub publish myorg/my-skill --version 2.0.0  # exact version
 
 Both arguments are positional and optional. If only one is given, Decision Hub infers whether it's a skill reference or a path. If omitted, defaults to the current directory and requires a default org to be set.
 
+### Skill Update Tracking
+
+Track GitHub repos for automatic skill updates. When a tracked branch receives new commits, the skill is automatically republished.
+
+| Command | Description |
+|---------|-------------|
+| `dhub track add REPO_URL [--branch main] [--interval 60]` | Track a GitHub repo for auto-updates |
+| `dhub track list` | List all active trackers |
+| `dhub track status ID` | Show tracker details |
+| `dhub track pause ID` | Pause a tracker |
+| `dhub track resume ID` | Resume a paused tracker |
+| `dhub track remove ID` | Remove a tracker |
+
+```bash
+# Track a public repo — auto-republish when main gets new commits
+dhub track add https://github.com/myorg/my-skills --branch main --interval 30
+
+# Track a private repo — store a GitHub token first
+dhub keys add GITHUB_TOKEN
+dhub track add https://github.com/myorg/private-repo
+
+# Check status
+dhub track list
+dhub track status abc12345
+
+# Pause/resume
+dhub track pause abc12345
+dhub track resume abc12345
+```
+
+Trackers support private repos via a stored `GITHUB_TOKEN` (see `dhub keys add`). If a tracked skill's `SKILL.md` declares a `version` field (e.g. `version: 2.0.0`) higher than the latest published version, that version is used; otherwise the tracker auto-bumps the patch version.
+
 ### Organizations & Config
 
 | Command | Description |
@@ -127,6 +159,7 @@ name: my-skill                    # 1-64 chars, lowercase alphanumeric + hyphens
 description: >
   What this skill does and when
   the agent should activate it.   # 1-1024 chars
+version: 1.0.0                    # optional — explicit semver for tracked repos
 license: MIT                      # optional
 
 runtime:                           # optional — makes the skill executable

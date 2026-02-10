@@ -34,6 +34,12 @@ dhub config default-org Set default namespace for publishing
 dhub keys add <name>    Store an API key for evals
 dhub keys list          List stored API key names
 dhub keys remove <name> Remove a stored API key
+dhub track add <url>    Track a GitHub repo for auto-updates
+dhub track list         List active trackers
+dhub track status <id>  Show tracker details
+dhub track pause <id>   Pause a tracker
+dhub track resume <id>  Resume a paused tracker
+dhub track remove <id>  Remove a tracker
 dhub --version          Show CLI version
 ```
 
@@ -147,6 +153,71 @@ The command detects that the argument is a git URL (HTTPS, SSH, or `.git` suffix
 ### Git-specific options
 
 - `--ref` — branch, tag, or commit to checkout (only valid with git URLs)
+
+## Tracking GitHub Repos for Auto-Updates
+
+Set up a tracker so skills from a GitHub repo are automatically republished when the tracked branch receives new commits.
+
+```bash
+# Track a repo — polls every 60 minutes by default
+dhub track add https://github.com/myorg/my-skills
+
+# Custom branch and interval
+dhub track add https://github.com/myorg/skills --branch develop --interval 30
+
+# List all trackers
+dhub track list
+
+# View tracker details
+dhub track status abc12345
+
+# Pause / resume / remove
+dhub track pause abc12345
+dhub track resume abc12345
+dhub track remove abc12345
+```
+
+### How it works
+
+1. A Modal scheduled function runs every 5 minutes
+2. Due trackers are atomically claimed (prevents double-processing in concurrent runs)
+3. For each claimed tracker, it checks the GitHub API for new commits
+4. If the branch SHA has changed, it clones the repo and discovers all SKILL.md files
+5. Each skill goes through the full publish pipeline (gauntlet security checks + version bump + S3 upload)
+6. Skills with unchanged content (same checksum) are skipped
+7. The tracker records the latest commit SHA, last check time, and any errors
+
+### Version determination
+
+When the tracker publishes a new version, it determines the version as follows:
+
+1. If the SKILL.md declares a `version` field (e.g. `version: 2.0.0`) and it's higher than the latest published version, that version is used
+2. Otherwise, the latest published version is patch-bumped (e.g. `1.0.0` → `1.0.1`)
+3. For the first publish, the SKILL.md `version` is used if present, otherwise `0.1.0`
+
+This allows authors to control version jumps (e.g. major bumps) by setting `version` in SKILL.md, while getting automatic patch bumps for routine updates.
+
+### Private repos and GitHub tokens
+
+Trackers support private repositories. The tracker resolves a GitHub token in this order:
+
+1. **User-level token** — if you've stored a `GITHUB_TOKEN` via `dhub keys add GITHUB_TOKEN`, the tracker uses it (decrypted at runtime)
+2. **System-level fallback** — a server-wide GitHub token configured by the administrator
+3. **No token** — unauthenticated access (public repos only, 60 requests/hour API limit)
+
+To track a private repo:
+
+```bash
+dhub keys add GITHUB_TOKEN    # store your GitHub personal access token
+dhub track add https://github.com/myorg/private-repo
+```
+
+The token is used for both GitHub API calls (checking for new commits) and `git clone`. Tokens are never exposed in error messages.
+
+### Limitations
+
+- Only GitHub repos are supported (both HTTPS and SSH URLs)
+- Minimum poll interval is 5 minutes
 
 ## Installing Skills
 
@@ -291,6 +362,7 @@ my-skill/
 ---
 name: my-skill                 # 1-64 chars, lowercase + hyphens
 description: What it does      # 1-1024 chars, triggers skill activation
+version: 1.0.0                 # optional — explicit semver for tracked repos
 license: MIT                   # optional
 runtime:                       # optional — for executable skills
   language: python

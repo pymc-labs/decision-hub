@@ -15,6 +15,7 @@ _frontend_dist = Path("../frontend/dist")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .apt_install("git")
     .add_local_dir("../shared", remote_path="/tmp/dhub-core", copy=True)
     .run_commands("pip install /tmp/dhub-core")
     .pip_install_from_pyproject("pyproject.toml")
@@ -147,3 +148,19 @@ def crawl_process_repo(
     from decision_hub.scripts.github_crawler import process_repo_on_modal
 
     return process_repo_on_modal(repo_dict, bot_user_id, github_token)
+
+
+@app.function(image=image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=300))
+def check_trackers():
+    """Poll GitHub repos for skill updates every 5 minutes.
+
+    Finds all enabled trackers that are due for a check, fetches the
+    latest commit SHA from GitHub, and auto-republishes when changes
+    are detected.
+    """
+    from decision_hub.domain.tracker_service import check_all_due_trackers
+    from decision_hub.settings import create_settings
+
+    settings = create_settings()
+    processed = check_all_due_trackers(settings)
+    logger.info("check_trackers processed {} tracker(s)", processed)
