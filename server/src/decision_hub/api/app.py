@@ -157,7 +157,9 @@ def create_app() -> FastAPI:
     app.include_router(org_router, dependencies=global_deps)
     app.include_router(registry_router, dependencies=global_deps)
     app.include_router(keys_router, dependencies=global_deps)
-    app.include_router(search_router, dependencies=global_deps)
+    # Search is read-only and should be accessible without auth, like the
+    # public registry endpoints.
+    app.include_router(search_router)
 
     # --- Frontend SPA serving ---
     # If the frontend build was baked into the image, serve it from the

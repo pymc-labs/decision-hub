@@ -18,7 +18,7 @@ runner = CliRunner()
 
 class TestAskCommand:
     @respx.mock
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_ask_success(
         self,
@@ -42,7 +42,7 @@ class TestAskCommand:
         assert "ab-test-analyzer" in result.output
 
     @respx.mock
-    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_ask_503_not_configured(
         self,
@@ -55,6 +55,30 @@ class TestAskCommand:
 
         assert result.exit_code == 1
         assert "not available" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value=None)
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_ask_does_not_require_auth(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """ask should work even when the user is not logged in."""
+        respx.get("http://test:8000/v1/search").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "query": "test query",
+                    "results": "Some results here.",
+                },
+            )
+        )
+
+        result = runner.invoke(app, ["ask", "test query"])
+
+        assert result.exit_code == 0
+        assert "test query" in result.output
 
     def test_ask_empty_query(self) -> None:
         """Typer should reject a missing query argument."""
