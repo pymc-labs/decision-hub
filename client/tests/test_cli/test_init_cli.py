@@ -10,7 +10,6 @@ runner = CliRunner()
 
 
 class TestInitCommand:
-
     def test_init_creates_skill_in_current_dir(self, tmp_path: Path) -> None:
         """init in current dir creates SKILL.md and src/."""
         result = runner.invoke(

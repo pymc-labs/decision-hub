@@ -6,21 +6,20 @@ install work correctly with production-like content.
 """
 
 import hashlib
-import zipfile
 import io
+import zipfile
 from pathlib import Path
 
 import pytest
 
-from dhub.core.manifest import parse_skill_md, validate_manifest, _NAME_PATTERN
-from dhub.core.validation import validate_semver, validate_skill_name, _SKILL_NAME_PATTERN
+from dhub.cli.registry import _create_zip
 from dhub.core.install import (
+    AGENT_SKILL_PATHS,
     get_dhub_skill_path,
     verify_checksum,
-    AGENT_SKILL_PATHS,
 )
-from dhub.cli.registry import _create_zip
-
+from dhub.core.manifest import _NAME_PATTERN, parse_skill_md, validate_manifest
+from dhub.core.validation import _SKILL_NAME_PATTERN, validate_skill_name
 
 DOCX_SKILL_PATH = Path.home() / ".claude" / "skills" / "docx"
 
@@ -181,18 +180,13 @@ class TestZipCreation:
     def test_zip_includes_xml_templates(self) -> None:
         zip_data = _create_zip(DOCX_SKILL_PATH)
         with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            xml_templates = [
-                n for n in zf.namelist()
-                if n.startswith("scripts/templates/") and n.endswith(".xml")
-            ]
+            xml_templates = [n for n in zf.namelist() if n.startswith("scripts/templates/") and n.endswith(".xml")]
         assert len(xml_templates) == 5
 
     def test_zip_excludes_hidden_files(self) -> None:
         zip_data = _create_zip(DOCX_SKILL_PATH)
         with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            hidden = [n for n in zf.namelist() if any(
-                part.startswith(".") for part in Path(n).parts
-            )]
+            hidden = [n for n in zf.namelist() if any(part.startswith(".") for part in Path(n).parts)]
         assert hidden == []
 
     def test_zip_excludes_pycache(self) -> None:
@@ -246,9 +240,9 @@ class TestNameAndVersionValidation:
         for name in test_names:
             manifest_ok = _NAME_PATTERN.match(name) is not None
             validation_ok = _SKILL_NAME_PATTERN.match(name) is not None
-            assert manifest_ok == validation_ok, (
-                f"Inconsistency for '{name}': manifest={manifest_ok}, validation={validation_ok}"
-            )
+            assert (
+                manifest_ok == validation_ok
+            ), f"Inconsistency for '{name}': manifest={manifest_ok}, validation={validation_ok}"
 
 
 class TestInstallPathResolution:
@@ -263,6 +257,6 @@ class TestInstallPathResolution:
         skill = "docx"
 
         # Verify the symlink name is just the skill name
-        for agent, agent_dir in AGENT_SKILL_PATHS.items():
+        for _agent, agent_dir in AGENT_SKILL_PATHS.items():
             expected_path = agent_dir / skill
             assert expected_path.name == "docx"

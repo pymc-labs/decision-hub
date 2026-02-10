@@ -22,10 +22,7 @@ def validate_semver(version: str) -> str:
         ValueError: If the version does not match semver format.
     """
     if not _SEMVER_PATTERN.match(version):
-        raise ValueError(
-            f"Invalid semver '{version}': must be in major.minor.patch format "
-            "(e.g. '1.0.0')."
-        )
+        raise ValueError(f"Invalid semver '{version}': must be in major.minor.patch format (e.g. '1.0.0').")
     return version
 
 
@@ -88,10 +85,7 @@ def extract_for_evaluation(
                 continue
 
             if zf.getinfo(name).file_size > _MAX_FILE_SIZE:
-                raise ValueError(
-                    f"File '{name}' exceeds maximum size of "
-                    f"{_MAX_FILE_SIZE // (1024 * 1024)} MB"
-                )
+                raise ValueError(f"File '{name}' exceeds maximum size of {_MAX_FILE_SIZE // (1024 * 1024)} MB")
 
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
 

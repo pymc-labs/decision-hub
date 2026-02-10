@@ -3,14 +3,13 @@
 import io
 import json
 import zipfile
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
-import pytest
 from fastapi.testclient import TestClient
 
 from decision_hub.models import Organization, OrgMember, Skill, Version
-
 
 # ---------------------------------------------------------------------------
 # Shared test data helpers
@@ -75,11 +74,13 @@ def _publish_request(
     zip_bytes: bytes | None = None,
 ) -> ...:
     """Send a POST /v1/publish request with standard multipart form data."""
-    metadata = json.dumps({
-        "org_slug": org_slug,
-        "skill_name": skill_name,
-        "version": version,
-    })
+    metadata = json.dumps(
+        {
+            "org_slug": org_slug,
+            "skill_name": skill_name,
+            "version": version,
+        }
+    )
     if zip_bytes is None:
         zip_bytes = _make_skill_zip()
     return client.post(
@@ -93,6 +94,7 @@ def _publish_request(
 # ---------------------------------------------------------------------------
 # POST /v1/publish
 # ---------------------------------------------------------------------------
+
 
 class TestPublishSkill:
     """POST /v1/publish -- publish a new skill version."""
@@ -207,11 +209,13 @@ class TestPublishSkill:
 
     def test_publish_no_auth(self, client: TestClient) -> None:
         """Publishing without auth should return 401."""
-        metadata = json.dumps({
-            "org_slug": "test-org",
-            "skill_name": "my-skill",
-            "version": "1.0.0",
-        })
+        metadata = json.dumps(
+            {
+                "org_slug": "test-org",
+                "skill_name": "my-skill",
+                "version": "1.0.0",
+            }
+        )
         resp = client.post(
             "/v1/publish",
             data={"metadata": metadata},
@@ -289,7 +293,9 @@ class TestPublishSkill:
         mock_insert_version.return_value = version
 
         resp = _publish_request(
-            client, auth_headers, skill_name="brand-new-skill",
+            client,
+            auth_headers,
+            skill_name="brand-new-skill",
         )
 
         assert resp.status_code == 201
@@ -418,6 +424,7 @@ class TestPublishSkill:
 # GET /v1/resolve/{org_slug}/{skill_name}
 # ---------------------------------------------------------------------------
 
+
 class TestResolveSkill:
     """GET /v1/resolve/{org_slug}/{skill_name} -- resolve a skill version."""
 
@@ -539,9 +546,7 @@ class TestResolveSkill:
         mock_resolve.return_value = version
         mock_presign.return_value = "https://s3.example.com/risky"
 
-        resp = client.get(
-            "/v1/resolve/test-org/my-skill?spec=latest&allow_risky=true"
-        )
+        resp = client.get("/v1/resolve/test-org/my-skill?spec=latest&allow_risky=true")
 
         assert resp.status_code == 200
         # Verify allow_risky was passed to resolve_version
@@ -553,6 +558,7 @@ class TestResolveSkill:
 # ---------------------------------------------------------------------------
 # GET /v1/skills/{org_slug}/{skill_name}/audit-log
 # ---------------------------------------------------------------------------
+
 
 class TestGetAuditLog:
     """GET /v1/skills/{org}/{skill}/audit-log -- evaluation history."""
@@ -578,7 +584,7 @@ class TestGetAuditLog:
         client: TestClient,
     ) -> None:
         """Returns audit log entries with all fields."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from decision_hub.models import AuditLogEntry
 
@@ -593,7 +599,7 @@ class TestGetAuditLog:
             llm_reasoning=None,
             publisher="testuser",
             quarantine_s3_key=None,
-            created_at=datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc),
+            created_at=datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
         )
         mock_find.return_value = [entry]
 
@@ -622,6 +628,7 @@ class TestGetAuditLog:
 # ---------------------------------------------------------------------------
 # DELETE /v1/skills/{org_slug}/{skill_name}/{version}
 # ---------------------------------------------------------------------------
+
 
 class TestDeleteSkillVersion:
     """DELETE /v1/skills/{org_slug}/{skill_name}/{version} -- delete a published version."""
@@ -682,7 +689,9 @@ class TestDeleteSkillVersion:
         org = _make_org(sample_user_id)
         mock_find_org.return_value = org
         mock_find_member.return_value = OrgMember(
-            org_id=org.id, user_id=sample_user_id, role="member",
+            org_id=org.id,
+            user_id=sample_user_id,
+            role="member",
         )
 
         resp = client.delete(
@@ -809,7 +818,9 @@ class TestDeleteSkillVersion:
         skill = _make_skill(org)
         mock_find_org.return_value = org
         mock_find_member.return_value = OrgMember(
-            org_id=org.id, user_id=sample_user_id, role="admin",
+            org_id=org.id,
+            user_id=sample_user_id,
+            role="admin",
         )
         mock_find_skill.return_value = skill
         mock_delete_version.return_value = True
@@ -825,6 +836,7 @@ class TestDeleteSkillVersion:
 # ---------------------------------------------------------------------------
 # GET /v1/skills
 # ---------------------------------------------------------------------------
+
 
 class TestListSkills:
     """GET /v1/skills -- list all published skills."""
@@ -850,7 +862,7 @@ class TestListSkills:
         client: TestClient,
     ) -> None:
         """Skills are returned with all expected fields."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         mock_fetch.return_value = [
             {
@@ -860,7 +872,7 @@ class TestListSkills:
                 "download_count": 42,
                 "latest_version": "1.2.0",
                 "eval_status": "A",
-                "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc),
+                "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
                 "published_by": "alice",
             },
         ]
@@ -957,6 +969,7 @@ class TestListSkills:
 # GET /v1/skills/{org_slug}/{skill_name}/latest-version
 # ---------------------------------------------------------------------------
 
+
 class TestGetLatestVersion:
     """GET /v1/skills/{org}/{skill}/latest-version -- returns the latest published version."""
 
@@ -1011,6 +1024,7 @@ class TestGetLatestVersion:
 # ---------------------------------------------------------------------------
 # DELETE /v1/skills/{org_slug}/{skill_name} (all versions)
 # ---------------------------------------------------------------------------
+
 
 class TestDeleteAllVersions:
     """DELETE /v1/skills/{org}/{skill} -- delete all versions and the skill record."""
@@ -1077,7 +1091,9 @@ class TestDeleteAllVersions:
         org = _make_org(sample_user_id)
         mock_find_org.return_value = org
         mock_find_member.return_value = OrgMember(
-            org_id=org.id, user_id=sample_user_id, role="member",
+            org_id=org.id,
+            user_id=sample_user_id,
+            role="member",
         )
 
         resp = client.delete(
@@ -1136,7 +1152,7 @@ class TestDeleteAllVersions:
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
-    def test_delete_all_allowed_for_admin(  # noqa: PLR0913
+    def test_delete_all_allowed_for_admin(
         self,
         mock_find_org: MagicMock,
         mock_find_member: MagicMock,
@@ -1153,7 +1169,9 @@ class TestDeleteAllVersions:
         skill = _make_skill(org)
         mock_find_org.return_value = org
         mock_find_member.return_value = OrgMember(
-            org_id=org.id, user_id=sample_user_id, role="admin",
+            org_id=org.id,
+            user_id=sample_user_id,
+            role="admin",
         )
         mock_find_skill.return_value = skill
         mock_delete_all.return_value = ["key1.zip"]

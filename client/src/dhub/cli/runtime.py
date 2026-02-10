@@ -14,52 +14,42 @@ def run_command(
 ) -> None:
     """Run a locally installed skill using its configured runtime."""
     from dhub.core.install import get_dhub_skill_path
+    from dhub.core.manifest import parse_skill_md
     from dhub.core.runtime import (
         build_env_vars,
         build_uv_run_command,
         build_uv_sync_command,
         validate_local_runtime_prerequisites,
     )
-    from dhub.core.manifest import parse_skill_md
 
     # Parse org/skill reference
     parts = skill_ref.split("/", 1)
     if len(parts) != 2:
-        console.print(
-            "[red]Error: Skill reference must be in org/skill format.[/]"
-        )
+        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
         raise typer.Exit(1)
     org_slug, skill_name = parts
 
     # Resolve the local skill directory
     skill_dir = get_dhub_skill_path(org_slug, skill_name)
     if not skill_dir.exists():
-        console.print(
-            f"[red]Error: Skill '{skill_ref}' is not installed. "
-            f"Expected at {skill_dir}[/]"
-        )
+        console.print(f"[red]Error: Skill '{skill_ref}' is not installed. Expected at {skill_dir}[/]")
         raise typer.Exit(1)
 
     # Parse SKILL.md to get runtime config
     skill_md_path = skill_dir / "SKILL.md"
     if not skill_md_path.exists():
-        console.print(
-            f"[red]Error: SKILL.md not found in {skill_dir}[/]"
-        )
+        console.print(f"[red]Error: SKILL.md not found in {skill_dir}[/]")
         raise typer.Exit(1)
 
     manifest = parse_skill_md(skill_md_path)
 
     if manifest.runtime is None:
-        console.print(
-            "[red]Error: This skill has no runtime configuration.[/]"
-        )
+        console.print("[red]Error: This skill has no runtime configuration.[/]")
         raise typer.Exit(1)
 
     if manifest.runtime.language != "python":
         console.print(
-            f"[red]Error: Unsupported runtime language '{manifest.runtime.language}'. "
-            f"Only 'python' is supported.[/]"
+            f"[red]Error: Unsupported runtime language '{manifest.runtime.language}'. Only 'python' is supported.[/]"
         )
         raise typer.Exit(1)
 

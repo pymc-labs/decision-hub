@@ -44,9 +44,7 @@ def judge_eval_output(
         truncated_output += "\n... [truncated]"
 
     user_message = (
-        f"## Eval Case: {eval_case_name}\n\n"
-        f"## Criteria\n{eval_criteria}\n\n"
-        f"## Agent Output\n{truncated_output}"
+        f"## Eval Case: {eval_case_name}\n\n## Criteria\n{eval_criteria}\n\n## Agent Output\n{truncated_output}"
     )
 
     payload = {

@@ -85,9 +85,7 @@ def _has_placeholder(text: str) -> bool:
     return any(p.search(text) for p in _PLACEHOLDER_PATTERNS)
 
 
-def validate_skill(
-    path: Path, strict: bool = False
-) -> tuple[bool, list[str], list[str]]:
+def validate_skill(path: Path, strict: bool = False) -> tuple[bool, list[str], list[str]]:
     """Validate a skill directory.
 
     Returns (is_valid, errors, warnings). When strict=True, warnings
@@ -108,10 +106,7 @@ def validate_skill(
     # --- Check: valid YAML frontmatter (--- delimiters) ---
     frontmatter_str, body = _split_frontmatter(content)
     if not frontmatter_str:
-        errors.append(
-            "Invalid or missing YAML frontmatter. "
-            "SKILL.md must start with --- and have a closing ---."
-        )
+        errors.append("Invalid or missing YAML frontmatter. SKILL.md must start with --- and have a closing ---.")
         return (False, errors, warnings)
 
     data = _parse_yaml_with_fallback(frontmatter_str)
@@ -129,15 +124,12 @@ def validate_skill(
         errors.append("Required field 'name' is missing.")
     elif not _NAME_PATTERN.match(name):
         errors.append(
-            f"Invalid name '{name}': must be 1-64 chars, lowercase "
-            "alphanumeric + hyphens, no leading/trailing hyphens."
+            f"Invalid name '{name}': must be 1-64 chars, lowercase alphanumeric + hyphens, no leading/trailing hyphens."
         )
     else:
         # --- Check: name matches directory name ---
         if name != skill_dir.name:
-            errors.append(
-                f"Skill name '{name}' does not match directory name '{skill_dir.name}'."
-            )
+            errors.append(f"Skill name '{name}' does not match directory name '{skill_dir.name}'.")
 
     # --- Check: no placeholder text in name ---
     if isinstance(name, str) and _has_placeholder(name):
@@ -149,34 +141,26 @@ def validate_skill(
         errors.append("Required field 'description' is missing.")
     else:
         if len(description) > 1024:
-            errors.append(
-                f"Description too long ({len(description)} chars). Max 1024."
-            )
+            errors.append(f"Description too long ({len(description)} chars). Max 1024.")
         # --- Check: no placeholder text in description ---
         if _has_placeholder(description):
             errors.append("Description contains TODO/placeholder text.")
         # --- Warning: very short description ---
         if len(description) < 20:
             warnings.append(
-                f"Description is very short ({len(description)} chars). "
-                "Consider making it more descriptive."
+                f"Description is very short ({len(description)} chars). Consider making it more descriptive."
             )
 
     # --- Warning: very short body ---
     if body and len(body) < 100:
-        warnings.append(
-            f"Body is very short ({len(body)} chars). "
-            "Consider adding more detail to the system prompt."
-        )
+        warnings.append(f"Body is very short ({len(body)} chars). Consider adding more detail to the system prompt.")
 
     # --- Validate runtime block ---
     runtime = data.get("runtime")
     if isinstance(runtime, dict):
         language = runtime.get("language")
         if not language or language != "python":
-            errors.append(
-                f"runtime.language must be 'python'. Got: '{language}'."
-            )
+            errors.append(f"runtime.language must be 'python'. Got: '{language}'.")
 
         entrypoint = runtime.get("entrypoint")
         if not entrypoint or not isinstance(entrypoint, str):
@@ -185,10 +169,7 @@ def validate_skill(
             # --- Check: entrypoint file exists ---
             entrypoint_path = skill_dir / entrypoint
             if not entrypoint_path.exists():
-                errors.append(
-                    f"runtime.entrypoint '{entrypoint}' does not exist "
-                    f"(expected at {entrypoint_path})."
-                )
+                errors.append(f"runtime.entrypoint '{entrypoint}' does not exist (expected at {entrypoint_path}).")
 
         # --- Warning: env var names ---
         env_items = runtime.get("env", [])
@@ -216,8 +197,7 @@ def validate_skill(
         eval_files = list(evals_dir.glob("*.yaml")) if evals_dir.is_dir() else []
         if not eval_files:
             warnings.append(
-                "evals block defined but no evals/*.yaml files found. "
-                "Add eval case files or remove the evals block."
+                "evals block defined but no evals/*.yaml files found. Add eval case files or remove the evals block."
             )
 
         # --- Validate each eval case YAML ---
@@ -267,9 +247,7 @@ def _color(text: str, code: str) -> str:
     return f"\033[{code}m{text}\033[0m"
 
 
-def print_report(
-    skill_path: Path, errors: list[str], warnings: list[str], strict: bool
-) -> None:
+def print_report(skill_path: Path, errors: list[str], warnings: list[str], strict: bool) -> None:
     """Print a colored validation report to stdout."""
     print(f"\nValidating: {skill_path}\n")
 
@@ -296,9 +274,7 @@ def main() -> int:
     """CLI entrypoint."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Validate a skill directory against the SKILL.md format."
-    )
+    parser = argparse.ArgumentParser(description="Validate a skill directory against the SKILL.md format.")
     parser.add_argument("skill_directory", type=Path, help="Path to the skill directory")
     parser.add_argument(
         "--strict",

@@ -93,6 +93,7 @@ class UserApiKey:
 @dataclass(frozen=True)
 class AgentSandboxConfig:
     """Configuration for running evals in a specific agent's sandbox."""
+
     npm_package: str
     skills_path: str
     run_cmd: tuple[str, ...]
@@ -103,6 +104,7 @@ class AgentSandboxConfig:
 @dataclass(frozen=True)
 class EvalCase:
     """A single evaluation case from evals/*.yaml."""
+
     name: str
     description: str
     prompt: str
@@ -112,6 +114,7 @@ class EvalCase:
 @dataclass(frozen=True)
 class EvalCaseResult:
     """Result of running and judging a single eval case."""
+
     name: str
     description: str
     verdict: str
@@ -126,6 +129,7 @@ class EvalCaseResult:
 @dataclass(frozen=True)
 class EvalReport:
     """Aggregated eval report for a skill version."""
+
     id: UUID
     version_id: UUID
     agent: str
@@ -142,6 +146,7 @@ class EvalReport:
 @dataclass(frozen=True)
 class EvalRun:
     """Operational state for a background eval job."""
+
     id: UUID
     version_id: UUID
     user_id: UUID
@@ -213,6 +218,7 @@ class AuditLogEntry:
 @dataclass(frozen=True)
 class SkillIndexEntry:
     """Entry in the search index."""
+
     org_slug: str
     skill_name: str
     description: str

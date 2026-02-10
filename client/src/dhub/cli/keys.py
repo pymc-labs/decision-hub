@@ -30,8 +30,7 @@ def add_key(
         )
         if resp.status_code == 409:
             console.print(
-                f"[red]Error: Key '{key_name}' already exists. "
-                "Remove it first with [bold]dhub keys remove[/bold].[/]"
+                f"[red]Error: Key '{key_name}' already exists. Remove it first with [bold]dhub keys remove[/bold].[/]"
             )
             raise typer.Exit(1)
         resp.raise_for_status()
@@ -79,9 +78,7 @@ def remove_key(
             headers=build_headers(get_token()),
         )
         if resp.status_code == 404:
-            console.print(
-                f"[red]Error: Key '{key_name}' not found.[/]"
-            )
+            console.print(f"[red]Error: Key '{key_name}' not found.[/]")
             raise typer.Exit(1)
         resp.raise_for_status()
 

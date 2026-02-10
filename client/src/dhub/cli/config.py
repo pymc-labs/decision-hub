@@ -68,10 +68,9 @@ def load_config() -> CliConfig:
         from rich.console import Console
 
         Console(stderr=True).print(
-            f"[red]Error: Config file is corrupted: {path}\n"
-            f"Delete it and run [bold]dhub login[/bold] again.[/]"
+            f"[red]Error: Config file is corrupted: {path}\nDelete it and run [bold]dhub login[/bold] again.[/]"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     return CliConfig(
         api_url=raw.get("api_url", default_api_url()),
         token=raw.get("token"),
@@ -116,9 +115,7 @@ def get_token() -> str:
     token = load_config().token
     if not token:
         console = Console(stderr=True)
-        console.print(
-            "[red]Error: Not logged in. Run [bold]dhub login[/bold] first.[/]"
-        )
+        console.print("[red]Error: Not logged in. Run [bold]dhub login[/bold] first.[/]")
         raise typer.Exit(1)
     return token
 

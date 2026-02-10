@@ -1,6 +1,5 @@
 """Tests for dhub uninstall command."""
 
-from pathlib import Path
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -11,7 +10,6 @@ runner = CliRunner()
 
 
 class TestUninstallCommand:
-
     @patch("dhub.core.install.uninstall_skill", return_value=["claude", "cursor"])
     def test_uninstall_success_with_symlinks(self, mock_uninstall):
         result = runner.invoke(app, ["uninstall", "myorg/my-skill"])

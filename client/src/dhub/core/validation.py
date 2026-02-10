@@ -22,10 +22,7 @@ def validate_semver(version: str) -> str:
         ValueError: If the version does not match semver format.
     """
     if not _SEMVER_PATTERN.match(version):
-        raise ValueError(
-            f"Invalid semver '{version}': must be in major.minor.patch format "
-            "(e.g. '1.0.0')."
-        )
+        raise ValueError(f"Invalid semver '{version}': must be in major.minor.patch format (e.g. '1.0.0').")
     return version
 
 

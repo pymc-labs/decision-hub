@@ -21,20 +21,24 @@ router = APIRouter(prefix="/v1/keys", tags=["keys"])
 # Request / response schemas
 # ---------------------------------------------------------------------------
 
+
 class StoreKeyRequest(BaseModel):
     """Payload to store a new encrypted API key."""
+
     key_name: str
     value: str
 
 
 class StoreKeyResponse(BaseModel):
     """Confirmation that the key was stored."""
+
     key_name: str
     created_at: datetime
 
 
 class KeySummary(BaseModel):
     """Public summary of a stored key (the value is never exposed)."""
+
     key_name: str
     created_at: datetime
 
@@ -42,6 +46,7 @@ class KeySummary(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post("", response_model=StoreKeyResponse, status_code=201)
 def store_key(
@@ -63,7 +68,7 @@ def store_key(
         raise HTTPException(
             status_code=409,
             detail=f"Key '{body.key_name}' already exists",
-        )
+        ) from None
 
     return StoreKeyResponse(
         key_name=key_record.key_name,
@@ -81,10 +86,7 @@ def get_keys(
     Key values are never returned.
     """
     records = list_api_keys(conn, current_user.id)
-    return [
-        KeySummary(key_name=r.key_name, created_at=r.created_at)
-        for r in records
-    ]
+    return [KeySummary(key_name=r.key_name, created_at=r.created_at) for r in records]
 
 
 @router.delete("/{key_name}", status_code=204)

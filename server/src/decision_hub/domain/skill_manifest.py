@@ -9,13 +9,13 @@ import re
 
 import yaml
 
+from decision_hub.models import EvalCase
 from dhub_core.manifest import (  # noqa: F401
     _NAME_PATTERN,
     parse_skill_md,
     split_frontmatter,
     validate_manifest,
 )
-from decision_hub.models import EvalCase
 
 
 def extract_body(content: str) -> str:
@@ -107,11 +107,13 @@ def parse_eval_cases_from_zip(skill_zip: bytes) -> tuple[EvalCase, ...]:
                 if not judge_criteria or not isinstance(judge_criteria, str):
                     raise ValueError(f"{name}: 'judge_criteria' is required and must be a string.")
 
-                cases.append(EvalCase(
-                    name=case_name,
-                    description=description,
-                    prompt=prompt,
-                    judge_criteria=judge_criteria,
-                ))
+                cases.append(
+                    EvalCase(
+                        name=case_name,
+                        description=description,
+                        prompt=prompt,
+                        judge_criteria=judge_criteria,
+                    )
+                )
 
     return tuple(cases)

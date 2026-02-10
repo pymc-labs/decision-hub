@@ -24,10 +24,14 @@ class TestCreateOrganisation:
         """Should create an org and register the caller as owner."""
         org_id = UUID("aaaaaaaa-0000-0000-0000-000000000001")
         mock_insert_org.return_value = Organization(
-            id=org_id, slug="my-org", owner_id=sample_user_id,
+            id=org_id,
+            slug="my-org",
+            owner_id=sample_user_id,
         )
         mock_insert_member.return_value = OrgMember(
-            org_id=org_id, user_id=sample_user_id, role="owner",
+            org_id=org_id,
+            user_id=sample_user_id,
+            role="owner",
         )
 
         resp = client.post(
@@ -72,7 +76,9 @@ class TestCreateOrganisation:
         from sqlalchemy.exc import IntegrityError
 
         mock_insert_org.side_effect = IntegrityError(
-            "duplicate key", params=None, orig=Exception(),
+            "duplicate key",
+            params=None,
+            orig=Exception(),
         )
 
         resp = client.post(

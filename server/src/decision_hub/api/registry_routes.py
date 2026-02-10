@@ -1,7 +1,7 @@
 """Skill registry routes -- publish, resolve, and delete."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
@@ -11,12 +11,10 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user, get_s3_client, get_settings
 from decision_hub.api.registry_service import (
-    extract_assessment_config,
     maybe_trigger_agent_assessment,
     parse_manifest_from_content,
     quarantine_rejected_skill,
     require_org_membership,
-    run_assessment_background,
     run_gauntlet_pipeline,
 )
 from decision_hub.domain.publish import (
@@ -29,16 +27,13 @@ from decision_hub.domain.search import format_trust_score
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
     delete_all_versions,
-    delete_skill as delete_skill_record,
     delete_version,
     fetch_all_skills_for_index,
     find_active_eval_runs_for_user,
     find_audit_logs,
     find_eval_report_by_skill,
-    find_eval_report_by_version,
     find_eval_run,
     find_eval_runs_for_version,
-    find_latest_eval_run_for_version,
     find_skill,
     find_version,
     increment_skill_downloads,
@@ -50,14 +45,19 @@ from decision_hub.infra.database import (
     update_eval_run_status,
     update_skill_description,
 )
+from decision_hub.infra.database import (
+    delete_skill as delete_skill_record,
+)
 from decision_hub.infra.storage import (
     compute_checksum,
     delete_skill_zip,
-    download_skill_zip as download_zip_from_s3,
     generate_presigned_url,
     list_eval_log_chunks,
     read_eval_log_chunk,
     upload_skill_zip,
+)
+from decision_hub.infra.storage import (
+    download_skill_zip as download_zip_from_s3,
 )
 from decision_hub.models import User
 from decision_hub.settings import Settings
@@ -70,8 +70,10 @@ public_router = APIRouter(prefix="/v1", tags=["registry"])
 # Request / response schemas
 # ---------------------------------------------------------------------------
 
+
 class PublishResponse(BaseModel):
     """Confirmation of a published skill version."""
+
     skill_id: str
     version_id: str
     version: str
@@ -84,6 +86,7 @@ class PublishResponse(BaseModel):
 
 class ResolveResponse(BaseModel):
     """Resolved skill version with a pre-signed download URL."""
+
     version: str
     download_url: str
     checksum: str
@@ -91,6 +94,7 @@ class ResolveResponse(BaseModel):
 
 class DeleteResponse(BaseModel):
     """Confirmation of a deleted skill version."""
+
     org_slug: str
     skill_name: str
     version: str
@@ -98,12 +102,14 @@ class DeleteResponse(BaseModel):
 
 class LatestVersionResponse(BaseModel):
     """Latest version of a skill."""
+
     version: str
     checksum: str
 
 
 class DeleteAllResponse(BaseModel):
     """Confirmation of deleting all versions of a skill."""
+
     org_slug: str
     skill_name: str
     versions_deleted: int
@@ -111,6 +117,7 @@ class DeleteAllResponse(BaseModel):
 
 class SkillSummary(BaseModel):
     """Summary of a published skill for the list endpoint."""
+
     org_slug: str
     skill_name: str
     description: str
@@ -124,6 +131,7 @@ class SkillSummary(BaseModel):
 
 class AuditLogResponse(BaseModel):
     """A single audit log entry."""
+
     id: str
     org_slug: str
     skill_name: str
@@ -139,6 +147,7 @@ class AuditLogResponse(BaseModel):
 
 class EvalCaseResultResponse(BaseModel):
     """A single eval case result."""
+
     name: str
     description: str
     verdict: str
@@ -152,6 +161,7 @@ class EvalCaseResultResponse(BaseModel):
 
 class EvalReportResponse(BaseModel):
     """Eval report for a skill version."""
+
     id: str
     version_id: str
     agent: str
@@ -167,6 +177,7 @@ class EvalReportResponse(BaseModel):
 
 class EvalRunResponse(BaseModel):
     """Eval run metadata."""
+
     id: str
     version_id: str
     agent: str
@@ -185,6 +196,7 @@ class EvalRunResponse(BaseModel):
 
 class EvalRunLogsResponse(BaseModel):
     """Paginated eval run log events."""
+
     events: list[dict]
     next_cursor: int
     run_status: str
@@ -199,6 +211,7 @@ _STALE_HEARTBEAT_SECONDS = 300
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 # Sync ``def`` so FastAPI runs it in a threadpool.  Using ``async def``
 # would block the event loop during synchronous DB/S3/gauntlet calls and
@@ -243,24 +256,35 @@ def publish_skill(
         skill_md_content, source_files, lockfile_content = extract_for_evaluation(file_bytes)
     except ValueError as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     runtime_config_dict, eval_config, eval_cases = parse_manifest_from_content(
-        skill_md_content, file_bytes,
+        skill_md_content,
+        file_bytes,
     )
 
     description = extract_description(skill_md_content)
     skill_md_body = extract_body(skill_md_content)
 
     report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
-        skill_md_content, lockfile_content, source_files,
-        skill_name, description, skill_md_body, settings,
+        skill_md_content,
+        lockfile_content,
+        source_files,
+        skill_name,
+        description,
+        skill_md_body,
+        settings,
     )
-    logger.info("Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed)
+    logger.info(
+        "Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed
+    )
 
     if not report.passed:
         quarantine_rejected_skill(
-            conn, s3_client, settings.s3_bucket, file_bytes,
+            conn,
+            s3_client,
+            settings.s3_bucket,
+            file_bytes,
             org_slug=org_slug,
             skill_name=skill_name,
             version=version,
@@ -328,7 +352,12 @@ def publish_skill(
 
     logger.info(
         "Published {}/{} v{} — version_id={} grade={} eval_run={}",
-        org_slug, skill_name, version, version_record.id, eval_status, eval_run_id,
+        org_slug,
+        skill_name,
+        version,
+        version_record.id,
+        eval_status,
+        eval_run_id,
     )
     return PublishResponse(
         skill_id=str(skill.id),
@@ -396,7 +425,11 @@ def resolve_skill(
     """Resolve a skill version and return a pre-signed download URL."""
     logger.debug("Resolving {}/{} spec={}", org_slug, skill_name, spec)
     version = resolve_version(
-        conn, org_slug, skill_name, spec, allow_risky=allow_risky,
+        conn,
+        org_slug,
+        skill_name,
+        spec,
+        allow_risky=allow_risky,
     )
     if version is None:
         raise HTTPException(
@@ -622,13 +655,14 @@ def _check_zombie(conn: Connection, run) -> str:
         return run.status
     if run.heartbeat_at is None:
         return run.status
-    elapsed = (datetime.now(timezone.utc) - run.heartbeat_at).total_seconds()
+    elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
     if elapsed > _STALE_HEARTBEAT_SECONDS:
         update_eval_run_status(
-            conn, run.id,
+            conn,
+            run.id,
             status="failed",
             error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
         return "failed"
     return run.status
@@ -671,13 +705,16 @@ def get_eval_run_logs(
     # (e.g. 50), not a chunk file sequence number (e.g. 3), so we can't use
     # it to filter S3 files. Instead, fetch all chunks and filter events in memory.
     chunks = list_eval_log_chunks(
-        s3_client, settings.s3_bucket, run.log_s3_prefix, after_seq=0,
+        s3_client,
+        settings.s3_bucket,
+        run.log_s3_prefix,
+        after_seq=0,
     )
 
     # Read and parse events from each chunk, filtering by cursor
     all_events: list[dict] = []
     max_seq = cursor
-    for chunk_seq, s3_key in chunks:
+    for _chunk_seq, s3_key in chunks:
         content = read_eval_log_chunk(s3_client, settings.s3_bucket, s3_key)
         for line in content.strip().split("\n"):
             if line.strip():

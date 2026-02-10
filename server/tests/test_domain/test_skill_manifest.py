@@ -27,7 +27,7 @@ class TestExtractDescription:
         assert extract_description(content) == "A skill that does many things"
 
     def test_handles_empty_description_value(self) -> None:
-        content = "---\nname: my-skill\ndescription: \"\"\n---\nBody\n"
+        content = '---\nname: my-skill\ndescription: ""\n---\nBody\n'
         assert extract_description(content) == ""
 
     def test_handles_horizontal_rule_in_body(self) -> None:

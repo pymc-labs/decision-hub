@@ -21,17 +21,15 @@ _LOGO_LINES = (
 
 # 80s neon gradient stops: hot pink → magenta → purple → electric blue → cyan
 _GRADIENT_STOPS: tuple[tuple[int, int, int], ...] = (
-    (255, 16, 120),   # hot pink
-    (255, 0, 210),    # magenta
-    (180, 0, 255),    # purple
-    (60, 80, 255),    # electric blue
-    (0, 220, 255),    # cyan
+    (255, 16, 120),  # hot pink
+    (255, 0, 210),  # magenta
+    (180, 0, 255),  # purple
+    (60, 80, 255),  # electric blue
+    (0, 220, 255),  # cyan
 )
 
 
-def _lerp_color(
-    c1: tuple[int, int, int], c2: tuple[int, int, int], t: float
-) -> str:
+def _lerp_color(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> str:
     """Linearly interpolate two RGB triples and return a hex color string."""
     r = int(c1[0] + (c2[0] - c1[0]) * t)
     g = int(c1[1] + (c2[1] - c1[1]) * t)
@@ -103,7 +101,7 @@ def check_and_show_update(console: Console) -> None:
                 Panel(
                     f"[bold]dhub update available![/bold] "
                     f"[dim]{current}[/dim] -> [bold cyan]{latest}[/bold cyan]\n"
-                    f'Update with [bold]pip install --upgrade dhub-cli[/bold]',
+                    f"Update with [bold]pip install --upgrade dhub-cli[/bold]",
                     border_style="cyan",
                 )
             )

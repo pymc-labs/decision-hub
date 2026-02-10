@@ -20,17 +20,30 @@ app = typer.Typer(
 @app.callback()
 def main(
     version: bool = typer.Option(
-        False, "--version", "-V", help="Show version and exit.",
-        callback=_version_callback, is_eager=True,
+        False,
+        "--version",
+        "-V",
+        help="Show version and exit.",
+        callback=_version_callback,
+        is_eager=True,
     ),
 ) -> None:
     """Decision Hub - The AI Skill Manager for Data Science Agents."""
+
 
 # Register top-level commands
 from dhub.cli.auth import login_command, logout_command  # noqa: E402
 from dhub.cli.env import env_command  # noqa: E402
 from dhub.cli.init import init_command  # noqa: E402
-from dhub.cli.registry import delete_command, eval_report_command, install_command, list_command, logs_command, publish_command, uninstall_command  # noqa: E402
+from dhub.cli.registry import (  # noqa: E402
+    delete_command,
+    eval_report_command,
+    install_command,
+    list_command,
+    logs_command,
+    publish_command,
+    uninstall_command,
+)
 from dhub.cli.runtime import run_command  # noqa: E402
 from dhub.cli.search import ask_command  # noqa: E402
 

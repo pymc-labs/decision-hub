@@ -29,18 +29,22 @@ def _build_frontmatter(
     ]
 
     if with_runtime:
-        lines.extend([
-            "runtime:",
-            "  language: python",
-            "  entrypoint: scripts/main.py",
-        ])
+        lines.extend(
+            [
+                "runtime:",
+                "  language: python",
+                "  entrypoint: scripts/main.py",
+            ]
+        )
 
     if with_evals:
-        lines.extend([
-            "evals:",
-            "  agent: claude",
-            "  judge_model: claude-sonnet-4-5-20250929",
-        ])
+        lines.extend(
+            [
+                "evals:",
+                "  agent: claude",
+                "  judge_model: claude-sonnet-4-5-20250929",
+            ]
+        )
 
     lines.append("---")
     return "\n".join(lines)
@@ -87,9 +91,7 @@ def init_skill(
 
 def main() -> int:
     """CLI entrypoint."""
-    parser = argparse.ArgumentParser(
-        description="Scaffold a new skill directory."
-    )
+    parser = argparse.ArgumentParser(description="Scaffold a new skill directory.")
     parser.add_argument(
         "skill_name",
         help="Skill name (lowercase alphanumeric + hyphens, 1-64 chars)",

@@ -48,17 +48,14 @@ def parse_skill_md(path: Path) -> SkillManifest:
         raise ValueError("Required field 'name' is missing.")
     if not isinstance(name, str) or not _NAME_PATTERN.match(name):
         raise ValueError(
-            f"Invalid name '{name}': must be 1-64 chars, lowercase "
-            "alphanumeric + hyphens, no leading/trailing hyphens."
+            f"Invalid name '{name}': must be 1-64 chars, lowercase alphanumeric + hyphens, no leading/trailing hyphens."
         )
 
     description = data.get("description")
     if not description:
         raise ValueError("Required field 'description' is missing.")
     if not isinstance(description, str) or len(description) > 1024:
-        raise ValueError(
-            "Description must be a string of 1-1024 characters."
-        )
+        raise ValueError("Description must be a string of 1-1024 characters.")
 
     # Optional scalar fields
     license_val = data.get("license")
@@ -85,9 +82,7 @@ def parse_skill_md(path: Path) -> SkillManifest:
 
     errors = validate_manifest(manifest)
     if errors:
-        raise ValueError(
-            "Manifest validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
-        )
+        raise ValueError("Manifest validation failed:\n" + "\n".join(f"  - {e}" for e in errors))
 
     return manifest
 
@@ -136,9 +131,7 @@ def split_frontmatter(content: str) -> tuple[str, str]:
         start += 1
 
     if start >= len(lines) or lines[start].strip() != "---":
-        raise ValueError(
-            "SKILL.md must start with --- to begin YAML frontmatter."
-        )
+        raise ValueError("SKILL.md must start with --- to begin YAML frontmatter.")
 
     # Find the closing --- delimiter (must be on its own line)
     close = None
@@ -148,9 +141,7 @@ def split_frontmatter(content: str) -> tuple[str, str]:
             break
 
     if close is None:
-        raise ValueError(
-            "SKILL.md must have closing --- delimiter after frontmatter."
-        )
+        raise ValueError("SKILL.md must have closing --- delimiter after frontmatter.")
 
     frontmatter_str = "\n".join(lines[start + 1 : close])
     body = "\n".join(lines[close + 1 :]).strip()

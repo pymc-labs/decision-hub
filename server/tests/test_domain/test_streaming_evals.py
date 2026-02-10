@@ -91,14 +91,16 @@ class TestStreamEvalPipeline:
         mock_stream_sandbox.side_effect = fake_stream
         mock_judge.return_value = {"verdict": "pass", "reasoning": "Good output"}
 
-        events = list(stream_eval_pipeline(
-            skill_zip=b"fake-zip",
-            eval_config=_make_config(),
-            eval_cases=_make_cases(),
-            agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
-            org_slug="test-org",
-            skill_name="test-skill",
-        ))
+        events = list(
+            stream_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_config(),
+                eval_cases=_make_cases(),
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+            )
+        )
 
         event_types = [e["type"] for e in events]
         assert event_types[0] == "setup"
@@ -126,14 +128,16 @@ class TestStreamEvalPipeline:
         mock_get_config.return_value = MagicMock(key_env_var="ANTHROPIC_API_KEY")
         mock_stream_sandbox.side_effect = RuntimeError("Container OOM")
 
-        events = list(stream_eval_pipeline(
-            skill_zip=b"fake-zip",
-            eval_config=_make_config(),
-            eval_cases=_make_cases(),
-            agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
-            org_slug="test-org",
-            skill_name="test-skill",
-        ))
+        events = list(
+            stream_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_config(),
+                eval_cases=_make_cases(),
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+            )
+        )
 
         case_results = [e for e in events if e["type"] == "case_result"]
         assert len(case_results) == 1
@@ -160,16 +164,18 @@ class TestStreamEvalPipeline:
         mock_stream_sandbox.side_effect = fake_stream
         mock_judge.return_value = {"verdict": "pass", "reasoning": "ok"}
 
-        events = list(stream_eval_pipeline(
-            skill_zip=b"fake-zip",
-            eval_config=_make_config(),
-            eval_cases=_make_cases(),
-            agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
-            org_slug="test-org",
-            skill_name="test-skill",
-        ))
+        events = list(
+            stream_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_config(),
+                eval_cases=_make_cases(),
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+            )
+        )
 
-        report = [e for e in events if e["type"] == "report"][0]
+        report = next(e for e in events if e["type"] == "report")
         assert report["passed"] == 1
         assert report["total"] == 1
         assert report["status"] == "completed"

@@ -27,9 +27,7 @@ class TestLoadConfig:
         monkeypatch.setenv("DHUB_ENV", "dev")
 
         config_path = tmp_path / "config.dev.json"
-        config_path.write_text(
-            json.dumps({"api_url": "https://example.com", "token": "tok123"})
-        )
+        config_path.write_text(json.dumps({"api_url": "https://example.com", "token": "tok123"}))
 
         config = load_config()
 
@@ -99,9 +97,7 @@ class TestSaveConfig:
         monkeypatch.setenv("DHUB_ENV", "dev")
 
         config_path = tmp_path / "config.dev.json"
-        config_path.write_text(
-            json.dumps({"api_url": "https://example.com", "token": "old-tok"})
-        )
+        config_path.write_text(json.dumps({"api_url": "https://example.com", "token": "old-tok"}))
 
         loaded = load_config()
 
@@ -149,11 +145,13 @@ class TestGetDefaultOrg:
 
         config_path = tmp_path / "config.dev.json"
         config_path.write_text(
-            json.dumps({
-                "api_url": "https://example.com",
-                "token": "tok",
-                "default_org": "config-org",
-            })
+            json.dumps(
+                {
+                    "api_url": "https://example.com",
+                    "token": "tok",
+                    "default_org": "config-org",
+                }
+            )
         )
 
         result = get_default_org()

@@ -14,6 +14,7 @@ router = APIRouter(prefix="/v1", tags=["search"])
 
 class SearchResponse(BaseModel):
     """Search results from LLM-powered skill discovery."""
+
     query: str
     results: str
 
@@ -56,7 +57,10 @@ def search_skills(
     # Search with Gemini
     gemini = create_gemini_client(settings.google_api_key)
     result_text = search_skills_with_llm(
-        gemini, q, index_content, settings.gemini_model,
+        gemini,
+        q,
+        index_content,
+        settings.gemini_model,
     )
 
     return SearchResponse(query=q, results=result_text)

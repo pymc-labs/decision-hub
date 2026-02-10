@@ -47,20 +47,11 @@ def search_skills_with_llm(
         "Order by relevance. If no skills match, say so clearly."
     )
 
-    user_message = (
-        f"User query: {query}\n\n"
-        f"Skill index:\n{index}"
-    )
+    user_message = f"User query: {query}\n\nSkill index:\n{index}"
 
     url = f"{client['base_url']}/{model}:generateContent"
     payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": f"{system_prompt}\n\n{user_message}"}
-                ]
-            }
-        ],
+        "contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}],
     }
 
     logger.debug("Gemini search query: '{}' model={}", query[:100], model)
@@ -150,8 +141,10 @@ def analyze_code_safety(
 
     candidates = data.get("candidates", [])
     if not candidates:
-        return [{"file": s["file"], "label": s["label"], "dangerous": True,
-                 "reason": "LLM returned no response"} for s in source_snippets]
+        return [
+            {"file": s["file"], "label": s["label"], "dangerous": True, "reason": "LLM returned no response"}
+            for s in source_snippets
+        ]
 
     text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
 
@@ -172,8 +165,10 @@ def analyze_code_safety(
 
     # Fallback: treat everything as dangerous if we can't parse the response
     logger.warning("Could not parse Gemini code safety response for '{}'", skill_name)
-    return [{"file": s["file"], "label": s["label"], "dangerous": True,
-             "reason": "Could not parse LLM response"} for s in source_snippets]
+    return [
+        {"file": s["file"], "label": s["label"], "dangerous": True, "reason": "Could not parse LLM response"}
+        for s in source_snippets
+    ]
 
 
 def analyze_prompt_safety(
@@ -245,8 +240,10 @@ def analyze_prompt_safety(
 
     candidates = data.get("candidates", [])
     if not candidates:
-        return [{"label": h["label"], "dangerous": True, "ambiguous": False,
-                 "reason": "LLM returned no response"} for h in prompt_hits]
+        return [
+            {"label": h["label"], "dangerous": True, "ambiguous": False, "reason": "LLM returned no response"}
+            for h in prompt_hits
+        ]
 
     text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
 
@@ -267,5 +264,7 @@ def analyze_prompt_safety(
 
     # Fallback: treat everything as dangerous if we can't parse
     logger.warning("Could not parse Gemini prompt safety response for '{}'", skill_name)
-    return [{"label": h["label"], "dangerous": True, "ambiguous": False,
-             "reason": "Could not parse LLM response"} for h in prompt_hits]
+    return [
+        {"label": h["label"], "dangerous": True, "ambiguous": False, "reason": "Could not parse LLM response"}
+        for h in prompt_hits
+    ]

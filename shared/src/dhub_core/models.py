@@ -10,6 +10,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SkillManifest:
     """Parsed SKILL.md content."""
+
     name: str
     description: str
     license: str | None
@@ -25,6 +26,7 @@ class SkillManifest:
 @dataclass(frozen=True)
 class DependencySpec:
     """Declared dependencies for a skill's runtime environment."""
+
     system: tuple[str, ...]
     package_manager: str
     packages: tuple[str, ...]
@@ -34,6 +36,7 @@ class DependencySpec:
 @dataclass(frozen=True)
 class RuntimeConfig:
     """Soft contract: what the skill needs to run."""
+
     language: str
     entrypoint: str
     version_hint: str | None = None
@@ -46,6 +49,7 @@ class RuntimeConfig:
 @dataclass(frozen=True)
 class EvalConfig:
     """Eval configuration from SKILL.md frontmatter."""
+
     agent: str
     judge_model: str
 
@@ -53,6 +57,7 @@ class EvalConfig:
 @dataclass(frozen=True)
 class AgentTestTarget:
     """Legacy testing target configuration."""
+
     name: str
     required_keys: tuple[str, ...]
 
@@ -60,6 +65,7 @@ class AgentTestTarget:
 @dataclass(frozen=True)
 class TestingConfig:
     """Legacy testing configuration from SKILL.md frontmatter."""
+
     __test__ = False  # prevent pytest from trying to collect this dataclass
     cases: str
     agents: tuple[AgentTestTarget, ...]

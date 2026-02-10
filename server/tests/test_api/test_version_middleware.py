@@ -2,7 +2,6 @@
 
 
 class TestVersionMiddleware:
-
     def test_old_version_returns_426(self, test_app, client):
         """Requests from outdated CLI versions get a 426 response."""
         test_app.state.settings.min_cli_version = "0.2.0"

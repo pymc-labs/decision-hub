@@ -6,6 +6,7 @@ the logic, making the business rules testable without HTTP mocking.
 """
 
 import tempfile
+from datetime import UTC
 from pathlib import Path
 from uuid import UUID
 
@@ -15,7 +16,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.domain.gauntlet import run_static_checks
 from decision_hub.domain.publish import build_quarantine_s3_key
-from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md
+from decision_hub.domain.skill_manifest import parse_skill_md
 from decision_hub.infra.database import (
     find_org_by_slug,
     find_org_member,
@@ -84,7 +85,7 @@ def parse_manifest_from_content(
         raise HTTPException(
             status_code=422,
             detail=f"SKILL.md manifest is malformed: {exc}",
-        )
+        ) from exc
     finally:
         tmp_path.unlink()
 
@@ -124,11 +125,7 @@ def run_gauntlet_pipeline(
         for r in report.results
     ]
 
-    llm_reasoning = {
-        r.check_name: r.details
-        for r in report.results
-        if r.details is not None
-    } or None
+    llm_reasoning = {r.check_name: r.details for r in report.results if r.details is not None} or None
 
     return report, check_results_dicts, llm_reasoning
 
@@ -154,7 +151,11 @@ def quarantine_rejected_skill(
     """
     logger.warning(
         "Quarantining {}/{} v{} — grade={} summary={}",
-        org_slug, skill_name, version, report.grade, report.summary,
+        org_slug,
+        skill_name,
+        version,
+        report.grade,
+        report.summary,
     )
     q_key = build_quarantine_s3_key(org_slug, skill_name, version)
 
@@ -278,7 +279,7 @@ def try_parse_assessment_cases(file_bytes: bytes):
         raise HTTPException(
             status_code=422,
             detail=f"Eval case files are malformed: {exc}",
-        )
+        ) from exc
 
 
 def maybe_trigger_agent_assessment(
@@ -310,14 +311,15 @@ def maybe_trigger_agent_assessment(
             detail="Assessment config declared in manifest but no case files found in assessments/",
         )
     if eval_config and eval_cases:
-        import modal
-
-        from decision_hub.infra.database import create_engine, insert_eval_run
-
         # Use a fresh connection — the caller's transaction is already closed
         # after the explicit conn.commit() that makes the version row visible.
         # Generate the run ID client-side so the S3 prefix is known before insert.
         from uuid import uuid4
+
+        import modal
+
+        from decision_hub.infra.database import create_engine, insert_eval_run
+
         run_uuid = uuid4()
         log_s3_prefix = f"eval-logs/{run_uuid}/"
 
@@ -337,7 +339,11 @@ def maybe_trigger_agent_assessment(
 
         logger.info(
             "Spawning eval task run_id={} agent={} cases={} for {}/{}",
-            eval_run.id, eval_config.agent, len(eval_cases), org_slug, skill_name,
+            eval_run.id,
+            eval_config.agent,
+            len(eval_cases),
+            org_slug,
+            skill_name,
         )
 
         # Serialize EvalCase dataclasses to dicts for Modal transport
@@ -410,10 +416,7 @@ def run_assessment_background(
         logger.info("Got {} API keys: {}", len(encrypted_keys), list(encrypted_keys.keys()))
 
         fernet = Fernet(settings.fernet_key.encode())
-        agent_env_vars = {
-            name: fernet.decrypt(value).decode()
-            for name, value in encrypted_keys.items()
-        }
+        agent_env_vars = {name: fernet.decrypt(value).decode() for name, value in encrypted_keys.items()}
 
         for key_name, key_value in agent_env_vars.items():
             validate_api_key(key_name, key_value)
@@ -436,7 +439,9 @@ def run_assessment_background(
 
             logger.info(
                 "Assessment phase 2: running streaming pipeline ({} cases) for {}/{}",
-                len(assessment_cases), org_slug, skill_name,
+                len(assessment_cases),
+                org_slug,
+                skill_name,
             )
             run_streaming_eval(
                 run_id=run_id,
@@ -460,7 +465,9 @@ def run_assessment_background(
 
             logger.info(
                 "Assessment phase 2: running batch pipeline ({} cases) for {}/{}",
-                len(assessment_cases), org_slug, skill_name,
+                len(assessment_cases),
+                org_slug,
+                skill_name,
             )
             case_results, passed, total, total_duration_ms = run_eval_pipeline(
                 skill_zip=skill_zip,
@@ -477,7 +484,9 @@ def run_assessment_background(
 
             logger.info(
                 "Assessment phase 3: storing results — {}/{} passed, status={}",
-                passed, total, status,
+                passed,
+                total,
+                status,
             )
             with engine.connect() as conn:
                 from decision_hub.infra.database import insert_eval_report
@@ -503,7 +512,7 @@ def run_assessment_background(
         # Update run row if using streaming pipeline
         if run_id is not None:
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime
 
                 from decision_hub.infra.database import create_engine as _ce
                 from decision_hub.infra.database import update_eval_run_status
@@ -511,10 +520,11 @@ def run_assessment_background(
                 err_engine = _ce(settings.database_url)
                 with err_engine.connect() as err_conn:
                     update_eval_run_status(
-                        err_conn, run_id,
+                        err_conn,
+                        run_id,
                         status="failed",
                         error_message=str(e),
-                        completed_at=datetime.now(timezone.utc),
+                        completed_at=datetime.now(UTC),
                     )
                     err_conn.commit()
             except Exception as inner:
@@ -542,7 +552,9 @@ def run_assessment_background(
                 err_conn.commit()
         except Exception as inner:
             logger.error(
-                "Failed to store error report for version {}: {}", version_id, inner,
+                "Failed to store error report for version {}: {}",
+                version_id,
+                inner,
             )
 
 

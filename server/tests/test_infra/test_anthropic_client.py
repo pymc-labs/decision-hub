@@ -39,13 +39,15 @@ class TestParseJudgeResponse:
 
 
 class TestJudgeEvalOutput:
-
     @respx.mock
     def test_successful_judge_call(self) -> None:
         route = respx.post("https://api.anthropic.com/v1/messages").mock(
-            return_value=httpx.Response(200, json={
-                "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "Good output"})}],
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "Good output"})}],
+                },
+            )
         )
 
         result = judge_eval_output(
@@ -71,9 +73,12 @@ class TestJudgeEvalOutput:
     @respx.mock
     def test_truncates_long_output(self) -> None:
         route = respx.post("https://api.anthropic.com/v1/messages").mock(
-            return_value=httpx.Response(200, json={
-                "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "ok"})}],
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "ok"})}],
+                },
+            )
         )
 
         long_output = "x" * 20000
@@ -95,9 +100,7 @@ class TestJudgeEvalOutput:
     @respx.mock
     def test_api_error_propagates(self) -> None:
         """httpx errors should propagate up."""
-        respx.post("https://api.anthropic.com/v1/messages").mock(
-            return_value=httpx.Response(500, text="Server Error")
-        )
+        respx.post("https://api.anthropic.com/v1/messages").mock(return_value=httpx.Response(500, text="Server Error"))
 
         with pytest.raises(httpx.HTTPStatusError):
             judge_eval_output(

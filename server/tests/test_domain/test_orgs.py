@@ -8,10 +8,10 @@ import pytest
 
 from decision_hub.domain.orgs import sync_user_orgs, validate_org_slug, validate_role
 
-
 # ---------------------------------------------------------------------------
 # validate_org_slug
 # ---------------------------------------------------------------------------
+
 
 class TestValidateOrgSlug:
     """Slug validation: lowercase alphanumeric + hyphens, 1-64 chars."""
@@ -19,12 +19,12 @@ class TestValidateOrgSlug:
     @pytest.mark.parametrize(
         "slug",
         [
-            "a",                    # single char
-            "my-org",               # typical slug
-            "org123",               # numbers allowed
-            "a" * 64,               # max length
-            "abc-def-ghi",          # multiple hyphens
-            "0-start-with-digit",   # digits at start
+            "a",  # single char
+            "my-org",  # typical slug
+            "org123",  # numbers allowed
+            "a" * 64,  # max length
+            "abc-def-ghi",  # multiple hyphens
+            "0-start-with-digit",  # digits at start
         ],
     )
     def test_valid_slugs(self, slug: str) -> None:
@@ -52,8 +52,8 @@ class TestValidateOrgSlug:
 # validate_role
 # ---------------------------------------------------------------------------
 
-class TestValidateRole:
 
+class TestValidateRole:
     @pytest.mark.parametrize("role", ["owner", "admin", "member"])
     def test_valid_roles(self, role: str) -> None:
         assert validate_role(role) == role
@@ -70,6 +70,7 @@ class TestValidateRole:
 # ---------------------------------------------------------------------------
 # sync_user_orgs
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class FakeOrg:
@@ -148,9 +149,7 @@ class TestSyncUserOrgs:
     @patch("decision_hub.infra.database.find_org_member")
     @patch("decision_hub.infra.database.insert_organization")
     @patch("decision_hub.infra.database.find_org_by_slug")
-    def test_creates_github_orgs(
-        self, mock_find_org, mock_insert_org, mock_find_member, mock_insert_member
-    ) -> None:
+    def test_creates_github_orgs(self, mock_find_org, mock_insert_org, mock_find_member, mock_insert_member) -> None:
         """Should create GitHub orgs and add user as member."""
         conn = MagicMock()
         user_id = uuid4()
@@ -203,10 +202,7 @@ class TestSyncUserOrgs:
 
         assert "pymc-labs" in result
         # Should add as "member" (not "owner") for an existing org
-        member_calls = [
-            c for c in mock_insert_member.call_args_list
-            if c[0][1] == existing_org.id
-        ]
+        member_calls = [c for c in mock_insert_member.call_args_list if c[0][1] == existing_org.id]
         assert any(c[0][3] == "member" for c in member_calls)
 
     @patch("decision_hub.infra.database.insert_org_member")
@@ -220,9 +216,7 @@ class TestSyncUserOrgs:
         conn = MagicMock()
         user_id = uuid4()
         existing_org = FakeOrg(id=uuid4(), slug="pymc-labs", owner_id=uuid4())
-        existing_member = FakeOrgMember(
-            org_id=existing_org.id, user_id=user_id, role="member"
-        )
+        existing_member = FakeOrgMember(org_id=existing_org.id, user_id=user_id, role="member")
 
         def find_org_side(c, slug):
             if slug == "pymc-labs":
@@ -243,19 +237,14 @@ class TestSyncUserOrgs:
 
         assert "pymc-labs" in result
         # Should NOT have inserted a new member for pymc-labs
-        pymc_inserts = [
-            c for c in mock_insert_member.call_args_list
-            if c[0][1] == existing_org.id
-        ]
+        pymc_inserts = [c for c in mock_insert_member.call_args_list if c[0][1] == existing_org.id]
         assert len(pymc_inserts) == 0
 
     @patch("decision_hub.infra.database.insert_org_member")
     @patch("decision_hub.infra.database.find_org_member")
     @patch("decision_hub.infra.database.insert_organization")
     @patch("decision_hub.infra.database.find_org_by_slug")
-    def test_skips_invalid_slugs(
-        self, mock_find_org, mock_insert_org, mock_find_member, mock_insert_member
-    ) -> None:
+    def test_skips_invalid_slugs(self, mock_find_org, mock_insert_org, mock_find_member, mock_insert_member) -> None:
         """Should skip org names that don't match slug validation."""
         conn = MagicMock()
         user_id = uuid4()
@@ -275,9 +264,7 @@ class TestSyncUserOrgs:
     @patch("decision_hub.infra.database.find_org_member")
     @patch("decision_hub.infra.database.insert_organization")
     @patch("decision_hub.infra.database.find_org_by_slug")
-    def test_returns_sorted_slugs(
-        self, mock_find_org, mock_insert_org, mock_find_member, mock_insert_member
-    ) -> None:
+    def test_returns_sorted_slugs(self, mock_find_org, mock_insert_org, mock_find_member, mock_insert_member) -> None:
         """Should return slugs sorted alphabetically."""
         conn = MagicMock()
         user_id = uuid4()

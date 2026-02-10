@@ -10,11 +10,11 @@ from fastapi.testclient import TestClient
 
 from decision_hub.api.search_routes import router as search_router
 
-
 # ---------------------------------------------------------------------------
 # Fixtures -- search routes need their own app since the shared conftest
 # test_app does not include the search_router.
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def search_settings() -> MagicMock:
@@ -45,6 +45,7 @@ def search_client(search_app: FastAPI) -> TestClient:
 # ---------------------------------------------------------------------------
 # GET /v1/search
 # ---------------------------------------------------------------------------
+
 
 class TestSearchSkills:
     """GET /v1/search?q=... -- LLM-powered skill discovery."""
@@ -86,15 +87,17 @@ class TestSearchSkills:
             },
         ]
 
-        gemini_answer = (
-            "1. acme/weather v1.0.0 [A] - Weather forecasting\n"
-            "2. acme/translate v2.1.0 [C] - Translation"
-        )
+        gemini_answer = "1. acme/weather v1.0.0 [A] - Weather forecasting\n2. acme/translate v2.1.0 [C] - Translation"
         gemini_route = respx.post(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-        ).mock(return_value=httpx.Response(200, json={
-            "candidates": [{"content": {"parts": [{"text": gemini_answer}]}}],
-        }))
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "candidates": [{"content": {"parts": [{"text": gemini_answer}]}}],
+                },
+            )
+        )
 
         resp = search_client.get("/v1/search", params={"q": "weather forecast"})
 
@@ -127,9 +130,9 @@ class TestSearchSkills:
                 "published_by": "alice",
             },
         ]
-        respx.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-        ).mock(return_value=httpx.Response(200, json={"candidates": []}))
+        respx.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent").mock(
+            return_value=httpx.Response(200, json={"candidates": []})
+        )
 
         resp = search_client.get("/v1/search", params={"q": "something obscure"})
 

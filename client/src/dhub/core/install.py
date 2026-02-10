@@ -8,7 +8,6 @@ import hashlib
 import shutil
 from pathlib import Path
 
-
 # Mapping of agent names to their skill directories
 AGENT_SKILL_PATHS: dict[str, Path] = {
     "claude": Path.home() / ".claude" / "skills",
@@ -36,9 +35,7 @@ def verify_checksum(data: bytes, expected: str) -> None:
     """
     actual = hashlib.sha256(data).hexdigest()
     if actual != expected:
-        raise ValueError(
-            f"Checksum mismatch: expected {expected}, got {actual}."
-        )
+        raise ValueError(f"Checksum mismatch: expected {expected}, got {actual}.")
 
 
 def get_dhub_skill_path(org: str, skill: str) -> Path:
@@ -78,15 +75,11 @@ def link_skill_to_agent(org: str, skill_name: str, agent: str) -> Path:
         FileNotFoundError: If the canonical skill directory does not exist.
     """
     if agent not in AGENT_SKILL_PATHS:
-        raise ValueError(
-            f"Unknown agent '{agent}'. Known agents: {', '.join(sorted(AGENT_SKILL_PATHS))}."
-        )
+        raise ValueError(f"Unknown agent '{agent}'. Known agents: {', '.join(sorted(AGENT_SKILL_PATHS))}.")
 
     canonical = get_dhub_skill_path(org, skill_name)
     if not canonical.exists():
-        raise FileNotFoundError(
-            f"Skill directory not found: {canonical}"
-        )
+        raise FileNotFoundError(f"Skill directory not found: {canonical}")
 
     agent_dir = AGENT_SKILL_PATHS[agent]
     agent_dir.mkdir(parents=True, exist_ok=True)
@@ -114,16 +107,12 @@ def unlink_skill_from_agent(org: str, skill_name: str, agent: str) -> None:
         FileNotFoundError: If no symlink exists for this skill/agent combination.
     """
     if agent not in AGENT_SKILL_PATHS:
-        raise ValueError(
-            f"Unknown agent '{agent}'. Known agents: {', '.join(sorted(AGENT_SKILL_PATHS))}."
-        )
+        raise ValueError(f"Unknown agent '{agent}'. Known agents: {', '.join(sorted(AGENT_SKILL_PATHS))}.")
 
     symlink_path = AGENT_SKILL_PATHS[agent] / skill_name
 
     if not symlink_path.is_symlink() and not symlink_path.exists():
-        raise FileNotFoundError(
-            f"No symlink found at {symlink_path}"
-        )
+        raise FileNotFoundError(f"No symlink found at {symlink_path}")
 
     symlink_path.unlink()
 

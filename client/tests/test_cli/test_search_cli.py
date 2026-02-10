@@ -15,8 +15,8 @@ runner = CliRunner()
 # ask_command tests
 # ---------------------------------------------------------------------------
 
-class TestAskCommand:
 
+class TestAskCommand:
     @respx.mock
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
@@ -26,10 +26,13 @@ class TestAskCommand:
         _mock_token,
     ) -> None:
         respx.get("http://test:8000/v1/search").mock(
-            return_value=httpx.Response(200, json={
-                "query": "analyze A/B test results",
-                "results": "Found 3 matching skills:\n- ab-test-analyzer\n- stats-runner\n- experiment-tools",
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "query": "analyze A/B test results",
+                    "results": "Found 3 matching skills:\n- ab-test-analyzer\n- stats-runner\n- experiment-tools",
+                },
+            )
         )
 
         result = runner.invoke(app, ["ask", "analyze A/B test results"])
@@ -46,9 +49,7 @@ class TestAskCommand:
         _mock_url,
         _mock_token,
     ) -> None:
-        respx.get("http://test:8000/v1/search").mock(
-            return_value=httpx.Response(503)
-        )
+        respx.get("http://test:8000/v1/search").mock(return_value=httpx.Response(503))
 
         result = runner.invoke(app, ["ask", "some query"])
 

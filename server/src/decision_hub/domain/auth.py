@@ -1,6 +1,6 @@
 """JWT token creation and decoding for authentication."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from jose import jwt
 
@@ -28,7 +28,7 @@ def create_jwt(
     Returns:
         Encoded JWT string.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": user_id,
         "username": username,

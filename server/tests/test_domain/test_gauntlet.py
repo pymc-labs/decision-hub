@@ -152,13 +152,13 @@ class TestCheckPromptSafety:
 
         def safe_analyze(hits, name, desc):
             return [
-                {"label": h["label"], "dangerous": False, "ambiguous": False,
-                 "reason": "legitimate in context"}
+                {"label": h["label"], "dangerous": False, "ambiguous": False, "reason": "legitimate in context"}
                 for h in hits
             ]
 
         result = check_prompt_safety(
-            body, skill_name="doc-writer",
+            body,
+            skill_name="doc-writer",
             skill_description="Documentation tool",
             analyze_prompt_fn=safe_analyze,
         )
@@ -171,13 +171,12 @@ class TestCheckPromptSafety:
 
         def ambiguous_analyze(hits, name, desc):
             return [
-                {"label": h["label"], "dangerous": False, "ambiguous": True,
-                 "reason": "unclear intent"}
-                for h in hits
+                {"label": h["label"], "dangerous": False, "ambiguous": True, "reason": "unclear intent"} for h in hits
             ]
 
         result = check_prompt_safety(
-            body, skill_name="test",
+            body,
+            skill_name="test",
             skill_description="test",
             analyze_prompt_fn=ambiguous_analyze,
         )
@@ -189,13 +188,13 @@ class TestCheckPromptSafety:
 
         def dangerous_analyze(hits, name, desc):
             return [
-                {"label": h["label"], "dangerous": True, "ambiguous": False,
-                 "reason": "injection attempt"}
+                {"label": h["label"], "dangerous": True, "ambiguous": False, "reason": "injection attempt"}
                 for h in hits
             ]
 
         result = check_prompt_safety(
-            body, skill_name="test",
+            body,
+            skill_name="test",
             skill_description="test",
             analyze_prompt_fn=dangerous_analyze,
         )
@@ -279,9 +278,7 @@ class TestComputeGrade:
         assert compute_grade(results, [], is_verified_org=True) == "C"
 
     def test_grade_f_failed(self):
-        results = (
-            EvalResult(check_name="manifest_schema", severity="fail", message="bad"),
-        )
+        results = (EvalResult(check_name="manifest_schema", severity="fail", message="bad"),)
         assert compute_grade(results, [], is_verified_org=True) == "F"
 
     def test_grade_f_takes_precedence_over_warn(self):
@@ -295,15 +292,17 @@ class TestComputeGrade:
 
 class TestParseTestCases:
     def test_parse_valid(self):
-        cases_json = json.dumps([
-            {
-                "prompt": "Hello",
-                "assertions": [
-                    {"type": "contains", "value": "world"},
-                    {"type": "exit_code", "value": 0},
-                ],
-            }
-        ])
+        cases_json = json.dumps(
+            [
+                {
+                    "prompt": "Hello",
+                    "assertions": [
+                        {"type": "contains", "value": "world"},
+                        {"type": "exit_code", "value": 0},
+                    ],
+                }
+            ]
+        )
         cases = parse_test_cases(cases_json)
         assert len(cases) == 1
         assert cases[0].prompt == "Hello"
@@ -323,7 +322,8 @@ class TestAssertionChecks:
 
     def test_contains_any_pass(self):
         assert evaluate_assertion(
-            "p-value is 0.03", 0,
+            "p-value is 0.03",
+            0,
             {"type": "contains_any", "values": ["p-value", "confidence"]},
         )
 
@@ -348,16 +348,24 @@ class TestAssertionChecks:
 
 class TestResultsAggregation:
     def test_all_pass(self):
-        cases = parse_test_cases(json.dumps([
-            {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
-        ]))
+        cases = parse_test_cases(
+            json.dumps(
+                [
+                    {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
+                ]
+            )
+        )
         result = evaluate_test_results(cases, [("output", 0)])
         assert result.passed is True
 
     def test_failure(self):
-        cases = parse_test_cases(json.dumps([
-            {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
-        ]))
+        cases = parse_test_cases(
+            json.dumps(
+                [
+                    {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
+                ]
+            )
+        )
         result = evaluate_test_results(cases, [("output", 1)])
         assert result.passed is False
 
@@ -367,13 +375,19 @@ class TestSafetyScanWithLlmJudge:
 
     def _make_analyze_fn(self, all_safe: bool):
         """Return a fake analyze_fn that marks everything as safe or dangerous."""
+
         def fake_analyze(snippets, name, desc):
             return [
-                {"file": s["file"], "label": s["label"],
-                 "dangerous": not all_safe, "ambiguous": False,
-                 "reason": "test reason"}
+                {
+                    "file": s["file"],
+                    "label": s["label"],
+                    "dangerous": not all_safe,
+                    "ambiguous": False,
+                    "reason": "test reason",
+                }
                 for s in snippets
             ]
+
         return fake_analyze
 
     def test_llm_approves_legitimate_subprocess(self):
@@ -406,6 +420,7 @@ class TestSafetyScanWithLlmJudge:
             ("pack.py", "subprocess.run(['zip'])\n"),
             ("main.py", 'api_key = "sk-1234567890abcdef"\n'),
         ]
+
         def mixed_analyze(snippets, name, desc):
             results = []
             for s in snippets:
@@ -430,9 +445,13 @@ class TestSafetyScanWithLlmJudge:
 
         def ambiguous_analyze(snippets, name, desc):
             return [
-                {"file": s["file"], "label": s["label"],
-                 "dangerous": False, "ambiguous": True,
-                 "reason": "unclear purpose"}
+                {
+                    "file": s["file"],
+                    "label": s["label"],
+                    "dangerous": False,
+                    "ambiguous": True,
+                    "reason": "unclear purpose",
+                }
                 for s in snippets
             ]
 
@@ -448,6 +467,7 @@ class TestSafetyScanWithLlmJudge:
     def test_no_hits_skips_llm(self):
         """When regex finds nothing, the LLM is never called."""
         called = []
+
         def should_not_be_called(snippets, name, desc):
             called.append(True)
             return []
@@ -492,11 +512,9 @@ class TestRunStaticChecks:
 
     def test_with_analyze_fn_passes_through(self):
         """run_static_checks forwards analyze_fn to check_safety_scan."""
+
         def approve_all(snippets, name, desc):
-            return [
-                {**s, "dangerous": False, "ambiguous": False, "reason": "approved"}
-                for s in snippets
-            ]
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "approved"} for s in snippets]
 
         report = run_static_checks(
             skill_md_content="---\nname: foo\ndescription: bar\n---\n",
@@ -510,11 +528,9 @@ class TestRunStaticChecks:
 
     def test_grade_b_elevated_permissions(self):
         """Skills with subprocess usage but LLM-approved get grade B."""
+
         def approve_all(snippets, name, desc):
-            return [
-                {**s, "dangerous": False, "ambiguous": False, "reason": "approved"}
-                for s in snippets
-            ]
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "approved"} for s in snippets]
 
         report = run_static_checks(
             skill_md_content="---\nname: foo\ndescription: bar\n---\n",
@@ -529,12 +545,9 @@ class TestRunStaticChecks:
 
     def test_grade_c_ambiguous_prompt(self):
         """Ambiguous prompt patterns result in grade C."""
+
         def ambiguous_prompt(hits, name, desc):
-            return [
-                {"label": h["label"], "dangerous": False, "ambiguous": True,
-                 "reason": "unclear"}
-                for h in hits
-            ]
+            return [{"label": h["label"], "dangerous": False, "ambiguous": True, "reason": "unclear"} for h in hits]
 
         report = run_static_checks(
             skill_md_content="---\nname: foo\ndescription: bar\n---\n",

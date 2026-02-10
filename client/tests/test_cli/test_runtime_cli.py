@@ -60,8 +60,8 @@ def _setup_skill_dir(
 # run_command tests
 # ---------------------------------------------------------------------------
 
-class TestRunCommand:
 
+class TestRunCommand:
     @patch("dhub.core.install.get_dhub_skill_path")
     def test_run_missing_skill(
         self,
@@ -90,9 +90,7 @@ class TestRunCommand:
         tmp_path: Path,
     ) -> None:
         """run should fail if SKILL.md has no runtime block."""
-        skill_dir = _setup_skill_dir(
-            tmp_path, "myorg", "my-skill", _SKILL_MD_WITHOUT_RUNTIME
-        )
+        skill_dir = _setup_skill_dir(tmp_path, "myorg", "my-skill", _SKILL_MD_WITHOUT_RUNTIME)
         mock_skill_path.return_value = skill_dir
 
         result = runner.invoke(app, ["run", "myorg/my-skill"])
@@ -125,8 +123,12 @@ runtime:
 System prompt body here.
 """
         skill_dir = _setup_skill_dir(
-            tmp_path, "myorg", "my-skill", unsupported_md,
-            create_entrypoint=True, create_lockfile=True,
+            tmp_path,
+            "myorg",
+            "my-skill",
+            unsupported_md,
+            create_entrypoint=True,
+            create_lockfile=True,
         )
         mock_skill_path.return_value = skill_dir
 
@@ -147,8 +149,12 @@ System prompt body here.
     ) -> None:
         """run should sync deps and execute the entrypoint on success."""
         skill_dir = _setup_skill_dir(
-            tmp_path, "myorg", "my-skill", _SKILL_MD_WITH_RUNTIME,
-            create_entrypoint=True, create_lockfile=True,
+            tmp_path,
+            "myorg",
+            "my-skill",
+            _SKILL_MD_WITH_RUNTIME,
+            create_entrypoint=True,
+            create_lockfile=True,
         )
         mock_skill_path.return_value = skill_dir
 

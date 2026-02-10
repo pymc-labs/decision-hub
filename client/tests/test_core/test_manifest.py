@@ -8,8 +8,7 @@ from dhub.core.manifest import (
     parse_skill_md,
     validate_manifest,
 )
-from dhub.models import DependencySpec, RuntimeConfig, SkillManifest, TestingConfig
-
+from dhub.models import DependencySpec, RuntimeConfig, SkillManifest
 
 VALID_SKILL_MD = """\
 ---
@@ -181,7 +180,7 @@ description: "{long_desc}"
 Body text.
 """
         path = _write_skill_md(tmp_path, content)
-        with pytest.raises(ValueError, match="[Dd]escription"):
+        with pytest.raises(ValueError, match=r"[Dd]escription"):
             parse_skill_md(path)
 
     def test_missing_frontmatter_delimiters_raises(self, tmp_path: Path) -> None:
@@ -208,7 +207,7 @@ description: Has an empty body.
 ---
 """
         path = _write_skill_md(tmp_path, content)
-        with pytest.raises(ValueError, match="[Bb]ody"):
+        with pytest.raises(ValueError, match=r"[Bb]ody"):
             parse_skill_md(path)
 
     def test_runtime_missing_driver_raises(self, tmp_path: Path) -> None:

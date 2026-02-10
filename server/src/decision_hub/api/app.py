@@ -64,22 +64,26 @@ class CLIVersionMiddleware:
         # Only enforce version check for CLI requests (those sending the header).
         # Browser / frontend requests don't send the header and should pass through.
         if client_ver and _parse_semver(client_ver) < self._min_parsed:
-            body = _json.dumps({
-                "detail": (
-                    f"Your CLI version ({client_ver or 'unknown'}) is below the "
-                    f"minimum required ({self.min_version}). "
-                    "Run 'uv tool install --upgrade dhub-cli' or "
-                    "'pip install --upgrade dhub-cli' to update."
-                ),
-            }).encode()
-            await send({
-                "type": "http.response.start",
-                "status": 426,
-                "headers": [
-                    [b"content-type", b"application/json"],
-                    [b"content-length", str(len(body)).encode()],
-                ],
-            })
+            body = _json.dumps(
+                {
+                    "detail": (
+                        f"Your CLI version ({client_ver or 'unknown'}) is below the "
+                        f"minimum required ({self.min_version}). "
+                        "Run 'uv tool install --upgrade dhub-cli' or "
+                        "'pip install --upgrade dhub-cli' to update."
+                    ),
+                }
+            ).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 426,
+                    "headers": [
+                        [b"content-type", b"application/json"],
+                        [b"content-length", str(len(body)).encode()],
+                    ],
+                }
+            )
             await send({"type": "http.response.body", "body": body})
             return
 

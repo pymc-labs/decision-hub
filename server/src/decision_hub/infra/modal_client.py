@@ -6,11 +6,11 @@ skill tests inside Modal sandboxes with injected API keys.
 
 import shlex
 from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 
 from decision_hub.models import AgentSandboxConfig
-
 
 # ---------------------------------------------------------------------------
 # Agent configurations
@@ -50,15 +50,13 @@ def get_agent_config(agent_name: str) -> AgentSandboxConfig:
     config = AGENT_CONFIGS.get(agent_name)
     if config is None:
         supported = ", ".join(sorted(AGENT_CONFIGS))
-        raise ValueError(
-            f"Unknown agent '{agent_name}'. Supported agents: {supported}"
-        )
+        raise ValueError(f"Unknown agent '{agent_name}'. Supported agents: {supported}")
     return config
 
 
 # Lightweight validation endpoints per provider.
 # Each maps key_env_var -> (url, headers_builder, method).
-_KEY_VALIDATION = {
+_KEY_VALIDATION: dict[str, dict[str, Any]] = {
     "ANTHROPIC_API_KEY": {
         "url": "https://api.anthropic.com/v1/models",
         "headers": lambda key: {
@@ -89,9 +87,7 @@ def validate_api_key(key_env_var: str, key_value: str) -> None:
 
     if resp.status_code == 401:
         raise ValueError(
-            f"{key_env_var} is invalid (HTTP 401). "
-            f"The stored key may be expired or revoked. "
-            f"Update it and retry."
+            f"{key_env_var} is invalid (HTTP 401). The stored key may be expired or revoked. Update it and retry."
         )
 
 
@@ -112,7 +108,10 @@ def _extract_skill_body(skill_zip: bytes) -> str:
 
 
 def _write_claude_md_from_skill_zip(
-    sb, skill_zip: bytes, home_dir: str, skill_path: str,
+    sb,
+    skill_zip: bytes,
+    home_dir: str,
+    skill_path: str,
 ) -> None:
     """Write the SKILL.md body as CLAUDE.md in the sandbox project root.
 
@@ -143,10 +142,10 @@ def _write_claude_md_from_skill_zip(
 
     b64_body = base64.b64encode(full_body.encode()).decode()
     _run_in_sandbox(
-        sb, "python3", "-c",
-        f"import base64; "
-        f"open('{home_dir}/CLAUDE.md', 'w').write("
-        f"base64.b64decode('{b64_body}').decode())",
+        sb,
+        "python3",
+        "-c",
+        f"import base64; open('{home_dir}/CLAUDE.md', 'w').write(base64.b64decode('{b64_body}').decode())",
     )
     logger.debug("Wrote CLAUDE.md ({} chars)", len(full_body))
 
@@ -184,9 +183,11 @@ def build_eval_image(config: AgentSandboxConfig):
 # Sandbox helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SandboxResult:
     """Result from running test cases in a sandbox."""
+
     outputs: tuple[tuple[str, int], ...]  # (stdout, exit_code) per case
 
 
@@ -195,7 +196,7 @@ def build_agent_run_command(
     prompt: str,
 ) -> list[str]:
     """Build the command to invoke an agent with a test prompt."""
-    return list(agent_config.run_cmd) + [prompt]
+    return [*list(agent_config.run_cmd), prompt]
 
 
 def _run_in_sandbox(sb, *args: str):
@@ -211,8 +212,11 @@ def _run_in_sandbox(sb, *args: str):
 
 
 def _run_agent_in_sandbox(
-    sb, shell_cmd: str, skill_path: str = "",
-    poll_interval: int = 5, max_wait: int = 840,
+    sb,
+    shell_cmd: str,
+    skill_path: str = "",
+    poll_interval: int = 5,
+    max_wait: int = 840,
 ) -> tuple[str, str, int, int]:
     """Run an agent command as the sandbox user with file-based I/O capture.
 
@@ -243,23 +247,23 @@ def _run_agent_in_sandbox(
     # The agent command is written to a separate inner script to avoid
     # nested shell quoting issues with su -c. This prevents prompt content
     # containing quotes from breaking out of the shell command.
-    inner_script = (
-        f"#!/bin/bash\n"
-        f"{path_prefix}cd $HOME && {shell_cmd}\n"
-    )
-    launch_script = (
-        f"#!/bin/bash\n"
-        f"su -m sandbox /tmp/run_inner.sh > {out_file} 2> {err_file}\n"
-        f"echo $? > {rc_file}\n"
-    )
+    inner_script = f"#!/bin/bash\n{path_prefix}cd $HOME && {shell_cmd}\n"
+    launch_script = f"#!/bin/bash\nsu -m sandbox /tmp/run_inner.sh > {out_file} 2> {err_file}\necho $? > {rc_file}\n"
     # Write the inner script (agent command) and outer script (su wrapper).
     # Using quoted heredoc (<<'EOF') prevents shell expansion of script contents.
-    _run_in_sandbox(sb, "bash", "-c", f"cat > /tmp/run_inner.sh << 'INNER_EOF'\n{inner_script}INNER_EOF\nchmod +x /tmp/run_inner.sh")
-    _run_in_sandbox(sb, "bash", "-c", f"cat > /tmp/run_agent.sh << 'SCRIPT_EOF'\n{launch_script}SCRIPT_EOF\nchmod +x /tmp/run_agent.sh")
+    _run_in_sandbox(
+        sb, "bash", "-c", f"cat > /tmp/run_inner.sh << 'INNER_EOF'\n{inner_script}INNER_EOF\nchmod +x /tmp/run_inner.sh"
+    )
+    _run_in_sandbox(
+        sb,
+        "bash",
+        "-c",
+        f"cat > /tmp/run_agent.sh << 'SCRIPT_EOF'\n{launch_script}SCRIPT_EOF\nchmod +x /tmp/run_agent.sh",
+    )
     _run_in_sandbox(sb, "bash", "-c", f"nohup /tmp/run_agent.sh &\necho $! > {pid_file}")
 
     start = time.monotonic()
-    elapsed = 0
+    elapsed = 0.0
 
     while elapsed < max_wait:
         time.sleep(poll_interval)
@@ -267,7 +271,10 @@ def _run_agent_in_sandbox(
 
         # Check if the exit code file exists (process finished)
         check_stdout, _ = _run_in_sandbox(
-            sb, "bash", "-c", f"cat {rc_file} 2>/dev/null || echo RUNNING",
+            sb,
+            "bash",
+            "-c",
+            f"cat {rc_file} 2>/dev/null || echo RUNNING",
         )
         status = check_stdout.strip()
         if status != "RUNNING":
@@ -276,7 +283,9 @@ def _run_agent_in_sandbox(
         # Timed out waiting for agent
         logger.warning("Agent timed out after {}s, killing", max_wait)
         _run_in_sandbox(
-            sb, "bash", "-c",
+            sb,
+            "bash",
+            "-c",
             f"kill $(cat {pid_file} 2>/dev/null) 2>/dev/null; echo 137 > {rc_file}",
         )
 
@@ -324,6 +333,7 @@ def run_skill_tests_in_sandbox(
         SandboxResult with outputs for each test case.
     """
     import base64
+
     import modal
 
     image = build_eval_image(agent_config)
@@ -349,7 +359,8 @@ def run_skill_tests_in_sandbox(
     b64_zip = base64.b64encode(skill_zip).decode()
     _run_in_sandbox(
         sb,
-        "python3", "-c",
+        "python3",
+        "-c",
         f"import base64,zipfile,io; "
         f"data=base64.b64decode('{b64_zip}'); "
         f"zipfile.ZipFile(io.BytesIO(data)).extractall('{skill_path}')",
@@ -358,7 +369,8 @@ def run_skill_tests_in_sandbox(
     # Install Python deps if pyproject.toml exists
     _run_in_sandbox(
         sb,
-        "python3", "-c",
+        "python3",
+        "-c",
         f"import os,subprocess; "
         f"os.path.isfile('{skill_path}/pyproject.toml') and "
         f"subprocess.run(['uv','sync','--directory','{skill_path}'])",
@@ -388,6 +400,7 @@ def _create_skill_sandbox(
         A tuple of (sandbox, skill_path) ready for running commands.
     """
     import base64
+
     import modal
 
     logger.info("Building sandbox image for agent={}", agent_config.npm_package)
@@ -446,9 +459,10 @@ def _create_skill_sandbox(
 
     # Verify the venv was actually created and has a python binary
     verify_stdout, _ = _run_in_sandbox(
-        sb, "bash", "-c",
-        f"ls -la {skill_path}/.venv/bin/python 2>&1 && "
-        f"{skill_path}/.venv/bin/python --version 2>&1",
+        sb,
+        "bash",
+        "-c",
+        f"ls -la {skill_path}/.venv/bin/python 2>&1 && {skill_path}/.venv/bin/python --version 2>&1",
     )
     logger.debug("Venv check: {}", verify_stdout.strip())
 
@@ -457,11 +471,15 @@ def _create_skill_sandbox(
     _write_claude_md_from_skill_zip(sb, skill_zip, home_dir, skill_path)
 
     # Initialize a git repo so Claude Code recognizes the project root
-    _run_in_sandbox(sb, "bash", "-c",
+    _run_in_sandbox(
+        sb,
+        "bash",
+        "-c",
         f"cd {home_dir} && git init -q "
         f"&& git config user.email 'eval@decision-hub' "
         f"&& git config user.name 'eval' "
-        f"&& git add -A && git commit -q -m init")
+        f"&& git add -A && git commit -q -m init",
+    )
 
     # Make everything owned by sandbox user so agent runs as non-root
     _run_in_sandbox(sb, "chown", "-R", "sandbox:sandbox", home_dir)
@@ -563,9 +581,7 @@ def stream_eval_case_in_sandbox(
     import base64
     import time
 
-    sb, skill_path = _create_skill_sandbox(
-        skill_zip, agent_config, agent_env_vars, org_slug, skill_name
-    )
+    sb, skill_path = _create_skill_sandbox(skill_zip, agent_config, agent_env_vars, org_slug, skill_name)
 
     try:
         # Launch agent (same approach as _run_agent_in_sandbox)
@@ -582,17 +598,22 @@ def stream_eval_case_in_sandbox(
         if skill_path:
             path_prefix = f"export PATH={skill_path}/.venv/bin:$PATH && "
 
-        inner_script = (
-            f"#!/bin/bash\n"
-            f"{path_prefix}cd $HOME && {shell_cmd}\n"
-        )
+        inner_script = f"#!/bin/bash\n{path_prefix}cd $HOME && {shell_cmd}\n"
         launch_script = (
-            f"#!/bin/bash\n"
-            f"su -m sandbox /tmp/run_inner.sh > {out_file} 2> {err_file}\n"
-            f"echo $? > {rc_file}\n"
+            f"#!/bin/bash\nsu -m sandbox /tmp/run_inner.sh > {out_file} 2> {err_file}\necho $? > {rc_file}\n"
         )
-        _run_in_sandbox(sb, "bash", "-c", f"cat > /tmp/run_inner.sh << 'INNER_EOF'\n{inner_script}INNER_EOF\nchmod +x /tmp/run_inner.sh")
-        _run_in_sandbox(sb, "bash", "-c", f"cat > /tmp/run_agent.sh << 'SCRIPT_EOF'\n{launch_script}SCRIPT_EOF\nchmod +x /tmp/run_agent.sh")
+        _run_in_sandbox(
+            sb,
+            "bash",
+            "-c",
+            f"cat > /tmp/run_inner.sh << 'INNER_EOF'\n{inner_script}INNER_EOF\nchmod +x /tmp/run_inner.sh",
+        )
+        _run_in_sandbox(
+            sb,
+            "bash",
+            "-c",
+            f"cat > /tmp/run_agent.sh << 'SCRIPT_EOF'\n{launch_script}SCRIPT_EOF\nchmod +x /tmp/run_agent.sh",
+        )
         _run_in_sandbox(sb, "bash", "-c", f"nohup /tmp/run_agent.sh &\necho $! > {pid_file}")
 
         start = time.monotonic()
@@ -658,11 +679,8 @@ def run_eval_case_in_sandbox(
     Returns:
         Tuple of (stdout, stderr, exit_code, duration_ms).
     """
-    import time
 
-    sb, skill_path = _create_skill_sandbox(
-        skill_zip, agent_config, agent_env_vars, org_slug, skill_name
-    )
+    sb, skill_path = _create_skill_sandbox(skill_zip, agent_config, agent_env_vars, org_slug, skill_name)
 
     try:
         # Run the prompt through the agent as non-root 'sandbox' user.
@@ -672,11 +690,15 @@ def run_eval_case_in_sandbox(
         logger.info("Running agent as sandbox user: {} (prompt_len={})", cmd[0], len(prompt))
 
         stdout, stderr, exit_code, duration_ms = _run_agent_in_sandbox(
-            sb, shell_cmd, skill_path=skill_path,
+            sb,
+            shell_cmd,
+            skill_path=skill_path,
         )
         logger.info(
             "Agent finished: exit={} duration={}ms stdout_len={}",
-            exit_code, duration_ms, len(stdout),
+            exit_code,
+            duration_ms,
+            len(stdout),
         )
 
         return stdout, stderr, exit_code, duration_ms

@@ -13,7 +13,6 @@ from collections.abc import Callable
 
 from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCase
 
-
 # ---------------------------------------------------------------------------
 # Static analysis checks
 # ---------------------------------------------------------------------------
@@ -44,19 +43,28 @@ _PROMPT_INJECTION_PATTERNS: tuple[tuple[str, str], ...] = (
 # Permission categories that elevate a skill from A to B
 _ELEVATED_PERMISSION_PATTERNS: dict[str, list[str]] = {
     "shell": [
-        r"\bsubprocess\b", r"\bos\.system\b", r"\bos\.popen\b",
-        r"\bshell\b", r"\bbash\b",
+        r"\bsubprocess\b",
+        r"\bos\.system\b",
+        r"\bos\.popen\b",
+        r"\bshell\b",
+        r"\bbash\b",
     ],
     "network": [
-        r"\bhttpx\b", r"\brequests\b", r"\burllib\b",
-        r"\bsocket\b", r"\baiohttp\b",
+        r"\bhttpx\b",
+        r"\brequests\b",
+        r"\burllib\b",
+        r"\bsocket\b",
+        r"\baiohttp\b",
     ],
     "fs_write": [
         r"\bopen\s*\(.*['\"]w",
-        r"\bshutil\b", r"\bos\.remove\b", r"\bos\.unlink\b",
+        r"\bshutil\b",
+        r"\bos\.remove\b",
+        r"\bos\.unlink\b",
     ],
     "env_var": [
-        r"\bos\.environ\b", r"\bos\.getenv\b",
+        r"\bos\.environ\b",
+        r"\bos\.getenv\b",
     ],
 }
 
@@ -185,11 +193,13 @@ def _find_suspicious_lines(
         for line in content.splitlines():
             for pattern, label in _SUSPICIOUS_PATTERNS:
                 if re.search(pattern, line):
-                    hits.append({
-                        "file": filename,
-                        "label": label,
-                        "line": line.strip()[:200],
-                    })
+                    hits.append(
+                        {
+                            "file": filename,
+                            "label": label,
+                            "line": line.strip()[:200],
+                        }
+                    )
     return hits
 
 
@@ -224,10 +234,7 @@ def check_safety_scan(
         acknowledged = [j for j in judgments if not j.get("dangerous", True) and not j.get("ambiguous", False)]
 
         if dangerous:
-            danger_summary = "; ".join(
-                f"{d['file']}: {d['label']} ({d.get('reason', 'flagged')})"
-                for d in dangerous
-            )
+            danger_summary = "; ".join(f"{d['file']}: {d['label']} ({d.get('reason', 'flagged')})" for d in dangerous)
             return EvalResult(
                 check_name="safety_scan",
                 severity="fail",
@@ -236,10 +243,7 @@ def check_safety_scan(
             )
 
         if ambiguous:
-            amb_summary = "; ".join(
-                f"{a['file']}: {a['label']} ({a.get('reason', 'unclear')})"
-                for a in ambiguous
-            )
+            amb_summary = "; ".join(f"{a['file']}: {a['label']} ({a.get('reason', 'unclear')})" for a in ambiguous)
             return EvalResult(
                 check_name="safety_scan",
                 severity="warn",
@@ -248,8 +252,7 @@ def check_safety_scan(
             )
 
         ack_summary = "; ".join(
-            f"{a['file']}: {a['label']} (ok: {a.get('reason', 'legitimate')})"
-            for a in acknowledged
+            f"{a['file']}: {a['label']} (ok: {a.get('reason', 'legitimate')})" for a in acknowledged
         )
         return EvalResult(
             check_name="safety_scan",
@@ -277,11 +280,13 @@ def _find_prompt_injection_hits(body: str) -> list[dict]:
         for pattern, label in _PROMPT_INJECTION_PATTERNS:
             match = re.search(pattern, line)
             if match:
-                hits.append({
-                    "pattern": pattern,
-                    "label": label,
-                    "context": line.strip()[:200],
-                })
+                hits.append(
+                    {
+                        "pattern": pattern,
+                        "label": label,
+                        "context": line.strip()[:200],
+                    }
+                )
     return hits
 
 
@@ -312,10 +317,7 @@ def check_prompt_safety(
         ambiguous = [j for j in judgments if j.get("ambiguous", False) and not j.get("dangerous", True)]
 
         if dangerous:
-            danger_summary = "; ".join(
-                f"{d['label']} ({d.get('reason', 'flagged')})"
-                for d in dangerous
-            )
+            danger_summary = "; ".join(f"{d['label']} ({d.get('reason', 'flagged')})" for d in dangerous)
             return EvalResult(
                 check_name="prompt_safety",
                 severity="fail",
@@ -324,10 +326,7 @@ def check_prompt_safety(
             )
 
         if ambiguous:
-            amb_summary = "; ".join(
-                f"{a['label']} ({a.get('reason', 'unclear')})"
-                for a in ambiguous
-            )
+            amb_summary = "; ".join(f"{a['label']} ({a.get('reason', 'unclear')})" for a in ambiguous)
             return EvalResult(
                 check_name="prompt_safety",
                 severity="warn",
@@ -466,12 +465,10 @@ def evaluate_test_results(
     """
     failures: list[str] = []
 
-    for i, (case, (output, exit_code)) in enumerate(zip(cases, outputs)):
+    for i, (case, (output, exit_code)) in enumerate(zip(cases, outputs, strict=True)):
         for assertion in case.assertions:
             if not evaluate_assertion(output, exit_code, assertion):
-                failures.append(
-                    f"Case {i + 1}: {assertion['type']} assertion failed"
-                )
+                failures.append(f"Case {i + 1}: {assertion['type']} assertion failed")
 
     if not failures:
         return EvalResult(
@@ -517,30 +514,37 @@ def run_static_checks(
     if lockfile_content is not None:
         results.append(check_dependency_audit(lockfile_content))
 
-    results.append(check_safety_scan(
-        source_files,
-        skill_name=skill_name,
-        skill_description=skill_description,
-        analyze_fn=analyze_fn,
-    ))
+    results.append(
+        check_safety_scan(
+            source_files,
+            skill_name=skill_name,
+            skill_description=skill_description,
+            analyze_fn=analyze_fn,
+        )
+    )
 
     # Prompt injection scan (only if body is provided)
     if skill_md_body:
-        results.append(check_prompt_safety(
-            skill_md_body,
-            skill_name=skill_name,
-            skill_description=skill_description,
-            analyze_prompt_fn=analyze_prompt_fn,
-        ))
+        results.append(
+            check_prompt_safety(
+                skill_md_body,
+                skill_name=skill_name,
+                skill_description=skill_description,
+                analyze_prompt_fn=analyze_prompt_fn,
+            )
+        )
 
     elevated = detect_elevated_permissions(source_files, allowed_tools)
     result_tuple = tuple(results)
     grade = compute_grade(result_tuple, elevated, is_verified_org)
 
     from loguru import logger
+
     logger.info(
         "Gauntlet grading: elevated={} is_verified={} grade={} source_files={}",
-        elevated, is_verified_org, grade,
+        elevated,
+        is_verified_org,
+        grade,
         [name for name, _ in source_files],
     )
 

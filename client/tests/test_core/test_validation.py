@@ -10,7 +10,6 @@ from dhub.core.validation import (
 
 
 class TestValidateSemver:
-
     @pytest.mark.parametrize(
         "version",
         [
@@ -44,7 +43,6 @@ class TestValidateSemver:
 
 
 class TestBumpVersion:
-
     @pytest.mark.parametrize(
         "current,bump,expected",
         [
@@ -76,7 +74,6 @@ class TestBumpVersion:
 
 
 class TestValidateSkillName:
-
     @pytest.mark.parametrize(
         "name",
         [

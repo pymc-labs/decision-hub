@@ -12,13 +12,12 @@ from decision_hub.domain.publish import (
     validate_skill_name,
 )
 
-
 # ---------------------------------------------------------------------------
 # validate_semver
 # ---------------------------------------------------------------------------
 
-class TestValidateSemver:
 
+class TestValidateSemver:
     @pytest.mark.parametrize(
         "version",
         [
@@ -55,8 +54,8 @@ class TestValidateSemver:
 # build_s3_key
 # ---------------------------------------------------------------------------
 
-class TestBuildS3Key:
 
+class TestBuildS3Key:
     def test_format(self) -> None:
         key = build_s3_key("my-org", "my-skill", "1.2.3")
         assert key == "skills/my-org/my-skill/1.2.3.zip"
@@ -70,8 +69,8 @@ class TestBuildS3Key:
 # validate_skill_name
 # ---------------------------------------------------------------------------
 
-class TestValidateSkillName:
 
+class TestValidateSkillName:
     @pytest.mark.parametrize(
         "name",
         [
@@ -117,7 +116,6 @@ def _make_zip(**files: str) -> bytes:
 
 
 class TestExtractForEvaluation:
-
     def test_rejects_oversized_file_in_zip(self) -> None:
         """A file whose uncompressed size exceeds the limit should raise ValueError."""
         from decision_hub.domain.publish import _MAX_FILE_SIZE
@@ -162,14 +160,12 @@ class TestExtractForEvaluation:
 
     def test_raises_on_missing_skill_md(self) -> None:
         zip_bytes = _make_zip(**{"main.py": "pass"})
-        with pytest.raises(ValueError, match="SKILL.md"):
+        with pytest.raises(ValueError, match=r"SKILL\.md"):
             extract_for_evaluation(zip_bytes)
 
     def test_nested_skill_md(self) -> None:
         """SKILL.md in a subdirectory should still be found."""
-        zip_bytes = _make_zip(
-            **{"subdir/SKILL.md": "---\nname: nested\ndescription: d\n---\n"}
-        )
+        zip_bytes = _make_zip(**{"subdir/SKILL.md": "---\nname: nested\ndescription: d\n---\n"})
         skill_md, sources, lockfile = extract_for_evaluation(zip_bytes)
         assert "name: nested" in skill_md
         assert sources == []
@@ -182,7 +178,7 @@ class TestExtractForEvaluation:
             zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
             zf.writestr("subdir/", "")  # directory entry
         zip_bytes = buf.getvalue()
-        skill_md, sources, lockfile = extract_for_evaluation(zip_bytes)
+        skill_md, sources, _lockfile = extract_for_evaluation(zip_bytes)
         assert skill_md
         assert sources == []
 

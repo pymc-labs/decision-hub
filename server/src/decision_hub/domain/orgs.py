@@ -47,9 +47,7 @@ def validate_role(role: str) -> str:
         ValueError: If the role is not in VALID_ROLES.
     """
     if role not in VALID_ROLES:
-        raise ValueError(
-            f"Invalid role '{role}': must be one of {VALID_ROLES}."
-        )
+        raise ValueError(f"Invalid role '{role}': must be one of {VALID_ROLES}.")
     return role
 
 
@@ -86,10 +84,17 @@ def sync_user_orgs(
 
     # Always sync personal namespace first
     all_slugs: list[str] = []
-    _ensure_org_membership(conn, user_id, username.lower(), "owner",
-                           find_org_by_slug, insert_organization,
-                           find_org_member, insert_org_member,
-                           is_personal=True)
+    _ensure_org_membership(
+        conn,
+        user_id,
+        username.lower(),
+        "owner",
+        find_org_by_slug,
+        insert_organization,
+        find_org_member,
+        insert_org_member,
+        is_personal=True,
+    )
     all_slugs.append(username.lower())
 
     for login in github_org_logins:
@@ -104,10 +109,17 @@ def sync_user_orgs(
         if slug == username.lower():
             continue
 
-        _ensure_org_membership(conn, user_id, slug, "member",
-                               find_org_by_slug, insert_organization,
-                               find_org_member, insert_org_member,
-                               is_personal=False)
+        _ensure_org_membership(
+            conn,
+            user_id,
+            slug,
+            "member",
+            find_org_by_slug,
+            insert_organization,
+            find_org_member,
+            insert_org_member,
+            is_personal=False,
+        )
         all_slugs.append(slug)
 
     return sorted(set(all_slugs))
@@ -137,5 +149,3 @@ def _ensure_org_membership(
     member = find_member_fn(conn, org.id, user_id)
     if member is None:
         insert_member_fn(conn, org.id, user_id, default_role)
-
-

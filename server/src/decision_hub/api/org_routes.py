@@ -22,19 +22,23 @@ org_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
 # Request / response schemas
 # ---------------------------------------------------------------------------
 
+
 class CreateOrgRequest(BaseModel):
     """Payload to create a new organisation."""
+
     slug: str
 
 
 class CreateOrgResponse(BaseModel):
     """Confirmation of a newly-created organisation."""
+
     id: str
     slug: str
 
 
 class OrgSummary(BaseModel):
     """Summary of an organisation for listing."""
+
     id: str
     slug: str
 
@@ -42,6 +46,7 @@ class OrgSummary(BaseModel):
 # ---------------------------------------------------------------------------
 # Organisation endpoints
 # ---------------------------------------------------------------------------
+
 
 @org_router.post("", response_model=CreateOrgResponse, status_code=201)
 def create_organisation(
@@ -53,7 +58,7 @@ def create_organisation(
     try:
         validate_org_slug(body.slug)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         org = insert_organization(conn, body.slug, current_user.id)
@@ -63,7 +68,7 @@ def create_organisation(
         raise HTTPException(
             status_code=409,
             detail=f"Organisation '{body.slug}' already exists",
-        )
+        ) from None
 
     return CreateOrgResponse(id=str(org.id), slug=org.slug)
 

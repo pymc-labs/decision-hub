@@ -60,9 +60,7 @@ async def request_device_code(client_id: str) -> DeviceCodeResponse:
     )
 
 
-async def poll_for_access_token(
-    client_id: str, device_code: str, interval: int = 5
-) -> str:
+async def poll_for_access_token(client_id: str, device_code: str, interval: int = 5) -> str:
     """Check GitHub once for an access token.
 
     Makes a single request to the GitHub token endpoint. The client is
@@ -101,17 +99,14 @@ async def poll_for_access_token(
     if error in ("authorization_pending", "slow_down"):
         raise AuthorizationPending()
     if error == "expired_token":
-        raise RuntimeError(
-            "Device code expired. Please restart the login flow."
-        )
+        raise RuntimeError("Device code expired. Please restart the login flow.")
     if error == "access_denied":
         logger.warning("User denied authorization request")
         raise RuntimeError("User denied the authorization request.")
 
     logger.warning("Unexpected device flow error: {} - {}", error, data.get("error_description", ""))
     raise RuntimeError(
-        f"Unexpected error during device flow polling: {error} - "
-        f"{data.get('error_description', 'no description')}"
+        f"Unexpected error during device flow polling: {error} - {data.get('error_description', 'no description')}"
     )
 
 

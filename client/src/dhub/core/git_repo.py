@@ -15,9 +15,7 @@ def looks_like_git_url(value: str) -> bool:
     """Return True if *value* looks like a git-cloneable URL rather than a local path or org/skill ref."""
     if any(value.startswith(prefix) for prefix in _GIT_URL_PREFIXES):
         return True
-    if value.endswith(".git"):
-        return True
-    return False
+    return bool(value.endswith(".git"))
 
 
 def clone_repo(repo_url: str, ref: str | None = None) -> Path:
@@ -41,9 +39,7 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}"
-        )
+        raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
 
     return tmp_dir / "repo"
 

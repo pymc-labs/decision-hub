@@ -27,12 +27,15 @@ class TestLoginCommand:
         runner = CliRunner()
 
         respx.post("http://test:8000/auth/github/code").mock(
-            return_value=httpx.Response(200, json={
-                "device_code": "dev-123",
-                "user_code": "ABCD-EFGH",
-                "verification_uri": "https://github.com/login/device",
-                "interval": 5,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "device_code": "dev-123",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://github.com/login/device",
+                    "interval": 5,
+                },
+            )
         )
 
         mock_poll.return_value = {
@@ -65,12 +68,15 @@ class TestLoginCommand:
         runner = CliRunner()
 
         respx.post("http://localhost:8000/auth/github/code").mock(
-            return_value=httpx.Response(200, json={
-                "device_code": "dev-456",
-                "user_code": "WXYZ-1234",
-                "verification_uri": "https://github.com/login/device",
-                "interval": 5,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "device_code": "dev-456",
+                    "user_code": "WXYZ-1234",
+                    "verification_uri": "https://github.com/login/device",
+                    "interval": 5,
+                },
+            )
         )
 
         mock_poll.return_value = {
@@ -78,9 +84,7 @@ class TestLoginCommand:
             "username": "customuser",
         }
 
-        result = runner.invoke(
-            app, ["login", "--api-url", "http://localhost:8000"]
-        )
+        result = runner.invoke(app, ["login", "--api-url", "http://localhost:8000"])
 
         assert result.exit_code == 0
 

@@ -9,15 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from decision_hub.domain.skill_manifest import parse_skill_md
-from decision_hub.domain.publish import build_s3_key
 from decision_hub.domain.gauntlet import (
     check_manifest_schema,
     check_safety_scan,
     run_static_checks,
 )
+from decision_hub.domain.publish import build_s3_key
 from decision_hub.domain.search import build_index_entry
-
+from decision_hub.domain.skill_manifest import parse_skill_md
 
 DOCX_SKILL_PATH = Path.home() / ".claude" / "skills" / "docx"
 
@@ -63,12 +62,9 @@ class TestStaticAnalysis:
     def test_llm_judge_approves_docx_subprocess(self) -> None:
         """When an LLM judge recognises subprocess as legitimate for a
         document processing skill, the safety scan should pass."""
+
         def approve_all(snippets, name, desc):
-            return [
-                {**s, "dangerous": False,
-                 "reason": f"Legitimate for {name}: {desc[:40]}"}
-                for s in snippets
-            ]
+            return [{**s, "dangerous": False, "reason": f"Legitimate for {name}: {desc[:40]}"} for s in snippets]
 
         source_files = _collect_python_sources()
         result = check_safety_scan(
@@ -82,16 +78,16 @@ class TestStaticAnalysis:
 
     def test_run_static_checks_with_llm_passes(self) -> None:
         """Full Gauntlet with an LLM judge should pass the docx skill."""
+
         def approve_all(snippets, name, desc):
-            return [
-                {**s, "dangerous": False, "reason": "legitimate"}
-                for s in snippets
-            ]
+            return [{**s, "dangerous": False, "reason": "legitimate"} for s in snippets]
 
         skill_md_content = (DOCX_SKILL_PATH / "SKILL.md").read_text()
         source_files = _collect_python_sources()
         report = run_static_checks(
-            skill_md_content, None, source_files,
+            skill_md_content,
+            None,
+            source_files,
             skill_name="docx",
             skill_description="Document creation and editing",
             analyze_fn=approve_all,

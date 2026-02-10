@@ -56,10 +56,7 @@ export default function AnimatedTerminal() {
   // Drive the line-by-line reveal
   useEffect(() => {
     if (!hasStarted || isComplete) return;
-    if (visibleLines >= SCRIPT.length) {
-      setIsComplete(true);
-      return;
-    }
+    if (visibleLines >= SCRIPT.length) return;
 
     const currentLine = SCRIPT[visibleLines];
     const prevDelay = visibleLines > 0 ? SCRIPT[visibleLines - 1].delay : 0;
@@ -67,12 +64,15 @@ export default function AnimatedTerminal() {
 
     const timer = setTimeout(() => {
       if (currentLine.typewriter) {
-        // Start typewriter for this line
         setTypedChars(0);
-        setVisibleLines((v) => v + 1);
-      } else {
-        setVisibleLines((v) => v + 1);
       }
+      setVisibleLines((v) => {
+        const next = v + 1;
+        if (next >= SCRIPT.length) {
+          setIsComplete(true);
+        }
+        return next;
+      });
     }, Math.max(wait, 50));
 
     return () => clearTimeout(timer);

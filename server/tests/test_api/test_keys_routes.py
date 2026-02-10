@@ -1,6 +1,6 @@
 """Tests for decision_hub.api.keys_routes -- API key management endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
@@ -21,7 +21,7 @@ class TestStoreKey:
         sample_user_id: UUID,
     ) -> None:
         """Storing a key should return the key name and creation timestamp."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_insert.return_value = UserApiKey(
             id=UUID("cccccccc-0000-0000-0000-000000000001"),
             user_id=sample_user_id,
@@ -62,7 +62,7 @@ class TestListKeys:
         sample_user_id: UUID,
     ) -> None:
         """Should return a list of key summaries (no values)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_list.return_value = [
             UserApiKey(
                 id=UUID("cccccccc-0000-0000-0000-000000000001"),

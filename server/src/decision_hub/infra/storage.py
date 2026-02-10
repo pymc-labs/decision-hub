@@ -12,9 +12,7 @@ from botocore.client import BaseClient
 from loguru import logger
 
 
-def create_s3_client(
-    region: str, access_key_id: str, secret_access_key: str
-) -> BaseClient:
+def create_s3_client(region: str, access_key_id: str, secret_access_key: str) -> BaseClient:
     """Create an S3 client with explicit credentials.
 
     Args:
@@ -33,9 +31,7 @@ def create_s3_client(
     )
 
 
-def upload_skill_zip(
-    client: BaseClient, bucket: str, s3_key: str, data: bytes
-) -> None:
+def upload_skill_zip(client: BaseClient, bucket: str, s3_key: str, data: bytes) -> None:
     """Upload a skill zip file to S3.
 
     Args:

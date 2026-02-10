@@ -9,9 +9,7 @@ console = Console()
 
 
 def init_command(
-    path: Path = typer.Argument(
-        None, help="Directory to create the skill in (default: current dir)"
-    ),
+    path: Path = typer.Argument(None, help="Directory to create the skill in (default: current dir)"),
 ) -> None:
     """Scaffold a new skill project with SKILL.md and src/ directory."""
     if path is None:
@@ -43,7 +41,7 @@ def init_command(
     skill_md.write_text(
         f"---\n"
         f"name: {name}\n"
-        f"description: \"{description}\"\n"
+        f'description: "{description}"\n'
         f"---\n"
         f"\n"
         f"# {name}\n"
@@ -52,6 +50,6 @@ def init_command(
     )
 
     console.print(f"[green]Created skill project at {skill_dir.resolve()}[/]")
-    console.print(f"  SKILL.md")
-    console.print(f"  src/")
-    console.print(f"\nEdit [cyan]SKILL.md[/] to define your skill's behavior.")
+    console.print("  SKILL.md")
+    console.print("  src/")
+    console.print("\nEdit [cyan]SKILL.md[/] to define your skill's behavior.")

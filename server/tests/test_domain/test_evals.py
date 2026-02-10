@@ -28,7 +28,6 @@ def _make_eval_cases() -> tuple[EvalCase, ...]:
 
 
 class TestRunEvalPipeline:
-
     @patch("decision_hub.domain.evals.judge_eval_output")
     @patch("decision_hub.domain.evals.run_eval_case_in_sandbox")
     @patch("decision_hub.domain.evals.get_agent_config")

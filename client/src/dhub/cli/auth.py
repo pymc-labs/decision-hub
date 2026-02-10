@@ -35,8 +35,7 @@ def login_command(
     # Step 2: Show the user code and URL
     console.print(
         Panel(
-            f"Open [bold blue]{verification_uri}[/] and enter code: "
-            f"[bold green]{user_code}[/]",
+            f"Open [bold blue]{verification_uri}[/] and enter code: [bold green]{user_code}[/]",
             title="GitHub Login",
         )
     )
@@ -87,10 +86,7 @@ def _prompt_default_org(orgs: tuple[str, ...]) -> str | None:
         return orgs[0] if orgs else None
 
     console.print("\nYou belong to multiple namespaces.")
-    choices = list(orgs) + ["(none)"]
-    choice = console.input(
-        f"Set a default namespace for publishing? [{'/'.join(orgs)}/(none)]: "
-    ).strip().lower()
+    choice = console.input(f"Set a default namespace for publishing? [{'/'.join(orgs)}/(none)]: ").strip().lower()
 
     if choice in orgs:
         return choice

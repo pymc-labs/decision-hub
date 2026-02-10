@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import httpx
-import pytest
 import respx
 from fastapi.testclient import TestClient
 
@@ -21,12 +20,15 @@ class TestStartDeviceFlow:
     ) -> None:
         """Should return user_code, verification_uri, device_code, interval."""
         route = respx.post("https://github.com/login/device/code").mock(
-            return_value=httpx.Response(200, json={
-                "device_code": "dev-code-abc",
-                "user_code": "ABCD-1234",
-                "verification_uri": "https://github.com/login/device",
-                "interval": 5,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "device_code": "dev-code-abc",
+                    "user_code": "ABCD-1234",
+                    "verification_uri": "https://github.com/login/device",
+                    "interval": 5,
+                },
+            )
         )
 
         resp = client.post("/auth/github/code")
@@ -147,9 +149,7 @@ class TestExchangeToken:
         respx.get("https://api.github.com/user").mock(
             return_value=httpx.Response(200, json={"id": 42, "login": "alice"})
         )
-        respx.get("https://api.github.com/orgs/pymc-labs/members/alice").mock(
-            return_value=httpx.Response(204)
-        )
+        respx.get("https://api.github.com/orgs/pymc-labs/members/alice").mock(return_value=httpx.Response(204))
         respx.get("https://api.github.com/user/orgs?per_page=100").mock(
             return_value=httpx.Response(200, json=[{"login": "pymc-labs"}])
         )
@@ -270,9 +270,7 @@ class TestExchangeToken:
         respx.post("https://github.com/login/oauth/access_token").mock(
             return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
         )
-        respx.get("https://api.github.com/user").mock(
-            return_value=httpx.Response(500, text="Internal Server Error")
-        )
+        respx.get("https://api.github.com/user").mock(return_value=httpx.Response(500, text="Internal Server Error"))
 
         resp = client.post(
             "/auth/github/token",

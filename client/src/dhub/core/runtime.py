@@ -11,9 +11,7 @@ from pathlib import Path
 from dhub.models import RuntimeConfig
 
 
-def validate_local_runtime_prerequisites(
-    skill_dir: Path, config: RuntimeConfig
-) -> list[str]:
+def validate_local_runtime_prerequisites(skill_dir: Path, config: RuntimeConfig) -> list[str]:
     """Check that all prerequisites for local runtime are met.
 
     Returns a list of error messages. An empty list means all prerequisites
@@ -22,24 +20,17 @@ def validate_local_runtime_prerequisites(
     errors: list[str] = []
 
     if shutil.which("uv") is None:
-        errors.append(
-            "'uv' is not installed or not on PATH. "
-            "Install it from https://docs.astral.sh/uv/"
-        )
+        errors.append("'uv' is not installed or not on PATH. Install it from https://docs.astral.sh/uv/")
 
     lockfile = config.dependencies.lockfile if config.dependencies else None
     if lockfile:
         lockfile_path = skill_dir / lockfile
         if not lockfile_path.exists():
-            errors.append(
-                f"Lockfile not found: {lockfile_path}"
-            )
+            errors.append(f"Lockfile not found: {lockfile_path}")
 
     entrypoint_path = skill_dir / config.entrypoint
     if not entrypoint_path.exists():
-        errors.append(
-            f"Entrypoint not found: {entrypoint_path}"
-        )
+        errors.append(f"Entrypoint not found: {entrypoint_path}")
 
     return errors
 
@@ -79,8 +70,6 @@ def build_env_vars(
 
     missing = [var for var in config.env if var not in env]
     if missing:
-        raise ValueError(
-            f"Missing required environment variables: {', '.join(missing)}"
-        )
+        raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
     return env

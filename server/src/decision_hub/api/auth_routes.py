@@ -1,4 +1,4 @@
-"""Authentication routes – GitHub Device Flow login."""
+"""Authentication routes - GitHub Device Flow login."""
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,9 +14,11 @@ from decision_hub.infra.github import (
     AuthorizationPending,
     check_org_membership,
     get_github_user,
-    list_user_orgs as github_list_user_orgs,
     poll_for_access_token,
     request_device_code,
+)
+from decision_hub.infra.github import (
+    list_user_orgs as github_list_user_orgs,
 )
 from decision_hub.settings import Settings
 
@@ -27,8 +29,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Request / response schemas
 # ---------------------------------------------------------------------------
 
+
 class DeviceCodeResponseSchema(BaseModel):
     """Values the client needs to display to the user for device-flow login."""
+
     user_code: str
     verification_uri: str
     device_code: str
@@ -37,11 +41,13 @@ class DeviceCodeResponseSchema(BaseModel):
 
 class TokenRequest(BaseModel):
     """Client submits the device_code to poll for a completed GitHub login."""
+
     device_code: str
 
 
 class TokenResponse(BaseModel):
     """JWT token returned after successful authentication."""
+
     access_token: str
     token_type: str = "bearer"
     username: str
@@ -51,6 +57,7 @@ class TokenResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post("/github/code", response_model=DeviceCodeResponseSchema)
 async def start_device_flow(
@@ -85,16 +92,16 @@ async def exchange_token(
         gh_token = await poll_for_access_token(settings.github_client_id, body.device_code)
         gh_user = await get_github_user(gh_token)
     except AuthorizationPending:
-        raise HTTPException(status_code=428, detail="authorization_pending")
+        raise HTTPException(status_code=428, detail="authorization_pending") from None
     except httpx.HTTPStatusError as exc:
         logger.warning("GitHub API returned {}: {}", exc.response.status_code, exc)
         raise HTTPException(
             status_code=502,
             detail=f"GitHub API error: {exc.response.status_code}",
-        )
+        ) from exc
     except RuntimeError as exc:
         logger.warning("GitHub device flow error: {}", exc)
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     allowed_orgs = settings.required_github_orgs
     if allowed_orgs:
@@ -108,10 +115,7 @@ async def exchange_token(
             logger.warning("User {} denied access — not in required orgs {}", username, allowed_orgs)
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    f"Access restricted to members of: "
-                    f"{', '.join(allowed_orgs)}"
-                ),
+                detail=(f"Access restricted to members of: {', '.join(allowed_orgs)}"),
             )
 
     username = gh_user["login"]

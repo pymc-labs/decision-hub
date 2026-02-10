@@ -55,9 +55,7 @@ class TestListUserOrgs:
             return_value=httpx.Response(
                 200,
                 json=[{"login": "org-a"}],
-                headers={
-                    "Link": '<https://api.github.com/user/orgs?per_page=100&page=2>; rel="next"'
-                },
+                headers={"Link": '<https://api.github.com/user/orgs?per_page=100&page=2>; rel="next"'},
             )
         )
         respx.get("https://api.github.com/user/orgs?per_page=100&page=2").mock(
@@ -75,9 +73,7 @@ class TestListUserOrgs:
     @respx.mock
     @pytest.mark.asyncio
     async def test_empty_orgs(self) -> None:
-        respx.get("https://api.github.com/user/orgs?per_page=100").mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        respx.get("https://api.github.com/user/orgs?per_page=100").mock(return_value=httpx.Response(200, json=[]))
 
         result = await list_user_orgs("gh-token-abc")
 

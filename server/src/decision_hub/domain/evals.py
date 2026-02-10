@@ -11,8 +11,8 @@ Two pipelines:
 import json
 import re
 import time
-from datetime import datetime, timezone
-from typing import Generator
+from collections.abc import Generator
+from datetime import UTC, datetime
 from uuid import UUID
 
 from loguru import logger
@@ -51,7 +51,7 @@ def _make_event(seq: int, event_type: str, **kwargs) -> dict:
     event = {
         "seq": seq,
         "type": event_type,
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         **kwargs,
     }
     # Redact and truncate content fields
@@ -122,35 +122,41 @@ def run_eval_pipeline(
             )
         except Exception as e:
             logger.error("Sandbox error for case '{}': {}", case.name, e)
-            case_results.append({
-                "name": case.name,
-                "description": case.description,
-                "verdict": "error",
-                "reasoning": f"Sandbox error: {e}",
-                "agent_output": "",
-                "agent_stderr": "",
-                "exit_code": -1,
-                "duration_ms": 0,
-                "stage": "sandbox",
-            })
+            case_results.append(
+                {
+                    "name": case.name,
+                    "description": case.description,
+                    "verdict": "error",
+                    "reasoning": f"Sandbox error: {e}",
+                    "agent_output": "",
+                    "agent_stderr": "",
+                    "exit_code": -1,
+                    "duration_ms": 0,
+                    "stage": "sandbox",
+                }
+            )
             continue
 
         total_duration_ms += duration_ms
-        logger.debug("Case '{}': exit_code={} duration={}ms stdout_len={}", case.name, exit_code, duration_ms, len(stdout))
+        logger.debug(
+            "Case '{}': exit_code={} duration={}ms stdout_len={}", case.name, exit_code, duration_ms, len(stdout)
+        )
 
         # Stage 2: Check exit code — non-zero means agent failed
         if exit_code != 0:
-            case_results.append({
-                "name": case.name,
-                "description": case.description,
-                "verdict": "error",
-                "reasoning": f"Agent exited with code {exit_code}: {stderr}",
-                "agent_output": stdout,
-                "agent_stderr": stderr,
-                "exit_code": exit_code,
-                "duration_ms": duration_ms,
-                "stage": "agent",
-            })
+            case_results.append(
+                {
+                    "name": case.name,
+                    "description": case.description,
+                    "verdict": "error",
+                    "reasoning": f"Agent exited with code {exit_code}: {stderr}",
+                    "agent_output": stdout,
+                    "agent_stderr": stderr,
+                    "exit_code": exit_code,
+                    "duration_ms": duration_ms,
+                    "stage": "agent",
+                }
+            )
             continue
 
         # Stage 3: Judge the output with LLM
@@ -175,17 +181,19 @@ def run_eval_pipeline(
         if verdict == "pass":
             passed += 1
 
-        case_results.append({
-            "name": case.name,
-            "description": case.description,
-            "verdict": verdict,
-            "reasoning": reasoning,
-            "agent_output": stdout,
-            "agent_stderr": stderr,
-            "exit_code": exit_code,
-            "duration_ms": duration_ms,
-            "stage": stage,
-        })
+        case_results.append(
+            {
+                "name": case.name,
+                "description": case.description,
+                "verdict": verdict,
+                "reasoning": reasoning,
+                "agent_output": stdout,
+                "agent_stderr": stderr,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+                "stage": stage,
+            }
+        )
 
     return case_results, passed, len(eval_cases), total_duration_ms
 
@@ -218,12 +226,15 @@ def stream_eval_pipeline(
     total_duration_ms = 0
 
     seq += 1
-    yield _make_event(seq, "setup", content=f"Starting assessment: {len(eval_cases)} case(s), agent={eval_config.agent}")
+    yield _make_event(
+        seq, "setup", content=f"Starting assessment: {len(eval_cases)} case(s), agent={eval_config.agent}"
+    )
 
     for case_idx, case in enumerate(eval_cases):
         seq += 1
         yield _make_event(
-            seq, "case_start",
+            seq,
+            "case_start",
             case_index=case_idx,
             case_name=case.name,
             total_cases=len(eval_cases),
@@ -250,7 +261,8 @@ def stream_eval_pipeline(
                     output_event = next(gen)
                     seq += 1
                     yield _make_event(
-                        seq, "log",
+                        seq,
+                        "log",
                         stream=output_event["stream"],
                         case_index=case_idx,
                         content=output_event["content"],
@@ -260,20 +272,23 @@ def stream_eval_pipeline(
                 if stop.value is not None:
                     stdout, stderr, exit_code, duration_ms = stop.value
         except Exception as e:
-            case_results.append({
-                "name": case.name,
-                "description": case.description,
-                "verdict": "error",
-                "reasoning": f"Sandbox error: {e}",
-                "agent_output": "",
-                "agent_stderr": "",
-                "exit_code": -1,
-                "duration_ms": 0,
-                "stage": "sandbox",
-            })
+            case_results.append(
+                {
+                    "name": case.name,
+                    "description": case.description,
+                    "verdict": "error",
+                    "reasoning": f"Sandbox error: {e}",
+                    "agent_output": "",
+                    "agent_stderr": "",
+                    "exit_code": -1,
+                    "duration_ms": 0,
+                    "stage": "sandbox",
+                }
+            )
             seq += 1
             yield _make_event(
-                seq, "case_result",
+                seq,
+                "case_result",
                 case_index=case_idx,
                 case_name=case.name,
                 verdict="error",
@@ -287,20 +302,23 @@ def stream_eval_pipeline(
         # Stage 2: Check exit code
         if exit_code != 0:
             reasoning = f"Agent exited with code {exit_code}: {stderr[:500]}"
-            case_results.append({
-                "name": case.name,
-                "description": case.description,
-                "verdict": "error",
-                "reasoning": reasoning,
-                "agent_output": stdout,
-                "agent_stderr": stderr,
-                "exit_code": exit_code,
-                "duration_ms": duration_ms,
-                "stage": "agent",
-            })
+            case_results.append(
+                {
+                    "name": case.name,
+                    "description": case.description,
+                    "verdict": "error",
+                    "reasoning": reasoning,
+                    "agent_output": stdout,
+                    "agent_stderr": stderr,
+                    "exit_code": exit_code,
+                    "duration_ms": duration_ms,
+                    "stage": "agent",
+                }
+            )
             seq += 1
             yield _make_event(
-                seq, "case_result",
+                seq,
+                "case_result",
                 case_index=case_idx,
                 case_name=case.name,
                 verdict="error",
@@ -332,21 +350,24 @@ def stream_eval_pipeline(
         if verdict == "pass":
             passed += 1
 
-        case_results.append({
-            "name": case.name,
-            "description": case.description,
-            "verdict": verdict,
-            "reasoning": reasoning,
-            "agent_output": stdout,
-            "agent_stderr": stderr,
-            "exit_code": exit_code,
-            "duration_ms": duration_ms,
-            "stage": stage,
-        })
+        case_results.append(
+            {
+                "name": case.name,
+                "description": case.description,
+                "verdict": verdict,
+                "reasoning": reasoning,
+                "agent_output": stdout,
+                "agent_stderr": stderr,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+                "stage": stage,
+            }
+        )
 
         seq += 1
         yield _make_event(
-            seq, "case_result",
+            seq,
+            "case_result",
             case_index=case_idx,
             case_name=case.name,
             verdict=verdict,
@@ -360,7 +381,8 @@ def stream_eval_pipeline(
 
     seq += 1
     yield _make_event(
-        seq, "report",
+        seq,
+        "report",
         passed=passed,
         total=len(eval_cases),
         status=status,
@@ -491,10 +513,11 @@ def run_streaming_eval(
                     status=status,
                 )
                 update_eval_run_status(
-                    conn, run_id,
+                    conn,
+                    run_id,
                     status=status,
                     log_seq=chunk_seq,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
                 conn.commit()
 
@@ -506,11 +529,12 @@ def run_streaming_eval(
         # Mark run as failed
         with engine.connect() as conn:
             update_eval_run_status(
-                conn, run_id,
+                conn,
+                run_id,
                 status="failed",
                 error_message=str(e),
                 log_seq=chunk_seq,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
             conn.commit()
         raise

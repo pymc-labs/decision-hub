@@ -4,7 +4,7 @@ Provides reusable dependencies for settings, database connections,
 S3 client access, and current-user extraction from JWT tokens.
 """
 
-from typing import Generator
+from collections.abc import Generator
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
@@ -27,7 +27,7 @@ def get_engine(request: Request) -> Engine:
     return request.app.state.engine
 
 
-def get_s3_client(request: Request):  # noqa: ANN201 – boto3 client has no public type
+def get_s3_client(request: Request):
     """Retrieve the boto3 S3 client from app state."""
     return request.app.state.s3_client
 
@@ -70,7 +70,7 @@ def get_current_user(
         payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
     except JWTError:
         logger.warning("Invalid JWT from {}", request.client.host if request.client else "unknown")
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid token") from None
 
     # Tokens issued before the org refactor lack the github_orgs claim.
     # Prompt the user to re-authenticate so they get a fresh token.

@@ -18,21 +18,22 @@ def ask_command(
     """
     from dhub.cli.config import build_headers, get_api_url, get_token
 
-    with console.status("Searching registry..."):
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(
-                f"{get_api_url()}/v1/search",
-                params={"q": query},
-                headers=build_headers(get_token()),
-            )
-            if resp.status_code == 503:
-                console.print("[red]Search is not available (server not configured).[/]")
-                raise typer.Exit(1)
-            resp.raise_for_status()
-            data = resp.json()
+    with console.status("Searching registry..."), httpx.Client(timeout=60) as client:
+        resp = client.get(
+            f"{get_api_url()}/v1/search",
+            params={"q": query},
+            headers=build_headers(get_token()),
+        )
+        if resp.status_code == 503:
+            console.print("[red]Search is not available (server not configured).[/]")
+            raise typer.Exit(1)
+        resp.raise_for_status()
+        data = resp.json()
 
-    console.print(Panel(
-        Markdown(data["results"]),
-        title=f"Results for: {data['query']}",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            Markdown(data["results"]),
+            title=f"Results for: {data['query']}",
+            border_style="blue",
+        )
+    )

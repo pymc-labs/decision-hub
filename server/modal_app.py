@@ -24,7 +24,9 @@ image = (
 # Include the frontend build when it exists (produced by deploy script).
 if _frontend_dist.is_dir():
     image = image.add_local_dir(
-        str(_frontend_dist), remote_path="/root/frontend_dist", copy=True,
+        str(_frontend_dist),
+        remote_path="/root/frontend_dist",
+        copy=True,
     )
 
 secrets = [
@@ -84,7 +86,11 @@ def run_eval_task(
 
     logger.info(
         "Starting eval task for {}/{} version={} run={} agent={} cases={}",
-        org_slug, skill_name, version_id, eval_run_id, eval_agent,
+        org_slug,
+        skill_name,
+        version_id,
+        eval_run_id,
+        eval_agent,
         len(eval_cases_dicts),
     )
 

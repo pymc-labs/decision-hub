@@ -78,5 +78,3 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
         }
         lines.append(json.dumps(obj))
     return "\n".join(lines)
-
-

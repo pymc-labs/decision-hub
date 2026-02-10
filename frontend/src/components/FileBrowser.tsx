@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { File, Folder, ChevronRight, ChevronDown } from "lucide-react";
@@ -160,14 +160,17 @@ const neonTheme = {
 };
 
 export default function FileBrowser({ files }: FileBrowserProps) {
-  const [selected, setSelected] = useState<SkillFile | null>(
-    files.find((f) => f.path === "SKILL.md") ?? files[0] ?? null
-  );
+  const defaultSelection = files.find((f) => f.path === "SKILL.md") ?? files[0] ?? null;
 
-  // Reset selection when files change (e.g. navigating between skills)
-  useEffect(() => {
-    setSelected(files.find((f) => f.path === "SKILL.md") ?? files[0] ?? null);
-  }, [files]);
+  // Reset selection when files change (e.g. navigating between skills).
+  // This is the React-recommended pattern for adjusting state when props change:
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [prevFiles, setPrevFiles] = useState(files);
+  const [selected, setSelected] = useState<SkillFile | null>(defaultSelection);
+  if (prevFiles !== files) {
+    setPrevFiles(files);
+    setSelected(defaultSelection);
+  }
 
   const tree = buildTree(files);
 

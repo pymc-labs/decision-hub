@@ -17,9 +17,7 @@ def _make_s3_client() -> MagicMock:
 class TestUploadEvalLogChunk:
     def test_uploads_with_correct_key_and_content(self):
         client = _make_s3_client()
-        result = upload_eval_log_chunk(
-            client, "test-bucket", "eval-logs/run123/", 1, '{"seq":1}\n'
-        )
+        result = upload_eval_log_chunk(client, "test-bucket", "eval-logs/run123/", 1, '{"seq":1}\n')
         assert result == "eval-logs/run123/0001.jsonl"
         client.put_object.assert_called_once_with(
             Bucket="test-bucket",
@@ -30,9 +28,7 @@ class TestUploadEvalLogChunk:
 
     def test_zero_pads_sequence_number(self):
         client = _make_s3_client()
-        result = upload_eval_log_chunk(
-            client, "bucket", "prefix/", 42, "data"
-        )
+        result = upload_eval_log_chunk(client, "bucket", "prefix/", 42, "data")
         assert result == "prefix/0042.jsonl"
 
 
@@ -85,9 +81,7 @@ class TestListEvalLogChunks:
 class TestReadEvalLogChunk:
     def test_reads_and_decodes_content(self):
         client = _make_s3_client()
-        client.get_object.return_value = {
-            "Body": MagicMock(read=lambda: b'{"seq":1}\n{"seq":2}\n')
-        }
+        client.get_object.return_value = {"Body": MagicMock(read=lambda: b'{"seq":1}\n{"seq":2}\n')}
         result = read_eval_log_chunk(client, "bucket", "key")
         assert '{"seq":1}' in result
         assert '{"seq":2}' in result

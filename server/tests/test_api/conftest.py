@@ -45,7 +45,7 @@ def test_app(test_settings: MagicMock) -> FastAPI:
     app.state.s3_client = MagicMock()
 
     @app.middleware("http")
-    async def check_cli_version(request: Request, call_next):  # noqa: ANN001
+    async def check_cli_version(request: Request, call_next):
         """Reject requests from outdated CLI versions on /v1/ routes."""
         if request.url.path.startswith("/v1/"):
             min_ver = test_settings.min_cli_version

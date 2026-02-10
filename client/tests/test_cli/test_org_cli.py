@@ -15,8 +15,8 @@ runner = CliRunner()
 # org list
 # ---------------------------------------------------------------------------
 
-class TestListOrgs:
 
+class TestListOrgs:
     @respx.mock
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
@@ -29,9 +29,7 @@ class TestListOrgs:
             {"slug": "alpha-org"},
             {"slug": "beta-org"},
         ]
-        respx.get("http://test:8000/v1/orgs").mock(
-            return_value=httpx.Response(200, json=orgs)
-        )
+        respx.get("http://test:8000/v1/orgs").mock(return_value=httpx.Response(200, json=orgs))
 
         result = runner.invoke(app, ["org", "list"])
 
@@ -47,9 +45,7 @@ class TestListOrgs:
         _mock_url,
         _mock_token,
     ) -> None:
-        respx.get("http://test:8000/v1/orgs").mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        respx.get("http://test:8000/v1/orgs").mock(return_value=httpx.Response(200, json=[]))
 
         result = runner.invoke(app, ["org", "list"])
 

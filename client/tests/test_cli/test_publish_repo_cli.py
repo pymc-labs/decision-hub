@@ -15,13 +15,10 @@ runner = CliRunner()
 
 def _write_skill_md(directory: Path, name: str = "test-skill") -> None:
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "SKILL.md").write_text(
-        f"---\nname: {name}\ndescription: A test skill\n---\nBody text\n"
-    )
+    (directory / "SKILL.md").write_text(f"---\nname: {name}\ndescription: A test skill\n---\nBody text\n")
 
 
 class TestLooksLikeGitUrl:
-
     def test_https_url(self) -> None:
         assert looks_like_git_url("https://github.com/org/repo") is True
 
@@ -51,7 +48,6 @@ class TestLooksLikeGitUrl:
 
 
 class TestPublishFromGitRepo:
-
     @respx.mock
     @patch("dhub.core.git_repo.clone_repo")
     @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
@@ -70,12 +66,8 @@ class TestPublishFromGitRepo:
         _write_skill_md(repo_root / "my-skill", name="my-skill")
         mock_clone.return_value = repo_root
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={"eval_status": "A"})
-        )
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
 
         result = runner.invoke(
             app,
@@ -106,15 +98,9 @@ class TestPublishFromGitRepo:
         _write_skill_md(repo_root / "skills" / "beta", name="beta")
         mock_clone.return_value = repo_root
 
-        respx.get("http://test:8000/v1/skills/myorg/alpha/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.get("http://test:8000/v1/skills/myorg/beta/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={"eval_status": "A"})
-        )
+        respx.get("http://test:8000/v1/skills/myorg/alpha/latest-version").mock(return_value=httpx.Response(404))
+        respx.get("http://test:8000/v1/skills/myorg/beta/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
 
         result = runner.invoke(
             app,
@@ -189,12 +175,8 @@ class TestPublishFromGitRepo:
         _write_skill_md(repo_root, name="my-skill")
         mock_clone.return_value = repo_root
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={"eval_status": "A"})
-        )
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
 
         result = runner.invoke(
             app,
@@ -220,18 +202,14 @@ class TestPublishFromGitRepo:
         _write_skill_md(repo_root, name="my-skill")
         mock_clone.return_value = repo_root
 
-        respx.get("http://test:8000/v1/orgs").mock(
-            return_value=httpx.Response(200, json=[{"slug": "auto-org"}])
-        )
-        respx.get("http://test:8000/v1/skills/auto-org/my-skill/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={"eval_status": "A"})
-        )
+        respx.get("http://test:8000/v1/orgs").mock(return_value=httpx.Response(200, json=[{"slug": "auto-org"}]))
+        respx.get("http://test:8000/v1/skills/auto-org/my-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
 
-        with patch("dhub.cli.config.load_config") as mock_config, \
-             patch("dhub.cli.config.get_default_org", return_value=None):
+        with (
+            patch("dhub.cli.config.load_config") as mock_config,
+            patch("dhub.cli.config.get_default_org", return_value=None),
+        ):
             mock_config.return_value.orgs = []
 
             result = runner.invoke(
@@ -261,12 +239,8 @@ class TestPublishFromGitRepo:
         _write_skill_md(repo_root / "beta", name="beta")
         mock_clone.return_value = repo_root
 
-        respx.get("http://test:8000/v1/skills/myorg/alpha/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.get("http://test:8000/v1/skills/myorg/beta/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get("http://test:8000/v1/skills/myorg/alpha/latest-version").mock(return_value=httpx.Response(404))
+        respx.get("http://test:8000/v1/skills/myorg/beta/latest-version").mock(return_value=httpx.Response(404))
         # First publish fails with 409, second succeeds
         publish_route = respx.post("http://test:8000/v1/publish")
         publish_route.side_effect = [
@@ -313,12 +287,8 @@ class TestPublishFromGitRepo:
         _write_skill_md(repo_root, name="my-skill")
         mock_clone.return_value = repo_root
 
-        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={"eval_status": "A"})
-        )
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
 
         result = runner.invoke(
             app,

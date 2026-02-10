@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
-import pytest
 import respx
 from typer.testing import CliRunner
 
@@ -19,11 +18,10 @@ runner = CliRunner()
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _write_skill_md(directory: Path) -> None:
     """Write a minimal valid SKILL.md to *directory*."""
-    (directory / "SKILL.md").write_text(
-        "---\nname: test-skill\ndescription: A test skill\n---\nBody text\n"
-    )
+    (directory / "SKILL.md").write_text("---\nname: test-skill\ndescription: A test skill\n---\nBody text\n")
 
 
 def _make_zip_bytes() -> bytes:
@@ -38,8 +36,8 @@ def _make_zip_bytes() -> bytes:
 # publish_command
 # ---------------------------------------------------------------------------
 
-class TestPublishCommand:
 
+class TestPublishCommand:
     @respx.mock
     @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
     @patch("dhub.cli.config.get_token", return_value="test-token")
@@ -52,9 +50,7 @@ class TestPublishCommand:
         tmp_path: Path,
     ) -> None:
         _write_skill_md(tmp_path)
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
 
         result = runner.invoke(
             app,
@@ -78,12 +74,8 @@ class TestPublishCommand:
         """First publish with no --version should default to 0.1.0."""
         _write_skill_md(tmp_path)
 
-        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
-            return_value=httpx.Response(404)
-        )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
 
         result = runner.invoke(
             app,
@@ -111,9 +103,7 @@ class TestPublishCommand:
         respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
 
         result = runner.invoke(
             app,
@@ -141,9 +131,7 @@ class TestPublishCommand:
         respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
 
         result = runner.invoke(
             app,
@@ -171,9 +159,7 @@ class TestPublishCommand:
         respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.2.3", "checksum": "remote-checksum-no-match"})
         )
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
 
         result = runner.invoke(
             app,
@@ -217,9 +203,7 @@ class TestPublishCommand:
         tmp_path: Path,
     ) -> None:
         _write_skill_md(tmp_path)
-        respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(409)
-        )
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(409))
 
         result = runner.invoke(
             app,
@@ -265,9 +249,7 @@ class TestPublishCommand:
         respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
             return_value=httpx.Response(200, json={"version": "1.0.0", "checksum": local_checksum})
         )
-        publish_route = respx.post("http://test:8000/v1/publish").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        publish_route = respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
 
         result = runner.invoke(
             app,
@@ -284,8 +266,8 @@ class TestPublishCommand:
 # install_command
 # ---------------------------------------------------------------------------
 
-class TestInstallCommand:
 
+class TestInstallCommand:
     @respx.mock
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")
@@ -305,15 +287,16 @@ class TestInstallCommand:
         zip_bytes = _make_zip_bytes()
 
         respx.get("http://test:8000/v1/resolve/myorg/my-skill").mock(
-            return_value=httpx.Response(200, json={
-                "version": "1.0.0",
-                "download_url": "http://test:8000/download/skill.zip",
-                "checksum": "abc123",
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "version": "1.0.0",
+                    "download_url": "http://test:8000/download/skill.zip",
+                    "checksum": "abc123",
+                },
+            )
         )
-        respx.get("http://test:8000/download/skill.zip").mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
         result = runner.invoke(app, ["install", "myorg/my-skill"])
 
@@ -342,19 +325,18 @@ class TestInstallCommand:
         zip_bytes = _make_zip_bytes()
 
         resolve_route = respx.get("http://test:8000/v1/resolve/myorg/my-skill").mock(
-            return_value=httpx.Response(200, json={
-                "version": "1.0.0",
-                "download_url": "http://test:8000/download/skill.zip",
-                "checksum": "abc123",
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "version": "1.0.0",
+                    "download_url": "http://test:8000/download/skill.zip",
+                    "checksum": "abc123",
+                },
+            )
         )
-        respx.get("http://test:8000/download/skill.zip").mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
-        result = runner.invoke(
-            app, ["install", "myorg/my-skill", "--allow-risky"]
-        )
+        result = runner.invoke(app, ["install", "myorg/my-skill", "--allow-risky"])
 
         assert result.exit_code == 0
         # Verify allow_risky was passed in the resolve request params
@@ -380,9 +362,7 @@ class TestInstallCommand:
         tmp_path: Path,
     ) -> None:
         mock_skill_path.return_value = tmp_path / "org" / "skill"
-        respx.get("http://test:8000/v1/resolve/org/skill").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get("http://test:8000/v1/resolve/org/skill").mock(return_value=httpx.Response(404))
 
         result = runner.invoke(app, ["install", "org/skill"])
 
@@ -409,19 +389,18 @@ class TestInstallCommand:
         zip_bytes = _make_zip_bytes()
 
         respx.get("http://test:8000/v1/resolve/myorg/my-skill").mock(
-            return_value=httpx.Response(200, json={
-                "version": "2.0.0",
-                "download_url": "http://test:8000/download/skill.zip",
-                "checksum": "def456",
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "version": "2.0.0",
+                    "download_url": "http://test:8000/download/skill.zip",
+                    "checksum": "def456",
+                },
+            )
         )
-        respx.get("http://test:8000/download/skill.zip").mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
-        result = runner.invoke(
-            app, ["install", "myorg/my-skill", "--agent", "claude"]
-        )
+        result = runner.invoke(app, ["install", "myorg/my-skill", "--agent", "claude"])
 
         assert result.exit_code == 0
         mock_link.assert_called_once_with("myorg", "my-skill", "claude")
@@ -447,19 +426,18 @@ class TestInstallCommand:
         zip_bytes = _make_zip_bytes()
 
         respx.get("http://test:8000/v1/resolve/myorg/my-skill").mock(
-            return_value=httpx.Response(200, json={
-                "version": "3.0.0",
-                "download_url": "http://test:8000/download/skill.zip",
-                "checksum": "ghi789",
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "version": "3.0.0",
+                    "download_url": "http://test:8000/download/skill.zip",
+                    "checksum": "ghi789",
+                },
+            )
         )
-        respx.get("http://test:8000/download/skill.zip").mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
-        result = runner.invoke(
-            app, ["install", "myorg/my-skill", "--agent", "all"]
-        )
+        result = runner.invoke(app, ["install", "myorg/my-skill", "--agent", "all"])
 
         assert result.exit_code == 0
         mock_link_all.assert_called_once_with("myorg", "my-skill")
@@ -471,8 +449,8 @@ class TestInstallCommand:
 # list_command
 # ---------------------------------------------------------------------------
 
-class TestListCommand:
 
+class TestListCommand:
     @respx.mock
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
@@ -483,18 +461,21 @@ class TestListCommand:
     ) -> None:
         """List displays a table when skills exist."""
         respx.get("http://test:8000/v1/skills").mock(
-            return_value=httpx.Response(200, json=[
-                {
-                    "org_slug": "acme",
-                    "skill_name": "doc-writer",
-                    "description": "Writes docs",
-                    "latest_version": "1.0.0",
-                    "updated_at": "2025-06-01",
-                    "safety_rating": "A",
-                    "author": "alice",
-                    "download_count": 5,
-                },
-            ])
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "org_slug": "acme",
+                        "skill_name": "doc-writer",
+                        "description": "Writes docs",
+                        "latest_version": "1.0.0",
+                        "updated_at": "2025-06-01",
+                        "safety_rating": "A",
+                        "author": "alice",
+                        "download_count": 5,
+                    },
+                ],
+            )
         )
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
@@ -522,9 +503,7 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """List prints a message when no skills are published."""
-        respx.get("http://test:8000/v1/skills").mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=[]))
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -540,8 +519,8 @@ class TestListCommand:
 # delete_command
 # ---------------------------------------------------------------------------
 
-class TestDeleteCommand:
 
+class TestDeleteCommand:
     @respx.mock
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
@@ -550,13 +529,9 @@ class TestDeleteCommand:
         _mock_url,
         _mock_token,
     ) -> None:
-        respx.delete("http://test:8000/v1/skills/myorg/my-skill/1.0.0").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        respx.delete("http://test:8000/v1/skills/myorg/my-skill/1.0.0").mock(return_value=httpx.Response(200, json={}))
 
-        result = runner.invoke(
-            app, ["delete", "myorg/my-skill", "--version", "1.0.0"]
-        )
+        result = runner.invoke(app, ["delete", "myorg/my-skill", "--version", "1.0.0"])
 
         assert result.exit_code == 0
         assert "Deleted: myorg/my-skill@1.0.0" in result.output
@@ -571,17 +546,18 @@ class TestDeleteCommand:
     ) -> None:
         """Delete without --version should prompt confirmation and delete all."""
         respx.delete("http://test:8000/v1/skills/myorg/my-skill").mock(
-            return_value=httpx.Response(200, json={
-                "org_slug": "myorg",
-                "skill_name": "my-skill",
-                "versions_deleted": 3,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "org_slug": "myorg",
+                    "skill_name": "my-skill",
+                    "versions_deleted": 3,
+                },
+            )
         )
 
         # 'y' confirms the prompt
-        result = runner.invoke(
-            app, ["delete", "myorg/my-skill"], input="y\n"
-        )
+        result = runner.invoke(app, ["delete", "myorg/my-skill"], input="y\n")
 
         assert result.exit_code == 0
         assert "3 version(s)" in result.output
@@ -594,17 +570,13 @@ class TestDeleteCommand:
         _mock_token,
     ) -> None:
         """Delete all should abort if user declines confirmation."""
-        result = runner.invoke(
-            app, ["delete", "myorg/my-skill"], input="n\n"
-        )
+        result = runner.invoke(app, ["delete", "myorg/my-skill"], input="n\n")
 
         assert result.exit_code == 1
 
     def test_delete_invalid_skill_ref(self) -> None:
         """Delete should reject a skill reference without a slash."""
-        result = runner.invoke(
-            app, ["delete", "no-slash", "--version", "1.0.0"]
-        )
+        result = runner.invoke(app, ["delete", "no-slash", "--version", "1.0.0"])
 
         assert result.exit_code == 1
         assert "org/skill format" in result.output
@@ -617,13 +589,9 @@ class TestDeleteCommand:
         _mock_url,
         _mock_token,
     ) -> None:
-        respx.delete("http://test:8000/v1/skills/myorg/my-skill/9.9.9").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.delete("http://test:8000/v1/skills/myorg/my-skill/9.9.9").mock(return_value=httpx.Response(404))
 
-        result = runner.invoke(
-            app, ["delete", "myorg/my-skill", "--version", "9.9.9"]
-        )
+        result = runner.invoke(app, ["delete", "myorg/my-skill", "--version", "9.9.9"])
 
         assert result.exit_code == 1
         assert "not found" in result.output
@@ -636,13 +604,9 @@ class TestDeleteCommand:
         _mock_url,
         _mock_token,
     ) -> None:
-        respx.delete("http://test:8000/v1/skills/myorg/my-skill/1.0.0").mock(
-            return_value=httpx.Response(403)
-        )
+        respx.delete("http://test:8000/v1/skills/myorg/my-skill/1.0.0").mock(return_value=httpx.Response(403))
 
-        result = runner.invoke(
-            app, ["delete", "myorg/my-skill", "--version", "1.0.0"]
-        )
+        result = runner.invoke(app, ["delete", "myorg/my-skill", "--version", "1.0.0"])
 
         assert result.exit_code == 1
         assert "permission" in result.output
@@ -656,13 +620,9 @@ class TestDeleteCommand:
         _mock_token,
     ) -> None:
         """Delete all for a non-existent skill should return error."""
-        respx.delete("http://test:8000/v1/skills/myorg/no-skill").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.delete("http://test:8000/v1/skills/myorg/no-skill").mock(return_value=httpx.Response(404))
 
-        result = runner.invoke(
-            app, ["delete", "myorg/no-skill"], input="y\n"
-        )
+        result = runner.invoke(app, ["delete", "myorg/no-skill"], input="y\n")
 
         assert result.exit_code == 1
         assert "not found" in result.output

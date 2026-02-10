@@ -6,12 +6,9 @@ from dhub.core.git_repo import discover_skills
 
 
 class TestDiscoverSkills:
-
     def _write_skill_md(self, directory: Path, name: str = "test-skill") -> None:
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "SKILL.md").write_text(
-            f"---\nname: {name}\ndescription: A test skill\n---\nBody text\n"
-        )
+        (directory / "SKILL.md").write_text(f"---\nname: {name}\ndescription: A test skill\n---\nBody text\n")
 
     def test_discovers_single_skill_at_root(self, tmp_path: Path) -> None:
         self._write_skill_md(tmp_path)

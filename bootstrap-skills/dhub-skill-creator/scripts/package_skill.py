@@ -81,9 +81,7 @@ def main() -> int:
     """CLI entrypoint."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Validate and package a skill into a zip archive."
-    )
+    parser = argparse.ArgumentParser(description="Validate and package a skill into a zip archive.")
     parser.add_argument("skill_directory", type=Path, help="Path to the skill directory")
     parser.add_argument(
         "--output-dir",

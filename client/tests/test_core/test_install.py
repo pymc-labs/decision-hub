@@ -10,7 +10,6 @@ from dhub.core.install import get_dhub_skill_path, uninstall_skill, verify_check
 
 
 class TestVerifyChecksum:
-
     def test_valid_checksum(self) -> None:
         """Matching checksum should not raise."""
         data = b"hello world"
@@ -34,7 +33,6 @@ class TestVerifyChecksum:
 
 
 class TestGetDhubSkillPath:
-
     def test_path_structure(self) -> None:
         """The path should be ~/.dhub/skills/{org}/{skill}."""
         path = get_dhub_skill_path("my-org", "my-skill")
@@ -54,13 +52,10 @@ class TestGetDhubSkillPath:
 
 
 class TestUninstallSkill:
-
     @patch("dhub.core.install.get_dhub_skill_path")
     @patch("dhub.core.install.list_linked_agents", return_value=["claude", "cursor"])
     @patch("dhub.core.install.unlink_skill_from_agent")
-    def test_uninstall_removes_dir_and_symlinks(
-        self, mock_unlink, mock_linked, mock_path, tmp_path: Path
-    ) -> None:
+    def test_uninstall_removes_dir_and_symlinks(self, mock_unlink, mock_linked, mock_path, tmp_path: Path) -> None:
         """uninstall_skill removes the skill dir and all agent symlinks."""
         skill_dir = tmp_path / "org" / "my-skill"
         skill_dir.mkdir(parents=True)
@@ -97,9 +92,7 @@ class TestUninstallSkill:
 
     @patch("dhub.core.install.get_dhub_skill_path")
     @patch("dhub.core.install.list_linked_agents", return_value=[])
-    def test_uninstall_cleans_empty_org_dir(
-        self, mock_linked, mock_path, tmp_path: Path
-    ) -> None:
+    def test_uninstall_cleans_empty_org_dir(self, mock_linked, mock_path, tmp_path: Path) -> None:
         """uninstall_skill removes the empty org directory after cleanup."""
         org_dir = tmp_path / "org"
         skill_dir = org_dir / "my-skill"
@@ -113,9 +106,7 @@ class TestUninstallSkill:
 
     @patch("dhub.core.install.get_dhub_skill_path")
     @patch("dhub.core.install.list_linked_agents", return_value=[])
-    def test_uninstall_keeps_org_dir_with_other_skills(
-        self, mock_linked, mock_path, tmp_path: Path
-    ) -> None:
+    def test_uninstall_keeps_org_dir_with_other_skills(self, mock_linked, mock_path, tmp_path: Path) -> None:
         """uninstall_skill keeps the org dir if other skills remain."""
         org_dir = tmp_path / "org"
         skill_dir = org_dir / "my-skill"

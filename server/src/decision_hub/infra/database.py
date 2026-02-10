@@ -6,7 +6,8 @@ Query functions accept a Connection as their first argument and return
 frozen dataclass instances from decision_hub.models.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -22,7 +23,8 @@ from sqlalchemy import (
     Table,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.pool import NullPool
 
@@ -340,7 +342,9 @@ def _row_to_org_member(row: sa.Row) -> OrgMember:
 
 def _row_to_skill(row: sa.Row) -> Skill:
     """Map a database row to a Skill model."""
-    return Skill(id=row.id, org_id=row.org_id, name=row.name, description=row.description, download_count=row.download_count)
+    return Skill(
+        id=row.id, org_id=row.org_id, name=row.name, description=row.description, download_count=row.download_count
+    )
 
 
 def _row_to_version(row: sa.Row) -> Version:
@@ -427,9 +431,7 @@ def upsert_user(conn: Connection, github_id: str, username: str) -> User:
 # ---------------------------------------------------------------------------
 
 
-def insert_organization(
-    conn: Connection, slug: str, owner_id: UUID, *, is_personal: bool = False
-) -> Organization:
+def insert_organization(conn: Connection, slug: str, owner_id: UUID, *, is_personal: bool = False) -> Organization:
     """Create a new organization.
 
     Args:
@@ -462,9 +464,7 @@ def find_org_by_slug(conn: Connection, slug: str) -> Organization | None:
     Returns:
         The matching Organization, or None if not found.
     """
-    stmt = sa.select(organizations_table).where(
-        organizations_table.c.slug == slug
-    )
+    stmt = sa.select(organizations_table).where(organizations_table.c.slug == slug)
     row = conn.execute(stmt).first()
     if row is None:
         return None
@@ -501,9 +501,7 @@ def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
 # ---------------------------------------------------------------------------
 
 
-def insert_org_member(
-    conn: Connection, org_id: UUID, user_id: UUID, role: str
-) -> OrgMember:
+def insert_org_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> OrgMember:
     """Add a member to an organization.
 
     Args:
@@ -516,9 +514,7 @@ def insert_org_member(
         The newly created OrgMember.
     """
     stmt = (
-        sa.insert(org_members_table)
-        .values(org_id=org_id, user_id=user_id, role=role)
-        .returning(*org_members_table.c)
+        sa.insert(org_members_table).values(org_id=org_id, user_id=user_id, role=role).returning(*org_members_table.c)
     )
     row = conn.execute(stmt).one()
     logger.debug("Added org member org={} user={} role={}", org_id, user_id, role)
@@ -535,16 +531,12 @@ def list_org_members(conn: Connection, org_id: UUID) -> list[OrgMember]:
     Returns:
         List of OrgMember records for the organization.
     """
-    stmt = sa.select(org_members_table).where(
-        org_members_table.c.org_id == org_id
-    )
+    stmt = sa.select(org_members_table).where(org_members_table.c.org_id == org_id)
     rows = conn.execute(stmt).all()
     return [_row_to_org_member(row) for row in rows]
 
 
-def find_org_member(
-    conn: Connection, org_id: UUID, user_id: UUID
-) -> OrgMember | None:
+def find_org_member(conn: Connection, org_id: UUID, user_id: UUID) -> OrgMember | None:
     """Find a specific membership record.
 
     Args:
@@ -572,9 +564,7 @@ def find_org_member(
 # ---------------------------------------------------------------------------
 
 
-def insert_skill(
-    conn: Connection, org_id: UUID, name: str, description: str = ""
-) -> Skill:
+def insert_skill(conn: Connection, org_id: UUID, name: str, description: str = "") -> Skill:
     """Register a new skill under an organization.
 
     Args:
@@ -586,11 +576,7 @@ def insert_skill(
     Returns:
         The newly created Skill.
     """
-    stmt = (
-        sa.insert(skills_table)
-        .values(org_id=org_id, name=name, description=description)
-        .returning(*skills_table.c)
-    )
+    stmt = sa.insert(skills_table).values(org_id=org_id, name=name, description=description).returning(*skills_table.c)
     row = conn.execute(stmt).one()
     skill = _row_to_skill(row)
     logger.debug("Inserted skill name={} org={} id={}", name, org_id, skill.id)
@@ -620,18 +606,12 @@ def find_skill(conn: Connection, org_id: UUID, name: str) -> Skill | None:
     return _row_to_skill(row)
 
 
-def update_skill_description(
-    conn: Connection, skill_id: UUID, description: str
-) -> None:
+def update_skill_description(conn: Connection, skill_id: UUID, description: str) -> None:
     """Update the description of an existing skill.
 
     Used during re-publish to keep the description in sync with SKILL.md.
     """
-    stmt = (
-        sa.update(skills_table)
-        .where(skills_table.c.id == skill_id)
-        .values(description=description)
-    )
+    stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(description=description)
     conn.execute(stmt)
 
 
@@ -745,9 +725,7 @@ def resolve_version(
         The resolved Version, or None if no matching version exists.
     """
     # Join versions -> skills -> organizations to resolve by slug + name
-    join = versions_table.join(
-        skills_table, versions_table.c.skill_id == skills_table.c.id
-    ).join(
+    join = versions_table.join(skills_table, versions_table.c.skill_id == skills_table.c.id).join(
         organizations_table,
         skills_table.c.org_id == organizations_table.c.id,
     )
@@ -794,9 +772,7 @@ def resolve_latest_version(
     Used for auto-bumping: the publisher needs to know the highest
     published semver even if it hasn't passed evaluation yet.
     """
-    join = versions_table.join(
-        skills_table, versions_table.c.skill_id == skills_table.c.id
-    ).join(
+    join = versions_table.join(skills_table, versions_table.c.skill_id == skills_table.c.id).join(
         organizations_table,
         skills_table.c.org_id == organizations_table.c.id,
     )
@@ -835,15 +811,11 @@ def delete_all_versions(conn: Connection, skill_id: UUID) -> list[str]:
         List of S3 keys for the deleted versions (for S3 cleanup).
     """
     # Fetch s3_keys before deleting
-    select_stmt = sa.select(versions_table.c.s3_key).where(
-        versions_table.c.skill_id == skill_id
-    )
+    select_stmt = sa.select(versions_table.c.s3_key).where(versions_table.c.skill_id == skill_id)
     rows = conn.execute(select_stmt).all()
     s3_keys = [row.s3_key for row in rows]
 
-    delete_stmt = sa.delete(versions_table).where(
-        versions_table.c.skill_id == skill_id
-    )
+    delete_stmt = sa.delete(versions_table).where(versions_table.c.skill_id == skill_id)
     conn.execute(delete_stmt)
     logger.debug("Deleted {} versions for skill={}", len(s3_keys), skill_id)
     return s3_keys
@@ -926,9 +898,7 @@ def list_api_keys(conn: Connection, user_id: UUID) -> list[UserApiKey]:
     Returns:
         List of UserApiKey records for the user.
     """
-    stmt = sa.select(user_api_keys_table).where(
-        user_api_keys_table.c.user_id == user_id
-    )
+    stmt = sa.select(user_api_keys_table).where(user_api_keys_table.c.user_id == user_id)
     rows = conn.execute(stmt).all()
     return [_row_to_user_api_key(row) for row in rows]
 
@@ -990,29 +960,26 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
         )
     ).subquery("ranked")
 
-    stmt = (
-        sa.select(
-            organizations_table.c.slug.label("org_slug"),
-            organizations_table.c.is_personal.label("is_personal_org"),
-            skills_table.c.name.label("skill_name"),
-            skills_table.c.description,
-            skills_table.c.download_count,
-            latest_version.c.semver.label("latest_version"),
-            latest_version.c.eval_status,
-            latest_version.c.created_at,
-            latest_version.c.published_by,
-        )
-        .select_from(
-            skills_table.join(
-                organizations_table,
-                skills_table.c.org_id == organizations_table.c.id,
-            ).join(
-                latest_version,
-                sa.and_(
-                    skills_table.c.id == latest_version.c.skill_id,
-                    latest_version.c.rn == 1,
-                ),
-            )
+    stmt = sa.select(
+        organizations_table.c.slug.label("org_slug"),
+        organizations_table.c.is_personal.label("is_personal_org"),
+        skills_table.c.name.label("skill_name"),
+        skills_table.c.description,
+        skills_table.c.download_count,
+        latest_version.c.semver.label("latest_version"),
+        latest_version.c.eval_status,
+        latest_version.c.created_at,
+        latest_version.c.published_by,
+    ).select_from(
+        skills_table.join(
+            organizations_table,
+            skills_table.c.org_id == organizations_table.c.id,
+        ).join(
+            latest_version,
+            sa.and_(
+                skills_table.c.id == latest_version.c.skill_id,
+                latest_version.c.rn == 1,
+            ),
         )
     )
 
@@ -1033,9 +1000,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
     ]
 
 
-def get_api_keys_for_eval(
-    conn: Connection, user_id: UUID, key_names: list[str]
-) -> dict[str, bytes]:
+def get_api_keys_for_eval(conn: Connection, user_id: UUID, key_names: list[str]) -> dict[str, bytes]:
     """Retrieve encrypted values for specific API keys by name.
 
     Used during gauntlet runs to fetch only the keys needed by test agents.
@@ -1115,7 +1080,7 @@ def insert_audit_log(
     Returns:
         The newly created AuditLogEntry.
     """
-    values = {
+    values: dict[str, Any] = {
         "org_slug": org_slug,
         "skill_name": skill_name,
         "semver": semver,
@@ -1130,11 +1095,7 @@ def insert_audit_log(
     if quarantine_s3_key is not None:
         values["quarantine_s3_key"] = quarantine_s3_key
 
-    stmt = (
-        sa.insert(eval_audit_logs_table)
-        .values(**values)
-        .returning(*eval_audit_logs_table.c)
-    )
+    stmt = sa.insert(eval_audit_logs_table).values(**values).returning(*eval_audit_logs_table.c)
     row = conn.execute(stmt).one()
     logger.debug("Audit log: {}/{} v{} grade={} by={}", org_slug, skill_name, semver, grade, publisher)
     return _row_to_audit_log_entry(row)
@@ -1165,9 +1126,7 @@ def find_audit_logs(
         conditions.append(eval_audit_logs_table.c.semver == semver)
 
     stmt = (
-        sa.select(eval_audit_logs_table)
-        .where(sa.and_(*conditions))
-        .order_by(eval_audit_logs_table.c.created_at.desc())
+        sa.select(eval_audit_logs_table).where(sa.and_(*conditions)).order_by(eval_audit_logs_table.c.created_at.desc())
     )
     rows = conn.execute(stmt).all()
     return [_row_to_audit_log_entry(row) for row in rows]
@@ -1266,9 +1225,7 @@ def update_eval_report(
     conn.execute(stmt)
 
 
-def find_eval_report_by_version(
-    conn: Connection, version_id: UUID
-) -> EvalReport | None:
+def find_eval_report_by_version(conn: Connection, version_id: UUID) -> EvalReport | None:
     """Find an eval report by version ID.
 
     Args:
@@ -1278,18 +1235,14 @@ def find_eval_report_by_version(
     Returns:
         The EvalReport if found, or None.
     """
-    stmt = sa.select(eval_reports_table).where(
-        eval_reports_table.c.version_id == version_id
-    )
+    stmt = sa.select(eval_reports_table).where(eval_reports_table.c.version_id == version_id)
     row = conn.execute(stmt).first()
     if row is None:
         return None
     return _row_to_eval_report(row)
 
 
-def find_eval_report_by_skill(
-    conn: Connection, org_slug: str, skill_name: str, semver: str
-) -> EvalReport | None:
+def find_eval_report_by_skill(conn: Connection, org_slug: str, skill_name: str, semver: str) -> EvalReport | None:
     """Find an eval report by org, skill name, and version.
 
     Args:
@@ -1386,11 +1339,7 @@ def insert_eval_run(
     if run_id is not None:
         values["id"] = run_id
 
-    stmt = (
-        sa.insert(eval_runs_table)
-        .values(**values)
-        .returning(*eval_runs_table.c)
-    )
+    stmt = sa.insert(eval_runs_table).values(**values).returning(*eval_runs_table.c)
     row = conn.execute(stmt).one()
     run = _row_to_eval_run(row)
     logger.debug("Inserted eval run version={} agent={} cases={} id={}", version_id, agent, total_cases, run.id)
@@ -1426,11 +1375,7 @@ def update_eval_run_status(
     if completed_at is not None:
         values["completed_at"] = completed_at
 
-    stmt = (
-        sa.update(eval_runs_table)
-        .where(eval_runs_table.c.id == run_id)
-        .values(**values)
-    )
+    stmt = sa.update(eval_runs_table).where(eval_runs_table.c.id == run_id).values(**values)
     conn.execute(stmt)
     if status is not None:
         logger.debug("Eval run {} → status={} stage={}", run_id, status, stage)
@@ -1438,11 +1383,7 @@ def update_eval_run_status(
 
 def update_eval_run_heartbeat(conn: Connection, run_id: UUID) -> None:
     """Lightweight heartbeat-only update."""
-    stmt = (
-        sa.update(eval_runs_table)
-        .where(eval_runs_table.c.id == run_id)
-        .values(heartbeat_at=sa.func.now())
-    )
+    stmt = sa.update(eval_runs_table).where(eval_runs_table.c.id == run_id).values(heartbeat_at=sa.func.now())
     conn.execute(stmt)
 
 
@@ -1455,9 +1396,7 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     return _row_to_eval_run(row)
 
 
-def find_latest_eval_run_for_version(
-    conn: Connection, version_id: UUID
-) -> EvalRun | None:
+def find_latest_eval_run_for_version(conn: Connection, version_id: UUID) -> EvalRun | None:
     """Find the most recent eval run for a given version."""
     stmt = (
         sa.select(eval_runs_table)
@@ -1471,9 +1410,7 @@ def find_latest_eval_run_for_version(
     return _row_to_eval_run(row)
 
 
-def find_eval_runs_for_version(
-    conn: Connection, version_id: UUID
-) -> list[EvalRun]:
+def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
     """List all eval runs for a version, newest first."""
     stmt = (
         sa.select(eval_runs_table)
@@ -1484,9 +1421,7 @@ def find_eval_runs_for_version(
     return [_row_to_eval_run(row) for row in rows]
 
 
-def find_active_eval_runs_for_user(
-    conn: Connection, user_id: UUID, limit: int = 10
-) -> list[EvalRun]:
+def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int = 10) -> list[EvalRun]:
     """Find recent eval runs for a user, newest first."""
     stmt = (
         sa.select(eval_runs_table)

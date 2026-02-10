@@ -1,16 +1,15 @@
 """Tests for stale token detection in get_current_user."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from jose import jwt
 
 
 class TestStaleTokenDetection:
-
     def test_token_without_github_orgs_returns_401(self, test_settings, client):
         """A JWT missing the github_orgs claim should be rejected as stale."""
         # Manually craft a token without the github_orgs claim
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         payload = {
             "sub": "12345678-1234-5678-1234-567812345678",
             "username": "olduser",
@@ -34,7 +33,7 @@ class TestStaleTokenDetection:
 
     def test_token_with_github_orgs_passes(self, test_settings, client):
         """A JWT containing the github_orgs claim should pass auth."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         payload = {
             "sub": "12345678-1234-5678-1234-567812345678",
             "username": "newuser",
@@ -58,7 +57,7 @@ class TestStaleTokenDetection:
 
     def test_token_with_empty_github_orgs_passes(self, test_settings, client):
         """A JWT with an empty github_orgs list is valid (claim is present)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         payload = {
             "sub": "12345678-1234-5678-1234-567812345678",
             "username": "solouser",

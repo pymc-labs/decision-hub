@@ -49,15 +49,19 @@ def _publish_skill_directory(
 
         local_checksum = compute_checksum(zip_data)
         version, latest_checksum, current_version = _auto_bump_version(
-            api_url, token, org, name, bump_level, bump_version, FIRST_VERSION,
+            api_url,
+            token,
+            org,
+            name,
+            bump_level,
+            bump_version,
+            FIRST_VERSION,
         )
         if latest_checksum is not None and local_checksum == latest_checksum:
             console.print(f"  No changes detected for [cyan]{name}[/]. Already at [cyan]{current_version}[/].")
             return False
 
-    metadata = json.dumps(
-        {"org_slug": org, "skill_name": name, "version": version}
-    )
+    metadata = json.dumps({"org_slug": org, "skill_name": name, "version": version})
 
     with console.status(f"Publishing {org}/{name}@{version}..."):
         with httpx.Client(timeout=60) as client:
@@ -68,20 +72,14 @@ def _publish_skill_directory(
                 data={"metadata": metadata},
             )
         if resp.status_code == 409:
-            console.print(
-                f"[red]Error: Version {version} already exists for "
-                f"{org}/{name}.[/]"
-            )
+            console.print(f"[red]Error: Version {version} already exists for {org}/{name}.[/]")
             raise typer.Exit(1)
         if resp.status_code == 422:
             detail = resp.json().get("detail", "Gauntlet checks failed")
             console.print(f"[red]Rejected (Grade F): {detail}[/]")
             raise typer.Exit(1)
         if resp.status_code == 503:
-            console.print(
-                "[red]Error: Server LLM judge not configured. "
-                "Cannot publish without LLM review.[/]"
-            )
+            console.print("[red]Error: Server LLM judge not configured. Cannot publish without LLM review.[/]")
             raise typer.Exit(1)
         resp.raise_for_status()
 
@@ -91,16 +89,12 @@ def _publish_skill_directory(
 
     grade_colors = {"A": "green", "B": "yellow", "C": "red", "F": "red"}
     grade_color = grade_colors.get(eval_status, "white")
-    console.print(
-        f"[green]Published: {org}/{name}@{version}[/] "
-        f"(Grade [{grade_color}]{eval_status}[/])"
-    )
+    console.print(f"[green]Published: {org}/{name}@{version}[/] (Grade [{grade_color}]{eval_status}[/])")
     if eval_status == "B":
         console.print("[yellow]Warning: Grade B — elevated permissions detected.[/]")
     elif eval_status == "C":
         console.print(
-            "[red]Warning: Grade C — ambiguous patterns detected. "
-            "Users will need --allow-risky to install.[/]"
+            "[red]Warning: Grade C — ambiguous patterns detected. Users will need --allow-risky to install.[/]"
         )
 
     eval_run_id = data.get("eval_run_id")
@@ -109,6 +103,7 @@ def _publish_skill_directory(
         console.print("[dim]Tailing logs... (Ctrl-C to detach)[/]")
         try:
             from dhub.cli.config import build_headers as _bh
+
             _tail_eval_logs(api_url, _bh(token), eval_run_id)
         except KeyboardInterrupt:
             console.print("\n[dim]Detached. Resume with: dhub logs {eval_run_id} --follow[/]")
@@ -119,9 +114,7 @@ def _publish_skill_directory(
 
 
 def publish_command(
-    source: str = typer.Argument(
-        ..., help="Path to a directory containing skills, or a git repo URL"
-    ),
+    source: str = typer.Argument(..., help="Path to a directory containing skills, or a git repo URL"),
     version: str = typer.Option(None, "--version", help="Explicit semver version (overrides auto-bump)"),
     patch: bool = typer.Option(False, "--patch", help="Bump patch version"),
     minor: bool = typer.Option(False, "--minor", help="Bump minor version"),
@@ -185,7 +178,13 @@ def _publish_discovered_skills(
 
         try:
             result = _publish_skill_directory(
-                skill_dir, org, name, version, bump_level, api_url, token,
+                skill_dir,
+                org,
+                name,
+                version,
+                bump_level,
+                api_url,
+                token,
             )
             if result:
                 published += 1
@@ -197,11 +196,7 @@ def _publish_discovered_skills(
             continue
 
     console.print()
-    console.print(
-        f"Done: [green]{published} published[/], "
-        f"[yellow]{skipped} skipped[/], "
-        f"[red]{failed} failed[/]"
-    )
+    console.print(f"Done: [green]{published} published[/], [yellow]{skipped} skipped[/], [red]{failed} failed[/]")
 
     if failed > 0:
         raise typer.Exit(1)
@@ -252,7 +247,7 @@ def _publish_from_git_repo(
             repo_root = clone_repo(repo_url, ref=ref)
         except RuntimeError as exc:
             console.print(f"[red]Error: {exc}[/]")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
     try:
         skill_dirs = discover_skills(repo_root)
@@ -262,7 +257,13 @@ def _publish_from_git_repo(
             raise typer.Exit(1)
 
         _publish_discovered_skills(
-            skill_dirs, repo_root, org, version, bump_level, api_url, token,
+            skill_dirs,
+            repo_root,
+            org,
+            version,
+            bump_level,
+            api_url,
+            token,
         )
     finally:
         shutil.rmtree(repo_root.parent, ignore_errors=True)
@@ -309,10 +310,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
         orgs = resp.json()
 
     if len(orgs) == 0:
-        console.print(
-            "[red]Error: No namespaces available. "
-            "Run 'dhub login' to refresh your org memberships.[/]"
-        )
+        console.print("[red]Error: No namespaces available. Run 'dhub login' to refresh your org memberships.[/]")
         raise typer.Exit(1)
 
     if len(orgs) > 1:
@@ -468,9 +466,7 @@ def delete_command(
 
     parts = skill_ref.split("/", 1)
     if len(parts) != 2:
-        console.print(
-            "[red]Error: Skill reference must be in org/skill format.[/]"
-        )
+        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
         raise typer.Exit(1)
     org_slug, skill_name = parts
 
@@ -490,22 +486,16 @@ def delete_command(
                 headers=headers,
             )
             if resp.status_code == 404:
-                console.print(
-                    f"[red]Error: Skill '{skill_name}' not found in {org_slug}.[/]"
-                )
+                console.print(f"[red]Error: Skill '{skill_name}' not found in {org_slug}.[/]")
                 raise typer.Exit(1)
             if resp.status_code == 403:
-                console.print(
-                    "[red]Error: You don't have permission to delete this skill.[/]"
-                )
+                console.print("[red]Error: You don't have permission to delete this skill.[/]")
                 raise typer.Exit(1)
             resp.raise_for_status()
 
         data = resp.json()
         count = data["versions_deleted"]
-        console.print(
-            f"[green]Deleted {count} version(s) of {org_slug}/{skill_name}[/]"
-        )
+        console.print(f"[green]Deleted {count} version(s) of {org_slug}/{skill_name}[/]")
     else:
         # Delete a single version
         with httpx.Client(timeout=60) as client:
@@ -514,15 +504,10 @@ def delete_command(
                 headers=headers,
             )
             if resp.status_code == 404:
-                console.print(
-                    f"[red]Error: Version {version} not found for "
-                    f"{org_slug}/{skill_name}.[/]"
-                )
+                console.print(f"[red]Error: Version {version} not found for {org_slug}/{skill_name}.[/]")
                 raise typer.Exit(1)
             if resp.status_code == 403:
-                console.print(
-                    "[red]Error: You don't have permission to delete this version.[/]"
-                )
+                console.print("[red]Error: You don't have permission to delete this version.[/]")
                 raise typer.Exit(1)
             resp.raise_for_status()
 
@@ -537,17 +522,13 @@ def eval_report_command(
 
     # Parse skill reference (org/skill@version)
     if "@" not in skill_ref:
-        console.print(
-            "[red]Error: Skill reference must include version: org/skill@version[/]"
-        )
+        console.print("[red]Error: Skill reference must include version: org/skill@version[/]")
         raise typer.Exit(1)
 
     skill_path, version = skill_ref.rsplit("@", 1)
     parts = skill_path.split("/", 1)
     if len(parts) != 2:
-        console.print(
-            "[red]Error: Skill reference must be in org/skill@version format.[/]"
-        )
+        console.print("[red]Error: Skill reference must be in org/skill@version format.[/]")
         raise typer.Exit(1)
     org_slug, skill_name = parts
 
@@ -561,9 +542,7 @@ def eval_report_command(
             headers=headers,
         )
         if resp.status_code == 404:
-            console.print(
-                f"[red]Error: No eval report found for {org_slug}/{skill_name}@{version}[/]"
-            )
+            console.print(f"[red]Error: No eval report found for {org_slug}/{skill_name}@{version}[/]")
             raise typer.Exit(1)
         resp.raise_for_status()
 
@@ -608,15 +587,9 @@ def eval_report_command(
 
 def install_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
-    version: str = typer.Option(
-        "latest", "--version", "-v", help="Version spec"
-    ),
-    agent: str = typer.Option(
-        None, "--agent", help="Target agent (claude, cursor, etc.) or 'all'"
-    ),
-    allow_risky: bool = typer.Option(
-        False, "--allow-risky", help="Allow installing C-grade (risky) skills"
-    ),
+    version: str = typer.Option("latest", "--version", "-v", help="Version spec"),
+    agent: str = typer.Option(None, "--agent", help="Target agent (claude, cursor, etc.) or 'all'"),
+    allow_risky: bool = typer.Option(False, "--allow-risky", help="Allow installing C-grade (risky) skills"),
 ) -> None:
     """Install a skill from the registry."""
     from dhub.cli.config import build_headers, get_api_url, get_token
@@ -630,9 +603,7 @@ def install_command(
     # Parse skill reference
     parts = skill_ref.split("/", 1)
     if len(parts) != 2:
-        console.print(
-            "[red]Error: Skill reference must be in org/skill format.[/]"
-        )
+        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
         raise typer.Exit(1)
     org_slug, skill_name = parts
 
@@ -643,31 +614,30 @@ def install_command(
     resolve_params: dict[str, str] = {"spec": version}
     if allow_risky:
         resolve_params["allow_risky"] = "true"
-    with console.status(f"Resolving {org_slug}/{skill_name}@{version}..."):
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(
-                f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
-                params=resolve_params,
-                headers=headers,
-            )
-            if resp.status_code == 404:
-                console.print(
-                    f"[red]Error: Skill '{skill_ref}' not found.[/]"
-                )
-                raise typer.Exit(1)
-            resp.raise_for_status()
-            data = resp.json()
+    with console.status(f"Resolving {org_slug}/{skill_name}@{version}..."), httpx.Client(timeout=60) as client:
+        resp = client.get(
+            f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
+            params=resolve_params,
+            headers=headers,
+        )
+        if resp.status_code == 404:
+            console.print(f"[red]Error: Skill '{skill_ref}' not found.[/]")
+            raise typer.Exit(1)
+        resp.raise_for_status()
+        data = resp.json()
 
     resolved_version: str = data["version"]
     download_url: str = data["download_url"]
     expected_checksum: str = data["checksum"]
 
     # Download and verify
-    with console.status(f"Downloading {org_slug}/{skill_name}@{resolved_version}..."):
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(download_url)
-            resp.raise_for_status()
-            zip_data = resp.content
+    with (
+        console.status(f"Downloading {org_slug}/{skill_name}@{resolved_version}..."),
+        httpx.Client(timeout=60) as client,
+    ):
+        resp = client.get(download_url)
+        resp.raise_for_status()
+        zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
 
     # Extract to the canonical skill path
@@ -677,29 +647,20 @@ def install_command(
     with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
         zf.extractall(skill_path)
 
-    console.print(
-        f"[green]Installed {org_slug}/{skill_name}@{resolved_version} "
-        f"to {skill_path}[/]"
-    )
+    console.print(f"[green]Installed {org_slug}/{skill_name}@{resolved_version} to {skill_path}[/]")
 
     # Create agent symlinks
     if agent:
         if agent == "all":
             linked = link_skill_to_all_agents(org_slug, skill_name)
-            console.print(
-                f"[green]Linked to agents: {', '.join(linked)}[/]"
-            )
+            console.print(f"[green]Linked to agents: {', '.join(linked)}[/]")
         else:
             link_path = link_skill_to_agent(org_slug, skill_name, agent)
-            console.print(
-                f"[green]Linked to {agent} at {link_path}[/]"
-            )
+            console.print(f"[green]Linked to {agent} at {link_path}[/]")
 
 
 def logs_command(
-    skill_ref: str = typer.Argument(
-        None, help="Skill ref (org/skill[@version]) or eval run ID"
-    ),
+    skill_ref: str = typer.Argument(None, help="Skill ref (org/skill[@version]) or eval run ID"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Tail logs in real-time"),
 ) -> None:
     """View eval run logs. Tail them with --follow.
@@ -746,9 +707,7 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
     import re
 
     # Check if it looks like a UUID
-    uuid_pattern = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
-    )
+    uuid_pattern = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
     if uuid_pattern.match(skill_ref):
         # Verify it exists
         with httpx.Client(timeout=60) as client:
@@ -841,7 +800,11 @@ def _list_recent_runs(api_url: str, headers: dict) -> None:
     for run in runs:
         status = run["status"]
         color = status_colors.get(status, "white")
-        case_info = f"{run.get('current_case_index', '?')}/{run['total_cases']}" if run.get("current_case_index") is not None else f"0/{run['total_cases']}"
+        case_info = (
+            f"{run.get('current_case_index', '?')}/{run['total_cases']}"
+            if run.get("current_case_index") is not None
+            else f"0/{run['total_cases']}"
+        )
         table.add_row(
             run["id"][:8] + "...",
             f"[{color}]{status}[/]",
@@ -982,19 +945,15 @@ def uninstall_command(
 
     parts = skill_ref.split("/", 1)
     if len(parts) != 2:
-        console.print(
-            "[red]Error: Skill reference must be in org/skill format.[/]"
-        )
+        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
         raise typer.Exit(1)
     org_slug, skill_name = parts
 
     try:
         unlinked = uninstall_skill(org_slug, skill_name)
     except FileNotFoundError:
-        console.print(
-            f"[red]Error: Skill '{skill_ref}' is not installed.[/]"
-        )
-        raise typer.Exit(1)
+        console.print(f"[red]Error: Skill '{skill_ref}' is not installed.[/]")
+        raise typer.Exit(1) from None
 
     console.print(f"[green]Uninstalled {org_slug}/{skill_name}[/]")
     if unlinked:

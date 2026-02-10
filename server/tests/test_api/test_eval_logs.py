@@ -6,7 +6,7 @@ Covers:
 - GET /v1/eval-runs — listing runs
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -30,11 +30,11 @@ def _make_eval_run(**overrides) -> EvalRun:
         "current_case": "test-case",
         "current_case_index": 0,
         "total_cases": 2,
-        "heartbeat_at": datetime.now(timezone.utc),
+        "heartbeat_at": datetime.now(UTC),
         "log_s3_prefix": "eval-logs/test-run/",
         "log_seq": 3,
         "error_message": None,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
         "completed_at": None,
     }
     defaults.update(overrides)
@@ -92,13 +92,15 @@ class TestGetEvalRun:
         auth_headers: dict[str, str],
     ) -> None:
         """A running eval with a heartbeat >5 min stale is marked failed."""
-        stale_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=400)
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
 
         # find_eval_run is called twice: once before zombie check, once after
         failed_run = _make_eval_run(
-            id=run.id, status="failed",
-            error_message="Stale heartbeat", heartbeat_at=stale_heartbeat,
+            id=run.id,
+            status="failed",
+            error_message="Stale heartbeat",
+            heartbeat_at=stale_heartbeat,
         )
         mock_find_run.side_effect = [run, failed_run]
 
@@ -122,7 +124,7 @@ class TestGetEvalRun:
         """A running eval with a recent heartbeat is NOT marked failed."""
         run = _make_eval_run(
             status="running",
-            heartbeat_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+            heartbeat_at=datetime.now(UTC) - timedelta(seconds=30),
         )
         mock_find_run.return_value = run
 
@@ -140,10 +142,11 @@ class TestGetEvalRun:
         auth_headers: dict[str, str],
     ) -> None:
         """Completed runs skip zombie detection regardless of heartbeat age."""
-        old_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=9999)
+        old_heartbeat = datetime.now(UTC) - timedelta(seconds=9999)
         run = _make_eval_run(
-            status="completed", heartbeat_at=old_heartbeat,
-            completed_at=datetime.now(timezone.utc),
+            status="completed",
+            heartbeat_at=old_heartbeat,
+            completed_at=datetime.now(UTC),
         )
         mock_find_run.return_value = run
 
@@ -229,8 +232,7 @@ class TestGetEvalRunLogs:
             (1, "eval-logs/test-run/0001.jsonl"),
         ]
         mock_read_chunk.return_value = (
-            '{"seq":1,"type":"setup","content":"init"}\n'
-            '{"seq":2,"type":"case_start","case_name":"a"}\n'
+            '{"seq":1,"type":"setup","content":"init"}\n{"seq":2,"type":"case_start","case_name":"a"}\n'
         )
 
         resp = client.get(
@@ -310,7 +312,9 @@ class TestGetEvalRunLogs:
     ) -> None:
         """Response includes current run status, stage, and case for progress rendering."""
         run = _make_eval_run(
-            status="judging", stage="judge", current_case="convergence-diagnostics",
+            status="judging",
+            stage="judge",
+            current_case="convergence-diagnostics",
         )
         mock_find_run.return_value = run
         mock_list_chunks.return_value = [(1, "eval-logs/test-run/0001.jsonl")]
@@ -355,7 +359,7 @@ class TestGetEvalRunLogs:
         auth_headers: dict[str, str],
     ) -> None:
         """Stale heartbeat during log fetch triggers zombie detection."""
-        stale_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=400)
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
         mock_find_run.return_value = run
         mock_list_chunks.return_value = []
