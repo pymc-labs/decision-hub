@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreCommit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/user/decision-hub && uvx ruff check . --quiet && uvx ruff format --check --quiet"
+          }
+        ]
+      }
+    ]
+  }
+}
