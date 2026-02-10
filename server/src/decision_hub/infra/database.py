@@ -959,29 +959,28 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
     """Fetch all skills with their latest version info for the search index.
 
     Returns a list of dicts, each with keys: org_slug, skill_name,
-    latest_version, eval_status. Uses a subquery to find the latest
-    version per skill (ordered by semver parts numerically).
+    latest_version, eval_status. Uses a LATERAL join to grab the single
+    highest semver per skill via the composite index, avoiding a
+    ROW_NUMBER() window function over all version rows.
     """
-    # Subquery: for each skill, find the highest semver using integer columns
+    # LATERAL subquery: for each skill, grab the top-1 version using the
+    # idx_versions_skill_semver_parts index (one index lookup per skill).
     latest_version = (
         sa.select(
-            versions_table.c.skill_id,
             versions_table.c.semver,
             versions_table.c.eval_status,
             versions_table.c.created_at,
             versions_table.c.published_by,
-            sa.func.row_number()
-            .over(
-                partition_by=versions_table.c.skill_id,
-                order_by=[
-                    versions_table.c.semver_major.desc(),
-                    versions_table.c.semver_minor.desc(),
-                    versions_table.c.semver_patch.desc(),
-                ],
-            )
-            .label("rn"),
         )
-    ).subquery("ranked")
+        .where(versions_table.c.skill_id == skills_table.c.id)
+        .order_by(
+            versions_table.c.semver_major.desc(),
+            versions_table.c.semver_minor.desc(),
+            versions_table.c.semver_patch.desc(),
+        )
+        .limit(1)
+        .lateral("latest_version")
+    )
 
     stmt = (
         sa.select(
@@ -1001,10 +1000,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
                 skills_table.c.org_id == organizations_table.c.id,
             ).join(
                 latest_version,
-                sa.and_(
-                    skills_table.c.id == latest_version.c.skill_id,
-                    latest_version.c.rn == 1,
-                ),
+                sa.literal(True),
             )
         )
     )
