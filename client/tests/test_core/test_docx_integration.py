@@ -240,9 +240,9 @@ class TestNameAndVersionValidation:
         for name in test_names:
             manifest_ok = _NAME_PATTERN.match(name) is not None
             validation_ok = _SKILL_NAME_PATTERN.match(name) is not None
-            assert (
-                manifest_ok == validation_ok
-            ), f"Inconsistency for '{name}': manifest={manifest_ok}, validation={validation_ok}"
+            assert manifest_ok == validation_ok, (
+                f"Inconsistency for '{name}': manifest={manifest_ok}, validation={validation_ok}"
+            )
 
 
 class TestInstallPathResolution:
