@@ -155,6 +155,11 @@ versions_table = Table(
         sa.text("semver_minor DESC"),
         sa.text("semver_patch DESC"),
     ),
+    sa.Index(
+        "idx_versions_eval_status_partial",
+        "eval_status",
+        postgresql_where=sa.text("eval_status IN ('A', 'B', 'passed')"),
+    ),
 )
 
 user_api_keys_table = Table(
@@ -285,6 +290,8 @@ eval_runs_table = Table(
         server_default=sa.func.now(),
     ),
     Column("completed_at", DateTime(timezone=True), nullable=True),
+    sa.Index("idx_eval_runs_version_created", "version_id", "created_at"),
+    sa.Index("idx_eval_runs_user_created", "user_id", "created_at"),
 )
 
 
