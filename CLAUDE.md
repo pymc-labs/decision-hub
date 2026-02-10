@@ -50,9 +50,25 @@ DHUB_ENV=dev uv run --package decision-hub-server python -c "..."
 
 Client-package commands (`uv run --package dhub-cli ...`) can run from anywhere.
 
+## Makefile
+
+Common commands are available via `make`. Run `make help` to see all targets:
+
+```bash
+make test            # run all tests (client + server)
+make test-client     # run client tests only
+make test-server     # run server tests only
+make lint            # check linting + formatting
+make fmt             # auto-fix lint issues and format code
+make check-migrations # check for duplicate migration sequence numbers
+make migrate-dev     # apply migrations to dev database
+make deploy-dev      # build frontend + deploy to dev Modal
+make install-hooks   # install pre-commit hooks (run once after cloning)
+```
+
 ## Database Migrations
 
-No `psql` available on this machine. Run migrations via Python + SQLAlchemy instead (from `server/`):
+No `psql` available on this machine. Run migrations via `make migrate-dev` or manually (from `server/`):
 
 ```bash
 cd server && DHUB_ENV=dev uv run --package decision-hub-server python -c "
@@ -64,17 +80,25 @@ metadata.create_all(engine)
 "
 ```
 
-## Running Tests
+Migration files live in `server/migrations/` with numeric prefixes (e.g. `008_add_semver_int_columns.sql`). When adding a new migration, check for prefix collisions — `make check-migrations` and the CI pipeline will catch duplicates from parallel branches.
+
+## Linting & Formatting
+
+The project uses **ruff** for linting and formatting, configured in the root `pyproject.toml`. Pre-commit hooks run ruff automatically on every commit (install once with `make install-hooks`).
 
 ```bash
-# Client tests
-uv run --package dhub pytest client/tests/
+make lint   # check only (CI runs this)
+make fmt    # auto-fix + format
+```
 
-# Server tests
-uv run --package decision-hub-server pytest server/tests/
+## Running Tests
 
-# All tests
-uv run --package dhub pytest client/tests/ && uv run --package decision-hub-server pytest server/tests/
+Use `make test` or run individually:
+
+```bash
+make test              # all tests
+make test-client       # client only
+make test-server       # server only
 ```
 
 ## Coding Conventions
@@ -173,6 +197,15 @@ sb.terminate()
 - **`Invalid API key`** = stored `ANTHROPIC_API_KEY` expired/revoked. Claude Code hangs waiting for user input. Verify the key directly: `httpx.post('https://api.anthropic.com/v1/messages', headers={'x-api-key': key, 'anthropic-version': '2023-06-01'}, ...)`
 - **`--dangerously-skip-permissions cannot be used with root`** = the sandbox image creates a `sandbox` user; agent commands must run via `sudo -E -u sandbox`.
 - **Zero stdout from agent** = always check stderr. Use `nohup` + file redirect and inspect after a few seconds instead of waiting for the full timeout.
+
+## CI
+
+GitHub Actions runs on every PR to `main`:
+- **lint**: ruff check + format (non-blocking until cleanup sprint)
+- **test-client**: client pytest suite
+- **test-server**: server pytest suite
+- **lint-frontend**: TypeScript type check + ESLint
+- **check-migrations**: detects duplicate migration sequence numbers
 
 ## Testing
 
