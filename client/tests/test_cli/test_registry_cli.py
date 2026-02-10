@@ -461,9 +461,8 @@ class TestListCommand:
     ) -> None:
         """List displays a table when skills exist."""
         respx.get("http://test:8000/v1/skills").mock(
-            return_value=httpx.Response(
-                200,
-                json=[
+            return_value=httpx.Response(200, json={
+                "items": [
                     {
                         "org_slug": "acme",
                         "skill_name": "doc-writer",
@@ -475,7 +474,11 @@ class TestListCommand:
                         "download_count": 5,
                     },
                 ],
-            )
+                "total": 1,
+                "page": 1,
+                "page_size": 20,
+                "total_pages": 1,
+            })
         )
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
@@ -493,6 +496,7 @@ class TestListCommand:
         assert "1.0.0" in result.output
         assert "alice" in result.output
         assert "5" in result.output
+        assert "Page 1 of 1" in result.output
 
     @respx.mock
     @patch("dhub.cli.config.get_token", return_value="test-token")
@@ -503,7 +507,15 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """List prints a message when no skills are published."""
-        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=[]))
+        respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(200, json={
+                "items": [],
+                "total": 0,
+                "page": 1,
+                "page_size": 20,
+                "total_pages": 1,
+            })
+        )
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -513,6 +525,35 @@ class TestListCommand:
         assert result.exit_code == 0
         assert "Registry:" in result.output
         assert "No skills published yet" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_command_with_page_option(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """--page and --page-size flags are sent as query params."""
+        route = respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(200, json={
+                "items": [],
+                "total": 50,
+                "page": 3,
+                "page_size": 5,
+                "total_pages": 10,
+            })
+        )
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
+        )
+
+        result = runner.invoke(app, ["list", "--page", "3", "--page-size", "5"])
+
+        assert result.exit_code == 0
+        request = route.calls.last.request
+        assert "page=3" in str(request.url)
+        assert "page_size=5" in str(request.url)
 
 
 # ---------------------------------------------------------------------------

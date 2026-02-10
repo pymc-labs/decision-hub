@@ -12,6 +12,14 @@ export interface SkillSummary {
   is_personal_org: boolean;
 }
 
+export interface PaginatedSkillsResponse {
+  items: SkillSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export interface OrgSummary {
   id: string;
   slug: string;

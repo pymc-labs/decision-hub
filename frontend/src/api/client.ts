@@ -1,5 +1,5 @@
 import type {
-  SkillSummary,
+  PaginatedSkillsResponse,
   ResolveResponse,
   EvalReport,
   AuditLogEntry,
@@ -24,8 +24,13 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export async function listSkills(): Promise<SkillSummary[]> {
-  return fetchJSON<SkillSummary[]>("/v1/skills");
+export async function listSkills(
+  page = 1,
+  pageSize = 20
+): Promise<PaginatedSkillsResponse> {
+  return fetchJSON<PaginatedSkillsResponse>(
+    `/v1/skills?page=${page}&page_size=${pageSize}`
+  );
 }
 
 export async function resolveSkill(

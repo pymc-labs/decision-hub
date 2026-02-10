@@ -839,30 +839,38 @@ class TestDeleteSkillVersion:
 
 
 class TestListSkills:
-    """GET /v1/skills -- list all published skills."""
+    """GET /v1/skills -- paginated list of published skills."""
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_empty(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
-        """Empty registry returns an empty list."""
+        """Empty registry returns a paginated response with no items."""
         mock_fetch.return_value = []
 
         resp = client.get("/v1/skills")
 
         assert resp.status_code == 200
-        assert resp.json() == []
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
+        assert data["page"] == 1
+        assert data["total_pages"] == 1
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=1)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_returns_data(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
-        """Skills are returned with all expected fields."""
-        from datetime import datetime
+        """Skills are returned with all expected fields inside paginated wrapper."""
+        from datetime import datetime, timezone
 
         mock_fetch.return_value = [
             {
@@ -881,8 +889,10 @@ class TestListSkills:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 1
-        skill = data[0]
+        assert data["total"] == 1
+        assert data["page"] == 1
+        assert len(data["items"]) == 1
+        skill = data["items"][0]
         assert skill["org_slug"] == "acme"
         assert skill["skill_name"] == "doc-writer"
         assert skill["description"] == "Writes documentation"
@@ -892,10 +902,12 @@ class TestListSkills:
         assert skill["author"] == "alice"
         assert skill["download_count"] == 42
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=4)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_safety_rating(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Safety rating maps eval_status correctly for both new and legacy values."""
@@ -945,16 +957,18 @@ class TestListSkills:
         resp = client.get("/v1/skills")
 
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         assert data[0]["safety_rating"] == "A"
         assert data[1]["safety_rating"] == "B"
         assert data[2]["safety_rating"] == "C"
         assert data[3]["safety_rating"] == "A"  # legacy "passed" -> A
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_does_not_require_auth(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """List endpoint is public — no auth required."""
@@ -963,6 +977,30 @@ class TestListSkills:
         resp = client.get("/v1/skills")
 
         assert resp.status_code == 200
+
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=50)
+    @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
+    def test_list_skills_pagination_params(
+        self,
+        mock_fetch: MagicMock,
+        mock_count: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Page and page_size query params are forwarded to the DB layer."""
+        mock_fetch.return_value = []
+
+        resp = client.get("/v1/skills?page=3&page_size=10")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["page"] == 3
+        assert data["page_size"] == 10
+        assert data["total"] == 50
+        assert data["total_pages"] == 5
+        mock_fetch.assert_called_once()
+        _, kwargs = mock_fetch.call_args
+        assert kwargs["limit"] == 10
+        assert kwargs["offset"] == 20
 
 
 # ---------------------------------------------------------------------------

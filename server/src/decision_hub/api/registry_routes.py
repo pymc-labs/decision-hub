@@ -28,6 +28,7 @@ from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
     delete_all_versions,
     delete_version,
+    count_all_skills,
     fetch_all_skills_for_index,
     find_active_eval_runs_for_user,
     find_audit_logs,
@@ -127,6 +128,15 @@ class SkillSummary(BaseModel):
     author: str
     download_count: int = 0
     is_personal_org: bool = False
+
+
+class PaginatedSkillsResponse(BaseModel):
+    """Paginated list of skills."""
+    items: list[SkillSummary]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class AuditLogResponse(BaseModel):
@@ -371,13 +381,19 @@ def publish_skill(
     )
 
 
-@public_router.get("/skills", response_model=list[SkillSummary])
+@public_router.get("/skills", response_model=PaginatedSkillsResponse)
 def list_skills(
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     conn: Connection = Depends(get_connection),
-) -> list[SkillSummary]:
-    """List all published skills with their latest version info."""
-    rows = fetch_all_skills_for_index(conn)
-    return [
+) -> PaginatedSkillsResponse:
+    """List published skills with offset-based pagination."""
+    total = count_all_skills(conn)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    offset = (page - 1) * page_size
+
+    rows = fetch_all_skills_for_index(conn, limit=page_size, offset=offset)
+    items = [
         SkillSummary(
             org_slug=row["org_slug"],
             skill_name=row["skill_name"],
@@ -391,6 +407,13 @@ def list_skills(
         )
         for row in rows
     ]
+    return PaginatedSkillsResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 @public_router.get(

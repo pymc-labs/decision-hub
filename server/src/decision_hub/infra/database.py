@@ -993,16 +993,19 @@ def delete_api_key(conn: Connection, user_id: UUID, key_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
-    """Fetch all skills with their latest version info for the search index.
+def _skills_index_base_query() -> tuple:
+    """Build the base query components for the skills index.
 
-    Returns a list of dicts, each with keys: org_slug, skill_name,
-    latest_version, eval_status. Uses a LATERAL join to grab the single
-    highest semver per skill via the composite index, avoiding a
-    ROW_NUMBER() window function over all version rows.
+    Returns (join, latest_version_subquery) so callers can build
+    SELECT or COUNT statements without duplicating the join logic.
+
+    Uses a LATERAL join to grab the single highest semver per skill via
+    the composite index, avoiding a ROW_NUMBER() window function over
+    all version rows.
     """
     # LATERAL subquery: for each skill, grab the top-1 version using the
     # idx_versions_skill_semver_parts index (one index lookup per skill).
+
     latest_version = (
         sa.select(
             versions_table.c.semver,
@@ -1020,6 +1023,31 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
         .lateral("latest_version")
     )
 
+    join = skills_table.join(
+        organizations_table,
+        skills_table.c.org_id == organizations_table.c.id,
+    ).join(
+        latest_version,
+        sa.literal(True),
+    )
+
+    return join, latest_version
+
+
+def fetch_all_skills_for_index(
+    conn: Connection,
+    *,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[dict]:
+    """Fetch skills with their latest version info for the search index.
+
+    When *limit* and *offset* are ``None`` (the default), returns every skill
+    – keeping backward compatibility with the search endpoint.  Pass both to
+    enable offset-based pagination.
+    """
+    join, latest_version = _skills_index_base_query()
+
     stmt = (
         sa.select(
             organizations_table.c.slug.label("org_slug"),
@@ -1032,16 +1060,14 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
             latest_version.c.created_at,
             latest_version.c.published_by,
         )
-        .select_from(
-            skills_table.join(
-                organizations_table,
-                skills_table.c.org_id == organizations_table.c.id,
-            ).join(
-                latest_version,
-                sa.literal(True),
-            )
-        )
+        .select_from(join)
+        .order_by(latest_version.c.created_at.desc().nulls_last())
     )
+
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    if offset is not None:
+        stmt = stmt.offset(offset)
 
     rows = conn.execute(stmt).all()
     return [
@@ -1060,7 +1086,16 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
     ]
 
 
-def get_api_keys_for_eval(conn: Connection, user_id: UUID, key_names: list[str]) -> dict[str, bytes]:
+def count_all_skills(conn: Connection) -> int:
+    """Return the total number of published skills (those with at least one version)."""
+    join, _latest_version = _skills_index_base_query()
+    stmt = sa.select(sa.func.count()).select_from(join)
+    return conn.execute(stmt).scalar() or 0
+
+
+def get_api_keys_for_eval(
+    conn: Connection, user_id: UUID, key_names: list[str]
+) -> dict[str, bytes]:
     """Retrieve encrypted values for specific API keys by name.
 
     Used during gauntlet runs to fetch only the keys needed by test agents.
