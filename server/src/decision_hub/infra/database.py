@@ -131,6 +131,9 @@ versions_table = Table(
         nullable=False,
     ),
     Column("semver", String, nullable=False),
+    Column("semver_major", sa.Integer, nullable=False, server_default="0"),
+    Column("semver_minor", sa.Integer, nullable=False, server_default="0"),
+    Column("semver_patch", sa.Integer, nullable=False, server_default="0"),
     Column("s3_key", Text, nullable=False),
     Column("checksum", String, nullable=False),
     Column("runtime_config", JSONB, nullable=True),
@@ -143,6 +146,13 @@ versions_table = Table(
     ),
     Column("published_by", String, nullable=False, server_default=""),
     sa.UniqueConstraint("skill_id", "semver"),
+    sa.Index(
+        "idx_versions_skill_semver_parts",
+        "skill_id",
+        sa.text("semver_major DESC"),
+        sa.text("semver_minor DESC"),
+        sa.text("semver_patch DESC"),
+    ),
 )
 
 user_api_keys_table = Table(
@@ -633,6 +643,12 @@ def increment_skill_downloads(conn: Connection, skill_id: UUID) -> None:
 # ---------------------------------------------------------------------------
 
 
+def parse_semver_parts(semver: str) -> tuple[int, int, int]:
+    """Parse a semver string into (major, minor, patch) integers."""
+    major, minor, patch = semver.split(".")
+    return int(major), int(minor), int(patch)
+
+
 def find_version(conn: Connection, skill_id: UUID, semver: str) -> Version | None:
     """Look up a specific version of a skill by skill ID and semver string.
 
@@ -673,11 +689,15 @@ def insert_version(
     Returns:
         The newly created Version.
     """
+    major, minor, patch = parse_semver_parts(semver)
     stmt = (
         sa.insert(versions_table)
         .values(
             skill_id=skill_id,
             semver=semver,
+            semver_major=major,
+            semver_minor=minor,
+            semver_patch=patch,
             s3_key=s3_key,
             checksum=checksum,
             runtime_config=runtime_config,
@@ -743,18 +763,10 @@ def resolve_version(
     base = base.where(versions_table.c.eval_status.in_(allowed_statuses))
 
     if spec == "latest":
-        # Split semver into major.minor.patch and sort numerically descending
-        major = sa.cast(
-            sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
-        )
-        minor = sa.cast(
-            sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
-        )
-        patch = sa.cast(
-            sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
-        )
         stmt = base.order_by(
-            major.desc(), minor.desc(), patch.desc()
+            versions_table.c.semver_major.desc(),
+            versions_table.c.semver_minor.desc(),
+            versions_table.c.semver_patch.desc(),
         ).limit(1)
     else:
         stmt = base.where(versions_table.c.semver == spec)
@@ -782,16 +794,6 @@ def resolve_latest_version(
         skills_table.c.org_id == organizations_table.c.id,
     )
 
-    major = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
-    )
-    minor = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
-    )
-    patch = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
-    )
-
     stmt = (
         sa.select(versions_table)
         .select_from(join)
@@ -801,7 +803,11 @@ def resolve_latest_version(
                 skills_table.c.name == skill_name,
             )
         )
-        .order_by(major.desc(), minor.desc(), patch.desc())
+        .order_by(
+            versions_table.c.semver_major.desc(),
+            versions_table.c.semver_minor.desc(),
+            versions_table.c.semver_patch.desc(),
+        )
         .limit(1)
     )
 
@@ -956,17 +962,7 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
     latest_version, eval_status. Uses a subquery to find the latest
     version per skill (ordered by semver parts numerically).
     """
-    # Subquery: for each skill, find the highest semver
-    major = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 1), sa.Integer
-    )
-    minor = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 2), sa.Integer
-    )
-    patch = sa.cast(
-        sa.func.split_part(versions_table.c.semver, ".", 3), sa.Integer
-    )
-
+    # Subquery: for each skill, find the highest semver using integer columns
     latest_version = (
         sa.select(
             versions_table.c.skill_id,
@@ -977,7 +973,11 @@ def fetch_all_skills_for_index(conn: Connection) -> list[dict]:
             sa.func.row_number()
             .over(
                 partition_by=versions_table.c.skill_id,
-                order_by=[major.desc(), minor.desc(), patch.desc()],
+                order_by=[
+                    versions_table.c.semver_major.desc(),
+                    versions_table.c.semver_minor.desc(),
+                    versions_table.c.semver_patch.desc(),
+                ],
             )
             .label("rn"),
         )
