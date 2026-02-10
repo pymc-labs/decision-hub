@@ -287,6 +287,34 @@ eval_runs_table = Table(
     Column("completed_at", DateTime(timezone=True), nullable=True),
 )
 
+search_logs_table = Table(
+    "search_logs",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column(
+        "user_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column("query_preview", String(500), nullable=False),
+    Column("s3_key", Text, nullable=False),
+    Column("results_count", sa.Integer, nullable=False, server_default=sa.text("0")),
+    Column("model", String(100), nullable=True),
+    Column("latency_ms", sa.Integer, nullable=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+)
+
 
 # ---------------------------------------------------------------------------
 # Engine factory
@@ -1424,3 +1452,54 @@ def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int =
     )
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Search log queries
+# ---------------------------------------------------------------------------
+
+
+def insert_search_log(
+    conn: Connection,
+    log_id: UUID,
+    query: str,
+    s3_key: str,
+    results_count: int,
+    model: str,
+    latency_ms: int,
+    user_id: UUID | None = None,
+) -> None:
+    """Insert search log metadata into the database.
+
+    The full query and response are stored in S3; this stores lightweight
+    metadata for querying and analytics.
+
+    Args:
+        conn: Active database connection.
+        log_id: UUID of the search log (matches S3 filename).
+        query: First 500 chars of the query for previews.
+        s3_key: S3 key where the full log is stored.
+        results_count: Number of skills in the search index.
+        model: Model used for search (e.g. 'gemini-2.0-flash').
+        latency_ms: Total search latency in milliseconds.
+        user_id: ID of the user (None for anonymous searches).
+    """
+    values: dict[str, Any] = {
+        "id": log_id,
+        "query_preview": query[:500],
+        "s3_key": s3_key,
+        "results_count": results_count,
+        "model": model,
+        "latency_ms": latency_ms,
+    }
+    if user_id is not None:
+        values["user_id"] = user_id
+
+    stmt = sa.insert(search_logs_table).values(**values)
+    conn.execute(stmt)
+    logger.debug(
+        "Search log metadata inserted id={} user={} results={}",
+        log_id,
+        user_id,
+        results_count,
+    )

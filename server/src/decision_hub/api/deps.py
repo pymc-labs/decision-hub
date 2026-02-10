@@ -89,3 +89,39 @@ def get_current_user(
         username=payload["username"],
         github_orgs=tuple(payload["github_orgs"]),
     )
+
+
+def get_current_user_optional(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> User | None:
+    """Extract and validate a JWT bearer token, returning None if missing or invalid.
+
+    Unlike get_current_user(), this does not raise HTTP 401 for unauthenticated
+    requests. Use this for endpoints that support both authenticated and
+    anonymous access.
+
+    Returns:
+        User object if valid token present, None otherwise.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.removeprefix("Bearer ")
+
+    try:
+        payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
+    except JWTError:
+        logger.debug("Invalid JWT in optional auth context")
+        return None
+
+    if "github_orgs" not in payload:
+        return None
+
+    return User(
+        id=UUID(payload["sub"]),
+        github_id="",
+        username=payload["username"],
+        github_orgs=tuple(payload["github_orgs"]),
+    )

@@ -1,11 +1,15 @@
-"""S3 storage operations for skill zip files.
+"""S3 storage operations for skill zip files and search logs.
 
 Provides functions for uploading skill packages, generating presigned download
-URLs, and computing file checksums. All functions are pure (aside from S3 I/O)
-and take an explicit S3 client rather than relying on global state.
+URLs, computing file checksums, and storing search query logs. All functions
+are pure (aside from S3 I/O) and take an explicit S3 client rather than
+relying on global state.
 """
 
 import hashlib
+import json
+from datetime import UTC, datetime
+from uuid import UUID
 
 import boto3
 from botocore.client import BaseClient
@@ -210,3 +214,50 @@ def delete_eval_logs(
         Delete={"Objects": objects},
     )
     return len(objects)
+
+
+# ---------------------------------------------------------------------------
+# Search log operations
+# ---------------------------------------------------------------------------
+
+
+def upload_search_log(
+    client: BaseClient,
+    bucket: str,
+    log_id: UUID,
+    query: str,
+    response: str,
+    metadata: dict,
+) -> str:
+    """Upload a search log entry to S3 as JSON.
+
+    Args:
+        client: Configured S3 client.
+        bucket: Target S3 bucket name.
+        log_id: UUID of the search log entry.
+        query: The full search query string.
+        response: The full LLM response text.
+        metadata: Additional metadata (results_count, model, latency_ms, user_id, etc.).
+
+    Returns:
+        The S3 key of the uploaded log.
+    """
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    s3_key = f"search-logs/{date_str}/{log_id}.json"
+
+    log_data = {
+        "id": str(log_id),
+        "query": query,
+        "response": response,
+        "metadata": metadata,
+    }
+
+    client.put_object(
+        Bucket=bucket,
+        Key=s3_key,
+        Body=json.dumps(log_data, indent=2).encode("utf-8"),
+        ContentType="application/json",
+    )
+
+    logger.debug("Uploaded search log to s3://{}/{}", bucket, s3_key)
+    return s3_key
