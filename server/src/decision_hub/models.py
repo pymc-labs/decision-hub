@@ -21,6 +21,7 @@ CheckSeverity = Literal["pass", "warn", "fail"]
 SafetyGrade = Literal["A", "B", "C", "F"]
 EvalReportStatus = Literal["pending", "completed", "failed", "error"]
 EvalRunStatus = Literal["pending", "provisioning", "running", "judging", "completed", "failed"]
+SkillVisibility = Literal["public", "org"]
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,16 @@ class Skill:
     description: str
     download_count: int = 0
     category: str = ""
+    visibility: SkillVisibility = "public"
+
+
+@dataclass(frozen=True)
+class SkillAccessGrant:
+    id: UUID
+    skill_id: UUID
+    grantee_org_id: UUID
+    granted_by: UUID
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,7 @@ from dhub.cli.registry import (  # noqa: E402
     logs_command,
     publish_command,
     uninstall_command,
+    visibility_command,
 )
 from dhub.cli.runtime import run_command  # noqa: E402
 from dhub.cli.search import ask_command  # noqa: E402
@@ -60,13 +61,16 @@ app.command("eval-report")(eval_report_command)
 app.command("logs")(logs_command)
 app.command("run")(run_command)
 app.command("ask")(ask_command)
+app.command("visibility")(visibility_command)
 
 # Register subcommand groups
+from dhub.cli.access import access_app  # noqa: E402
 from dhub.cli.config_cmd import config_app  # noqa: E402
 from dhub.cli.keys import keys_app  # noqa: E402
 from dhub.cli.org import org_app  # noqa: E402
 from dhub.cli.track import track_app  # noqa: E402
 
+app.add_typer(access_app, name="access")
 app.add_typer(org_app, name="org")
 app.add_typer(keys_app, name="keys")
 app.add_typer(config_app, name="config")

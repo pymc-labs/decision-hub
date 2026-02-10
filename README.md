@@ -22,6 +22,8 @@
 
 **Zero-config namespaces.** Your GitHub username and org memberships become your publishing namespaces automatically on login. No accounts to create, no orgs to manage.
 
+**Private skills with access grants.** Publish org-private skills visible only to your team, then selectively share them with other orgs or users via access grants.
+
 ## Installation
 
 ```bash
@@ -82,7 +84,7 @@ dhub config default-org
 | Command | Description |
 |---------|-------------|
 | `dhub init [PATH]` | Scaffold a new skill project with `SKILL.md` and `src/` |
-| `dhub publish [ORG/SKILL] [PATH]` | Publish a skill to the registry |
+| `dhub publish [ORG/SKILL] [PATH] [--private]` | Publish a skill to the registry |
 | `dhub install ORG/SKILL [-v VERSION] [--agent AGENT] [--allow-risky]` | Install a skill from the registry |
 | `dhub uninstall ORG/SKILL` | Remove a locally installed skill and its agent symlinks |
 | `dhub list` | List all published skills on the registry |
@@ -103,6 +105,9 @@ dhub publish myorg/my-skill --patch     # 1.2.3 → 1.2.4
 dhub publish myorg/my-skill --minor     # 1.2.3 → 1.3.0
 dhub publish myorg/my-skill --major     # 1.2.3 → 2.0.0
 dhub publish myorg/my-skill --version 2.0.0  # exact version
+
+# Publish as org-private
+dhub publish myorg/my-skill --private
 ```
 
 Both arguments are positional and optional. If only one is given, Decision Hub infers whether it's a skill reference or a path. If omitted, defaults to the current directory and requires a default org to be set.
@@ -138,6 +143,19 @@ dhub track resume abc12345
 ```
 
 Trackers support private repos via a stored `GITHUB_TOKEN` (see `dhub keys add`). If a tracked skill's `SKILL.md` declares a `version` field (e.g. `version: 2.0.0`) higher than the latest published version, that version is used; otherwise the tracker auto-bumps the patch version.
+
+### Visibility & Access Grants
+
+Skills default to `public`. Org-private skills are only visible to org members and explicitly granted orgs/users.
+
+| Command | Description |
+|---------|-------------|
+| `dhub visibility ORG/SKILL {public\|org}` | Change skill visibility (org admins only) |
+| `dhub access grant ORG/SKILL GRANTEE` | Grant access to a private skill |
+| `dhub access revoke ORG/SKILL GRANTEE` | Revoke access to a private skill |
+| `dhub access list ORG/SKILL` | List access grants for a private skill |
+
+Since every user has a personal org (their username), granting to a user is the same as granting to their personal org.
 
 ### Organizations & Config
 
@@ -241,25 +259,36 @@ This repository is a **uv workspace monorepo** with three packages:
 
 ## Development
 
+### Setup
+
 ```bash
-# Install all dependencies
 uv sync --all-packages --all-extras
+```
 
-# Run client tests
-uv run --package dhub pytest client/tests/
+### Tests
 
-# Run server tests
-uv run --package decision-hub-server pytest server/tests/
+```bash
+uv run --package dhub-cli python -m pytest client/tests/ -q        # client
+uv run --package decision-hub-server python -m pytest server/tests/ -q  # server
+```
 
-# Start local dev server (from server/)
-cd server && DHUB_ENV=dev uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --factory --reload
+### Local dev server
 
-# Deploy to Modal (from server/)
+```bash
+cd server
+DHUB_ENV=dev uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --factory --reload
+```
+
+### Deploy
+
+```bash
 cd server && DHUB_ENV=dev modal deploy modal_app.py   # dev
 cd server && modal deploy modal_app.py                 # prod
 ```
 
-### Database setup
+### Database
+
+Initialize tables from the SQLAlchemy schema:
 
 ```bash
 cd server && DHUB_ENV=dev uv run --package decision-hub-server python -c "
@@ -268,6 +297,13 @@ from decision_hub.infra.database import metadata, create_engine
 engine = create_engine(create_settings().database_url)
 metadata.create_all(engine)
 "
+```
+
+Run incremental migrations via scripts in `server/scripts/`:
+
+```bash
+cd server
+DHUB_ENV=dev uv run --package decision-hub-server python scripts/migrate_access_grants.py
 ```
 
 ### Configuration

@@ -21,7 +21,7 @@ def ask_command(
     Example: dhub ask "analyze A/B test results"
     Example: dhub ask "build a REST API" --category "Backend & APIs"
     """
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token
 
     params: dict[str, str] = {"q": query}
     if category:
@@ -31,7 +31,7 @@ def ask_command(
         resp = client.get(
             f"{get_api_url()}/v1/search",
             params=params,
-            headers=build_headers(get_token()),
+            headers=build_headers(get_optional_token()),
         )
         if resp.status_code == 503:
             console.print("[red]Search is not available (server not configured).[/]")

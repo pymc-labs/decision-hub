@@ -24,11 +24,15 @@ dhub publish [ref]      Publish skill(s) — from dir or git repo
 dhub install org/skill  Install a skill from the registry
 dhub uninstall org/skill  Remove a locally installed skill
 dhub list               List all published skills
+dhub visibility org/skill LEVEL  Change skill visibility (public/org)
 dhub delete org/skill   Delete skill versions from registry
 dhub run org/skill      Run a locally installed skill
 dhub ask "query"        Natural language skill search
 dhub eval-report org/skill@version  View eval report
 dhub logs [ref] [-f]    View or tail eval run logs
+dhub access grant org/skill GRANTEE  Grant access to a private skill
+dhub access revoke org/skill GRANTEE Revoke access to a private skill
+dhub access list org/skill   List access grants for a private skill
 dhub org list           List your namespaces
 dhub config default-org Set default namespace for publishing
 dhub keys add <name>    Store an API key for evals
@@ -95,6 +99,7 @@ dhub publish --version 2.0.0  # explicit version
 ```bash
 dhub publish myorg/my-skill          # specify org/skill, auto-bump patch
 dhub publish myorg/my-skill ./path   # specify path to skill directory
+dhub publish myorg/my-skill --private  # publish as org-private
 ```
 
 ### How auto-detection works
@@ -218,6 +223,36 @@ The token is used for both GitHub API calls (checking for new commits) and `git 
 
 - Only GitHub repos are supported (both HTTPS and SSH URLs)
 - Minimum poll interval is 5 minutes
+
+## Skill Visibility
+
+Skills have two visibility levels:
+
+| Level | Who can see/install | Listed/searchable? |
+|-------|--------------------|--------------------|
+| `public` (default) | Anyone | Yes, always |
+| `org` | Org members only | Only for org members |
+
+```bash
+dhub publish myorg/my-skill --private     # publish as org-private
+dhub publish myorg/my-skill               # default: public
+dhub visibility myorg/my-skill org        # change to org-private after publish
+dhub visibility myorg/my-skill public     # change back to public
+```
+
+Only org admins can change visibility after publish. Unauthenticated users only see public skills in `dhub list` and `dhub ask`.
+
+### Access Grants (Sharing Private Skills)
+
+Private (org-visibility) skills can be shared with other orgs or users via access grants. Since every user has a personal org (their username), granting to a user is the same as granting to their personal org.
+
+```bash
+dhub access grant myorg/my-skill partner-org    # grant access
+dhub access revoke myorg/my-skill partner-org   # revoke access
+dhub access list myorg/my-skill                 # list all grants
+```
+
+Only org admins of the owning org can manage access grants. Grantees can see and install the skill but cannot manage grants.
 
 ## Installing Skills
 

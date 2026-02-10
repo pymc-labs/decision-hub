@@ -80,7 +80,7 @@ skill-name/
 Publish a skill to the registry.
 
 ```
-dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [--ref REF]
+dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [--private] [--ref REF]
 ```
 
 | Argument/Option | Required | Default | Description |
@@ -91,6 +91,7 @@ dhub publish [SKILL_REF] [PATH] [--version VER] [--patch] [--minor] [--major] [-
 | `--patch` | no | true (default bump) | Bump patch version |
 | `--minor` | no | false | Bump minor version |
 | `--major` | no | false | Bump major version |
+| `--private` | no | false | Publish as org-private (visible only to org members) |
 | `--ref` | no | default branch | Branch/tag/commit (git URLs only) |
 
 **Positional argument disambiguation:**
@@ -181,6 +182,31 @@ dhub list
 
 No options. Displays a table with columns: Org, Skill, Version, Updated, Safety (grade), Author, Description.
 
+**Visibility:** Unauthenticated users see only public skills. Authenticated users also see org-private skills from their orgs.
+
+---
+
+## dhub visibility
+
+Change the visibility of a published skill.
+
+```
+dhub visibility ORG/SKILL VISIBILITY
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+| `VISIBILITY` | yes | `public` or `org` |
+
+Only org admins can change visibility. Set to `org` to make a skill visible only to org members. Set to `public` to make it visible to everyone.
+
+**API:** PUT `/v1/skills/{org}/{skill}/visibility`
+
+**Error codes:**
+- HTTP 403 → only org admins can change visibility
+- HTTP 404 → skill not found
+
 ---
 
 ## dhub delete
@@ -239,6 +265,8 @@ dhub ask "QUERY"
 
 Searches across all published skills. Returns markdown-formatted results in a Rich panel.
 
+**Visibility:** Unauthenticated users search only public skills. Authenticated users also search org-private skills from their orgs.
+
 **API:** GET `/v1/search?q={query}`
 
 ---
@@ -292,6 +320,77 @@ dhub logs [SKILL_REF] [--follow|-f]
 - `report` — final summary (passed/total, duration)
 
 **Publish auto-attach:** When publishing a skill with evals, the CLI automatically starts tailing the eval run logs. Press Ctrl-C to detach; re-attach later with `dhub logs <run-id> --follow`.
+
+---
+
+## dhub access grant
+
+Grant an org (or user) access to a private skill.
+
+```
+dhub access grant ORG/SKILL GRANTEE
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+| `GRANTEE` | yes | Org or user slug to grant access to |
+
+Since every user has a personal org (their username), granting to a user is the same as granting to their personal org.
+
+Only org admins of the owning org can grant access.
+
+**API:** POST `/v1/skills/{org}/{skill}/access`
+
+**Error codes:**
+- HTTP 403 → only org admins can manage access
+- HTTP 404 → skill or grantee org not found
+- HTTP 409 → access already granted
+
+---
+
+## dhub access revoke
+
+Revoke an org's access to a private skill.
+
+```
+dhub access revoke ORG/SKILL GRANTEE
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+| `GRANTEE` | yes | Org or user slug to revoke access from |
+
+Only org admins of the owning org can revoke access.
+
+**API:** DELETE `/v1/skills/{org}/{skill}/access/{grantee}`
+
+**Error codes:**
+- HTTP 403 → only org admins can manage access
+- HTTP 404 → skill, grantee org, or grant not found
+
+---
+
+## dhub access list
+
+List all access grants for a private skill.
+
+```
+dhub access list ORG/SKILL
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ORG/SKILL` | yes | Skill reference (e.g. `myorg/my-skill`) |
+
+Displays a table with grantee org slug, granted-by username, and date. Only org admins of the owning org can list grants.
+
+**API:** GET `/v1/skills/{org}/{skill}/access`
+
+**Error codes:**
+- HTTP 403 → only org admins can view access grants
+- HTTP 404 → skill not found
 
 ---
 

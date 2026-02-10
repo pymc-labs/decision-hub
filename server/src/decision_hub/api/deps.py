@@ -44,6 +44,37 @@ def get_connection(
         yield conn
 
 
+def get_optional_user(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> User | None:
+    """Extract a User from the JWT if present, otherwise return None.
+
+    Unlike get_current_user, this does not raise on missing/invalid tokens.
+    Used for endpoints where auth is optional (list, search, resolve).
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.removeprefix("Bearer ")
+
+    try:
+        payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
+    except JWTError:
+        return None
+
+    if "github_orgs" not in payload:
+        return None
+
+    return User(
+        id=UUID(payload["sub"]),
+        github_id="",
+        username=payload["username"],
+        github_orgs=tuple(payload["github_orgs"]),
+    )
+
+
 def get_current_user(
     request: Request,
     settings: Settings = Depends(get_settings),

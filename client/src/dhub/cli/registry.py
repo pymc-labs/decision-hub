@@ -44,6 +44,7 @@ def _publish_skill_directory(
     bump_level: str,
     api_url: str,
     token: str,
+    private: bool = False,
 ) -> bool:
     """Publish a single skill directory to the registry.
 
@@ -73,7 +74,10 @@ def _publish_skill_directory(
             console.print(f"  No changes detected for [cyan]{name}[/]. Already at [cyan]{current_version}[/].")
             return False
 
-    metadata = json.dumps({"org_slug": org, "skill_name": name, "version": version})
+    visibility = "org" if private else "public"
+    metadata = json.dumps(
+        {"org_slug": org, "skill_name": name, "version": version, "visibility": visibility}
+    )
 
     with console.status(f"Publishing {org}/{name}@{version}..."):
         with httpx.Client(timeout=60) as client:
@@ -100,9 +104,10 @@ def _publish_skill_directory(
     eval_report_status = data.get("eval_report_status")
 
     grade_color = GRADE_COLORS.get(eval_status, "white")
+    visibility_label = " [dim](org-private)[/]" if private else ""
     console.print(
         f"[green]Published: {org}/{name}@{version}[/] "
-        f"(Grade [{grade_color}]{eval_status}[/])"
+        f"(Grade [{grade_color}]{eval_status}[/]){visibility_label}"
     )
     if eval_status == "B":
         console.print("[yellow]Warning: Grade B — elevated permissions detected.[/]")
@@ -134,6 +139,7 @@ def publish_command(
     minor: bool = typer.Option(False, "--minor", help="Bump minor version"),
     major: bool = typer.Option(False, "--major", help="Bump major version"),
     ref: str = typer.Option(None, "--ref", help="Branch/tag/commit (only for git repo URLs)"),
+    private: bool = typer.Option(False, "--private", help="Publish as org-private (visible only to org members)"),
 ) -> None:
     """Publish skills to the registry.
 
@@ -145,6 +151,8 @@ def publish_command(
 
     Version is auto-bumped by default (patch). Use --major or --minor to
     control the bump level, or --version to set an explicit version.
+
+    Use --private to restrict visibility to org members only.
     """
     from dhub.core.git_repo import looks_like_git_url
 
@@ -153,14 +161,14 @@ def publish_command(
 
     # Detect git URL in the first positional arg
     if looks_like_git_url(source):
-        _publish_from_git_repo(source, ref, version, bump_level)
+        _publish_from_git_repo(source, ref, version, bump_level, private)
         return
 
     if ref is not None:
         console.print("[red]Error: --ref can only be used with a git repository URL.[/]")
         raise typer.Exit(1)
 
-    _publish_from_directory(Path(source), version, bump_level)
+    _publish_from_directory(Path(source), version, bump_level, private)
 
 
 def _publish_discovered_skills(
@@ -171,6 +179,7 @@ def _publish_discovered_skills(
     bump_level: str,
     api_url: str,
     token: str,
+    private: bool = False,
 ) -> None:
     """Publish a list of discovered skill directories."""
     from dhub.core.manifest import parse_skill_md
@@ -199,6 +208,7 @@ def _publish_discovered_skills(
                 bump_level,
                 api_url,
                 token,
+                private,
             )
             if result:
                 published += 1
@@ -220,6 +230,7 @@ def _publish_from_directory(
     path: Path,
     version: str | None,
     bump_level: str,
+    private: bool = False,
 ) -> None:
     """Discover and publish all skills under a local directory."""
     from dhub.cli.config import get_api_url, get_token
@@ -239,7 +250,7 @@ def _publish_from_directory(
     token = get_token()
     org = _auto_detect_org(api_url, token)
 
-    _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token)
+    _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private)
 
 
 def _publish_from_git_repo(
@@ -247,6 +258,7 @@ def _publish_from_git_repo(
     ref: str | None,
     version: str | None,
     bump_level: str,
+    private: bool = False,
 ) -> None:
     """Clone a git repo, discover skills, and publish each one."""
     from dhub.cli.config import get_api_url, get_token
@@ -278,6 +290,7 @@ def _publish_from_git_repo(
             bump_level,
             api_url,
             token,
+            private,
         )
     finally:
         shutil.rmtree(repo_root.parent, ignore_errors=True)
@@ -421,7 +434,7 @@ def list_command(
 ) -> None:
     """List published skills on the registry."""
     from dhub.cli.banner import check_and_show_update, print_banner
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token
 
     print_banner(console)
 
@@ -431,7 +444,7 @@ def list_command(
         resp = client.get(
             f"{api_url}/v1/skills",
             params={"page": page, "page_size": page_size},
-            headers=build_headers(get_token()),
+            headers=build_headers(get_optional_token()),
         )
         resp.raise_for_status()
         data = resp.json()
@@ -602,6 +615,61 @@ def eval_report_command(
             console.print(f"    Reasoning: {case['reasoning']}")
 
 
+def visibility_command(
+    skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
+    visibility: str = typer.Argument(help="Visibility level: 'public' or 'org'"),
+) -> None:
+    """Change the visibility of a published skill.
+
+    Set to 'public' to make it visible to everyone, or 'org' to restrict
+    access to org members only. Only org admins can change visibility.
+    """
+    from dhub.cli.config import build_headers, get_api_url, get_token
+
+    parts = skill_ref.split("/", 1)
+    if len(parts) != 2:
+        console.print(
+            "[red]Error: Skill reference must be in org/skill format.[/]"
+        )
+        raise typer.Exit(1)
+    org_slug, skill_name = parts
+
+    if visibility not in ("public", "org"):
+        console.print(
+            "[red]Error: Visibility must be 'public' or 'org'.[/]"
+        )
+        raise typer.Exit(1)
+
+    api_url = get_api_url()
+    headers = build_headers(get_token())
+    headers["Content-Type"] = "application/json"
+
+    with httpx.Client(timeout=60) as client:
+        resp = client.put(
+            f"{api_url}/v1/skills/{org_slug}/{skill_name}/visibility",
+            headers=headers,
+            json={"visibility": visibility},
+        )
+        if resp.status_code == 404:
+            console.print(
+                f"[red]Error: Skill '{skill_ref}' not found.[/]"
+            )
+            raise typer.Exit(1)
+        if resp.status_code == 403:
+            console.print(
+                "[red]Error: Only org admins can change skill visibility.[/]"
+            )
+            raise typer.Exit(1)
+        if resp.status_code == 422:
+            detail = resp.json().get("detail", "Invalid visibility")
+            console.print(f"[red]Error: {detail}[/]")
+            raise typer.Exit(1)
+        resp.raise_for_status()
+
+    label = "org-private" if visibility == "org" else "public"
+    console.print(f"[green]Updated {org_slug}/{skill_name} visibility to {label}[/]")
+
+
 def install_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
     version: str = typer.Option("latest", "--version", "-v", help="Version spec"),
@@ -609,7 +677,7 @@ def install_command(
     allow_risky: bool = typer.Option(False, "--allow-risky", help="Allow installing C-grade (risky) skills"),
 ) -> None:
     """Install a skill from the registry."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token
     from dhub.core.install import (
         get_dhub_skill_path,
         link_skill_to_agent,
@@ -619,7 +687,7 @@ def install_command(
 
     org_slug, skill_name = _parse_skill_ref(skill_ref)
 
-    headers = build_headers(get_token())
+    headers = build_headers(get_optional_token())
     base_url = get_api_url()
 
     # Resolve the version to a concrete download URL and checksum

@@ -35,6 +35,7 @@ from decision_hub.models import (
     Organization,
     OrgMember,
     Skill,
+    SkillAccessGrant,
     SkillTracker,
     User,
     UserApiKey,
@@ -121,6 +122,7 @@ skills_table = Table(
     Column("description", Text, nullable=False, server_default=""),
     Column("download_count", sa.Integer, nullable=False, server_default="0"),
     Column("category", String, nullable=False, server_default=""),
+    Column("visibility", String(10), nullable=False, server_default="public"),
     sa.UniqueConstraint("org_id", "name"),
 )
 
@@ -167,6 +169,42 @@ versions_table = Table(
         "eval_status",
         postgresql_where=sa.text("eval_status IN ('A', 'B', 'passed')"),
     ),
+)
+
+skill_access_grants_table = Table(
+    "skill_access_grants",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column(
+        "skill_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("skills.id"),
+        nullable=False,
+    ),
+    Column(
+        "grantee_org_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("organizations.id"),
+        nullable=False,
+    ),
+    Column(
+        "granted_by",
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+    ),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    sa.UniqueConstraint("skill_id", "grantee_org_id"),
 )
 
 user_api_keys_table = Table(
@@ -417,6 +455,7 @@ def _row_to_skill(row: sa.Row) -> Skill:
         description=row.description,
         download_count=row.download_count,
         category=row.category,
+        visibility=row.visibility,
     )
 
 
@@ -607,6 +646,15 @@ def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
     return [_row_to_organization(row) for row in rows]
 
 
+def list_user_org_ids(conn: Connection, user_id: UUID) -> list[UUID]:
+    """List all org IDs a user belongs to (lightweight version for filtering)."""
+    stmt = sa.select(org_members_table.c.org_id).where(
+        org_members_table.c.user_id == user_id
+    )
+    rows = conn.execute(stmt).all()
+    return [row.org_id for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Org member queries
 # ---------------------------------------------------------------------------
@@ -676,7 +724,7 @@ def find_org_member(conn: Connection, org_id: UUID, user_id: UUID) -> OrgMember 
 
 
 def insert_skill(
-    conn: Connection, org_id: UUID, name: str, description: str = "", category: str = ""
+    conn: Connection, org_id: UUID, name: str, description: str = "", visibility: str = "public",
 ) -> Skill:
     """Register a new skill under an organization.
 
@@ -685,14 +733,14 @@ def insert_skill(
         org_id: UUID of the owning organization.
         name: Skill name (unique within the org).
         description: Short description from SKILL.md frontmatter.
-        category: Classified category from LLM taxonomy.
+        visibility: Skill visibility level ('public' or 'org').
 
     Returns:
         The newly created Skill.
     """
     stmt = (
         sa.insert(skills_table)
-        .values(org_id=org_id, name=name, description=description, category=category)
+        .values(org_id=org_id, name=name, description=description, visibility=visibility)
         .returning(*skills_table.c)
     )
     row = conn.execute(stmt).one()
@@ -743,6 +791,88 @@ def update_skill_category(
         .values(category=category)
     )
     conn.execute(stmt)
+
+
+def update_skill_visibility(
+    conn: Connection, skill_id: UUID, visibility: str
+) -> None:
+    """Update the visibility of an existing skill."""
+    stmt = (
+        sa.update(skills_table)
+        .where(skills_table.c.id == skill_id)
+        .values(visibility=visibility)
+    )
+    conn.execute(stmt)
+
+
+# ---------------------------------------------------------------------------
+# Skill access grant queries
+# ---------------------------------------------------------------------------
+
+
+def insert_skill_access_grant(
+    conn: Connection, skill_id: UUID, grantee_org_id: UUID, granted_by: UUID,
+) -> SkillAccessGrant:
+    """Grant an org access to a private skill."""
+    stmt = (
+        sa.insert(skill_access_grants_table)
+        .values(skill_id=skill_id, grantee_org_id=grantee_org_id, granted_by=granted_by)
+        .returning(*skill_access_grants_table.c)
+    )
+    row = conn.execute(stmt).one()
+    return SkillAccessGrant(
+        id=row.id, skill_id=row.skill_id, grantee_org_id=row.grantee_org_id,
+        granted_by=row.granted_by, created_at=row.created_at,
+    )
+
+
+def delete_skill_access_grant(
+    conn: Connection, skill_id: UUID, grantee_org_id: UUID,
+) -> bool:
+    """Revoke an org's access to a private skill. Returns True if a grant was deleted."""
+    stmt = (
+        sa.delete(skill_access_grants_table)
+        .where(
+            sa.and_(
+                skill_access_grants_table.c.skill_id == skill_id,
+                skill_access_grants_table.c.grantee_org_id == grantee_org_id,
+            )
+        )
+    )
+    result = conn.execute(stmt)
+    return result.rowcount > 0
+
+
+def list_skill_access_grants(
+    conn: Connection, skill_id: UUID,
+) -> list[SkillAccessGrant]:
+    """List all access grants for a skill."""
+    stmt = (
+        sa.select(skill_access_grants_table)
+        .where(skill_access_grants_table.c.skill_id == skill_id)
+        .order_by(skill_access_grants_table.c.created_at)
+    )
+    rows = conn.execute(stmt).all()
+    return [
+        SkillAccessGrant(
+            id=row.id, skill_id=row.skill_id, grantee_org_id=row.grantee_org_id,
+            granted_by=row.granted_by, created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
+def list_granted_skill_ids(conn: Connection, org_ids: list[UUID]) -> list[UUID]:
+    """List all skill IDs that the given orgs have been granted access to."""
+    if not org_ids:
+        return []
+    stmt = (
+        sa.select(skill_access_grants_table.c.skill_id)
+        .where(skill_access_grants_table.c.grantee_org_id.in_(org_ids))
+        .distinct()
+    )
+    rows = conn.execute(stmt).all()
+    return [row.skill_id for row in rows]
 
 
 def increment_skill_downloads(conn: Connection, skill_id: UUID) -> None:
@@ -835,6 +965,7 @@ def resolve_version(
     skill_name: str,
     spec: str,
     allow_risky: bool = False,
+    user_org_ids: list[UUID] | None = None,
 ) -> Version | None:
     """Resolve a version specification to a concrete Version record.
 
@@ -844,12 +975,16 @@ def resolve_version(
     Semver ordering splits on '.' and casts each part to integer, so
     '2.10.0' correctly sorts higher than '2.9.0'.
 
+    Visibility: public skills are available to all. Org-private skills
+    require user_org_ids to include the skill's org.
+
     Args:
         conn: Active database connection.
         org_slug: Organization slug that owns the skill.
         skill_name: Name of the skill.
         spec: Either "latest" or an exact semver string.
         allow_risky: If True, also include C-grade (risky) versions.
+        user_org_ids: Org IDs the user is a member of (for visibility check).
 
     Returns:
         The resolved Version, or None if no matching version exists.
@@ -870,6 +1005,27 @@ def resolve_version(
             )
         )
     )
+
+    # Visibility filter: public OR user's own orgs OR granted access
+    if user_org_ids:
+        granted_ids = list_granted_skill_ids(conn, user_org_ids)
+        vis_conditions = [
+            skills_table.c.visibility == "public",
+            sa.and_(
+                skills_table.c.visibility == "org",
+                skills_table.c.org_id.in_(user_org_ids),
+            ),
+        ]
+        if granted_ids:
+            vis_conditions.append(
+                sa.and_(
+                    skills_table.c.visibility == "org",
+                    skills_table.c.id.in_(granted_ids),
+                )
+            )
+        base = base.where(sa.or_(*vis_conditions))
+    else:
+        base = base.where(skills_table.c.visibility == "public")
 
     # Filter by grade: A/B (and legacy "passed") by default, add C if allow_risky
     allowed_statuses = ["A", "B", "passed"]
@@ -1108,12 +1264,17 @@ def fetch_all_skills_for_index(
     *,
     limit: int | None = None,
     offset: int | None = None,
+    user_org_ids: list[UUID] | None = None,
 ) -> list[dict]:
     """Fetch skills with their latest version info for the search index.
 
     When *limit* and *offset* are ``None`` (the default), returns every skill
-    – keeping backward compatibility with the search endpoint.  Pass both to
+    -- keeping backward compatibility with the search endpoint.  Pass both to
     enable offset-based pagination.
+
+    Visibility filtering: always includes public skills. If user_org_ids is
+    provided, also includes org-private skills from those orgs. If
+    user_org_ids is None (unauthenticated), only public skills are returned.
     """
     join, latest_version = _skills_index_base_query()
 
@@ -1125,6 +1286,7 @@ def fetch_all_skills_for_index(
             skills_table.c.description,
             skills_table.c.download_count,
             skills_table.c.category,
+            skills_table.c.visibility,
             latest_version.c.semver.label("latest_version"),
             latest_version.c.eval_status,
             latest_version.c.created_at,
@@ -1133,6 +1295,27 @@ def fetch_all_skills_for_index(
         .select_from(join)
         .order_by(latest_version.c.created_at.desc().nulls_last())
     )
+
+    # Visibility filter: public OR user's own orgs OR granted access
+    if user_org_ids:
+        granted_ids = list_granted_skill_ids(conn, user_org_ids)
+        org_conditions = [
+            skills_table.c.visibility == "public",
+            sa.and_(
+                skills_table.c.visibility == "org",
+                skills_table.c.org_id.in_(user_org_ids),
+            ),
+        ]
+        if granted_ids:
+            org_conditions.append(
+                sa.and_(
+                    skills_table.c.visibility == "org",
+                    skills_table.c.id.in_(granted_ids),
+                )
+            )
+        stmt = stmt.where(sa.or_(*org_conditions))
+    else:
+        stmt = stmt.where(skills_table.c.visibility == "public")
 
     if limit is not None:
         stmt = stmt.limit(limit)
@@ -1148,6 +1331,7 @@ def fetch_all_skills_for_index(
             "description": row.description,
             "download_count": row.download_count,
             "category": row.category,
+            "visibility": row.visibility,
             "latest_version": row.latest_version,
             "eval_status": row.eval_status,
             "created_at": row.created_at,

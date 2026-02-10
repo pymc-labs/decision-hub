@@ -664,3 +664,358 @@ class TestDeleteCommand:
 
         assert result.exit_code == 1
         assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# publish --private
+# ---------------------------------------------------------------------------
+
+class TestPublishPrivate:
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_private_sends_visibility_org(
+        self,
+        _mock_url,
+        _mock_token,
+        tmp_path: Path,
+    ) -> None:
+        """--private flag should include visibility=org in the metadata."""
+        _write_skill_md(tmp_path)
+        publish_route = respx.post("http://test:8000/v1/publish").mock(
+            return_value=httpx.Response(200, json={})
+        )
+
+        result = runner.invoke(
+            app,
+            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0", "--private"],
+        )
+
+        assert result.exit_code == 0
+        assert "Published: myorg/my-skill@1.0.0" in result.output
+        assert "org-private" in result.output
+
+        # Verify the metadata sent to the server contains visibility=org
+        request = publish_route.calls.last.request
+        body = request.content.decode("utf-8", errors="replace")
+        assert '"visibility": "org"' in body
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_default_is_public(
+        self,
+        _mock_url,
+        _mock_token,
+        tmp_path: Path,
+    ) -> None:
+        """Without --private, visibility should default to public."""
+        _write_skill_md(tmp_path)
+        publish_route = respx.post("http://test:8000/v1/publish").mock(
+            return_value=httpx.Response(200, json={})
+        )
+
+        result = runner.invoke(
+            app,
+            ["publish", "myorg/my-skill", str(tmp_path), "--version", "1.0.0"],
+        )
+
+        assert result.exit_code == 0
+        request = publish_route.calls.last.request
+        body = request.content.decode("utf-8", errors="replace")
+        assert '"visibility": "public"' in body
+
+
+# ---------------------------------------------------------------------------
+# visibility_command
+# ---------------------------------------------------------------------------
+
+class TestVisibilityCommand:
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_visibility_change_success(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Changing visibility should succeed."""
+        respx.put("http://test:8000/v1/skills/myorg/my-skill/visibility").mock(
+            return_value=httpx.Response(200, json={
+                "org_slug": "myorg",
+                "skill_name": "my-skill",
+                "visibility": "org",
+            })
+        )
+
+        result = runner.invoke(app, ["visibility", "myorg/my-skill", "org"])
+
+        assert result.exit_code == 0
+        assert "org-private" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_visibility_change_to_public(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Changing visibility to public."""
+        respx.put("http://test:8000/v1/skills/myorg/my-skill/visibility").mock(
+            return_value=httpx.Response(200, json={
+                "org_slug": "myorg",
+                "skill_name": "my-skill",
+                "visibility": "public",
+            })
+        )
+
+        result = runner.invoke(app, ["visibility", "myorg/my-skill", "public"])
+
+        assert result.exit_code == 0
+        assert "public" in result.output
+
+    def test_visibility_invalid_ref(self) -> None:
+        """Visibility with bad skill ref should fail."""
+        result = runner.invoke(app, ["visibility", "no-slash", "org"])
+
+        assert result.exit_code == 1
+        assert "org/skill format" in result.output
+
+    def test_visibility_invalid_value(self) -> None:
+        """Invalid visibility value should fail."""
+        result = runner.invoke(app, ["visibility", "myorg/my-skill", "invalid"])
+
+        assert result.exit_code == 1
+        assert "public" in result.output or "org" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_visibility_403_forbidden(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Non-admin should get permission error."""
+        respx.put("http://test:8000/v1/skills/myorg/my-skill/visibility").mock(
+            return_value=httpx.Response(403)
+        )
+
+        result = runner.invoke(app, ["visibility", "myorg/my-skill", "org"])
+
+        assert result.exit_code == 1
+        assert "admin" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_visibility_404_not_found(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Non-existent skill should return error."""
+        respx.put("http://test:8000/v1/skills/myorg/no-skill/visibility").mock(
+            return_value=httpx.Response(404)
+        )
+
+        result = runner.invoke(app, ["visibility", "myorg/no-skill", "org"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# access grant/revoke/list
+# ---------------------------------------------------------------------------
+
+class TestAccessGrant:
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_grant_success(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Grant access should succeed."""
+        respx.post("http://test:8000/v1/skills/myorg/my-skill/access").mock(
+            return_value=httpx.Response(201, json={
+                "org_slug": "myorg",
+                "skill_name": "my-skill",
+                "grantee_org_slug": "other-org",
+            })
+        )
+
+        result = runner.invoke(app, ["access", "grant", "myorg/my-skill", "other-org"])
+
+        assert result.exit_code == 0
+        assert "Granted access" in result.output
+        assert "other-org" in result.output
+
+    def test_access_grant_invalid_ref(self) -> None:
+        """Grant with invalid skill ref should fail."""
+        result = runner.invoke(app, ["access", "grant", "no-slash", "other-org"])
+
+        assert result.exit_code == 1
+        assert "org/skill format" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_grant_404(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Grant to non-existent skill or org should show error."""
+        respx.post("http://test:8000/v1/skills/myorg/my-skill/access").mock(
+            return_value=httpx.Response(404, json={"detail": "Skill 'my-skill' not found"})
+        )
+
+        result = runner.invoke(app, ["access", "grant", "myorg/my-skill", "other-org"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_grant_403(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Non-admin should get permission error."""
+        respx.post("http://test:8000/v1/skills/myorg/my-skill/access").mock(
+            return_value=httpx.Response(403)
+        )
+
+        result = runner.invoke(app, ["access", "grant", "myorg/my-skill", "other-org"])
+
+        assert result.exit_code == 1
+        assert "admin" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_grant_409_duplicate(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Duplicate grant should show already-granted message."""
+        respx.post("http://test:8000/v1/skills/myorg/my-skill/access").mock(
+            return_value=httpx.Response(409)
+        )
+
+        result = runner.invoke(app, ["access", "grant", "myorg/my-skill", "other-org"])
+
+        assert result.exit_code == 1
+        assert "already granted" in result.output.lower()
+
+
+class TestAccessRevoke:
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_revoke_success(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Revoke access should succeed."""
+        respx.delete("http://test:8000/v1/skills/myorg/my-skill/access/other-org").mock(
+            return_value=httpx.Response(200, json={
+                "org_slug": "myorg",
+                "skill_name": "my-skill",
+                "grantee_org_slug": "other-org",
+            })
+        )
+
+        result = runner.invoke(app, ["access", "revoke", "myorg/my-skill", "other-org"])
+
+        assert result.exit_code == 0
+        assert "Revoked access" in result.output
+        assert "other-org" in result.output
+
+    def test_access_revoke_invalid_ref(self) -> None:
+        """Revoke with invalid skill ref should fail."""
+        result = runner.invoke(app, ["access", "revoke", "no-slash", "other-org"])
+
+        assert result.exit_code == 1
+        assert "org/skill format" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_revoke_404(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Revoking a non-existent grant should show error."""
+        respx.delete("http://test:8000/v1/skills/myorg/my-skill/access/other-org").mock(
+            return_value=httpx.Response(404, json={"detail": "No access grant found"})
+        )
+
+        result = runner.invoke(app, ["access", "revoke", "myorg/my-skill", "other-org"])
+
+        assert result.exit_code == 1
+
+
+class TestAccessList:
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_list_success(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """List access grants should display a table."""
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/access").mock(
+            return_value=httpx.Response(200, json=[
+                {
+                    "grantee_org_slug": "partner-org",
+                    "granted_by": "admin-user",
+                    "created_at": "2025-06-01T12:00:00",
+                },
+            ])
+        )
+
+        result = runner.invoke(app, ["access", "list", "myorg/my-skill"])
+
+        assert result.exit_code == 0
+        assert "partner-org" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_list_empty(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """List with no grants should show a message."""
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/access").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+
+        result = runner.invoke(app, ["access", "list", "myorg/my-skill"])
+
+        assert result.exit_code == 0
+        assert "No access grants" in result.output
+
+    def test_access_list_invalid_ref(self) -> None:
+        """List with invalid skill ref should fail."""
+        result = runner.invoke(app, ["access", "list", "no-slash"])
+
+        assert result.exit_code == 1
+        assert "org/skill format" in result.output

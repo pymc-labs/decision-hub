@@ -3,14 +3,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from decision_hub.api.deps import get_connection, get_settings
+from decision_hub.api.deps import get_connection, get_optional_user, get_settings
 from decision_hub.domain.search import build_index_entry, serialize_index
-from decision_hub.infra.database import fetch_all_skills_for_index
+from decision_hub.infra.database import fetch_all_skills_for_index, list_user_org_ids
 from decision_hub.infra.gemini import (
     check_query_topicality,
     create_gemini_client,
     search_skills_with_llm,
 )
+from decision_hub.models import User
 from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["search"])
@@ -30,12 +31,16 @@ def search_skills(
     category: str | None = Query(None, description="Filter results to a specific category"),
     settings: Settings = Depends(get_settings),
     conn=Depends(get_connection),
+    current_user: User | None = Depends(get_optional_user),
 ) -> SearchResponse:
     """Search for skills using natural language.
 
     Queries the database for all published skills, formats them as a
     JSONL index, then uses Gemini to rank and recommend matches.
     Optionally filters to a single category before sending to the LLM.
+
+    Uses optional auth: unauthenticated callers see only public skills.
+    Authenticated callers also see org-private skills from their orgs.
     """
     if not settings.google_api_key:
         raise HTTPException(
@@ -60,7 +65,8 @@ def search_skills(
         )
 
     # Build index directly from the database (single source of truth)
-    rows = fetch_all_skills_for_index(conn)
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    rows = fetch_all_skills_for_index(conn, user_org_ids=user_org_ids)
     if not rows:
         return SearchResponse(query=q, results="No skills in the index yet.", category=category)
 
