@@ -171,6 +171,68 @@ def search_skills_with_llm(
     return parts[0].get("text", "No recommendations found.")
 
 
+def classify_skill(
+    client: dict,
+    skill_name: str,
+    description: str,
+    body: str,
+    taxonomy_fragment: str,
+    model: str = "gemini-2.0-flash",
+) -> str:
+    """Classify a skill into a category from the taxonomy using Gemini.
+
+    Called after the gauntlet passes to assign a subcategory. Uses low
+    temperature for deterministic output.
+
+    Args:
+        client: Gemini client config dict with api_key and base_url.
+        skill_name: Name of the skill.
+        description: One-line description from SKILL.md.
+        body: System prompt body from SKILL.md.
+        taxonomy_fragment: Pre-formatted taxonomy string.
+        model: Gemini model to use.
+
+    Returns:
+        Raw LLM response text (JSON string to be parsed by the caller).
+    """
+    prompt = (
+        "You are a skill classifier for Decision Hub, an AI skill registry. "
+        "Given a skill's name, description, and system prompt, classify it "
+        "into exactly ONE subcategory from the taxonomy below.\n\n"
+        "Taxonomy:\n"
+        f"{taxonomy_fragment}\n\n"
+        f"Skill name: {skill_name}\n"
+        f"Description: {description}\n"
+        f"System prompt (first 500 chars): {body[:500]}\n\n"
+        "Respond ONLY with a JSON object: "
+        '{"category": "<subcategory name>", "confidence": <0.0-1.0>}\n'
+        "Pick the single best-matching subcategory. Use confidence to indicate "
+        "how well the skill fits. If unsure, use \"Other & Utilities\"."
+    )
+
+    url = f"{client['base_url']}/{model}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.0},
+    }
+
+    with httpx.Client(timeout=30) as http_client:
+        resp = http_client.post(
+            url,
+            params={"key": client["api_key"]},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    candidates = data.get("candidates", [])
+    if not candidates:
+        return '{"category": "Other & Utilities", "confidence": 0.0}'
+
+    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    return text or '{"category": "Other & Utilities", "confidence": 0.0}'
+
+
 def analyze_code_safety(
     client: dict,
     source_snippets: list[dict],

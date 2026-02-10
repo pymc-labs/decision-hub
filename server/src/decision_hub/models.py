@@ -58,6 +58,7 @@ class Skill:
     name: str
     description: str
     download_count: int = 0
+    category: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,3 +233,4 @@ class SkillIndexEntry:
     eval_status: str
     trust_score: str
     author: str = ""
+    category: str = ""
