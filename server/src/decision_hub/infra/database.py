@@ -538,6 +538,16 @@ def update_org_github_metadata(
     logger.debug("Updated GitHub metadata for org={}", org_id)
 
 
+def update_org_email(conn: Connection, org_id: UUID, email: str) -> None:
+    """Update the public email for an organization."""
+    stmt = (
+        sa.update(organizations_table)
+        .where(organizations_table.c.id == org_id)
+        .values(email=email)
+    )
+    conn.execute(stmt)
+
+
 def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
     """List all organizations a user belongs to.
 
