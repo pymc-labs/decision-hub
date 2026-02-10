@@ -111,7 +111,7 @@ sa.func.row_number().over(
 
 - Add a **materialized view** or **denormalized `latest_version` column** on the skills table that is updated on publish/delete. This eliminates the window function entirely.
 - Alternatively, add **indexed computed columns** (or a generated column) for major/minor/patch integers on the versions table.
-- Add **application-level caching** (even 60 seconds TTL) for the skills list since it only changes on publish/delete.
+- Add **in-process TTL caching** (e.g. `cachetools.TTLCache`, no extra infra) for the skills list since it only changes on publish/delete. On Modal each container gets its own cache — that's fine, the goal is avoiding the DB round-trip on every request within a container. Invalidate on publish/delete.
 
 ---
 
@@ -342,7 +342,7 @@ Called inside `maybe_trigger_agent_assessment` and `run_assessment_background`. 
 3. **Add integer semver columns** to versions table with indexes
 4. **Add missing database indexes**
 5. **Implement server-side filtering/sorting** on the list endpoint
-6. **Add caching layer** (Redis or in-memory TTL cache) for the skills list
+6. **Add in-process TTL cache** (`cachetools.TTLCache`) for the skills list — no extra infra needed
 7. **Implement frontend request caching** (React Query)
 8. **Add virtual scrolling** to frontend lists
 9. **Fix S3 pagination** for log chunks
