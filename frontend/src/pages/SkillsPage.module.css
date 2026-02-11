@@ -170,6 +170,75 @@
   color: var(--text-muted);
 }
 
+/* Category badge */
+.cardCategory {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--neon-pink);
+  border-radius: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--neon-pink);
+  width: fit-content;
+}
+
+/* View toggle */
+.viewToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.viewToggle:hover {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+
+.viewToggleActive {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+}
+
+/* Grouped view */
+.groupedContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.categorySection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.categoryHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.1rem;
+  color: var(--neon-pink);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.categoryCount {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
 /* Empty */
 .empty {
   display: flex;

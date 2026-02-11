@@ -556,9 +556,9 @@ class TestListCommand:
         assert "Registry:" in result.output
         assert "http://test:8000" in result.output
         assert "Author" in result.output
-        assert "Downloa" in result.output
+        assert "Downl" in result.output
         assert "acme" in result.output
-        assert "doc-wri" in result.output
+        assert "doc-w" in result.output
         assert "1.0.0" in result.output
         assert "alice" in result.output
         assert "5" in result.output

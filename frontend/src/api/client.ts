@@ -3,6 +3,7 @@ import type {
   ResolveResponse,
   EvalReport,
   AuditLogEntry,
+  TaxonomyResponse,
 } from "../types/api";
 
 // When served from Modal (same origin), use "" so fetches are relative.
@@ -26,6 +27,10 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function listSkills(): Promise<SkillSummary[]> {
   return fetchJSON<SkillSummary[]>("/v1/skills");
+}
+
+export async function getTaxonomy(): Promise<TaxonomyResponse> {
+  return fetchJSON<TaxonomyResponse>("/v1/taxonomy");
 }
 
 export async function resolveSkill(

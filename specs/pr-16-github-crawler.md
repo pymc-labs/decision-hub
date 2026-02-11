@@ -2,9 +2,11 @@
 
 ## Overview
 
-The GitHub Skills Crawler is an automated batch pipeline that discovers public GitHub repositories containing `SKILL.md` files and publishes them into Decision Hub. It works around GitHub's Search API 1,000-result-per-query limit by using five complementary discovery strategies (file-size partitioning, path-based search, topic-based discovery, fork scanning, and curated list parsing). Discovery runs locally as lightweight HTTP calls, while the heavy work (git clone, Gauntlet safety pipeline, publishing to DB/S3) runs in parallel on Modal workers. A local JSON checkpoint file makes the process resumable across crashes.
+The GitHub Skills Crawler discovers public repositories containing `SKILL.md` files across GitHub and publishes them into Decision Hub through the full Gauntlet safety pipeline. It must handle **~170k potential repos** — discovery runs locally (lightweight GitHub API calls), while the heavy work (git clone, Gauntlet, publish) fans out across Modal containers that scale horizontally.
 
-Each discovered skill goes through the full Gauntlet safety pipeline (static regex checks + Gemini LLM analysis) before publishing. Grade-F skills are quarantined to a `rejected/` S3 prefix; grades A/B/C are published normally. A dedicated `dhub-crawler` bot service account owns the organizations it creates and is recorded as the publisher on all versions. The crawler also fetches and stores the public email for each GitHub owner/org.
+Five complementary discovery strategies work around GitHub's Search API 1,000-result-per-query limit. Processing uses Modal's `.map()` with a configurable `concurrency_limit` to saturate as many containers as needed. A local checkpoint file makes the process crash-safe and resumable at any point. A `--max-skills` CLI flag caps the number of skills published (useful for test runs), but the architecture assumes unbounded scale by default.
+
+This feature is **experimental** and designed for easy removal (see Notes).
 
 ## Archived Branch
 
@@ -16,21 +18,19 @@ Each discovered skill goes through the full Gauntlet safety pipeline (static reg
 
 ### SQL Migration
 
-The branch used a Python migration script instead of a proper timestamped SQL migration. The re-implementation must use the project's standard migration format.
-
-**Exact SQL:**
+The `email` column on `organizations` is independently useful (not crawler-specific). Implement it as a standalone migration, ideally during PR #14 or earlier. If it hasn't landed yet, include it here.
 
 ```sql
 -- YYYYMMDD_HHMMSS_add_org_email.sql
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS email TEXT;
 ```
 
-- Nullable (`TEXT` without `NOT NULL`) -- most orgs will not have a public email.
-- Idempotent via `IF NOT EXISTS` (the original branch checked `information_schema` in Python).
+- Nullable (`TEXT` without `NOT NULL`) — most orgs will not have a public email.
+- Idempotent via `IF NOT EXISTS`.
 
 ### SQLAlchemy Model Updates
 
-**`server/src/decision_hub/infra/database.py`** -- add column to `organizations_table`:
+**`server/src/decision_hub/infra/database.py`** — add column to `organizations_table`:
 
 ```python
 organizations_table = Table(
@@ -42,7 +42,7 @@ organizations_table = Table(
 )
 ```
 
-**`server/src/decision_hub/models.py`** -- add field to `Organization` dataclass:
+**`server/src/decision_hub/models.py`** — add field to `Organization` dataclass:
 
 ```python
 @dataclass(frozen=True)
@@ -54,7 +54,7 @@ class Organization:
     email: str | None = None  # NEW
 ```
 
-**`_row_to_organization` mapper** -- pass the new field:
+**`_row_to_organization` mapper** — pass the new field:
 
 ```python
 def _row_to_organization(row: sa.Row) -> Organization:
@@ -64,7 +64,7 @@ def _row_to_organization(row: sa.Row) -> Organization:
     )
 ```
 
-**New query function** -- `update_org_email`:
+**New query function** — `update_org_email`:
 
 ```python
 def update_org_email(conn: Connection, org_id: UUID, email: str) -> None:
@@ -79,95 +79,138 @@ def update_org_email(conn: Connection, org_id: UUID, email: str) -> None:
 
 ## API Changes
 
-None. This is a background batch script, not a REST API feature. No new endpoints are needed.
+None. This is a background batch script, not a REST API feature.
 
 ## CLI Changes
 
-The crawler is invoked as a Python module from the `server/` directory, not as a `dhub` CLI command:
+The crawler is invoked as a Python module from the `server/` directory:
 
 ```
-python -m decision_hub.scripts.github_crawler [OPTIONS]
+DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler [OPTIONS]
 ```
 
 ### Arguments and Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--github-token TEXT` | `str` | `$GITHUB_TOKEN` env var | GitHub PAT (recommended for rate limits; falls back to env var) |
-| `--max-skills INT` | `int` | `None` (unlimited) | Stop after publishing this many skills |
+| `--github-token TEXT` | `str` | `$GITHUB_TOKEN` env var | GitHub PAT (reads from env by default; forwarded to Modal containers for email lookups) |
+| `--max-skills INT` | `int` | `None` (unlimited) | Stop after publishing this many skills (for testing on a small batch) |
 | `--env {dev,prod}` | `str` | `dev` | Decision Hub environment |
-| `--workers INT` | `int` | `5` | Max parallel Modal workers |
+| `--concurrency INT` | `int` | `50` | Max parallel Modal containers (sets `concurrency_limit` on the Modal function) |
 | `--strategies STR [...]` | `list[str]` | all 5 | Subset of: `size`, `path`, `topic`, `fork`, `curated` |
 | `--checkpoint PATH` | `Path` | `crawl_checkpoint.json` | Checkpoint file path |
 | `--resume` | `bool` | `False` | Resume from existing checkpoint (skip discovery) |
 | `--fresh` | `bool` | `False` | Delete checkpoint and start over |
+| `--dry-run` | `bool` | `False` | Run discovery only, print stats, do not process |
 
 `--resume` and `--fresh` are mutually exclusive.
 
 ### Example Usage
 
 ```bash
-# Full crawl with 50-repo cap
+# Full crawl, 50 concurrent Modal containers (default)
+# Reads $GITHUB_TOKEN from env automatically
+DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler
+
+# Test run: publish only 50 skills then stop
 DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
-    --github-token ghp_... --max-skills 50 --workers 5
+    --max-skills 50
+
+# High throughput: 200 concurrent containers
+DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
+    --concurrency 200
+
+# Discovery only — see how many repos exist without processing
+DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
+    --github-token ghp_... --dry-run
 
 # Resume after crash
 DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
-    --github-token ghp_... --resume
-
-# Fresh start (deletes checkpoint)
-DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
-    --github-token ghp_... --fresh
+    --resume
 
 # Only run specific strategies
 DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
-    --github-token ghp_... --strategies size path
+    --strategies size path
+
+# Explicit token override (if $GITHUB_TOKEN is not set)
+DHUB_ENV=dev uv run --package decision-hub-server python -m decision_hub.scripts.github_crawler \
+    --github-token ghp_...
 ```
 
-## Implementation Details
+## Architecture
 
-### Architecture Overview
+### Design Principles
 
-The crawler uses a **split architecture**: local discovery + Modal processing.
+1. **Modal is the scaling lever.** Discovery is local (cheap HTTP), processing fans out to Modal. At 170k repos with `--concurrency 200` and ~2 min/repo, the full run takes ~28 hours wall-clock. With `--concurrency 50`, ~110 hours. The user controls this tradeoff.
+2. **Checkpoint per result.** Every completed repo is written to the checkpoint immediately. A crash at repo 85,000 resumes from 85,001.
+3. **Each Modal container is self-contained.** It clones one repo, opens its own DB connection, processes all skills in that repo, and dies. No shared state between containers.
+4. **Idempotent everywhere.** Checksum-based skip means reprocessing a repo that was already published is a no-op. Safe to re-run, safe to resume.
+
+### Split Architecture
 
 ```
-LOCAL: CLI orchestrator
-  Phase 1: Discovery (runs locally -- just HTTP calls, no disk)
+LOCAL: CLI orchestrator (your laptop / a CI runner)
+  Phase 1: Discovery (runs locally — just HTTP calls to GitHub API)
     5 strategies -> deduplicated dict[full_name, DiscoveredRepo]
-    Saved to crawl_checkpoint.json
+    Saved to checkpoint file
 
-  Phase 2: Parallel dispatch (Rich progress bar)
-    For each batch of N repos:
-      modal fn.map(batch) -> stream results back
-      Update progress bar + checkpoint after each result
+  Phase 2: Fan-out to Modal
+    fn.map(all_pending_repos) -> streams results back as iterator
+    For each result:
+      Write to checkpoint immediately
+      Update Rich progress bar
+      Accumulate stats
 
-MODAL: Worker pool (N containers, timeout=300s each)
-  Each worker:
-    1. Clone repo (git)
+MODAL: Elastic container pool (concurrency_limit controls max parallelism)
+  Each container (one per repo):
+    1. Clone repo (git, 120s timeout)
     2. Discover SKILL.md files
     3. For each skill:
-       a. Parse manifest
-       b. Create zip
-       c. Run Gauntlet
+       a. Parse manifest, create zip, compute checksum
+       b. Skip if checksum matches latest version
+       c. Run Gauntlet (static + LLM)
        d. Publish or quarantine
     4. Return result dict
+    5. Container dies (ephemeral disk cleaned up)
 
 Shared infrastructure:
-  - PostgreSQL (Supabase)
-  - S3 (AWS)
-  - Gemini (Gauntlet LLM)
+  - PostgreSQL (Supabase) — each container opens its own connection
+  - S3 (AWS) — each container creates its own client
+  - Gemini (Gauntlet LLM) — called from within each container
 ```
 
 **Why this split:**
 
 | Concern | Runs where | Why |
 |---------|-----------|-----|
-| GitHub API discovery | Local | Lightweight HTTP calls, needs GH token |
+| GitHub API discovery | Local | Lightweight HTTP, needs GH token, rate-limit aware |
 | Progress bar + UX | Local | User's terminal |
 | Checkpoint file | Local | Simple JSON, user can inspect/edit |
-| Git clone + disk | Modal | Ephemeral disk, user has no space |
-| Gauntlet (Gemini) | Modal | Secrets already configured there |
-| DB + S3 writes | Modal | Secrets already configured there |
+| Git clone + disk | Modal | Ephemeral disk, no local disk pressure at 170k repos |
+| Gauntlet (Gemini) | Modal | Secrets already configured, parallelizes across containers |
+| DB + S3 writes | Modal | Secrets already configured, each container handles its own repos |
+
+### Scaling Considerations
+
+**GitHub API rate limits (discovery phase):**
+- Authenticated: 5,000 requests/hr, 30 requests/min for search. A full discovery across all 5 strategies uses ~500-2,000 API calls. Fits in a single PAT's budget.
+- The `GitHubClient` class tracks `x-ratelimit-remaining` and sleeps proactively when low.
+
+**Modal container concurrency (processing phase):**
+- `concurrency_limit` on the `@app.function` decorator controls max parallel containers. This is the primary throughput knob.
+- Each container runs for ~1-5 min (clone + gauntlet per skill). At 170k repos, plan for 170k container invocations.
+- Modal handles container scheduling, cold starts, and cleanup. No manual pool management.
+
+**Database connection pressure:**
+- Each Modal container opens its own Postgres connection via `create_engine()`. At `--concurrency 200`, that's up to 200 concurrent DB connections.
+- Supabase free tier: 60 connections. Supabase Pro: 200+. The `--concurrency` flag must respect this.
+- Use `NullPool` (already the default in the codebase) so each container uses exactly 1 connection.
+
+**Checkpoint efficiency at scale:**
+- The checkpoint JSON contains `discovered_repos` (170k entries, ~50MB) and `processed_repos` (a growing list of full_names).
+- Writing the full checkpoint after every single result is too slow at 170k. Flush every N results (e.g. 100) or use an append-only processed log file alongside the main checkpoint.
+
+## Implementation Details
 
 ### Discovery Strategies
 
@@ -303,7 +346,7 @@ def scan_forks(gh: GitHubClient, popular_repos: list[str], stats: CrawlStats) ->
 
 #### Strategy 5: Curated List Parsing
 
-Parse READMEs from known awesome-lists for GitHub repo links. For each link found, fetch the repo metadata:
+Parse READMEs from known awesome-lists for GitHub repo links:
 
 ```python
 CURATED_LIST_REPOS = [
@@ -405,7 +448,7 @@ class GitHubClient:
         self._update_rate_limit(resp)
         if resp.status_code == 403 and "rate limit" in resp.text.lower():
             wait = max(self._rate_limit_reset - time.time(), 5)
-            logger.warning("Rate limited. Waiting %.0fs...", wait)
+            logger.warning("Rate limited. Waiting {:.0f}s...", wait)
             time.sleep(wait + 1)
             resp = self._client.get(path, params=params)
             self._update_rate_limit(resp)
@@ -414,7 +457,7 @@ class GitHubClient:
     def _wait_for_rate_limit(self):
         if self._rate_limit_remaining < 3:
             wait = max(self._rate_limit_reset - time.time(), 1)
-            logger.info("Rate limit low (%d). Waiting %.0fs...",
+            logger.info("Rate limit low ({}). Waiting {:.0f}s...",
                         self._rate_limit_remaining, wait)
             time.sleep(wait + 1)
 
@@ -431,13 +474,13 @@ class GitHubClient:
 
 #### Definition in `modal_app.py`
 
-The crawler needs `git` installed in the container, so it uses an extended image:
+The crawler needs `git` installed in the container, so it uses an extended image. The `concurrency_limit` controls how many containers run in parallel — this is the primary throughput knob.
 
 ```python
-# Extended image for the crawler -- adds git for cloning repos
+# Extended image for the crawler — adds git for cloning repos
 crawler_image = image.apt_install("git")
 
-@app.function(image=crawler_image, secrets=secrets, timeout=300)
+@app.function(image=crawler_image, secrets=secrets, timeout=300, concurrency_limit=50)
 def crawl_process_repo(
     repo_dict: dict,
     bot_user_id: str,
@@ -448,10 +491,14 @@ def crawl_process_repo(
     Runs on Modal with ephemeral disk and access to DB/S3/Gemini secrets.
     Returns a result dict with status and counts.
     """
-    from decision_hub.scripts.github_crawler import process_repo_on_modal
+    from decision_hub.scripts.crawler.processing import process_repo_on_modal
 
     return process_repo_on_modal(repo_dict, bot_user_id, github_token)
 ```
+
+The `concurrency_limit` default (50) should be tunable. Options:
+- Pass it as a Modal secret / env var read at deploy time
+- Or the CLI `--concurrency` flag overrides it at call time via `fn.map(..., kwargs={"concurrency_limit": N})` — check if Modal supports runtime override, otherwise the deploy-time value is the ceiling
 
 #### Input: `repo_dict`
 
@@ -482,17 +529,18 @@ def crawl_process_repo(
 }
 ```
 
-#### Processing Pipeline (per repo)
+#### Processing Pipeline (per container)
 
-The `process_repo_on_modal()` function runs inside each Modal container:
+Each Modal container handles exactly one repo:
 
 ```
 1. Validate owner_login -> org slug (must match [a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)
 2. Fetch owner email (GitHub API, using github_token if provided)
-3. Ensure org exists in DB + bot user is admin
-4. git clone --depth 1 (with 120s subprocess timeout)
-5. Walk directory tree -> find SKILL.md files
-6. For each skill directory:
+3. Open DB connection (NullPool — 1 connection per container)
+4. Ensure org exists in DB + bot user is admin
+5. git clone --depth 1 (with 120s subprocess timeout)
+6. Walk directory tree -> find SKILL.md files
+7. For each skill directory:
    a. parse_skill_md() -> manifest
    b. validate_skill_name()
    c. Create zip + compute checksum
@@ -502,11 +550,12 @@ The `process_repo_on_modal()` function runs inside each Modal container:
    g. If Grade F: quarantine to rejected/ S3, insert audit log, skip
    h. Otherwise: upload to skills/ S3, insert version with eval_status=grade
    i. Insert audit log
-7. Cleanup temp directory
-8. Return result dict
+8. Close DB connection
+9. Cleanup temp directory (container dies anyway, but be explicit)
+10. Return result dict
 ```
 
-#### Key Implementation Details
+#### Key Implementation Code
 
 ```python
 def process_repo_on_modal(repo_dict: dict, bot_user_id_str: str, github_token: str | None) -> dict:
@@ -575,7 +624,7 @@ def process_repo_on_modal(repo_dict: dict, bot_user_id_str: str, github_token: s
 
             conn.commit()
 
-            # Clone and discover
+            # Clone and discover (reuse from domain/repo_utils.py — shared with PR #14)
             repo_root = clone_repo(repo_dict["clone_url"])
             tmp_dir = repo_root.parent
 
@@ -591,7 +640,6 @@ def process_repo_on_modal(repo_dict: dict, bot_user_id_str: str, github_token: s
                         conn.commit()
                     except Exception as exc:
                         result["skills_failed"] += 1
-                        # Rollback the failed transaction so next skill can proceed
                         conn.rollback()
             finally:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -646,7 +694,7 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
     if latest is not None:
         if latest.checksum == checksum:
             result["skills_skipped"] += 1
-            return  # identical content -- skip
+            return  # identical content — skip
         parts = latest.semver.split(".")
         parts[2] = str(int(parts[2]) + 1)
         version = ".".join(parts)
@@ -674,7 +722,7 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
     )
 
     if not report.passed:
-        # Grade F -- quarantine
+        # Grade F — quarantine
         q_key = build_quarantine_s3_key(org.slug, name, version)
         insert_audit_log(
             conn, org_slug=org.slug, skill_name=name, semver=version,
@@ -687,7 +735,7 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
         result["skills_quarantined"] += 1
         return
 
-    # Grade A/B/C -- publish
+    # Grade A/B/C — publish
     s3_key = build_s3_key(org.slug, name, version)
     upload_skill_zip(s3_client, settings.s3_bucket, s3_key, zip_data)
     version_record = insert_version(
@@ -704,6 +752,56 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
     result["skills_published"] += 1
 ```
 
+### Orchestrator Dispatch — Modal `.map()`
+
+The local orchestrator dispatches **all** pending repos to Modal in a single `.map()` call. Modal manages container scheduling and parallelism via `concurrency_limit`.
+
+```python
+def run_processing_phase(
+    pending_repos: list[DiscoveredRepo],
+    bot_user_id: str,
+    github_token: str | None,
+    checkpoint: Checkpoint,
+    checkpoint_path: Path,
+    max_skills: int | None,
+) -> CrawlStats:
+    stats = CrawlStats()
+    fn = modal.Function.from_name(settings.modal_app_name, "crawl_process_repo")
+
+    repo_dicts = [_repo_to_dict(r) for r in pending_repos]
+
+    with Progress(...) as progress:
+        task = progress.add_task("Processing repos", total=len(repo_dicts))
+
+        # Single .map() call — Modal handles parallelism via concurrency_limit
+        for result in fn.map(
+            repo_dicts,
+            kwargs={"bot_user_id": bot_user_id, "github_token": github_token},
+            return_exceptions=True,
+        ):
+            if isinstance(result, Exception):
+                stats.errors.append(str(result)[:500])
+            else:
+                stats.accumulate(result)
+
+            # Checkpoint after every result
+            checkpoint.mark_processed(result["repo"] if isinstance(result, dict) else "unknown", checkpoint_path)
+            progress.advance(task)
+
+            # Stop early if --max-skills cap reached
+            if max_skills is not None and stats.skills_published >= max_skills:
+                logger.info("Reached --max-skills cap ({}), stopping", max_skills)
+                break
+
+    return stats
+```
+
+**Why a single `.map()` instead of batch-of-N:**
+- Modal's `concurrency_limit` already controls parallelism — no need to manually batch.
+- `.map()` returns an iterator that yields results as they complete — natural streaming.
+- Simpler code, fewer edge cases.
+- The `--concurrency` CLI flag sets `concurrency_limit` at deploy time (or pass as a Modal secret).
+
 ### Checkpoint System
 
 #### JSON Structure
@@ -718,8 +816,7 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
       "clone_url": "https://github.com/owner/repo1.git",
       "stars": 42,
       "description": "Some description"
-    },
-    "owner/repo2": { "..." : "..." }
+    }
   },
   "processed_repos": ["owner/repo1", "owner/repo2"]
 }
@@ -732,6 +829,7 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
 class Checkpoint:
     discovered_repos: dict[str, dict] = field(default_factory=dict)
     processed_repos: list[str] = field(default_factory=list)
+    _flush_counter: int = field(default=0, repr=False)
 
     def save(self, path: Path) -> None:
         path.write_text(json.dumps(asdict(self), indent=2))
@@ -744,35 +842,33 @@ class Checkpoint:
             processed_repos=data.get("processed_repos", []),
         )
 
-    def mark_processed(self, full_name: str, path: Path) -> None:
+    def mark_processed(self, full_name: str, path: Path, flush_every: int = 100) -> None:
+        """Append a processed repo. Flush to disk every N results for efficiency at scale."""
         self.processed_repos.append(full_name)
-        self.save(path)
+        self._flush_counter += 1
+        if self._flush_counter >= flush_every:
+            self.save(path)
+            self._flush_counter = 0
 ```
 
-#### Write Points
-
-1. After discovery phase completes -- saves all `discovered_repos`.
-2. After each Modal batch result -- appends to `processed_repos` and flushes.
+**At 170k repos:**
+- The `discovered_repos` dict (~50MB JSON) is written once after discovery.
+- The `processed_repos` list grows incrementally. Flushing every 100 results balances durability vs. I/O. On crash, at most 100 repos are reprocessed (and reprocessing is idempotent via checksum skip).
 
 #### Resume Logic
 
 1. Load checkpoint, skip discovery.
-2. Filter out already-processed repos.
-3. Process only remaining repos.
-
-#### Crash Safety
-
-Publishing is idempotent (checksum comparison). Reprocessing a repo on resume at worst re-runs the gauntlet and gets the same result.
+2. Filter out already-processed repos: `pending = [r for r in discovered if r.full_name not in processed_set]`.
+3. Use a `set` for the lookup (O(1) membership check at 170k).
+4. Process only remaining repos.
 
 ### Gauntlet Integration
 
-Crawled skills go through the **same safety pipeline** as manually published skills via `run_gauntlet_pipeline()` from `registry_service.py`:
+Crawled skills go through the **same safety pipeline** as manually published skills via `run_gauntlet_pipeline()`:
 
-1. **Static checks** -- regex-based detection of dangerous patterns (shell injection, credential exfiltration, etc.)
-2. **LLM analysis** -- Gemini reviews code snippets and prompt text for safety (requires `google_api_key` in settings; skipped if not configured)
-3. **Grading** -- A (clean) / B (minor issues) / C (risky) / F (rejected)
-
-#### Grade Handling
+1. **Static checks** — regex-based detection of dangerous patterns
+2. **LLM analysis** — Gemini reviews code snippets and prompt text
+3. **Grading** — A (clean) / B (minor) / C (risky) / F (rejected)
 
 | Grade | Action |
 |-------|--------|
@@ -782,60 +878,17 @@ Crawled skills go through the **same safety pipeline** as manually published ski
 
 All grades get an audit log entry via `insert_audit_log()`.
 
-### Publishing Logic
-
-Publishing is idempotent via checksum comparison:
-
-1. Build zip of skill directory (excluding dotfiles and `__pycache__`).
-2. Compute SHA256 checksum of the zip.
-3. If the latest version of this skill has the same checksum, skip (no new version needed).
-4. Otherwise auto-bump the patch version (or start at `0.1.0`).
-5. If that version already exists, skip.
-6. Run Gauntlet, then upload and insert version record.
-
 ### Bot User
-
-The `dhub-crawler` bot is a synthetic database user that acts as the publisher for all crawled skills.
 
 | Field | Value |
 |-------|-------|
 | `github_id` | `"0"` |
 | `username` | `"dhub-crawler"` |
 
-**Permissions:**
-
 - **Owner** of every org the crawler creates.
-- **Admin** of every pre-existing org the crawler touches (added idempotently via `find_org_member` check).
+- **Admin** of every pre-existing org the crawler touches.
 - Recorded as `published_by="dhub-crawler"` on all versions.
-
-The bot user is created/upserted during Phase 2 setup (before dispatching to Modal). Its `user_id` UUID is passed to Modal workers as a string argument.
-
-### Parallel Processing with Modal
-
-#### Dispatch Pattern
-
-```python
-fn = modal.Function.from_name(settings.modal_app_name, "crawl_process_repo")
-
-for batch_start in range(0, len(pending_repos), workers):
-    batch = pending_repos[batch_start:batch_start + workers]
-    batch_dicts = [_repo_to_dict(r) for r in batch]
-
-    for result in fn.map(batch_dicts, kwargs={"bot_user_id": bot_user_id, "github_token": github_token}, return_exceptions=True):
-        # Update progress bar
-        # Update checkpoint
-        # Accumulate stats
-```
-
-#### Why Batch-of-N Instead of One Giant `.map()` Call
-
-- **Controllable parallelism**: the user sets `--workers N` and we process exactly N repos concurrently.
-- **Checkpoint granularity**: after each batch, we flush processed repos to the checkpoint file.
-- **Backpressure**: if Modal hits container limits, we wait for the current batch before starting the next.
-
-#### Worker Timeout
-
-Each Modal function invocation has `timeout=300` (5 minutes). Inside the function, `git clone` has a 120s subprocess timeout for early detection. A repo with 10+ skills might need the full 5 minutes for gauntlet runs.
+- Created/upserted during Phase 2 setup. Its `user_id` UUID is passed to Modal workers as a string argument.
 
 ### Resilience
 
@@ -847,45 +900,22 @@ Each Modal function invocation has `timeout=300` (5 minutes). Inside the functio
 | Gauntlet Gemini API failure | Falls back to regex-only static checks |
 | S3 upload failure | Exception propagates, repo status = "error" |
 | DB write failure | Exception propagates, repo status = "error" |
-| Modal 300s timeout | Container killed, `fn.map` returns exception |
-| Any unhandled exception | `return_exceptions=True` in `fn.map` catches it |
+| Modal 300s timeout | Container killed, `.map` returns exception |
+| Any unhandled exception | `return_exceptions=True` in `.map` catches it |
 | Per-skill failure | `conn.rollback()` per skill, next skill proceeds |
+| Orchestrator crash | Resume from checkpoint, reprocess is idempotent |
 
 ### Progress Bar (Rich)
 
 ```
 Discovering repos...  ==================== 100% (5/5 strategies)
-Processing repos      ==========           47% 235/500 | pub:12 fail:3 skip:20
+Processing repos      ==========           47% 79,900/170,000 | pub:12,340 fail:89 skip:67,000 quarantined:471
 ```
 
 Uses `rich.progress.Progress` with:
 - A task for discovery (indeterminate spinner, advances per strategy)
-- A task for processing (determinate bar, advances by 1 per repo)
-- Status columns showing published/failed/skipped counts
-
-### Inlined Git Operations
-
-The Modal worker image does NOT include the `dhub-cli` client package. The two functions needed (`clone_repo`, `discover_skills`) are trivial (~20 lines each) and are inlined in the crawler module to avoid pulling in Typer/Rich/CLI dependencies:
-
-```python
-def clone_repo(repo_url: str, timeout: int = CLONE_TIMEOUT_SECONDS) -> Path:
-    """Shallow-clone a repo into a temp directory. Returns the repo root path."""
-    tmp = tempfile.mkdtemp(prefix="crawl-")
-    dest = Path(tmp) / "repo"
-    subprocess.run(
-        ["git", "clone", "--depth", "1", "--single-branch", repo_url, str(dest)],
-        capture_output=True, timeout=timeout, check=True,
-    )
-    return dest
-
-def discover_skills(root: Path) -> list[Path]:
-    """Walk a directory tree and return paths of dirs containing a valid SKILL.md."""
-    skill_dirs = []
-    for skill_md in sorted(root.rglob("SKILL.md")):
-        if skill_md.is_file():
-            skill_dirs.append(skill_md.parent)
-    return skill_dirs
-```
+- A task for processing (determinate bar, advances by 1 per result from `.map()`)
+- Status columns showing published/failed/skipped/quarantined counts
 
 ### GitHub Email Lookup
 
@@ -902,8 +932,8 @@ def fetch_owner_email(login: str, owner_type: str, token: str | None = None) -> 
         if resp.status_code == 200:
             email = resp.json().get("email")
             return email if email else None
-    except Exception:
-        pass
+    except httpx.HTTPError:
+        return None
     return None
 ```
 
@@ -949,14 +979,17 @@ _SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
 
 | File | Action | Description |
 |------|--------|-------------|
-| `server/migrations/YYYYMMDD_HHMMSS_add_org_email.sql` | **Create** | SQL migration for `email` column on `organizations` |
+| `server/migrations/YYYYMMDD_HHMMSS_add_org_email.sql` | **Create** | SQL migration for `email` column (may already exist from #14) |
 | `server/src/decision_hub/models.py` | **Modify** | Add `email: str \| None = None` to `Organization` |
-| `server/src/decision_hub/infra/database.py` | **Modify** | Add `email` column to `organizations_table`, update `_row_to_organization`, add `update_org_email()` |
-| `server/modal_app.py` | **Modify** | Add `crawler_image` and `crawl_process_repo` function |
-| `server/src/decision_hub/scripts/__init__.py` | **Create** | Empty init for scripts package |
-| `server/src/decision_hub/scripts/__main__.py` | **Create** | Allows `python -m decision_hub.scripts.github_crawler` |
-| `server/src/decision_hub/scripts/github_crawler.py` | **Create** | Main crawler module (should be split into submodules -- see Notes) |
-| `server/tests/test_scripts/test_github_crawler.py` | **Create** | Unit tests for the crawler |
+| `server/src/decision_hub/infra/database.py` | **Modify** | Add `email` column, update mapper, add `update_org_email()` |
+| `server/modal_app.py` | **Modify** | Add `crawler_image` and `crawl_process_repo` function with `concurrency_limit` |
+| `server/src/decision_hub/scripts/crawler/__init__.py` | **Create** | Package init |
+| `server/src/decision_hub/scripts/crawler/__main__.py` | **Create** | CLI entry point + `run_crawler()` orchestrator |
+| `server/src/decision_hub/scripts/crawler/discovery.py` | **Create** | All 5 strategies + `GitHubClient` |
+| `server/src/decision_hub/scripts/crawler/processing.py` | **Create** | `process_repo_on_modal()` + `_publish_one_skill()` |
+| `server/src/decision_hub/scripts/crawler/checkpoint.py` | **Create** | `Checkpoint` class with flush-every-N |
+| `server/src/decision_hub/scripts/crawler/models.py` | **Create** | `DiscoveredRepo`, `CrawlStats` |
+| `server/tests/test_scripts/test_github_crawler.py` | **Create** | Tests |
 
 ## Tests to Write
 
@@ -979,15 +1012,17 @@ _SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
 - `test_fetch_owner_email_user`: Mock GitHub user endpoint returning email.
 - `test_fetch_owner_email_org`: Mock GitHub org endpoint returning email.
 - `test_fetch_owner_email_none`: Mock endpoint returning no email field.
-- `test_fetch_owner_email_error`: Mock network error, verify returns None.
-- `test_slug_validation`: Verify `_SLUG_PATTERN` rejects invalid slugs (uppercase, special chars, too long).
+- `test_fetch_owner_email_error`: Mock network error, verify returns None (not generic Exception).
+- `test_slug_validation`: Verify `_SLUG_PATTERN` rejects invalid slugs.
 
 ### Checkpoint Tests
 
 - `test_checkpoint_save_load_roundtrip`: Save and load preserves all data.
-- `test_checkpoint_mark_processed`: Verify `mark_processed` appends and flushes.
-- `test_checkpoint_resume_filters_processed`: Verify processed repos are excluded on resume.
+- `test_checkpoint_mark_processed_flush_every_n`: Verify flush only happens every N results.
+- `test_checkpoint_mark_processed_force_flush`: Verify final flush after processing completes.
+- `test_checkpoint_resume_filters_processed`: Verify processed repos are excluded on resume (set-based O(1) lookup).
 - `test_checkpoint_fresh_deletes_file`: Verify `--fresh` deletes existing checkpoint.
+- `test_checkpoint_large_scale`: Create a checkpoint with 100k entries, verify load/save performance is acceptable.
 
 ### Publish Logic Tests
 
@@ -1012,56 +1047,66 @@ _SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
 
 - `test_run_crawler_discovery_phase`: Verify all active strategies are called.
 - `test_run_crawler_resume_skips_discovery`: With `--resume`, discovery is skipped.
-- `test_run_crawler_max_skills_stops`: Verify `--max-skills` limit is respected.
-- `test_run_crawler_batch_error_handled`: Modal connectivity failure is caught per-batch.
+- `test_run_crawler_max_skills_stops`: Verify `--max-skills` limit stops processing after N skills are published.
+- `test_run_crawler_dry_run_no_processing`: Verify `--dry-run` runs discovery but skips processing.
+- `test_run_crawler_modal_error_handled`: Modal connectivity failure is caught per-result via `return_exceptions=True`.
 
 ## Notes for Re-implementation
 
-### Must-haves
+### Experimental — design for easy removal
 
-- **Must use loguru** for server-side logging (`from loguru import logger`), not `logging.getLogger()`. The original branch used the standard library logger -- this must be corrected.
-- **Must use loguru `{}` placeholders**, not `%s` format strings.
-- **Must use timestamp-based SQL migration** (`YYYYMMDD_HHMMSS_add_org_email.sql`), not a Python migration script. Must also update both the SQL migration and `database.py` (CI will catch drift).
-- **Must use `IF NOT EXISTS`** in the `ALTER TABLE` DDL for idempotency.
-- **Must follow current Modal patterns** from `modal_app.py` (secrets, image setup, `@app.function` decorator).
+This feature is experimental and may be ripped out. Implement with that in mind:
 
-### Should-haves
-
-- **Should be modular** -- the original was a 900-line monolith. Consider breaking into:
-  - `server/src/decision_hub/scripts/crawler/discovery.py` -- all 5 strategies + `GitHubClient`
-  - `server/src/decision_hub/scripts/crawler/processing.py` -- `process_repo_on_modal()` + `_publish_one_skill()`
-  - `server/src/decision_hub/scripts/crawler/checkpoint.py` -- `Checkpoint` class
-  - `server/src/decision_hub/scripts/crawler/models.py` -- `DiscoveredRepo`, `CrawlStats`
-  - `server/src/decision_hub/scripts/crawler/__main__.py` -- CLI entry point + `run_crawler()` orchestrator
-- **Should avoid broad `except Exception`** in `fetch_owner_email()` and `parse_curated_lists()`. Log the specific error and let the caller decide.
-- **Should add `--dry-run` flag** -- discover repos but do not process them. Useful for estimating work.
-- **The `GitHubClient` class is acceptable** here since it encapsulates connection state (rate limit tracking, httpx client lifecycle). Classes for state management are allowed per project conventions.
-- **Consider `max_repos`** (cap on repos to process) as a separate concept from `max_skills` (cap on skills published). The original branch had `max_skills` but the spec mentioned `max_repos`. May want both.
-
-### Avoid
-
-- Do not remove `loguru` from the server (the original branch removed it).
-- Do not remove `search_logs_table` or `semver_major`/`semver_minor`/`semver_patch` columns (the original branch removed these in an unrelated cleanup).
-- Do not change the `DHUB_ENV` default from `dev` to `prod` in `settings.py` (the original branch did this).
-- Do not change the Modal org prefix in `_DEFAULT_API_URLS` (the original branch changed `pymc-labs` to `lfiaschi`).
-- Do not remove `MIN_CLI_VERSION` handling from `modal_app.py` secrets dict.
+- **Feature flag**: Add `ENABLE_GITHUB_CRAWLER: bool = False` to server settings. Off by default — opt-in only.
+- **Fully isolated module**: All crawler code lives in `server/src/decision_hub/scripts/crawler/`. Nothing outside that directory should import from it. Only `modal_app.py` references the entry point.
+- **No crawler-specific schema changes**: The `email` column on `organizations` is independently useful — implement it in an earlier PR or as a standalone migration. The crawler itself should not own any database tables. Removing the crawler requires zero rollback migrations.
+- **Don't put shared utilities in the crawler**: Clone/discover/publish code belongs in `domain/repo_utils.py` (shared with PR #14). The crawler imports it, not the other way around.
+- **Removal procedure**: Delete `scripts/crawler/`, remove `crawl_process_repo` and `crawler_image` from `modal_app.py`, remove the feature flag. No database changes, no other features affected.
 
 ### Reuse from PR #14 (Auto-Republish Tracker)
 
 **Implement PR #14 first.** The auto-republish tracker (see `specs/pr-14-auto-republish.md`) establishes the shared utilities for repo cloning, skill discovery, and the publish pipeline. The crawler should import and reuse these instead of inlining duplicate implementations:
 
-- `clone_repo()` / `_clone_repo()` — git clone with timeout and token injection
-- `discover_skills()` / `_discover_skills()` — recursive `SKILL.md` discovery via `rglob`
+- `clone_repo()` — git clone with timeout and token injection
+- `discover_skills()` — recursive `SKILL.md` discovery via `rglob`
 - `_publish_one_skill()` / `_publish_skill_from_tracker()` — zip, checksum dedup, gauntlet, version bump, S3 upload
 
 Extract these into a shared module (e.g. `server/src/decision_hub/domain/repo_utils.py`) during #14, then import from the crawler.
 
+### Impact on auto-republish (#14)
+
+The crawler seeds the database with potentially 170k+ skills. The auto-republish tracker (`dhub track`) monitors a **subset** of these (user-initiated via `dhub track add`). If many users track many repos, the `check_trackers` Modal scheduled function from #14 should also use Modal `.map()` fan-out instead of a sequential loop. Design #14's tracker processing to be Modal-dispatchable from the start.
+
+### Must-haves
+
+- **Must use loguru** for server-side logging, not `logging.getLogger()`.
+- **Must use loguru `{}` placeholders**, not `%s` format strings.
+- **Must use timestamp-based SQL migration**, not a Python migration script.
+- **Must use `IF NOT EXISTS`** in DDL for idempotency.
+- **Must follow current Modal patterns** from `modal_app.py`.
+- **GitHub token** reads from `$GITHUB_TOKEN` env var by default and is forwarded to Modal containers for email lookups. Warn (don't error) if missing — unauthenticated rate limits (60 req/hr) will be very slow but technically work for small runs.
+
+### Should-haves
+
+- **`--dry-run` flag** — discover repos, print stats, do not process. Essential for estimating scope before committing resources.
+- **The `GitHubClient` class is acceptable** — it encapsulates connection state (rate limit tracking, httpx client lifecycle). Classes for state management are allowed per project conventions.
+- **`--max-skills`** caps skills published, not repos processed. Processing continues repo-by-repo until the cap is hit, then stops. Useful for test runs on a small batch.
+
+### Avoid
+
+- Do not remove `loguru` from the server.
+- Do not remove `search_logs_table` or `semver_major/minor/patch` columns.
+- Do not change the `DHUB_ENV` default from `dev` to `prod` in `settings.py`.
+- Do not change the Modal org prefix in `_DEFAULT_API_URLS`.
+- Do not remove `MIN_CLI_VERSION` handling from `modal_app.py`.
+- Do not catch generic `Exception` in `fetch_owner_email()` — catch `httpx.HTTPError` specifically.
+
 ### Dependencies
 
-- The crawler module needs `httpx` (already a server dependency).
-- No new PyPI dependencies are required.
-- The Modal worker image needs `git` via `apt_install("git")`.
+- `httpx` (already a server dependency).
+- No new PyPI dependencies.
+- Modal worker image needs `git` via `apt_install("git")`.
 
 ### Client Package Independence
 
-The Modal worker image does NOT include the `dhub-cli` client package. Functions like `clone_repo` and `discover_skills` should live in the server package (not the client). `parse_skill_md` comes from `dhub_core.manifest` (available in the Modal image).
+The Modal worker image does NOT include the `dhub-cli` client package. Functions like `clone_repo` and `discover_skills` live in the server package (`domain/repo_utils.py`). `parse_skill_md` comes from `dhub_core.manifest` (available in the Modal image).

@@ -10,6 +10,7 @@ export interface SkillSummary {
   author: string;
   download_count: number;
   is_personal_org: boolean;
+  category: string;
 }
 
 export interface OrgSummary {
@@ -67,4 +68,8 @@ export interface SkillFile {
   path: string;
   content: string;
   size: number;
+}
+
+export interface TaxonomyResponse {
+  groups: Record<string, string[]>;
 }

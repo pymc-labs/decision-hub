@@ -13,13 +13,14 @@ export function extractOrgs(skills: SkillSummary[]): string[] {
   return [...new Set(skills.map((s) => s.org_slug))].sort();
 }
 
-/** Filter and sort skills by search, org, grade, and sort order. */
+/** Filter and sort skills by search, org, grade, category, and sort order. */
 export function filterSkills(
   skills: SkillSummary[],
   search: string,
   orgFilter: string,
   gradeFilter: string,
   sortBy: string,
+  categoryFilter: string = "all",
 ): SkillSummary[] {
   let result = [...skills];
 
@@ -41,6 +42,10 @@ export function filterSkills(
     result = result.filter((s) =>
       s.safety_rating.trim().startsWith(gradeFilter),
     );
+  }
+
+  if (categoryFilter !== "all") {
+    result = result.filter((s) => s.category === categoryFilter);
   }
 
   if (sortBy === "name") {

@@ -137,6 +137,7 @@ def create_app() -> FastAPI:
     from decision_hub.api.registry_routes import public_router as registry_public_router
     from decision_hub.api.registry_routes import router as registry_router
     from decision_hub.api.search_routes import router as search_router
+    from decision_hub.api.taxonomy_routes import public_router as taxonomy_public_router
     from decision_hub.api.tracker_routes import router as tracker_router
 
     # Auth routes are always public (users need them to obtain a token).
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     # frontend can display skills. When private skills are added, visibility
     # filtering will happen at the query layer, not the route layer.
     app.include_router(registry_public_router)
+    app.include_router(taxonomy_public_router)
 
     # When an org restriction is active, require a valid JWT on every
     # non-public route. This locks down write operations (publish, delete)

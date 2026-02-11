@@ -18,6 +18,7 @@ function makeSkill(overrides: Partial<SkillSummary> = {}): SkillSummary {
     author: "dev",
     download_count: 10,
     is_personal_org: false,
+    category: "",
     ...overrides,
   };
 }
@@ -144,6 +145,45 @@ describe("filterSkills", () => {
     const result = filterSkills(skills, "fix", "acme", "C", "name");
     expect(result).toHaveLength(1);
     expect(result[0].skill_name).toBe("lint-fix");
+  });
+
+  it("filters by category", () => {
+    const categorized = [
+      makeSkill({ skill_name: "api-gen", category: "Backend & APIs" }),
+      makeSkill({ skill_name: "llm-tool", category: "AI & LLM" }),
+      makeSkill({ skill_name: "cli-help", category: "Backend & APIs" }),
+    ];
+    const result = filterSkills(categorized, "", "all", "all", "name", "Backend & APIs");
+    expect(result).toHaveLength(2);
+    expect(result.map((s) => s.skill_name)).toEqual(["api-gen", "cli-help"]);
+  });
+
+  it("returns all when categoryFilter is 'all'", () => {
+    const categorized = [
+      makeSkill({ skill_name: "a", category: "AI & LLM" }),
+      makeSkill({ skill_name: "b", category: "Backend & APIs" }),
+    ];
+    const result = filterSkills(categorized, "", "all", "all", "name", "all");
+    expect(result).toHaveLength(2);
+  });
+
+  it("returns empty when no skills match category", () => {
+    const categorized = [
+      makeSkill({ skill_name: "a", category: "AI & LLM" }),
+    ];
+    const result = filterSkills(categorized, "", "all", "all", "name", "Backend & APIs");
+    expect(result).toHaveLength(0);
+  });
+
+  it("combines category with search and org filters", () => {
+    const categorized = [
+      makeSkill({ org_slug: "acme", skill_name: "deploy-api", category: "Backend & APIs" }),
+      makeSkill({ org_slug: "acme", skill_name: "deploy-ui", category: "Frontend & UI" }),
+      makeSkill({ org_slug: "beta", skill_name: "api-lint", category: "Backend & APIs" }),
+    ];
+    const result = filterSkills(categorized, "deploy", "acme", "all", "name", "Backend & APIs");
+    expect(result).toHaveLength(1);
+    expect(result[0].skill_name).toBe("deploy-api");
   });
 });
 

@@ -19,6 +19,7 @@ from decision_hub.api.deps import (
     get_settings,
 )
 from decision_hub.api.registry_service import (
+    classify_skill_category,
     maybe_trigger_agent_assessment,
     parse_manifest_from_content,
     quarantine_rejected_skill,
@@ -58,6 +59,7 @@ from decision_hub.infra.database import (
     resolve_latest_version,
     resolve_version,
     update_eval_run_status,
+    update_skill_category,
     update_skill_description,
     update_skill_visibility,
     users_table,
@@ -154,6 +156,7 @@ class SkillSummary(BaseModel):
     author: str
     download_count: int = 0
     is_personal_org: bool = False
+    category: str = ""
     visibility: str = "public"
 
 
@@ -367,13 +370,19 @@ def publish_skill(
             publisher=current_user.username,
         )
 
+    # Classify the skill after gauntlet passes (non-critical, graceful fallback)
+    category = classify_skill_category(skill_name, description, skill_md_body, settings)
+
     # Upsert skill record (find or create), then check for duplicate version
     eval_status = report.grade
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
-        skill = insert_skill(conn, org.id, skill_name, description, visibility=visibility or "public")
+        skill = insert_skill(
+            conn, org.id, skill_name, description, category=category, visibility=visibility or "public"
+        )
     else:
         update_skill_description(conn, skill.id, description)
+        update_skill_category(conn, skill.id, category)
         if visibility is not None:
             update_skill_visibility(conn, skill.id, visibility)
 
@@ -471,6 +480,7 @@ def list_skills(
             author=row.get("published_by", ""),
             download_count=row.get("download_count", 0),
             is_personal_org=row.get("is_personal_org", False),
+            category=row.get("category", ""),
             visibility=row.get("visibility", "public"),
         )
         for row in rows

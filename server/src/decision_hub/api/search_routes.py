@@ -3,7 +3,7 @@
 import time
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_s3_client, get_settings
@@ -35,6 +35,7 @@ class SearchResponse(BaseModel):
 
     query: str
     results: str
+    category: str | None = None
 
 
 @router.get(
@@ -44,6 +45,7 @@ class SearchResponse(BaseModel):
 )
 def search_skills(
     q: str,
+    category: str | None = Query(None, description="Filter results to a specific category"),
     settings: Settings = Depends(get_settings),
     conn=Depends(get_connection),
     s3_client=Depends(get_s3_client),
@@ -84,7 +86,17 @@ def search_skills(
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     rows = fetch_all_skills_for_index(conn, user_org_ids=user_org_ids)
     if not rows:
-        return SearchResponse(query=q, results="No skills in the index yet.")
+        return SearchResponse(query=q, results="No skills in the index yet.", category=category)
+
+    # Filter by category before building index entries if requested
+    if category:
+        rows = [row for row in rows if row.get("category", "") == category]
+        if not rows:
+            return SearchResponse(
+                query=q,
+                results=f"No skills found in category '{category}'.",
+                category=category,
+            )
 
     entries = [
         build_index_entry(
@@ -94,6 +106,7 @@ def search_skills(
             latest_version=row["latest_version"],
             eval_status=row["eval_status"],
             author=row.get("published_by", ""),
+            category=row.get("category", ""),
         )
         for row in rows
     ]
@@ -138,4 +151,4 @@ def search_skills(
         user_id=current_user.id if current_user else None,
     )
 
-    return SearchResponse(query=q, results=result_text)
+    return SearchResponse(query=q, results=result_text, category=category)

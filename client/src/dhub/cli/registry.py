@@ -445,6 +445,7 @@ def list_command() -> None:
     table = Table(title="Published Skills", show_lines=True)
     table.add_column("Org", style="cyan")
     table.add_column("Skill", style="green")
+    table.add_column("Category", style="magenta")
     table.add_column("Version")
     table.add_column("Updated")
     table.add_column("Safety")
@@ -459,6 +460,7 @@ def list_command() -> None:
         table.add_row(
             s["org_slug"],
             s["skill_name"],
+            s.get("category", ""),
             s["latest_version"],
             s.get("updated_at", ""),
             f"[{rating_style}]{rating}[/]",
