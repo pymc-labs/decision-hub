@@ -32,7 +32,7 @@ DHUB_ENV=dev uv run --package decision-hub-server uvicorn ...  # local dev serve
 ```
 
 - **Dev**: `https://pymc-labs--api-dev.modal.run`, config at `~/.dhub/config.dev.json`, env file `server/.env.dev`
-- **Prod**: `https://lfiaschi--api.modal.run`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
+- **Prod**: `https://pymc-labs--api.modal.run`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
 
 **Modal cold starts**: Modal containers spin down after inactivity. The first HTTP request after a cold start can take 30-60 seconds. Always use `timeout=60` (or higher) when making HTTP requests to Modal endpoints. Do NOT use default timeouts — they will fail on cold starts.
 
