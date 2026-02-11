@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -26,13 +26,16 @@ fmt: ## Auto-fix lint issues and format code
 # Testing
 # ---------------------------------------------------------------------------
 
-test: test-client test-server ## Run all tests
+test: test-client test-server test-frontend ## Run all tests
 
 test-client: ## Run client tests
 	uv run --package dhub-cli --extra dev pytest client/tests/ -v
 
 test-server: ## Run server tests
 	uv run --package decision-hub-server --extra dev pytest server/tests/ -v
+
+test-frontend: ## Run frontend tests
+	cd frontend && npx vitest run
 
 # ---------------------------------------------------------------------------
 # Migrations
