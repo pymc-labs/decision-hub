@@ -152,6 +152,31 @@ def run_eval_task(
     logger.info("Eval task completed for {}/{}", org_slug, skill_name)
 
 
+# Extended image for the crawler — adds git for cloning repos
+crawler_image = image.apt_install("git")
+
+
+@app.function(image=crawler_image, secrets=secrets, timeout=300, concurrency_limit=50)
+def crawl_process_repo(
+    repo_dict: dict,
+    bot_user_id: str,
+    github_token: str | None = None,
+) -> dict:
+    """Process a single discovered repo: clone, discover skills, gauntlet, publish.
+
+    Runs on Modal with ephemeral disk and access to DB/S3/Gemini secrets.
+    Returns a result dict with status and counts.
+    """
+    from decision_hub.logging import setup_logging
+    from decision_hub.scripts.crawler.processing import process_repo_on_modal
+    from decision_hub.settings import create_settings
+
+    settings = create_settings()
+    setup_logging(settings.log_level)
+
+    return process_repo_on_modal(repo_dict, bot_user_id, github_token)
+
+
 @app.function(image=image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=300))
 def check_trackers():
     """Poll GitHub repos for skill updates every 5 minutes.

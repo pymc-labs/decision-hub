@@ -78,6 +78,7 @@ organizations_table = Table(
         nullable=False,
     ),
     Column("is_personal", Boolean, nullable=False, server_default="false"),
+    Column("email", Text, nullable=True),
 )
 
 org_members_table = Table(
@@ -433,7 +434,7 @@ def _row_to_user(row: sa.Row) -> User:
 
 def _row_to_organization(row: sa.Row) -> Organization:
     """Map a database row to an Organization model."""
-    return Organization(id=row.id, slug=row.slug, owner_id=row.owner_id, is_personal=row.is_personal)
+    return Organization(id=row.id, slug=row.slug, owner_id=row.owner_id, is_personal=row.is_personal, email=row.email)
 
 
 def _row_to_org_member(row: sa.Row) -> OrgMember:
@@ -584,6 +585,12 @@ def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
     )
     rows = conn.execute(stmt).all()
     return [_row_to_organization(row) for row in rows]
+
+
+def update_org_email(conn: Connection, org_id: UUID, email: str) -> None:
+    """Update the public email for an organization."""
+    stmt = sa.update(organizations_table).where(organizations_table.c.id == org_id).values(email=email)
+    conn.execute(stmt)
 
 
 # ---------------------------------------------------------------------------

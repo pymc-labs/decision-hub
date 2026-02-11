@@ -36,6 +36,7 @@ class Organization:
     slug: str
     owner_id: UUID
     is_personal: bool = False
+    email: str | None = None
 
 
 @dataclass(frozen=True)

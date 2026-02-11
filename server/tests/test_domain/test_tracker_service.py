@@ -4,13 +4,19 @@ import io
 import zipfile
 from unittest.mock import MagicMock, patch
 
-from decision_hub.domain.tracker_service import (
+from decision_hub.domain.repo_utils import (
     _build_authenticated_url,
-    _bump_version,
-    _create_zip,
-    _discover_skills,
-    _parse_semver,
+    bump_version,
+    create_zip,
+    discover_skills,
+    parse_semver,
 )
+
+# Backward-compat aliases used in test names
+_bump_version = bump_version
+_parse_semver = parse_semver
+_create_zip = create_zip
+_discover_skills = discover_skills
 
 
 class TestBumpVersion:
