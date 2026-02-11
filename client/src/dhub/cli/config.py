@@ -12,8 +12,8 @@ CONFIG_DIR = Path.home() / ".dhub"
 
 # Per-environment default API URLs
 _DEFAULT_API_URLS: dict[str, str] = {
-    "dev": "https://lfiaschi--api-dev.modal.run",
-    "prod": "https://lfiaschi--api.modal.run",
+    "dev": "https://pymc-labs--api-dev.modal.run",
+    "prod": "https://pymc-labs--api.modal.run",
 }
 
 
