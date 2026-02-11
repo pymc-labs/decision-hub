@@ -82,6 +82,8 @@ metadata.create_all(engine)
 "
 ```
 
+**Important**: `metadata.create_all()` only creates new tables — it does **not** alter existing ones (e.g. adding columns). The SQL migration files in `server/migrations/` must be run separately for schema changes to existing tables.
+
 Migration files live in `server/migrations/` with numeric prefixes (e.g. `008_add_semver_int_columns.sql`). When adding a new migration, check for prefix collisions — `make check-migrations` and the CI pipeline will catch duplicates from parallel branches.
 
 ## Linting & Formatting
