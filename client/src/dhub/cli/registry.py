@@ -463,12 +463,13 @@ def delete_command(
 ) -> None:
     """Delete a published skill version (or all versions) from the registry."""
     from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.core.validation import parse_skill_ref
 
-    parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    try:
+        org_slug, skill_name = parse_skill_ref(skill_ref)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
 
     api_url = get_api_url()
     headers = build_headers(get_token())
@@ -599,13 +600,14 @@ def install_command(
         link_skill_to_all_agents,
         verify_checksum,
     )
+    from dhub.core.validation import parse_skill_ref
 
     # Parse skill reference
-    parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    try:
+        org_slug, skill_name = parse_skill_ref(skill_ref)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
 
     headers = build_headers(get_optional_token())
     base_url = get_api_url()
@@ -949,12 +951,13 @@ def uninstall_command(
 ) -> None:
     """Remove a locally installed skill and its agent symlinks."""
     from dhub.core.install import uninstall_skill
+    from dhub.core.validation import parse_skill_ref
 
-    parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    try:
+        org_slug, skill_name = parse_skill_ref(skill_ref)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
 
     try:
         unlinked = uninstall_skill(org_slug, skill_name)

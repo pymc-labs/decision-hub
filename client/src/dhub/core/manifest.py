@@ -6,7 +6,7 @@ API so existing client code continues to work unchanged.
 """
 
 from dhub_core.manifest import (  # noqa: F401
-    _NAME_PATTERN,
+    _SKILL_NAME_PATTERN,
     parse_skill_md,
     validate_manifest,
 )

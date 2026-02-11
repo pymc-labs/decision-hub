@@ -18,8 +18,8 @@ from dhub.core.install import (
     get_dhub_skill_path,
     verify_checksum,
 )
-from dhub.core.manifest import _NAME_PATTERN, parse_skill_md, validate_manifest
-from dhub.core.validation import _SKILL_NAME_PATTERN, validate_skill_name
+from dhub.core.manifest import _SKILL_NAME_PATTERN, parse_skill_md, validate_manifest
+from dhub.core.validation import validate_skill_name
 
 DOCX_SKILL_PATH = Path.home() / ".claude" / "skills" / "docx"
 
@@ -231,18 +231,8 @@ class TestNameAndVersionValidation:
         result = validate_skill_name("docx")
         assert result == "docx"
 
-    def test_docx_matches_manifest_name_pattern(self) -> None:
-        assert _NAME_PATTERN.match("docx") is not None
-
-    def test_name_patterns_are_consistent(self) -> None:
-        """Names valid in manifest parser must also be valid in validation module."""
-        test_names = ["docx", "my-skill", "a", "ab", "a-b", "a1", "skill-123"]
-        for name in test_names:
-            manifest_ok = _NAME_PATTERN.match(name) is not None
-            validation_ok = _SKILL_NAME_PATTERN.match(name) is not None
-            assert manifest_ok == validation_ok, (
-                f"Inconsistency for '{name}': manifest={manifest_ok}, validation={validation_ok}"
-            )
+    def test_docx_matches_skill_name_pattern(self) -> None:
+        assert _SKILL_NAME_PATTERN.match("docx") is not None
 
 
 class TestInstallPathResolution:

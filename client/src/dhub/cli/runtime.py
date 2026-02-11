@@ -21,13 +21,14 @@ def run_command(
         build_uv_sync_command,
         validate_local_runtime_prerequisites,
     )
+    from dhub.core.validation import parse_skill_ref
 
     # Parse org/skill reference
-    parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
-        console.print("[red]Error: Skill reference must be in org/skill format.[/]")
-        raise typer.Exit(1)
-    org_slug, skill_name = parts
+    try:
+        org_slug, skill_name = parse_skill_ref(skill_ref)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
 
     # Resolve the local skill directory
     skill_dir = get_dhub_skill_path(org_slug, skill_name)

@@ -20,9 +20,7 @@ from dhub_core.models import (
     SkillManifest,
     TestingConfig,
 )
-
-# Name: 1-64 chars, lowercase alphanumeric + hyphens, no leading/trailing hyphens.
-_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
+from dhub_core.validation import _SKILL_NAME_PATTERN
 
 
 def parse_skill_md(path: Path) -> SkillManifest:
@@ -46,7 +44,7 @@ def parse_skill_md(path: Path) -> SkillManifest:
     name = data.get("name")
     if not name:
         raise ValueError("Required field 'name' is missing.")
-    if not isinstance(name, str) or not _NAME_PATTERN.match(name):
+    if not isinstance(name, str) or not _SKILL_NAME_PATTERN.match(name):
         raise ValueError(
             f"Invalid name '{name}': must be 1-64 chars, lowercase alphanumeric + hyphens, no leading/trailing hyphens."
         )
@@ -329,7 +327,7 @@ def validate_manifest(manifest: SkillManifest) -> list[str]:
     """Validate a parsed manifest. Returns list of error messages (empty = valid)."""
     errors: list[str] = []
 
-    if not _NAME_PATTERN.match(manifest.name):
+    if not _SKILL_NAME_PATTERN.match(manifest.name):
         errors.append(
             f"Invalid name '{manifest.name}': must be 1-64 chars, lowercase "
             "alphanumeric + hyphens, no leading/trailing hyphens."

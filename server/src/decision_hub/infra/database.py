@@ -399,23 +399,6 @@ def _row_to_user_api_key(row: sa.Row) -> UserApiKey:
 # ---------------------------------------------------------------------------
 
 
-def find_user_by_github_id(conn: Connection, github_id: str) -> User | None:
-    """Find a user by their GitHub ID.
-
-    Args:
-        conn: Active database connection.
-        github_id: The GitHub user ID string.
-
-    Returns:
-        The matching User, or None if not found.
-    """
-    stmt = sa.select(users_table).where(users_table.c.github_id == github_id)
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_user(row)
-
-
 def upsert_user(conn: Connection, github_id: str, username: str) -> User:
     """Insert a user or update the username if the github_id already exists.
 
@@ -540,21 +523,6 @@ def insert_org_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) 
     row = conn.execute(stmt).one()
     logger.debug("Added org member org={} user={} role={}", org_id, user_id, role)
     return _row_to_org_member(row)
-
-
-def list_org_members(conn: Connection, org_id: UUID) -> list[OrgMember]:
-    """List all members of an organization.
-
-    Args:
-        conn: Active database connection.
-        org_id: UUID of the organization.
-
-    Returns:
-        List of OrgMember records for the organization.
-    """
-    stmt = sa.select(org_members_table).where(org_members_table.c.org_id == org_id)
-    rows = conn.execute(stmt).all()
-    return [_row_to_org_member(row) for row in rows]
 
 
 def find_org_member(conn: Connection, org_id: UUID, user_id: UUID) -> OrgMember | None:
@@ -1222,28 +1190,6 @@ def insert_eval_report(
     row = conn.execute(stmt).one()
     logger.debug("Inserted eval report version={} status={} passed={}/{}", version_id, status, passed, total)
     return _row_to_eval_report(row)
-
-
-def update_eval_report(
-    conn: Connection,
-    version_id: UUID,
-    status: str,
-    error_message: str | None = None,
-) -> None:
-    """Update an existing eval report's status and error message.
-
-    Args:
-        conn: Active database connection.
-        version_id: UUID of the skill version.
-        status: New status value.
-        error_message: Optional error message.
-    """
-    stmt = (
-        sa.update(eval_reports_table)
-        .where(eval_reports_table.c.version_id == version_id)
-        .values(status=status, error_message=error_message)
-    )
-    conn.execute(stmt)
 
 
 def find_eval_report_by_version(conn: Connection, version_id: UUID) -> EvalReport | None:
