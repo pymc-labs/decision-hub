@@ -5,13 +5,16 @@ from pathlib import Path
 
 import modal
 
-env = os.environ.get("DHUB_ENV", "prod")
+env = os.environ.get("DHUB_ENV", "dev")
 suffix = "" if env == "prod" else f"-{env}"
 app_name = f"decision-hub{suffix}"
 
 
 def _read_env_value(key: str) -> str | None:
-    """Read a value from the local .env file (not deployed to Modal)."""
+    """Read a value from env var or local .env file."""
+    env_val = os.environ.get(key)
+    if env_val is not None:
+        return env_val
     env_file = Path(f".env.{env}")
     if not env_file.exists():
         return None

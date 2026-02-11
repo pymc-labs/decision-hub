@@ -61,8 +61,8 @@ class Settings(BaseSettings):
 
 
 def get_env() -> str:
-    """Return current environment name from DHUB_ENV (default: 'prod')."""
-    return os.environ.get("DHUB_ENV", "prod")
+    """Return current environment name from DHUB_ENV (default: 'dev')."""
+    return os.environ.get("DHUB_ENV", "dev")
 
 
 def create_settings(env: str | None = None) -> Settings:

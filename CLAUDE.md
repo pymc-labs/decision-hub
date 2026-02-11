@@ -33,7 +33,7 @@ This is a **uv workspace monorepo** with four components:
 
 ### Environments (Dev / Prod)
 
-The project has two independent stacks controlled by `DHUB_ENV` (`dev` | `prod`, default: `prod`).
+The project has two independent stacks controlled by `DHUB_ENV` (`dev` | `prod`). The server defaults to `dev` for safety; the CLI defaults to `prod` for end users.
 
 **Always work against dev unless explicitly told to use prod.** Prefix all CLI, server, and deploy commands with `DHUB_ENV=dev`:
 
@@ -128,25 +128,59 @@ GitHub Actions runs on every PR to `main`:
 - **test-client**: client pytest suite
 - **test-server**: server pytest suite
 - **lint-frontend**: TypeScript type check + ESLint
-- **check-migrations**: detects duplicate migration sequence numbers
+- **check-migrations**: validates migration filename formats and detects duplicates
+- **migrate-check**: replays all SQL migrations from scratch against a fresh Postgres (CI only)
+- **schema-drift**: detects differences between SQL migrations and SQLAlchemy metadata (CI only)
 
 ## Database Migrations
 
-No `psql` available on this machine. Run migrations via `make migrate-dev` or manually (from `server/`):
+Migrations are tracked SQL files in `server/migrations/`. The runner (`scripts/run_migrations.py`) records each applied file in a `schema_migrations` table so migrations are never re-applied.
+
+### Running migrations
 
 ```bash
-cd server && DHUB_ENV=dev uv run --package decision-hub-server python -c "
-from decision_hub.settings import create_settings
-from decision_hub.infra.database import create_engine, metadata
-settings = create_settings('dev')
-engine = create_engine(settings.database_url)
-metadata.create_all(engine)
-"
+make migrate-dev     # apply pending migrations to dev
+make migrate-prod    # apply pending migrations to prod (use with care)
 ```
 
-**Important**: `metadata.create_all()` only creates new tables — it does **not** alter existing ones (e.g. adding columns). The SQL migration files in `server/migrations/` must be run separately for schema changes to existing tables.
+Migrations are also applied automatically during deploys (`scripts/deploy.sh`).
 
-Migration files live in `server/migrations/` with numeric prefixes (e.g. `008_add_semver_int_columns.sql`). When adding a new migration, check for prefix collisions — `make check-migrations` and the CI pipeline will catch duplicates from parallel branches.
+### Creating a new migration
+
+**Naming**: Use timestamp-based filenames to avoid collisions between parallel branches:
+
+```
+YYYYMMDD_HHMMSS_description.sql
+```
+
+Example: `20260211_143000_add_user_email.sql`
+
+Legacy files use 3-digit numeric prefixes (`001_` through `011_`). Do not add new files with numeric prefixes.
+
+### Hard rules for AI agents
+
+- **Never use `metadata.create_all()`** to apply schema changes. Always write a SQL migration file.
+- **Never edit or delete existing migration files.** They represent immutable history. Fix mistakes with a new migration.
+- **Always update both** the SQL migration file and the SQLAlchemy table definition in `database.py` when changing the schema. CI will catch drift.
+- **Use `IF NOT EXISTS` / `IF EXISTS`** in DDL when possible for idempotency (especially for `CREATE TABLE`, `ADD COLUMN`).
+- **Keep migration PRs focused.** Prefer multiple small PRs over one large one.
+- **Test locally** before pushing: `make check-migrations` validates filenames, `make migrate-dev` applies to dev.
+
+## Rules for AI Agents
+
+### Forbidden commands
+Never run these — deployments and releases are handled by the human maintainer:
+- `make deploy-dev`, `make deploy-prod`, `modal deploy`, `./scripts/deploy.sh`
+- `make publish-cli`, `make release-cli`, `make publish`, `./scripts/publish.sh`, `./scripts/release-cli.sh`
+
+### Forbidden file modifications
+- Never modify `.env.prod` or `.env.dev` — these contain production configuration
+- Never modify `.github/workflows/` without explicit instructions
+
+### Before starting work
+- **Search for existing implementations** before writing new code (`grep`, `glob`, check `shared/src/`)
+- **Check open PRs** for overlapping work: `gh pr list --state open`
+- **Link to a GitHub issue.** If no issue exists, create one first.
 
 ## Releases & Deployment
 
@@ -161,14 +195,16 @@ Migration files live in `server/migrations/` with numeric prefixes (e.g. `008_ad
 #### Release commands
 
 ```bash
-make publish-cli              # non-breaking (default: patch bump)
-make publish-cli BUMP=minor   # non-breaking new feature
-make release-cli              # breaking (default: major bump) — bumps MIN_CLI_VERSION + redeploys servers
+make publish-cli                          # patch bump, publish to PyPI
+make publish-cli BUMP=minor               # minor bump, publish to PyPI
+make publish-cli BUMP=major BREAKING=1    # major bump + update MIN_CLI_VERSION + redeploy servers
 ```
 
 #### How it works
 
-The server enforces a minimum CLI version via `MIN_CLI_VERSION` in `server/.env.dev` and `server/.env.prod`. The `modal_app.py` reads this value at deploy time and injects it into the container, so a server redeploy is all that's needed — no manual Modal secret updates required. `make release-cli` automates the full flow: version bump → tests → PyPI publish → MIN_CLI_VERSION update → server redeploy.
+The server enforces a minimum CLI version via `MIN_CLI_VERSION` in `server/.env.dev` and `server/.env.prod`. The `modal_app.py` reads this value at deploy time and injects it into the container, so a server redeploy is all that's needed — no manual Modal secret updates required. When `BREAKING=1` is passed, the script updates MIN_CLI_VERSION in both env files and redeploys both servers.
+
+Every CLI publish automatically creates a `cli/vX.Y.Z` git tag, and every prod deploy creates a `prod/YYYYMMDD-HHMMSS` tag. GitHub Actions generates release notes from merged PRs when these tags are pushed.
 
 ### Deployment
 

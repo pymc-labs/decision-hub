@@ -1,0 +1,33 @@
+name: Release Notes
+
+on:
+  push:
+    tags:
+      - 'prod/*'
+      - 'cli/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release with notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # Find the previous tag of the same kind (prod/* or cli/v*)
+          PREFIX="${TAG_NAME%%/*}"
+          PREV_TAG=$(git tag --list "${PREFIX}/*" --sort=-version:refname | sed -n '2p' || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            gh release create "$TAG_NAME" --generate-notes --notes-start-tag "$PREV_TAG" --title "$TAG_NAME"
+          else
+            gh release create "$TAG_NAME" --generate-notes --title "$TAG_NAME"
+          fi

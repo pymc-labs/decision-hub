@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server check-migrations install-hooks deploy-dev deploy-prod publish publish-cli release-cli
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -41,23 +41,14 @@ test-server: ## Run server tests
 check-migrations: ## Check for duplicate migration sequence numbers
 	python scripts/check_migrations.py
 
-migrate-dev: ## Apply migrations to dev database
-	cd server && DHUB_ENV=dev uv run --package decision-hub-server python -c "\
-		from decision_hub.settings import create_settings; \
-		from decision_hub.infra.database import create_engine, metadata; \
-		settings = create_settings('dev'); \
-		engine = create_engine(settings.database_url); \
-		metadata.create_all(engine); \
-		print('Dev migrations applied successfully')"
+migrate-dev: ## Apply SQL migrations to dev database
+	cd server && DHUB_ENV=dev uv run --package decision-hub-server python ../scripts/run_migrations.py
 
-migrate-prod: ## Apply migrations to prod database (use with care)
-	cd server && DHUB_ENV=prod uv run --package decision-hub-server python -c "\
-		from decision_hub.settings import create_settings; \
-		from decision_hub.infra.database import create_engine, metadata; \
-		settings = create_settings('prod'); \
-		engine = create_engine(settings.database_url); \
-		metadata.create_all(engine); \
-		print('Prod migrations applied successfully')"
+migrate-prod: ## Apply SQL migrations to prod database (use with care)
+	cd server && DHUB_ENV=prod uv run --package decision-hub-server python ../scripts/run_migrations.py
+
+check-schema-drift: ## Check that SQL migrations match SQLAlchemy metadata (needs DATABASE_URL)
+	uv run --package decision-hub-server python scripts/check_schema_drift.py
 
 # ---------------------------------------------------------------------------
 # Deployment
@@ -72,11 +63,8 @@ deploy-prod: ## Build frontend + deploy to prod Modal
 publish: ## Build and publish dhub-cli to PyPI (low-level, prefer publish-cli)
 	./scripts/publish.sh
 
-publish-cli: ## Non-breaking CLI release: bump + test + publish (BUMP=patch|minor, default: patch)
-	./scripts/release-cli.sh $(or $(BUMP),patch)
-
-release-cli: ## Breaking CLI release: bump + test + publish + sync servers (BUMP=patch|minor|major, default: major)
-	./scripts/release-cli.sh $(or $(BUMP),major) --sync
+publish-cli: ## Publish CLI to PyPI (BUMP=patch|minor|major, BREAKING=1 to sync servers)
+	./scripts/release-cli.sh $(or $(BUMP),patch) $(if $(BREAKING),--sync,)
 
 # ---------------------------------------------------------------------------
 # Setup

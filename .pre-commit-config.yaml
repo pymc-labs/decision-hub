@@ -18,7 +18,7 @@ repos:
   - repo: local
     hooks:
       - id: check-migrations
-        name: check migration files have unique sequence numbers
+        name: validate migration filenames and check for duplicates
         entry: python scripts/check_migrations.py
         language: python
         files: ^server/migrations/.*\.sql$

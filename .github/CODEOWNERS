@@ -1,0 +1,6 @@
+# Database schema and migrations (irreversible in prod)
+server/migrations/                              @lfiaschi
+server/src/decision_hub/infra/database.py       @lfiaschi
+
+# CI/CD pipelines (a bad change here undermines all other gates)
+.github/workflows/                              @lfiaschi

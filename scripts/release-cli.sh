@@ -87,6 +87,11 @@ make -C "$ROOT_DIR" test-client
 echo "==> Publishing to PyPI..."
 "$SCRIPT_DIR/publish.sh"
 
+# --- Tag the release ---
+echo "==> Tagging release: cli/v$NEW_VERSION"
+git tag "cli/v$NEW_VERSION"
+git push origin "cli/v$NEW_VERSION"
+
 # --- Sync server (only with --sync) ----------------------------------------
 
 if $SYNC; then
