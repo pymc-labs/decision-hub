@@ -139,6 +139,37 @@ dhub publish https://github.com/org/repo --ref v1.0
 | `dhub logs ORG/SKILL@VERSION --follow` | Tail eval logs for a specific version |
 | `dhub logs RUN_ID --follow` | Tail a specific eval run by ID |
 
+### Tracking (Auto-Republish)
+
+Track a GitHub repo to automatically republish skills whenever new commits are pushed.
+
+```bash
+# Track a public repo (works out of the box)
+dhub track add https://github.com/org/skills-repo
+
+# Track a specific branch with a custom poll interval
+dhub track add https://github.com/org/repo --branch dev --interval 30
+
+# List / inspect / manage trackers
+dhub track list
+dhub track status <id>
+dhub track pause <id>
+dhub track resume <id>
+dhub track remove <id>
+```
+
+**Private repos** require a GitHub personal access token with `repo` scope:
+
+```bash
+# Store your token (only needs to be done once)
+dhub keys add GITHUB_TOKEN
+
+# Then track as usual — the token is used automatically
+dhub track add https://github.com/org/private-repo
+```
+
+Without a token, private repos will not sync and the tracker will report an error. Public repos work without any token.
+
 ### Organizations & Config
 
 | Command | Description |

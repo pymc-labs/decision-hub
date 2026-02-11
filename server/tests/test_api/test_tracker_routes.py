@@ -51,9 +51,12 @@ def _make_org(slug: str = "test-org") -> Organization:
 
 
 class TestCreateTracker:
+    @patch("decision_hub.api.tracker_routes.check_repo_accessible", return_value=True)
     @patch("decision_hub.api.tracker_routes.list_user_orgs")
     @patch("decision_hub.api.tracker_routes.insert_skill_tracker")
-    def test_create_tracker_success(self, mock_insert, mock_list_orgs, tracker_client, auth_headers, sample_user_id):
+    def test_create_tracker_success(
+        self, mock_insert, mock_list_orgs, mock_accessible, tracker_client, auth_headers, sample_user_id
+    ):
         org = _make_org()
         mock_list_orgs.return_value = [org]
         tracker = _make_tracker(user_id=sample_user_id)
@@ -68,6 +71,29 @@ class TestCreateTracker:
         data = resp.json()
         assert data["repo_url"] == "https://github.com/owner/repo"
         assert data["branch"] == "main"
+        assert data["warning"] is None
+
+    @patch("decision_hub.api.tracker_routes.check_repo_accessible", return_value=False)
+    @patch("decision_hub.api.tracker_routes.list_user_orgs")
+    @patch("decision_hub.api.tracker_routes.insert_skill_tracker")
+    def test_create_tracker_private_repo_warning(
+        self, mock_insert, mock_list_orgs, mock_accessible, tracker_client, auth_headers, sample_user_id
+    ):
+        org = _make_org()
+        mock_list_orgs.return_value = [org]
+        tracker = _make_tracker(user_id=sample_user_id)
+        mock_insert.return_value = tracker
+
+        resp = tracker_client.post(
+            "/v1/trackers",
+            headers=auth_headers,
+            json={"repo_url": "https://github.com/owner/private-repo"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["warning"] is not None
+        assert "private" in data["warning"].lower()
+        assert "GITHUB_TOKEN" in data["warning"]
 
     def test_create_tracker_invalid_url(self, tracker_client, auth_headers):
         resp = tracker_client.post(

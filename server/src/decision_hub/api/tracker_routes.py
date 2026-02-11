@@ -9,7 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_connection, get_current_user
-from decision_hub.domain.tracker import parse_github_repo_url
+from decision_hub.domain.tracker import check_repo_accessible, parse_github_repo_url
 from decision_hub.infra.database import (
     delete_skill_tracker,
     find_org_by_slug,
@@ -56,6 +56,7 @@ class TrackerResponse(BaseModel):
     last_published_at: str | None
     last_error: str | None
     created_at: str | None
+    warning: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +160,17 @@ def create_tracker(
         ) from None
 
     logger.info("Created tracker {}/{} for user={}", body.repo_url, body.branch, user.id)
-    return _tracker_to_response(tracker)
+
+    response = _tracker_to_response(tracker)
+
+    # Check if the repo is publicly accessible (best-effort, non-blocking)
+    owner, repo = parse_github_repo_url(body.repo_url)
+    if not check_repo_accessible(owner, repo):
+        response.warning = (
+            "This repo appears to be private. To enable tracking, add a GitHub token: dhub keys add GITHUB_TOKEN"
+        )
+
+    return response
 
 
 @router.get("", response_model=list[TrackerResponse])

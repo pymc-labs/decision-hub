@@ -64,6 +64,10 @@ def add_tracker(
     console.print(f"  Org:      {data['org_slug']}")
     console.print(f"  Interval: {data['poll_interval_minutes']}m")
 
+    if data.get("warning"):
+        console.print()
+        console.print(f"[yellow]Warning: {data['warning']}[/]")
+
 
 @track_app.command("list")
 def list_trackers() -> None:
@@ -144,6 +148,10 @@ def tracker_status(
     console.print(f"  Created:        {t.get('created_at') or '-'}")
     if t.get("last_error"):
         console.print(f"  [red]Error: {t['last_error']}[/]")
+        error_lower = t["last_error"].lower()
+        if any(kw in error_lower for kw in ("404", "403", "not found", "authentication", "credentials")):
+            console.print()
+            console.print("  [yellow]Hint: For private repos, add a GitHub token: dhub keys add GITHUB_TOKEN[/]")
 
 
 @track_app.command("pause")
