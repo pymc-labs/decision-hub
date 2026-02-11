@@ -80,6 +80,22 @@ jobs:
         run: npx eslint .
         working-directory: frontend
 
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Run tests
+        run: npx vitest run
+        working-directory: frontend
+
   check-migrations:
     runs-on: ubuntu-latest
     steps:
