@@ -13,8 +13,10 @@ from dhub_core.models import (
     SkillManifest,
     TestingConfig,
 )
+from dhub_core.validation import FIRST_VERSION, validate_semver, validate_skill_name
 
 __all__ = [
+    "FIRST_VERSION",
     "AgentTestTarget",
     "DependencySpec",
     "EvalConfig",
@@ -23,4 +25,6 @@ __all__ = [
     "TestingConfig",
     "parse_skill_md",
     "validate_manifest",
+    "validate_semver",
+    "validate_skill_name",
 ]

@@ -308,7 +308,7 @@ def maybe_trigger_agent_assessment(
     if eval_config and not eval_cases:
         raise HTTPException(
             status_code=422,
-            detail="Assessment config declared in manifest but no case files found in assessments/",
+            detail="Assessment config declared in manifest but no case files found in evals/",
         )
     if eval_config and eval_cases:
         # Use a fresh connection — the caller's transaction is already closed

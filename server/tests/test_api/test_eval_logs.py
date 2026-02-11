@@ -155,6 +155,22 @@ class TestGetEvalRun:
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
 
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_returns_404_for_other_users_run(
+        self,
+        mock_find_run: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Accessing another user's eval run returns 404 (not 403) to avoid leaking existence."""
+        other_user_id = uuid4()
+        run = _make_eval_run(user_id=other_user_id)
+        mock_find_run.return_value = run
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 404
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/eval-runs/{run_id}/logs — cursor-based event pagination
@@ -347,6 +363,25 @@ class TestGetEvalRunLogs:
 
         assert resp.status_code == 404
 
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_logs_returns_404_for_other_users_run(
+        self,
+        mock_find_run: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Accessing another user's eval run logs returns 404."""
+        other_user_id = uuid4()
+        run = _make_eval_run(user_id=other_user_id)
+        mock_find_run.return_value = run
+
+        resp = client.get(
+            f"/v1/eval-runs/{run.id}/logs?cursor=0",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 404
+
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
     @patch("decision_hub.api.registry_routes.find_eval_run")
@@ -433,3 +468,62 @@ class TestListEvalRuns:
 
         assert resp.status_code == 200
         assert resp.json() == []
+
+    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version")
+    def test_list_by_version_filters_to_current_user(
+        self,
+        mock_find_runs: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """When filtering by version_id, only the current user's runs are returned."""
+        version_id = uuid4()
+        own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
+        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
+        mock_find_runs.return_value = [own_run, other_run]
+
+        resp = client.get(
+            f"/v1/eval-runs?version_id={version_id}",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == str(own_run.id)
+
+
+# ---------------------------------------------------------------------------
+# UUID validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestEvalRunUUIDValidation:
+    """Invalid UUIDs in eval-run endpoints should return 422, not 500."""
+
+    def test_get_run_invalid_uuid(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        resp = client.get("/v1/eval-runs/not-a-uuid", headers=auth_headers)
+        assert resp.status_code == 422
+        assert "Invalid UUID" in resp.json()["detail"]
+
+    def test_get_logs_invalid_uuid(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        resp = client.get("/v1/eval-runs/not-a-uuid/logs?cursor=0", headers=auth_headers)
+        assert resp.status_code == 422
+        assert "Invalid UUID" in resp.json()["detail"]
+
+    def test_list_runs_invalid_version_uuid(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        resp = client.get("/v1/eval-runs?version_id=not-a-uuid", headers=auth_headers)
+        assert resp.status_code == 422
+        assert "Invalid UUID" in resp.json()["detail"]

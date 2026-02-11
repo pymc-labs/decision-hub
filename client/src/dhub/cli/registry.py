@@ -740,20 +740,28 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
                 return None
             version = resp.json()["version"]
 
-    # Resolve version to version_id via resolve endpoint
+    # Use eval-report endpoint to get version_id, then filter runs by it
     with httpx.Client(timeout=60) as client:
         resp = client.get(
-            f"{api_url}/v1/resolve/{org_slug}/{skill_name}",
-            params={"spec": version, "allow_risky": "true"},
+            f"{api_url}/v1/skills/{org_slug}/{skill_name}/eval-report",
+            params={"semver": version},
             headers=headers,
         )
-        if resp.status_code != 200:
+        if resp.status_code == 200 and resp.json() is not None:
+            version_id = resp.json()["version_id"]
+            # Fetch runs filtered by version_id
+            resp = client.get(
+                f"{api_url}/v1/eval-runs",
+                params={"version_id": version_id},
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                runs = resp.json()
+                if runs:
+                    return runs[0]["id"]
             return None
 
-    # Get eval runs for this version
-    # We need the version_id — get it from the eval-runs list endpoint
-    # First, try to find runs via the version_id approach
-    # Since resolve doesn't return version_id, we'll search by listing runs
+    # Fallback: no eval report for this version, list user's recent runs
     with httpx.Client(timeout=60) as client:
         resp = client.get(
             f"{api_url}/v1/eval-runs",
@@ -763,7 +771,6 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
             return None
         runs = resp.json()
 
-    # Find the most recent run (they're returned newest first)
     if runs:
         return runs[0]["id"]
     return None

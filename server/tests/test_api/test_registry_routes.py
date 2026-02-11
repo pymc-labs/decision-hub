@@ -419,6 +419,110 @@ class TestPublishSkill:
         mock_upload.assert_called_once()
         assert mock_upload.call_args[0][2].startswith("rejected/")
 
+    def test_publish_malformed_json(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        """Malformed JSON metadata returns 422, not 500."""
+        test_settings.google_api_key = "test-key"
+        resp = client.post(
+            "/v1/publish",
+            data={"metadata": "not-valid-json"},
+            files={"zip_file": ("skill.zip", _make_skill_zip(), "application/zip")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+        assert "Invalid JSON" in resp.json()["detail"]
+
+    def test_publish_missing_metadata_keys(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        """Missing required keys in metadata returns 422."""
+        test_settings.google_api_key = "test-key"
+        resp = client.post(
+            "/v1/publish",
+            data={"metadata": json.dumps({"org_slug": "test-org"})},
+            files={"zip_file": ("skill.zip", _make_skill_zip(), "application/zip")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+        assert "Missing required metadata keys" in resp.json()["detail"]
+
+    def test_publish_invalid_semver(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        """Invalid semver in metadata returns 422."""
+        test_settings.google_api_key = "test-key"
+        resp = _publish_request(client, auth_headers, version="not.a.version")
+        assert resp.status_code == 422
+        assert "Invalid semver" in resp.json()["detail"]
+
+    def test_publish_invalid_skill_name(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        """Invalid skill name in metadata returns 422."""
+        test_settings.google_api_key = "test-key"
+        resp = _publish_request(client, auth_headers, skill_name="INVALID NAME!")
+        assert resp.status_code == 422
+        assert "Invalid skill name" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.api.registry_routes.insert_audit_log")
+    @patch("decision_hub.api.registry_routes.insert_version")
+    @patch("decision_hub.api.registry_routes.find_version")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.api.registry_routes.compute_checksum")
+    @patch("decision_hub.api.registry_service.find_org_member")
+    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    def test_publish_race_condition_returns_409(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        mock_checksum: MagicMock,
+        mock_upload: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_version: MagicMock,
+        mock_insert_version: MagicMock,
+        mock_insert_audit: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+        test_settings: MagicMock,
+    ) -> None:
+        """Concurrent publish race condition returns 409 instead of 500."""
+        from sqlalchemy.exc import IntegrityError
+
+        test_settings.google_api_key = "test-key"
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org)
+
+        mock_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_checksum.return_value = "abc123def456"
+        mock_find_skill.return_value = skill
+        mock_find_version.return_value = None  # check passes
+        mock_insert_version.side_effect = IntegrityError("duplicate", params=None, orig=Exception())
+
+        resp = _publish_request(client, auth_headers)
+
+        assert resp.status_code == 409
+        assert "already exists" in resp.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/resolve/{org_slug}/{skill_name}

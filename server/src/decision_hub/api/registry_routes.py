@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_connection, get_current_user, get_s3_client, get_settings
 from decision_hub.api.registry_service import (
@@ -64,6 +65,14 @@ from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
+
+
+def _parse_uuid(value: str, name: str) -> UUID:
+    """Parse a UUID string, raising 422 with a clear message on invalid input."""
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
 
 
 # ---------------------------------------------------------------------------
@@ -234,10 +243,21 @@ def publish_skill(
             detail="LLM judge not configured. Cannot publish without LLM review.",
         )
 
-    meta = json.loads(metadata)
+    try:
+        meta = json.loads(metadata)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid JSON in metadata: {exc}") from exc
+
+    missing = [k for k in ("org_slug", "skill_name", "version") if k not in meta]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Missing required metadata keys: {', '.join(missing)}")
     org_slug, skill_name, version = meta["org_slug"], meta["skill_name"], meta["version"]
-    validate_skill_name(skill_name)
-    validate_semver(version)
+
+    try:
+        validate_skill_name(skill_name)
+        validate_semver(version)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     logger.info("Publishing {}/{} v{} by {}", org_slug, skill_name, version, current_user.username)
 
     org = require_org_membership(conn, org_slug, current_user.id)
@@ -312,16 +332,22 @@ def publish_skill(
     s3_key = build_s3_key(org_slug, skill_name, version)
     upload_skill_zip(s3_client, settings.s3_bucket, s3_key, file_bytes)
 
-    version_record = insert_version(
-        conn,
-        skill_id=skill.id,
-        semver=version,
-        s3_key=s3_key,
-        checksum=checksum,
-        runtime_config=runtime_config_dict,
-        published_by=current_user.username,
-        eval_status=eval_status,
-    )
+    try:
+        version_record = insert_version(
+            conn,
+            skill_id=skill.id,
+            semver=version,
+            s3_key=s3_key,
+            checksum=checksum,
+            runtime_config=runtime_config_dict,
+            published_by=current_user.username,
+            eval_status=eval_status,
+        )
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Version {version} already exists for {org_slug}/{skill_name}",
+        ) from None
 
     insert_audit_log(
         conn,
@@ -675,12 +701,13 @@ def get_eval_run(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunResponse:
     """Get eval run metadata by run ID."""
-    run = find_eval_run(conn, UUID(run_id))
-    if run is None:
+    parsed_id = _parse_uuid(run_id, "run_id")
+    run = find_eval_run(conn, parsed_id)
+    if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
     _check_zombie(conn, run)
     # Re-read after potential zombie update
-    run = find_eval_run(conn, UUID(run_id))
+    run = find_eval_run(conn, parsed_id)
     return _run_to_response(run)
 
 
@@ -694,8 +721,9 @@ def get_eval_run_logs(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunLogsResponse:
     """Get eval run log events with cursor-based pagination."""
-    run = find_eval_run(conn, UUID(run_id))
-    if run is None:
+    parsed_id = _parse_uuid(run_id, "run_id")
+    run = find_eval_run(conn, parsed_id)
+    if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
 
     # Zombie detection on read
@@ -742,7 +770,9 @@ def list_eval_runs(
 ) -> list[EvalRunResponse]:
     """List eval runs, optionally filtered by version ID."""
     if version_id is not None:
-        runs = find_eval_runs_for_version(conn, UUID(version_id))
+        parsed_vid = _parse_uuid(version_id, "version_id")
+        runs = find_eval_runs_for_version(conn, parsed_vid)
+        runs = [r for r in runs if r.user_id == current_user.id]
     else:
         runs = find_active_eval_runs_for_user(conn, current_user.id)
     return [_run_to_response(r) for r in runs]
