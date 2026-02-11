@@ -581,7 +581,349 @@ class TestListCommand:
 
         assert result.exit_code == 0
         assert "Registry:" in result.output
-        assert "No skills published yet" in result.output
+        assert "No skills found" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_filter_by_org(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """--org filters results to a single organization."""
+        respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "org_slug": "acme",
+                        "skill_name": "skill-a",
+                        "description": "First",
+                        "latest_version": "1.0.0",
+                        "updated_at": "2025-06-01",
+                        "safety_rating": "A",
+                        "author": "alice",
+                        "download_count": 5,
+                    },
+                    {
+                        "org_slug": "other-org",
+                        "skill_name": "skill-b",
+                        "description": "Second",
+                        "latest_version": "2.0.0",
+                        "updated_at": "2025-06-01",
+                        "safety_rating": "A",
+                        "author": "bob",
+                        "download_count": 3,
+                    },
+                ],
+            )
+        )
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
+        )
+
+        result = runner.invoke(app, ["list", "--org", "acme"])
+
+        assert result.exit_code == 0
+        # Filtered to acme only — alice is the unique author for acme
+        assert "acme" in result.output
+        assert "alice" in result.output
+        # other-org's author "bob" should not appear
+        assert "bob" not in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_filter_by_skill(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """--skill filters by substring match on skill name."""
+        respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "org_slug": "acme",
+                        "skill_name": "doc-writer",
+                        "description": "Writes docs",
+                        "latest_version": "1.0.0",
+                        "updated_at": "2025-06-01",
+                        "safety_rating": "A",
+                        "author": "alice",
+                        "download_count": 5,
+                    },
+                    {
+                        "org_slug": "acme",
+                        "skill_name": "code-review",
+                        "description": "Reviews code",
+                        "latest_version": "2.0.0",
+                        "updated_at": "2025-06-01",
+                        "safety_rating": "A",
+                        "author": "bob",
+                        "download_count": 3,
+                    },
+                ],
+            )
+        )
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
+        )
+
+        result = runner.invoke(app, ["list", "--skill", "doc"])
+
+        assert result.exit_code == 0
+        # doc-writer's author alice should appear, code-review's bob should not
+        assert "alice" in result.output
+        assert "bob" not in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_filter_no_matches(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Filtering with no matches shows a descriptive message."""
+        respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "org_slug": "acme",
+                        "skill_name": "doc-writer",
+                        "description": "Writes docs",
+                        "latest_version": "1.0.0",
+                        "updated_at": "2025-06-01",
+                        "safety_rating": "A",
+                        "author": "alice",
+                        "download_count": 5,
+                    },
+                ],
+            )
+        )
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
+        )
+
+        result = runner.invoke(app, ["list", "--org", "nonexistent"])
+
+        assert result.exit_code == 0
+        assert "No skills found" in result.output
+        assert "nonexistent" in result.output
+
+
+# ---------------------------------------------------------------------------
+# publish tracking flags
+# ---------------------------------------------------------------------------
+
+
+class TestPublishTrackingFlags:
+    def test_no_track_and_track_mutually_exclusive(self, tmp_path: Path) -> None:
+        """--no-track and --track together should error."""
+        _write_skill_md(tmp_path)
+
+        result = runner.invoke(
+            app,
+            ["publish", str(tmp_path), "--no-track", "--track"],
+        )
+
+        assert result.exit_code == 1
+        assert "mutually exclusive" in result.output
+
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_track_flag_only_for_git_urls(
+        self,
+        _mock_url,
+        _mock_token,
+        tmp_path: Path,
+    ) -> None:
+        """--track should error when used with a local directory."""
+        _write_skill_md(tmp_path)
+
+        result = runner.invoke(
+            app,
+            ["publish", str(tmp_path), "--track", "--version", "1.0.0"],
+        )
+
+        assert result.exit_code == 1
+        assert "--track" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _ensure_tracker
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureTracker:
+    @respx.mock
+    def test_creates_tracker_when_none_exists(self) -> None:
+        """Should create a new tracker when no existing tracker matches."""
+        from dhub.cli.registry import _ensure_tracker
+
+        respx.get("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        respx.post("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(
+                201,
+                json={"id": "abc", "warning": None},
+            )
+        )
+
+        _ensure_tracker(
+            "http://test:8000",
+            {"Authorization": "Bearer tok"},
+            "https://github.com/org/repo",
+            "main",
+        )
+
+        assert respx.calls.call_count == 2
+        create_call = respx.calls[1]
+        body = json.loads(create_call.request.content)
+        assert body["repo_url"] == "https://github.com/org/repo"
+        assert body["branch"] == "main"
+
+    @respx.mock
+    def test_skips_create_when_tracker_exists_and_enabled(self) -> None:
+        """Should do nothing when tracker exists and is enabled."""
+        from dhub.cli.registry import _ensure_tracker
+
+        respx.get("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "abc-123",
+                        "repo_url": "https://github.com/org/repo",
+                        "branch": "main",
+                        "enabled": True,
+                    }
+                ],
+            )
+        )
+
+        _ensure_tracker(
+            "http://test:8000",
+            {"Authorization": "Bearer tok"},
+            "https://github.com/org/repo",
+            "main",
+        )
+
+        # Only the GET call should have been made
+        assert respx.calls.call_count == 1
+
+    @respx.mock
+    def test_reenables_paused_tracker_with_track_flag(self) -> None:
+        """Should re-enable a paused tracker when --track is passed."""
+        from dhub.cli.registry import _ensure_tracker
+
+        respx.get("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "abc-123",
+                        "repo_url": "https://github.com/org/repo",
+                        "branch": "main",
+                        "enabled": False,
+                    }
+                ],
+            )
+        )
+        respx.patch("http://test:8000/v1/trackers/abc-123").mock(
+            return_value=httpx.Response(200, json={})
+        )
+
+        _ensure_tracker(
+            "http://test:8000",
+            {"Authorization": "Bearer tok"},
+            "https://github.com/org/repo",
+            "main",
+            track=True,
+        )
+
+        assert respx.calls.call_count == 2
+        patch_call = respx.calls[1]
+        body = json.loads(patch_call.request.content)
+        assert body["enabled"] is True
+
+    @respx.mock
+    def test_paused_tracker_stays_paused_without_track_flag(self) -> None:
+        """Should not re-enable a paused tracker without --track."""
+        from dhub.cli.registry import _ensure_tracker
+
+        respx.get("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "abc-123",
+                        "repo_url": "https://github.com/org/repo",
+                        "branch": "main",
+                        "enabled": False,
+                    }
+                ],
+            )
+        )
+
+        _ensure_tracker(
+            "http://test:8000",
+            {"Authorization": "Bearer tok"},
+            "https://github.com/org/repo",
+            "main",
+        )
+
+        # Only the GET call — no PATCH to re-enable
+        assert respx.calls.call_count == 1
+
+    @respx.mock
+    def test_shows_private_repo_warning(self, capsys) -> None:
+        """Should display warning when tracker creation returns a warning."""
+        from dhub.cli.registry import _ensure_tracker
+
+        respx.get("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        respx.post("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(
+                201,
+                json={
+                    "id": "abc",
+                    "warning": "This repo appears to be private. Add GITHUB_TOKEN.",
+                },
+            )
+        )
+
+        _ensure_tracker(
+            "http://test:8000",
+            {"Authorization": "Bearer tok"},
+            "https://github.com/org/repo",
+            "main",
+        )
+
+        assert respx.calls.call_count == 2
+
+    @respx.mock
+    def test_graceful_failure_on_api_error(self) -> None:
+        """Should silently fail if the tracker API is unavailable."""
+        from dhub.cli.registry import _ensure_tracker
+
+        respx.get("http://test:8000/v1/trackers").mock(
+            return_value=httpx.Response(500)
+        )
+
+        # Should not raise
+        _ensure_tracker(
+            "http://test:8000",
+            {"Authorization": "Bearer tok"},
+            "https://github.com/org/repo",
+            "main",
+        )
 
 
 # ---------------------------------------------------------------------------

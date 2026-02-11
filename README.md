@@ -126,6 +126,8 @@ dhub publish https://github.com/org/repo --ref v1.0
 | Command | Description |
 |---------|-------------|
 | `dhub list` | List all published skills |
+| `dhub list --org ORG` | Filter by organization |
+| `dhub list --skill NAME` | Filter by skill name (substring match) |
 | `dhub ask "QUERY"` | Search for skills using natural language |
 | `dhub init [PATH]` | Scaffold a new skill project |
 
@@ -139,33 +141,26 @@ dhub publish https://github.com/org/repo --ref v1.0
 | `dhub logs ORG/SKILL@VERSION --follow` | Tail eval logs for a specific version |
 | `dhub logs RUN_ID --follow` | Tail a specific eval run by ID |
 
-### Tracking (Auto-Republish)
+### Auto-Tracking
 
-Track a GitHub repo to automatically republish skills whenever new commits are pushed.
+When you publish from a GitHub URL, a tracker is automatically created to republish skills on future commits:
 
 ```bash
-# Track a public repo (works out of the box)
-dhub track add https://github.com/org/skills-repo
+# Publish + auto-track (default)
+dhub publish https://github.com/org/skills-repo
 
-# Track a specific branch with a custom poll interval
-dhub track add https://github.com/org/repo --branch dev --interval 30
+# Publish without tracking
+dhub publish https://github.com/org/repo --no-track
 
-# List / inspect / manage trackers
-dhub track list
-dhub track status <id>
-dhub track pause <id>
-dhub track resume <id>
-dhub track remove <id>
+# Re-enable tracking on a previously paused tracker
+dhub publish https://github.com/org/repo --track
 ```
 
 **Private repos** require a GitHub personal access token with `repo` scope:
 
 ```bash
-# Store your token (only needs to be done once)
 dhub keys add GITHUB_TOKEN
-
-# Then track as usual — the token is used automatically
-dhub track add https://github.com/org/private-repo
+dhub publish https://github.com/org/private-repo
 ```
 
 Without a token, private repos will not sync and the tracker will report an error. Public repos work without any token.
