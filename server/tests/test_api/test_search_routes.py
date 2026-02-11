@@ -15,6 +15,8 @@ from decision_hub.api.search_routes import router as search_router
 # test_app does not include the search_router.
 # ---------------------------------------------------------------------------
 
+_GUARD_PASS = {"is_skill_query": True, "reason": ""}
+
 
 @pytest.fixture
 def search_settings() -> MagicMock:
@@ -23,6 +25,8 @@ def search_settings() -> MagicMock:
     settings.google_api_key = "test-google-api-key"
     settings.gemini_model = "gemini-pro"
     settings.s3_bucket = "test-bucket"
+    settings.search_rate_limit = 100
+    settings.search_rate_window = 60
     return settings
 
 
@@ -61,10 +65,12 @@ class TestSearchSkills:
         assert "GOOGLE_API_KEY" in resp.json()["detail"]
 
     @respx.mock
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_success(
         self,
         mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
         """End-to-end ask flow: canned DB rows through real domain logic and Gemini response parsing."""
@@ -113,10 +119,12 @@ class TestSearchSkills:
         assert "translate" in sent_payload
 
     @respx.mock
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_gemini_empty_candidates(
         self,
         mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
         """When Gemini returns no candidates, the fallback message propagates through the route."""
@@ -139,10 +147,12 @@ class TestSearchSkills:
         assert resp.status_code == 200
         assert "No recommendations found" in resp.json()["results"]
 
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
     def test_search_empty_database(
         self,
         mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
         """When the database has no skills, should return a message without calling the LLM."""
@@ -154,3 +164,57 @@ class TestSearchSkills:
         data = resp.json()
         assert data["query"] == "anything"
         assert "No skills" in data["results"]
+
+    @patch(
+        "decision_hub.api.search_routes.check_query_topicality",
+        return_value={"is_skill_query": False, "reason": "cooking recipe"},
+    )
+    def test_search_off_topic_rejected(
+        self,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Off-topic queries get a friendly rejection without hitting the DB."""
+        resp = search_client.get("/v1/search", params={"q": "chocolate cake recipe"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "doesn't look like a skill search" in data["results"]
+        assert "dhub ask" in data["results"]
+
+    @patch(
+        "decision_hub.api.search_routes.check_query_topicality",
+        return_value={"is_skill_query": False, "reason": "cooking recipe"},
+    )
+    @patch("decision_hub.api.search_routes.fetch_all_skills_for_index")
+    def test_search_off_topic_skips_db(
+        self,
+        mock_fetch: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Off-topic queries short-circuit before the DB query."""
+        resp = search_client.get("/v1/search", params={"q": "chocolate cake recipe"})
+
+        assert resp.status_code == 200
+        mock_fetch.assert_not_called()
+
+    def test_search_rate_limited(self, search_app: FastAPI) -> None:
+        """Exceeding the rate limit returns HTTP 429."""
+        search_app.state.settings.search_rate_limit = 2
+        search_app.state.settings.search_rate_window = 60
+        client = TestClient(search_app)
+
+        with patch(
+            "decision_hub.api.search_routes.check_query_topicality",
+            return_value={"is_skill_query": False, "reason": "off-topic"},
+        ):
+            # First two requests should succeed (off-topic but allowed by rate limiter)
+            for _ in range(2):
+                resp = client.get("/v1/search", params={"q": "cake"})
+                assert resp.status_code == 200
+
+            # Third request should be rate limited
+            resp = client.get("/v1/search", params={"q": "cake"})
+            assert resp.status_code == 429
+            assert "Rate limit exceeded" in resp.json()["detail"]

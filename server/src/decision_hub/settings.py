@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # CLI can suggest upgrades. Empty string disables the check.
     latest_cli_version: str = ""
 
+    # Rate limiting for search endpoint (per IP, sliding window)
+    search_rate_limit: int = 10  # max requests per window
+    search_rate_window: int = 60  # window in seconds
+
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
 
