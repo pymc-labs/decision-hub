@@ -55,8 +55,8 @@ users_table = Table(
         primary_key=True,
         server_default=sa.func.gen_random_uuid(),
     ),
-    Column("github_id", String, nullable=False, unique=True),
-    Column("username", String, nullable=False, unique=True),
+    Column("github_id", Text, nullable=False, unique=True),
+    Column("username", Text, nullable=False, unique=True),
 )
 
 organizations_table = Table(
@@ -68,7 +68,7 @@ organizations_table = Table(
         primary_key=True,
         server_default=sa.func.gen_random_uuid(),
     ),
-    Column("slug", String, nullable=False, unique=True),
+    Column("slug", Text, nullable=False, unique=True),
     Column(
         "owner_id",
         PG_UUID(as_uuid=True),
@@ -93,7 +93,7 @@ org_members_table = Table(
         ForeignKey("users.id"),
         primary_key=True,
     ),
-    Column("role", String, nullable=False),
+    Column("role", Text, nullable=False),
 )
 
 skills_table = Table(
@@ -111,7 +111,7 @@ skills_table = Table(
         ForeignKey("organizations.id"),
         nullable=False,
     ),
-    Column("name", String, nullable=False),
+    Column("name", Text, nullable=False),
     Column("description", Text, nullable=False, server_default=""),
     Column("download_count", sa.Integer, nullable=False, server_default="0"),
     sa.UniqueConstraint("org_id", "name"),
@@ -132,21 +132,21 @@ versions_table = Table(
         ForeignKey("skills.id"),
         nullable=False,
     ),
-    Column("semver", String, nullable=False),
+    Column("semver", Text, nullable=False),
     Column("semver_major", sa.Integer, nullable=False, server_default="0"),
     Column("semver_minor", sa.Integer, nullable=False, server_default="0"),
     Column("semver_patch", sa.Integer, nullable=False, server_default="0"),
     Column("s3_key", Text, nullable=False),
-    Column("checksum", String, nullable=False),
+    Column("checksum", Text, nullable=False),
     Column("runtime_config", JSONB, nullable=True),
-    Column("eval_status", String, nullable=False, server_default="pending"),
+    Column("eval_status", Text, nullable=False, server_default="pending"),
     Column(
         "created_at",
         DateTime(timezone=True),
         nullable=False,
         server_default=sa.func.now(),
     ),
-    Column("published_by", String, nullable=False, server_default=""),
+    Column("published_by", Text, nullable=False, server_default=""),
     sa.UniqueConstraint("skill_id", "semver"),
     sa.Index(
         "idx_versions_skill_semver_parts",
@@ -154,6 +154,11 @@ versions_table = Table(
         sa.text("semver_major DESC"),
         sa.text("semver_minor DESC"),
         sa.text("semver_patch DESC"),
+    ),
+    sa.Index(
+        "idx_versions_eval_status_partial",
+        "eval_status",
+        postgresql_where=sa.text("eval_status IN ('A', 'B', 'passed')"),
     ),
 )
 
@@ -172,7 +177,7 @@ user_api_keys_table = Table(
         ForeignKey("users.id"),
         nullable=False,
     ),
-    Column("key_name", String, nullable=False),
+    Column("key_name", Text, nullable=False),
     Column("encrypted_value", LargeBinary, nullable=False),
     Column(
         "created_at",
@@ -194,7 +199,7 @@ eval_audit_logs_table = Table(
     ),
     Column("org_slug", Text, nullable=False),
     Column("skill_name", Text, nullable=False),
-    Column("semver", String, nullable=False),
+    Column("semver", Text, nullable=False),
     Column("grade", String(1), nullable=False),
     Column(
         "version_id",
@@ -204,7 +209,7 @@ eval_audit_logs_table = Table(
     ),
     Column("check_results", JSONB, nullable=False),
     Column("llm_reasoning", JSONB, nullable=True),
-    Column("publisher", String, nullable=False, server_default=""),
+    Column("publisher", Text, nullable=False, server_default=""),
     Column("quarantine_s3_key", Text, nullable=True),
     Column(
         "created_at",
@@ -230,13 +235,13 @@ eval_reports_table = Table(
         nullable=False,
         unique=True,
     ),
-    Column("agent", String, nullable=False),
-    Column("judge_model", String, nullable=False),
+    Column("agent", Text, nullable=False),
+    Column("judge_model", Text, nullable=False),
     Column("case_results", JSONB, nullable=False),
     Column("passed", sa.Integer, nullable=False),
     Column("total", sa.Integer, nullable=False),
     Column("total_duration_ms", sa.Integer, nullable=False),
-    Column("status", String, nullable=False),
+    Column("status", Text, nullable=False),
     Column("error_message", Text, nullable=True),
     Column(
         "created_at",
@@ -285,6 +290,8 @@ eval_runs_table = Table(
         server_default=sa.func.now(),
     ),
     Column("completed_at", DateTime(timezone=True), nullable=True),
+    sa.Index("idx_eval_runs_version_created", "version_id", "created_at"),
+    sa.Index("idx_eval_runs_user_created", "user_id", "created_at"),
 )
 
 search_logs_table = Table(
