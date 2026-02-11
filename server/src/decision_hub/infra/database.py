@@ -652,6 +652,38 @@ def find_skill(conn: Connection, org_id: UUID, name: str) -> Skill | None:
     return _row_to_skill(row)
 
 
+def find_skill_by_slug(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    *,
+    user_org_ids: list[UUID] | None = None,
+) -> Skill | None:
+    """Find a skill by org slug and name, with visibility filtering.
+
+    Returns the Skill if it exists and is visible to the caller, else None.
+    """
+    join = skills_table.join(
+        organizations_table,
+        skills_table.c.org_id == organizations_table.c.id,
+    )
+    stmt = (
+        sa.select(skills_table)
+        .select_from(join)
+        .where(
+            sa.and_(
+                organizations_table.c.slug == org_slug,
+                skills_table.c.name == skill_name,
+            )
+        )
+    )
+    stmt = _apply_visibility_filter(stmt, conn, user_org_ids)
+    row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return _row_to_skill(row)
+
+
 def update_skill_description(conn: Connection, skill_id: UUID, description: str) -> None:
     """Update the description of an existing skill.
 

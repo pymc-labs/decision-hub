@@ -63,8 +63,10 @@ def _publish_skill_directory(
             console.print(f"  No changes detected for [cyan]{name}[/]. Already at [cyan]{current_version}[/].")
             return False
 
-    visibility = "org" if private else "public"
-    metadata = json.dumps({"org_slug": org, "skill_name": name, "version": version, "visibility": visibility})
+    meta: dict[str, str] = {"org_slug": org, "skill_name": name, "version": version}
+    if private:
+        meta["visibility"] = "org"
+    metadata = json.dumps(meta)
 
     with console.status(f"Publishing {org}/{name}@{version}..."):
         with httpx.Client(timeout=60) as client:

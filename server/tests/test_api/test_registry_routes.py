@@ -669,12 +669,15 @@ class TestGetAuditLog:
     """GET /v1/skills/{org}/{skill}/audit-log -- evaluation history."""
 
     @patch("decision_hub.api.registry_routes.find_audit_logs")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
     def test_audit_log_empty(
         self,
+        mock_find_skill: MagicMock,
         mock_find: MagicMock,
         client: TestClient,
     ) -> None:
         """Returns empty list when no audit logs exist."""
+        mock_find_skill.return_value = _make_skill(_make_org())
         mock_find.return_value = []
 
         resp = client.get("/v1/skills/test-org/my-skill/audit-log")
@@ -683,8 +686,10 @@ class TestGetAuditLog:
         assert resp.json() == []
 
     @patch("decision_hub.api.registry_routes.find_audit_logs")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
     def test_audit_log_returns_entries(
         self,
+        mock_find_skill: MagicMock,
         mock_find: MagicMock,
         client: TestClient,
     ) -> None:
@@ -693,6 +698,7 @@ class TestGetAuditLog:
 
         from decision_hub.models import AuditLogEntry
 
+        mock_find_skill.return_value = _make_skill(_make_org())
         entry = AuditLogEntry(
             id=uuid4(),
             org_slug="test-org",
@@ -717,15 +723,85 @@ class TestGetAuditLog:
         assert data[0]["publisher"] == "testuser"
 
     @patch("decision_hub.api.registry_routes.find_audit_logs")
-    def test_audit_log_does_not_require_auth(
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_audit_log_does_not_require_auth_for_public_skills(
         self,
+        mock_find_skill: MagicMock,
         mock_find: MagicMock,
         client: TestClient,
     ) -> None:
-        """Audit log endpoint is public."""
+        """Audit log endpoint works without auth for public skills."""
+        mock_find_skill.return_value = _make_skill(_make_org())
         mock_find.return_value = []
 
         resp = client.get("/v1/skills/test-org/my-skill/audit-log")
+
+        assert resp.status_code == 200
+
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_audit_log_returns_404_for_invisible_skill(
+        self,
+        mock_find_skill: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Audit log returns 404 when skill is not visible (private + unauthenticated)."""
+        mock_find_skill.return_value = None
+
+        resp = client.get("/v1/skills/test-org/private-skill/audit-log")
+
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/skills/{org_slug}/{skill_name}/eval-report -- visibility checks
+# ---------------------------------------------------------------------------
+
+
+class TestEvalReportVisibility:
+    """Eval report endpoints should respect visibility filtering."""
+
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_eval_report_returns_404_for_invisible_skill(
+        self,
+        mock_find_skill: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Eval report returns 404 when skill is not visible."""
+        mock_find_skill.return_value = None
+
+        resp = client.get("/v1/skills/test-org/private-skill/eval-report?semver=1.0.0")
+
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_eval_report_by_version_path_returns_404_for_invisible_skill(
+        self,
+        mock_find_skill: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Eval report (path-based) returns 404 when skill is not visible."""
+        mock_find_skill.return_value = None
+
+        resp = client.get("/v1/skills/test-org/private-skill/versions/1.0.0/eval-report")
+
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_routes.find_eval_report_by_skill")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_eval_report_accessible_for_visible_skill(
+        self,
+        mock_find_skill: MagicMock,
+        mock_find_report: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Eval report is accessible when skill is visible (public)."""
+        mock_find_skill.return_value = _make_skill(_make_org())
+        mock_find_report.return_value = None
+
+        resp = client.get("/v1/skills/test-org/my-skill/eval-report?semver=1.0.0")
 
         assert resp.status_code == 200
 

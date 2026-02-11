@@ -1,6 +1,7 @@
 """Tests for dhub.cli.registry -- publish, install, list, and delete commands."""
 
 import io
+import json
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -260,6 +261,74 @@ class TestPublishCommand:
         assert "No changes detected" in result.output
         assert "1.0.0" in result.output
         assert not publish_route.called
+
+    @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_without_private_omits_visibility(
+        self,
+        _mock_url,
+        _mock_token,
+        _mock_org,
+        tmp_path: Path,
+    ) -> None:
+        """Publish without --private should NOT include visibility in metadata."""
+        _write_skill_md(tmp_path)
+        publish_route = respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
+
+        result = runner.invoke(
+            app,
+            ["publish", str(tmp_path), "--version", "1.0.0"],
+        )
+
+        assert result.exit_code == 0
+        # Extract the metadata from the request
+        request = publish_route.calls[0].request
+        # multipart form data: extract metadata field
+        body = request.content.decode("utf-8", errors="replace")
+        # Find the JSON metadata in the multipart body
+        for part in body.split("Content-Disposition"):
+            if 'name="metadata"' in part:
+                # The JSON is after the blank line
+                json_str = part.split("\r\n\r\n", 1)[1].split("\r\n--", 1)[0]
+                meta = json.loads(json_str)
+                assert "visibility" not in meta
+                break
+        else:
+            raise AssertionError("metadata field not found in request")
+
+    @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_with_private_includes_org_visibility(
+        self,
+        _mock_url,
+        _mock_token,
+        _mock_org,
+        tmp_path: Path,
+    ) -> None:
+        """Publish with --private should include visibility='org' in metadata."""
+        _write_skill_md(tmp_path)
+        publish_route = respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
+
+        result = runner.invoke(
+            app,
+            ["publish", str(tmp_path), "--version", "1.0.0", "--private"],
+        )
+
+        assert result.exit_code == 0
+        request = publish_route.calls[0].request
+        body = request.content.decode("utf-8", errors="replace")
+        for part in body.split("Content-Disposition"):
+            if 'name="metadata"' in part:
+                json_str = part.split("\r\n\r\n", 1)[1].split("\r\n--", 1)[0]
+                meta = json.loads(json_str)
+                assert meta["visibility"] == "org"
+                break
+        else:
+            raise AssertionError("metadata field not found in request")
 
 
 # ---------------------------------------------------------------------------

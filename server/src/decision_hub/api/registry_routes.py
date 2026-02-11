@@ -45,6 +45,7 @@ from decision_hub.infra.database import (
     find_eval_runs_for_version,
     find_org_by_slug,
     find_skill,
+    find_skill_by_slug,
     find_version,
     increment_skill_downloads,
     insert_audit_log,
@@ -579,8 +580,13 @@ def get_audit_log(
     skill_name: str,
     semver: str | None = Query(None),
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> list[AuditLogResponse]:
     """Return evaluation audit log history for a skill."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     entries = find_audit_logs(conn, org_slug, skill_name, semver=semver)
     return [
         AuditLogResponse(
@@ -609,8 +615,13 @@ def get_eval_report_by_skill(
     skill_name: str,
     semver: str = Query(..., description="Semantic version of the skill"),
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
     """Get the eval report for a specific skill version."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
     if report is None:
         return None
@@ -626,8 +637,13 @@ def get_eval_report_by_version_path(
     skill_name: str,
     semver: str,
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
     """Get the eval report for a specific skill version (path-based)."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
     if report is None:
         return None
