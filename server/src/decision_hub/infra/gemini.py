@@ -15,6 +15,7 @@ class CodeSafetyJudgment(BaseModel):
     file: str
     label: str
     dangerous: bool
+    ambiguous: bool = False
     reason: str
 
 

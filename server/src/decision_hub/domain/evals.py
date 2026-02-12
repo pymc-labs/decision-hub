@@ -71,6 +71,10 @@ def run_eval_pipeline(
     skill_name: str,
     runtime=None,
     judge_api_key: str = "",
+    *,
+    sandbox_memory_mb: int = 4096,
+    sandbox_timeout_seconds: int = 900,
+    sandbox_cpu: float = 2.0,
 ) -> tuple[list[dict], int, int, int]:
     """Execute eval cases in Modal sandbox and judge outputs.
 
@@ -119,6 +123,9 @@ def run_eval_pipeline(
                 agent_env_vars=agent_env_vars,
                 org_slug=org_slug,
                 skill_name=skill_name,
+                sandbox_memory_mb=sandbox_memory_mb,
+                sandbox_timeout_seconds=sandbox_timeout_seconds,
+                sandbox_cpu=sandbox_cpu,
             )
         except Exception as e:
             logger.error("Sandbox error for case '{}': {}", case.name, e)
@@ -211,6 +218,10 @@ def stream_eval_pipeline(
     org_slug: str,
     skill_name: str,
     judge_api_key: str = "",
+    *,
+    sandbox_memory_mb: int = 4096,
+    sandbox_timeout_seconds: int = 900,
+    sandbox_cpu: float = 2.0,
 ) -> Generator[dict, None, None]:
     """Generator that yields structured events for the entire pipeline.
 
@@ -254,6 +265,9 @@ def stream_eval_pipeline(
                 agent_env_vars=agent_env_vars,
                 org_slug=org_slug,
                 skill_name=skill_name,
+                sandbox_memory_mb=sandbox_memory_mb,
+                sandbox_timeout_seconds=sandbox_timeout_seconds,
+                sandbox_cpu=sandbox_cpu,
             )
             # Consume streaming output events
             try:
@@ -405,6 +419,10 @@ def run_streaming_eval(
     s3_client,
     s3_bucket: str,
     log_s3_prefix: str,
+    *,
+    sandbox_memory_mb: int = 4096,
+    sandbox_timeout_seconds: int = 900,
+    sandbox_cpu: float = 2.0,
 ) -> None:
     """Consume the streaming pipeline, persist events to S3, and update DB.
 
@@ -459,6 +477,9 @@ def run_streaming_eval(
             org_slug=org_slug,
             skill_name=skill_name,
             judge_api_key=judge_api_key,
+            sandbox_memory_mb=sandbox_memory_mb,
+            sandbox_timeout_seconds=sandbox_timeout_seconds,
+            sandbox_cpu=sandbox_cpu,
         )
 
         for event in pipeline:

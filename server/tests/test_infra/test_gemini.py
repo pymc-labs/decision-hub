@@ -54,6 +54,7 @@ class TestCodeSafetyJudgmentValidation:
             "file": "main.py",
             "label": "subprocess invocation",
             "dangerous": True,
+            "ambiguous": False,
             "reason": "shell injection",
         }
 

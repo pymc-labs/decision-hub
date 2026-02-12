@@ -530,6 +530,9 @@ def run_assessment_background(
                 s3_client=s3_client,
                 s3_bucket=settings.s3_bucket,
                 log_s3_prefix=log_s3_prefix,
+                sandbox_memory_mb=settings.sandbox_memory_mb,
+                sandbox_timeout_seconds=settings.sandbox_timeout_seconds,
+                sandbox_cpu=settings.sandbox_cpu,
             )
             logger.info("Streaming pipeline completed for {}/{}", org_slug, skill_name)
         else:
@@ -550,6 +553,9 @@ def run_assessment_background(
                 org_slug=org_slug,
                 skill_name=skill_name,
                 judge_api_key=judge_api_key,
+                sandbox_memory_mb=settings.sandbox_memory_mb,
+                sandbox_timeout_seconds=settings.sandbox_timeout_seconds,
+                sandbox_cpu=settings.sandbox_cpu,
             )
 
             all_passed = all(r["verdict"] == "pass" for r in case_results)

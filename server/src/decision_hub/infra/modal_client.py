@@ -302,6 +302,10 @@ def _create_skill_sandbox(
     agent_env_vars: dict[str, str],
     org_slug: str,
     skill_name: str,
+    *,
+    sandbox_memory_mb: int = 4096,
+    sandbox_timeout_seconds: int = 900,
+    sandbox_cpu: float = 2.0,
 ):
     """Create and prepare a Modal sandbox with a skill installed.
 
@@ -327,14 +331,19 @@ def _create_skill_sandbox(
     # Add HOME to env so tools resolve paths correctly
     env["HOME"] = home_dir
 
-    logger.info("Creating sandbox (memory=4096, timeout=900, cpu=2.0)")
+    logger.info(
+        "Creating sandbox (memory={}, timeout={}, cpu={})",
+        sandbox_memory_mb,
+        sandbox_timeout_seconds,
+        sandbox_cpu,
+    )
     sb = modal.Sandbox.create(
         image=image,
         secrets=[modal.Secret.from_dict(env)],
         app=app,
-        memory=4096,
-        timeout=900,
-        cpu=2.0,
+        memory=sandbox_memory_mb,
+        timeout=sandbox_timeout_seconds,
+        cpu=sandbox_cpu,
     )
 
     # Set up skill directory (as root, then chown to sandbox user)
@@ -479,6 +488,10 @@ def stream_eval_case_in_sandbox(
     agent_env_vars: dict[str, str],
     org_slug: str,
     skill_name: str,
+    *,
+    sandbox_memory_mb: int = 4096,
+    sandbox_timeout_seconds: int = 900,
+    sandbox_cpu: float = 2.0,
 ):
     """Run a single eval case and yield structured output events.
 
@@ -491,7 +504,16 @@ def stream_eval_case_in_sandbox(
     import base64
     import time
 
-    sb, skill_path = _create_skill_sandbox(skill_zip, agent_config, agent_env_vars, org_slug, skill_name)
+    sb, skill_path = _create_skill_sandbox(
+        skill_zip,
+        agent_config,
+        agent_env_vars,
+        org_slug,
+        skill_name,
+        sandbox_memory_mb=sandbox_memory_mb,
+        sandbox_timeout_seconds=sandbox_timeout_seconds,
+        sandbox_cpu=sandbox_cpu,
+    )
 
     try:
         # Launch agent (same approach as _run_agent_in_sandbox)
@@ -568,6 +590,10 @@ def run_eval_case_in_sandbox(
     agent_env_vars: dict[str, str],
     org_slug: str,
     skill_name: str,
+    *,
+    sandbox_memory_mb: int = 4096,
+    sandbox_timeout_seconds: int = 900,
+    sandbox_cpu: float = 2.0,
 ) -> tuple[str, str, int, int]:
     """Run a single eval case in a Modal sandbox.
 
@@ -590,7 +616,16 @@ def run_eval_case_in_sandbox(
         Tuple of (stdout, stderr, exit_code, duration_ms).
     """
 
-    sb, skill_path = _create_skill_sandbox(skill_zip, agent_config, agent_env_vars, org_slug, skill_name)
+    sb, skill_path = _create_skill_sandbox(
+        skill_zip,
+        agent_config,
+        agent_env_vars,
+        org_slug,
+        skill_name,
+        sandbox_memory_mb=sandbox_memory_mb,
+        sandbox_timeout_seconds=sandbox_timeout_seconds,
+        sandbox_cpu=sandbox_cpu,
+    )
 
     try:
         # Run the prompt through the agent as non-root 'sandbox' user.
