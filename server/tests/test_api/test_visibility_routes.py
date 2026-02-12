@@ -417,33 +417,34 @@ class TestListAccess:
 class TestListSkillsVisibility:
     """GET /v1/skills — verify visibility field is returned."""
 
-    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=1)
     @patch("decision_hub.api.registry_routes.list_user_org_ids")
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_returns_visibility(
         self,
         mock_fetch: MagicMock,
         mock_org_ids: MagicMock,
-        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Public listing returns the visibility field."""
         from datetime import datetime
 
-        mock_fetch.return_value = [
-            {
-                "org_slug": "test-org",
-                "is_personal_org": False,
-                "skill_name": "my-skill",
-                "description": "desc",
-                "download_count": 0,
-                "visibility": "org",
-                "latest_version": "1.0.0",
-                "eval_status": "A",
-                "created_at": datetime(2025, 1, 1),
-                "published_by": "testuser",
-            }
-        ]
+        mock_fetch.return_value = (
+            [
+                {
+                    "org_slug": "test-org",
+                    "is_personal_org": False,
+                    "skill_name": "my-skill",
+                    "description": "desc",
+                    "download_count": 0,
+                    "visibility": "org",
+                    "latest_version": "1.0.0",
+                    "eval_status": "A",
+                    "created_at": datetime(2025, 1, 1),
+                    "published_by": "testuser",
+                }
+            ],
+            1,
+        )
 
         resp = client.get("/v1/skills")
 

@@ -1041,16 +1041,14 @@ class TestDeleteSkillVersion:
 class TestListSkills:
     """GET /v1/skills -- list all published skills."""
 
-    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_empty(
         self,
         mock_fetch: MagicMock,
-        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Empty registry returns an empty items list."""
-        mock_fetch.return_value = []
+        mock_fetch.return_value = ([], 0)
 
         resp = client.get("/v1/skills")
 
@@ -1062,29 +1060,30 @@ class TestListSkills:
         assert data["page_size"] == 20
         assert data["total_pages"] == 1
 
-    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=1)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_returns_data(
         self,
         mock_fetch: MagicMock,
-        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Skills are returned with all expected fields."""
         from datetime import datetime
 
-        mock_fetch.return_value = [
-            {
-                "org_slug": "acme",
-                "skill_name": "doc-writer",
-                "description": "Writes documentation",
-                "download_count": 42,
-                "latest_version": "1.2.0",
-                "eval_status": "A",
-                "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
-                "published_by": "alice",
-            },
-        ]
+        mock_fetch.return_value = (
+            [
+                {
+                    "org_slug": "acme",
+                    "skill_name": "doc-writer",
+                    "description": "Writes documentation",
+                    "download_count": 42,
+                    "latest_version": "1.2.0",
+                    "eval_status": "A",
+                    "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
+                    "published_by": "alice",
+                },
+            ],
+            1,
+        )
 
         resp = client.get("/v1/skills")
 
@@ -1101,57 +1100,58 @@ class TestListSkills:
         assert skill["author"] == "alice"
         assert skill["download_count"] == 42
 
-    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=4)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_safety_rating(
         self,
         mock_fetch: MagicMock,
-        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Safety rating maps eval_status correctly for both new and legacy values."""
-        mock_fetch.return_value = [
-            {
-                "org_slug": "org1",
-                "skill_name": "safe-skill",
-                "description": "",
-                "download_count": 0,
-                "latest_version": "1.0.0",
-                "eval_status": "A",
-                "created_at": None,
-                "published_by": "alice",
-            },
-            {
-                "org_slug": "org2",
-                "skill_name": "verified-skill",
-                "description": "",
-                "download_count": 0,
-                "latest_version": "0.1.0",
-                "eval_status": "B",
-                "created_at": None,
-                "published_by": "bob",
-            },
-            {
-                "org_slug": "org3",
-                "skill_name": "risky-skill",
-                "description": "",
-                "download_count": 0,
-                "latest_version": "2.0.0",
-                "eval_status": "C",
-                "created_at": None,
-                "published_by": "",
-            },
-            {
-                "org_slug": "org4",
-                "skill_name": "legacy-skill",
-                "description": "",
-                "download_count": 0,
-                "latest_version": "1.0.0",
-                "eval_status": "passed",
-                "created_at": None,
-                "published_by": "",
-            },
-        ]
+        mock_fetch.return_value = (
+            [
+                {
+                    "org_slug": "org1",
+                    "skill_name": "safe-skill",
+                    "description": "",
+                    "download_count": 0,
+                    "latest_version": "1.0.0",
+                    "eval_status": "A",
+                    "created_at": None,
+                    "published_by": "alice",
+                },
+                {
+                    "org_slug": "org2",
+                    "skill_name": "verified-skill",
+                    "description": "",
+                    "download_count": 0,
+                    "latest_version": "0.1.0",
+                    "eval_status": "B",
+                    "created_at": None,
+                    "published_by": "bob",
+                },
+                {
+                    "org_slug": "org3",
+                    "skill_name": "risky-skill",
+                    "description": "",
+                    "download_count": 0,
+                    "latest_version": "2.0.0",
+                    "eval_status": "C",
+                    "created_at": None,
+                    "published_by": "",
+                },
+                {
+                    "org_slug": "org4",
+                    "skill_name": "legacy-skill",
+                    "description": "",
+                    "download_count": 0,
+                    "latest_version": "1.0.0",
+                    "eval_status": "passed",
+                    "created_at": None,
+                    "published_by": "",
+                },
+            ],
+            4,
+        )
 
         resp = client.get("/v1/skills")
 
@@ -1162,31 +1162,27 @@ class TestListSkills:
         assert items[2]["safety_rating"] == "C"
         assert items[3]["safety_rating"] == "A"  # legacy "passed" -> A
 
-    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_does_not_require_auth(
         self,
         mock_fetch: MagicMock,
-        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """List endpoint is public — no auth required."""
-        mock_fetch.return_value = []
+        mock_fetch.return_value = ([], 0)
 
         resp = client.get("/v1/skills")
 
         assert resp.status_code == 200
 
-    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=25)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_pagination_params(
         self,
         mock_fetch: MagicMock,
-        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Page and page_size query params are forwarded correctly."""
-        mock_fetch.return_value = []
+        mock_fetch.return_value = ([], 25)
 
         resp = client.get("/v1/skills?page=2&page_size=10")
 
@@ -1201,16 +1197,14 @@ class TestListSkills:
         assert call_kwargs.kwargs["limit"] == 10
         assert call_kwargs.kwargs["offset"] == 10
 
-    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_page_size_limit(
         self,
         mock_fetch: MagicMock,
-        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """page_size > 100 is rejected by validation."""
-        mock_fetch.return_value = []
+        mock_fetch.return_value = ([], 0)
 
         resp = client.get("/v1/skills?page_size=200")
 

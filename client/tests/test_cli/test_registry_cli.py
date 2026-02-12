@@ -609,8 +609,8 @@ class TestListCommand:
         _mock_url,
         _mock_token,
     ) -> None:
-        """--org filters results to a single organization."""
-        skills = [
+        """--org passes org filter as server-side query param."""
+        acme_skills = [
             {
                 "org_slug": "acme",
                 "skill_name": "skill-a",
@@ -621,18 +621,11 @@ class TestListCommand:
                 "author": "alice",
                 "download_count": 5,
             },
-            {
-                "org_slug": "other-org",
-                "skill_name": "skill-b",
-                "description": "Second",
-                "latest_version": "2.0.0",
-                "updated_at": "2025-06-01",
-                "safety_rating": "A",
-                "author": "bob",
-                "download_count": 3,
-            },
         ]
-        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
+        # Server returns only acme skills when org=acme is passed
+        route = respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(200, json=_paginated_response(acme_skills))
+        )
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -640,11 +633,11 @@ class TestListCommand:
         result = runner.invoke(app, ["list", "--org", "acme"])
 
         assert result.exit_code == 0
-        # Filtered to acme only — alice is the unique author for acme
         assert "acme" in result.output
         assert "alice" in result.output
-        # other-org's author "bob" should not appear
-        assert "bob" not in result.output
+        # Verify the org param was sent to the server
+        assert route.called
+        assert route.calls[0].request.url.params["org"] == "acme"
 
     @respx.mock
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")
@@ -654,8 +647,8 @@ class TestListCommand:
         _mock_url,
         _mock_token,
     ) -> None:
-        """--skill filters by substring match on skill name."""
-        skills = [
+        """--skill passes search filter as server-side query param."""
+        matching_skills = [
             {
                 "org_slug": "acme",
                 "skill_name": "doc-writer",
@@ -666,18 +659,11 @@ class TestListCommand:
                 "author": "alice",
                 "download_count": 5,
             },
-            {
-                "org_slug": "acme",
-                "skill_name": "code-review",
-                "description": "Reviews code",
-                "latest_version": "2.0.0",
-                "updated_at": "2025-06-01",
-                "safety_rating": "A",
-                "author": "bob",
-                "download_count": 3,
-            },
         ]
-        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
+        # Server returns only matching skills when search=doc is passed
+        route = respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(200, json=_paginated_response(matching_skills))
+        )
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -685,9 +671,10 @@ class TestListCommand:
         result = runner.invoke(app, ["list", "--skill", "doc"])
 
         assert result.exit_code == 0
-        # doc-writer's author alice should appear, code-review's bob should not
         assert "alice" in result.output
-        assert "bob" not in result.output
+        # Verify the search param was sent to the server
+        assert route.called
+        assert route.calls[0].request.url.params["search"] == "doc"
 
     @respx.mock
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")
@@ -698,19 +685,10 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """Filtering with no matches shows a descriptive message."""
-        skills = [
-            {
-                "org_slug": "acme",
-                "skill_name": "doc-writer",
-                "description": "Writes docs",
-                "latest_version": "1.0.0",
-                "updated_at": "2025-06-01",
-                "safety_rating": "A",
-                "author": "alice",
-                "download_count": 5,
-            },
-        ]
-        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
+        # Server returns empty when org=nonexistent
+        route = respx.get("http://test:8000/v1/skills").mock(
+            return_value=httpx.Response(200, json=_paginated_response([]))
+        )
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -719,7 +697,9 @@ class TestListCommand:
 
         assert result.exit_code == 0
         assert "No skills found" in result.output
-        assert "nonexistent" in result.output
+        # Verify the org param was sent to the server
+        assert route.called
+        assert route.calls[0].request.url.params["org"] == "nonexistent"
 
     @respx.mock
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")

@@ -37,7 +37,6 @@ from decision_hub.domain.publish import (
 from decision_hub.domain.search import format_trust_score
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
-    count_all_skills,
     delete_all_versions,
     delete_skill_access_grant,
     delete_version,
@@ -57,6 +56,7 @@ from decision_hub.infra.database import (
     insert_skill,
     insert_skill_access_grant,
     insert_version,
+    list_granted_skill_ids,
     list_skill_access_grants,
     list_user_org_ids,
     organizations_table,
@@ -545,21 +545,16 @@ def list_skills(
 ) -> PaginatedSkillsResponse:
     """List published skills with pagination and server-side filtering."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-
-    total = count_all_skills(
-        conn,
-        user_org_ids=user_org_ids,
-        search=search,
-        org_slug=org,
-        category=category,
-        grade=grade,
-    )
-    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    # Pre-compute granted skill IDs once to avoid duplicate DB round-trips.
+    granted_skill_ids = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
     offset = (page - 1) * page_size
 
-    rows = fetch_all_skills_for_index(
+    # Single query: fetch_all_skills_for_index uses COUNT(*) OVER() to
+    # return both the page rows and the full count in one round-trip.
+    rows, total = fetch_all_skills_for_index(
         conn,
         user_org_ids=user_org_ids,
+        granted_skill_ids=granted_skill_ids,
         search=search,
         org_slug=org,
         category=category,
@@ -568,6 +563,7 @@ def list_skills(
         offset=offset,
         sort=sort,
     )
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
     items = [
         SkillSummary(
             org_slug=row["org_slug"],

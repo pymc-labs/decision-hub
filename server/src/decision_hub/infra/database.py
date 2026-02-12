@@ -222,6 +222,7 @@ skill_access_grants_table = Table(
         server_default=sa.func.now(),
     ),
     sa.UniqueConstraint("skill_id", "grantee_org_id"),
+    sa.Index("idx_skill_access_grants_grantee_org", "grantee_org_id"),
 )
 
 versions_table = Table(
@@ -875,7 +876,8 @@ def find_skill_by_slug(
             )
         )
     )
-    stmt = _apply_visibility_filter(stmt, conn, user_org_ids)
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+    stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
     row = conn.execute(stmt).first()
     if row is None:
         return None
@@ -997,8 +999,8 @@ def list_user_org_ids(conn: Connection, user_id: UUID) -> list[UUID]:
 
 def _apply_visibility_filter(
     stmt: sa.Select,
-    conn: Connection,
     user_org_ids: list[UUID] | None,
+    granted_skill_ids: list[UUID] | None = None,
 ) -> sa.Select:
     """Apply visibility filtering to a query that includes skills_table.
 
@@ -1006,9 +1008,12 @@ def _apply_visibility_filter(
     1. visibility == 'public'
     2. visibility == 'org' AND the skill's org_id is in user_org_ids
     3. visibility == 'org' AND the skill's id has been granted to one of user_org_ids
+
+    granted_skill_ids should be pre-computed via list_granted_skill_ids() and
+    passed in to avoid redundant DB round-trips when this filter is applied
+    to multiple queries in the same request.
     """
     if user_org_ids is not None:
-        granted_ids = list_granted_skill_ids(conn, user_org_ids)
         vis_conditions: list[sa.ColumnElement] = [
             skills_table.c.visibility == "public",
             sa.and_(
@@ -1016,11 +1021,11 @@ def _apply_visibility_filter(
                 skills_table.c.org_id.in_(user_org_ids),
             ),
         ]
-        if granted_ids:
+        if granted_skill_ids:
             vis_conditions.append(
                 sa.and_(
                     skills_table.c.visibility == "org",
-                    skills_table.c.id.in_(granted_ids),
+                    skills_table.c.id.in_(granted_skill_ids),
                 )
             )
         stmt = stmt.where(sa.or_(*vis_conditions))
@@ -1150,7 +1155,8 @@ def resolve_version(
     )
 
     # Visibility filter
-    base = _apply_visibility_filter(base, conn, user_org_ids)
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+    base = _apply_visibility_filter(base, user_org_ids, granted)
 
     # Filter by grade: A/B (and legacy "passed") by default, add C if allow_risky
     allowed_statuses = ["A", "B", "passed"]
@@ -1207,7 +1213,8 @@ def resolve_latest_version(
         )
     )
 
-    stmt = _apply_visibility_filter(stmt, conn, user_org_ids)
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+    stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
 
     stmt = stmt.order_by(
         versions_table.c.semver_major.desc(),
@@ -1396,6 +1403,7 @@ def fetch_all_skills_for_index(
     conn: Connection,
     *,
     user_org_ids: list[UUID] | None = None,
+    granted_skill_ids: list[UUID] | None = None,
     limit: int | None = None,
     offset: int = 0,
     search: str | None = None,
@@ -1403,13 +1411,17 @@ def fetch_all_skills_for_index(
     category: str | None = None,
     grade: str | None = None,
     sort: str = "updated",
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """Fetch skills with their latest version info, with optional filters.
 
-    Returns a list of dicts, each with keys: org_slug, skill_name,
-    latest_version, eval_status, visibility. Uses a LATERAL subquery to find
-    the latest version per skill via one index lookup each (ordered by semver
-    parts numerically), leveraging idx_versions_skill_semver_parts.
+    Returns a tuple of (items, total) where items is a list of dicts with
+    keys: org_slug, skill_name, latest_version, eval_status, visibility, etc.
+    total is the full count of matching rows (before LIMIT/OFFSET), computed
+    via a COUNT(*) OVER() window function to avoid a separate count query.
+
+    Uses a LATERAL subquery to find the latest version per skill via one
+    index lookup each (ordered by semver parts numerically), leveraging
+    idx_versions_skill_semver_parts.
 
     Supports server-side filtering by search term, org, category, grade,
     and sorting by updated/name/downloads.
@@ -1445,6 +1457,7 @@ def fetch_all_skills_for_index(
         latest_version.c.eval_status,
         latest_version.c.created_at,
         latest_version.c.published_by,
+        sa.func.count().over().label("_total"),
     ).select_from(
         skills_table.join(
             organizations_table,
@@ -1456,7 +1469,7 @@ def fetch_all_skills_for_index(
     )
 
     # Visibility filter
-    base = _apply_visibility_filter(base, conn, user_org_ids)
+    base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
 
     # Apply optional filters
     base = _build_skills_filters(
@@ -1483,7 +1496,8 @@ def fetch_all_skills_for_index(
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
-    return [
+    total = rows[0]._total if rows else 0
+    items = [
         {
             "org_slug": row.org_slug,
             "is_personal_org": row.is_personal_org,
@@ -1499,6 +1513,7 @@ def fetch_all_skills_for_index(
         }
         for row in rows
     ]
+    return items, total
 
 
 def search_skills_hybrid(
@@ -1521,6 +1536,8 @@ def search_skills_hybrid(
     """
 
     # --- Shared building blocks ---
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+
     def _base_select(extra_columns: list):
         """Build the base SELECT with LATERAL version join."""
         latest_version = (
@@ -1565,7 +1582,7 @@ def search_skills_hybrid(
             )
         )
 
-        stmt = _apply_visibility_filter(stmt, conn, user_org_ids)
+        stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
         if category:
             stmt = stmt.where(skills_table.c.category == category)
 
@@ -1640,6 +1657,7 @@ def count_all_skills(
     conn: Connection,
     *,
     user_org_ids: list[UUID] | None = None,
+    granted_skill_ids: list[UUID] | None = None,
     search: str | None = None,
     org_slug: str | None = None,
     category: str | None = None,
@@ -1676,7 +1694,7 @@ def count_all_skills(
                 sa.literal(True),
             )
         )
-        base = _apply_visibility_filter(base, conn, user_org_ids)
+        base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
         base = _build_skills_filters(
             base,
             latest_version,
@@ -1699,7 +1717,7 @@ def count_all_skills(
             )
             .where(has_version)
         )
-        base = _apply_visibility_filter(base, conn, user_org_ids)
+        base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
         base = _build_skills_filters(
             base,
             dummy_lateral,

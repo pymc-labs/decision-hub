@@ -536,10 +536,8 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     table.add_column("Author")
     table.add_column("Description")
 
-    sorted_skills = sorted(skills, key=lambda s: s.get("download_count", 0), reverse=True)
-
     grade_styles = {"A": "green", "B": "yellow", "C": "dark_orange", "F": "red"}
-    for s in sorted_skills:
+    for s in skills:
         rating = s.get("safety_rating", "")
         rating_style = grade_styles.get(rating, "white")
         updated = s.get("updated_at", "")[:10]
@@ -556,15 +554,6 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
         )
     return table
 
-
-def _apply_client_filters(skills: list[dict], org: str | None, skill: str | None) -> list[dict]:
-    """Apply client-side org/skill name filters."""
-    if org:
-        skills = [s for s in skills if s["org_slug"] == org]
-    if skill:
-        skill_lower = skill.lower()
-        skills = [s for s in skills if skill_lower in s["skill_name"].lower()]
-    return skills
 
 
 def list_command(
@@ -590,15 +579,20 @@ def list_command(
     found_any = False
     with httpx.Client(timeout=60) as client:
         while True:
+            params: dict[str, int | str] = {"page": page, "page_size": page_size}
+            if org:
+                params["org"] = org
+            if skill:
+                params["search"] = skill
             resp = client.get(
                 f"{api_url}/v1/skills",
                 headers=headers,
-                params={"page": page, "page_size": page_size},
+                params=params,
             )
             resp.raise_for_status()
             data = resp.json()
 
-            items = _apply_client_filters(data["items"], org, skill)
+            items = data["items"]
             total = data["total"]
             total_pages = data["total_pages"]
 
