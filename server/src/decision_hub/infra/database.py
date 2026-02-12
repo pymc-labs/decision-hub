@@ -163,6 +163,11 @@ skills_table = Table(
     Column("source_repo_url", Text, nullable=True),
     Column("search_vector", TSVECTOR, nullable=True),
     Column("embedding", Vector(768), nullable=True),
+    # Denormalized latest-version columns (kept in sync by _refresh_skill_latest_version)
+    Column("latest_semver", Text, nullable=True),
+    Column("latest_eval_status", Text, nullable=True),
+    Column("latest_published_at", DateTime(timezone=True), nullable=True),
+    Column("latest_published_by", Text, nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -186,6 +191,20 @@ sa.Index(
     postgresql_using="hnsw",
     postgresql_with={"m": 16, "ef_construction": 64},
     postgresql_ops={"embedding": "vector_cosine_ops"},
+)
+
+sa.Index(
+    "idx_skills_latest_published_at",
+    skills_table.c.latest_published_at.desc(),
+    skills_table.c.org_id,
+    skills_table.c.name,
+    postgresql_where=skills_table.c.latest_semver.isnot(None),
+)
+
+sa.Index(
+    "idx_skills_latest_eval_status",
+    skills_table.c.latest_eval_status,
+    postgresql_where=skills_table.c.latest_semver.isnot(None),
 )
 
 skill_access_grants_table = Table(
@@ -1040,6 +1059,46 @@ def _apply_visibility_filter(
 # ---------------------------------------------------------------------------
 
 
+def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
+    """Sync the denormalized latest-version columns on the skills row.
+
+    Queries versions for the highest semver of the given skill and
+    UPDATEs the 4 denormalized columns. Sets all to NULL when no
+    versions remain.
+    """
+    latest = (
+        sa.select(
+            versions_table.c.semver,
+            versions_table.c.eval_status,
+            versions_table.c.created_at,
+            versions_table.c.published_by,
+        )
+        .where(versions_table.c.skill_id == skill_id)
+        .order_by(
+            versions_table.c.semver_major.desc(),
+            versions_table.c.semver_minor.desc(),
+            versions_table.c.semver_patch.desc(),
+        )
+        .limit(1)
+    )
+    row = conn.execute(latest).first()
+    if row:
+        values = {
+            "latest_semver": row.semver,
+            "latest_eval_status": row.eval_status,
+            "latest_published_at": row.created_at,
+            "latest_published_by": row.published_by,
+        }
+    else:
+        values = {
+            "latest_semver": None,
+            "latest_eval_status": None,
+            "latest_published_at": None,
+            "latest_published_by": None,
+        }
+    conn.execute(sa.update(skills_table).where(skills_table.c.id == skill_id).values(**values))
+
+
 def parse_semver_parts(semver: str) -> tuple[int, int, int]:
     """Parse a semver string into (major, minor, patch) integers."""
     major, minor, patch = semver.split(".")
@@ -1105,6 +1164,7 @@ def insert_version(
     )
     row = conn.execute(stmt).one()
     ver = _row_to_version(row)
+    _refresh_skill_latest_version(conn, skill_id)
     logger.debug("Inserted version skill={} semver={} eval_status={} id={}", skill_id, semver, eval_status, ver.id)
     return ver
 
@@ -1276,6 +1336,7 @@ def delete_version(conn: Connection, skill_id: UUID, semver: str) -> bool:
     result = conn.execute(stmt)
     deleted = result.rowcount > 0
     if deleted:
+        _refresh_skill_latest_version(conn, skill_id)
         logger.debug("Deleted version skill={} semver={}", skill_id, semver)
     return deleted
 
@@ -1362,7 +1423,6 @@ def delete_api_key(conn: Connection, user_id: UUID, key_name: str) -> bool:
 
 def _build_skills_filters(
     base: sa.Select,
-    latest_version_ref: sa.FromClause,
     *,
     search: str | None = None,
     org_slug: str | None = None,
@@ -1372,8 +1432,8 @@ def _build_skills_filters(
     """Apply optional filter predicates to a skills query.
 
     Shared between fetch_all_skills_for_index and count_all_skills to
-    keep filter logic consistent. latest_version_ref is needed for grade
-    filtering (eval_status lives on the lateral/exists subquery).
+    keep filter logic consistent. Grade filtering reads the denormalized
+    latest_eval_status column on skills_table directly.
     """
     if search:
         pattern = f"%{search}%"
@@ -1395,7 +1455,7 @@ def _build_skills_filters(
             "C": ["C"],
         }
         statuses = grade_statuses.get(grade, [grade])
-        base = base.where(latest_version_ref.c.eval_status.in_(statuses))
+        base = base.where(skills_table.c.latest_eval_status.in_(statuses))
     return base
 
 
@@ -1416,56 +1476,38 @@ def fetch_all_skills_for_index(
 
     Returns a tuple of (items, total) where items is a list of dicts with
     keys: org_slug, skill_name, latest_version, eval_status, visibility, etc.
-    total is the full count of matching rows (before LIMIT/OFFSET), computed
-    via a COUNT(*) OVER() window function to avoid a separate count query.
+    total is the full count of matching rows (before LIMIT/OFFSET), obtained
+    via a separate count_all_skills() call.
 
-    Uses a LATERAL subquery to find the latest version per skill via one
-    index lookup each (ordered by semver parts numerically), leveraging
-    idx_versions_skill_semver_parts.
+    Reads denormalized latest-version columns directly from the skills
+    table, avoiding LATERAL subqueries. Only skills with at least one
+    published version (latest_semver IS NOT NULL) are returned.
 
     Supports server-side filtering by search term, org, category, grade,
     and sorting by updated/name/downloads.
     """
-    # LATERAL subquery: for each skill, one index scan to find the highest semver
-    latest_version = (
+    base = (
         sa.select(
-            versions_table.c.semver,
-            versions_table.c.eval_status,
-            versions_table.c.created_at,
-            versions_table.c.published_by,
+            organizations_table.c.slug.label("org_slug"),
+            organizations_table.c.is_personal.label("is_personal_org"),
+            skills_table.c.name.label("skill_name"),
+            skills_table.c.description,
+            skills_table.c.download_count,
+            skills_table.c.category,
+            skills_table.c.visibility,
+            skills_table.c.source_repo_url,
+            skills_table.c.latest_semver.label("latest_version"),
+            skills_table.c.latest_eval_status.label("eval_status"),
+            skills_table.c.latest_published_at.label("created_at"),
+            skills_table.c.latest_published_by.label("published_by"),
         )
-        .where(versions_table.c.skill_id == skills_table.c.id)
-        .order_by(
-            versions_table.c.semver_major.desc(),
-            versions_table.c.semver_minor.desc(),
-            versions_table.c.semver_patch.desc(),
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            )
         )
-        .limit(1)
-        .lateral("latest_version")
-    )
-
-    base = sa.select(
-        organizations_table.c.slug.label("org_slug"),
-        organizations_table.c.is_personal.label("is_personal_org"),
-        skills_table.c.name.label("skill_name"),
-        skills_table.c.description,
-        skills_table.c.download_count,
-        skills_table.c.category,
-        skills_table.c.visibility,
-        skills_table.c.source_repo_url,
-        latest_version.c.semver.label("latest_version"),
-        latest_version.c.eval_status,
-        latest_version.c.created_at,
-        latest_version.c.published_by,
-        sa.func.count().over().label("_total"),
-    ).select_from(
-        skills_table.join(
-            organizations_table,
-            skills_table.c.org_id == organizations_table.c.id,
-        ).join(
-            latest_version,
-            sa.literal(True),
-        )
+        .where(skills_table.c.latest_semver.isnot(None))
     )
 
     # Visibility filter
@@ -1474,7 +1516,6 @@ def fetch_all_skills_for_index(
     # Apply optional filters
     base = _build_skills_filters(
         base,
-        latest_version,
         search=search,
         org_slug=org_slug,
         category=category,
@@ -1490,28 +1531,24 @@ def fetch_all_skills_for_index(
         base = base.order_by(skills_table.c.download_count.desc(), *tiebreaker)
     else:
         # "updated" — most recently published version first
-        base = base.order_by(latest_version.c.created_at.desc(), *tiebreaker)
+        base = base.order_by(skills_table.c.latest_published_at.desc(), *tiebreaker)
+
+    # Get total via separate count query (avoids COUNT(*) OVER() which
+    # forces full result set materialization)
+    total = count_all_skills(
+        conn,
+        user_org_ids=user_org_ids,
+        granted_skill_ids=granted_skill_ids,
+        search=search,
+        org_slug=org_slug,
+        category=category,
+        grade=grade,
+    )
 
     if limit is not None:
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
-    # COUNT(*) OVER() is only available on returned rows; when OFFSET
-    # skips past all data the result set is empty.  Fall back to a
-    # lightweight count query so out-of-range pages still report the
-    # correct total (needed for stable pagination metadata).
-    if rows:
-        total = rows[0]._total
-    else:
-        total = count_all_skills(
-            conn,
-            user_org_ids=user_org_ids,
-            granted_skill_ids=granted_skill_ids,
-            search=search,
-            org_slug=org_slug,
-            category=category,
-            grade=grade,
-        )
     items = [
         {
             "org_slug": row.org_slug,
@@ -1554,24 +1591,7 @@ def search_skills_hybrid(
     granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
 
     def _base_select(extra_columns: list):
-        """Build the base SELECT with LATERAL version join."""
-        latest_version = (
-            sa.select(
-                versions_table.c.semver,
-                versions_table.c.eval_status,
-                versions_table.c.created_at,
-                versions_table.c.published_by,
-            )
-            .where(versions_table.c.skill_id == skills_table.c.id)
-            .order_by(
-                versions_table.c.semver_major.desc(),
-                versions_table.c.semver_minor.desc(),
-                versions_table.c.semver_patch.desc(),
-            )
-            .limit(1)
-            .lateral("latest_version")
-        )
-
+        """Build the base SELECT reading denormalized version columns."""
         columns = [
             organizations_table.c.slug.label("org_slug"),
             organizations_table.c.is_personal.label("is_personal_org"),
@@ -1580,21 +1600,22 @@ def search_skills_hybrid(
             skills_table.c.download_count,
             skills_table.c.category,
             skills_table.c.visibility,
-            latest_version.c.semver.label("latest_version"),
-            latest_version.c.eval_status,
-            latest_version.c.created_at,
-            latest_version.c.published_by,
+            skills_table.c.latest_semver.label("latest_version"),
+            skills_table.c.latest_eval_status.label("eval_status"),
+            skills_table.c.latest_published_at.label("created_at"),
+            skills_table.c.latest_published_by.label("published_by"),
             *extra_columns,
         ]
 
-        stmt = sa.select(*columns).select_from(
-            skills_table.join(
-                organizations_table,
-                skills_table.c.org_id == organizations_table.c.id,
-            ).join(
-                latest_version,
-                sa.literal(True),
+        stmt = (
+            sa.select(*columns)
+            .select_from(
+                skills_table.join(
+                    organizations_table,
+                    skills_table.c.org_id == organizations_table.c.id,
+                )
             )
+            .where(skills_table.c.latest_semver.isnot(None))
         )
 
         stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
@@ -1680,67 +1701,29 @@ def count_all_skills(
 ) -> int:
     """Count total skills visible to the user (for pagination metadata).
 
-    Uses an EXISTS subquery on versions_table to match the inner-join
+    Reads the denormalized latest_semver column to match the inner-join
     behavior of fetch_all_skills_for_index (only skills with at least
     one published version are counted). Accepts the same filter params
     for consistency.
     """
-    if grade:
-        # When filtering by grade, we need the lateral join to access eval_status
-        latest_version = (
-            sa.select(
-                versions_table.c.eval_status,
-            )
-            .where(versions_table.c.skill_id == skills_table.c.id)
-            .order_by(
-                versions_table.c.semver_major.desc(),
-                versions_table.c.semver_minor.desc(),
-                versions_table.c.semver_patch.desc(),
-            )
-            .limit(1)
-            .lateral("latest_version")
-        )
-        base = sa.select(sa.func.count()).select_from(
+    base = (
+        sa.select(sa.func.count())
+        .select_from(
             skills_table.join(
                 organizations_table,
                 skills_table.c.org_id == organizations_table.c.id,
-            ).join(
-                latest_version,
-                sa.literal(True),
             )
         )
-        base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
-        base = _build_skills_filters(
-            base,
-            latest_version,
-            search=search,
-            org_slug=org_slug,
-            category=category,
-            grade=grade,
-        )
-    else:
-        has_version = sa.exists().where(versions_table.c.skill_id == skills_table.c.id)
-        # Create a dummy ref for _build_skills_filters (grade is None, so it won't be used)
-        dummy_lateral = sa.table("latest_version", sa.column("eval_status"))
-        base = (
-            sa.select(sa.func.count())
-            .select_from(
-                skills_table.join(
-                    organizations_table,
-                    skills_table.c.org_id == organizations_table.c.id,
-                )
-            )
-            .where(has_version)
-        )
-        base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
-        base = _build_skills_filters(
-            base,
-            dummy_lateral,
-            search=search,
-            org_slug=org_slug,
-            category=category,
-        )
-
+        .where(skills_table.c.latest_semver.isnot(None))
+    )
+    base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
+    base = _build_skills_filters(
+        base,
+        search=search,
+        org_slug=org_slug,
+        category=category,
+        grade=grade,
+    )
     return conn.execute(base).scalar_one()
 
 
@@ -1748,9 +1731,12 @@ def fetch_registry_stats(conn: Connection) -> dict:
     """Fetch aggregate registry statistics for the homepage.
 
     Returns total_skills, total_orgs, and total_downloads across
-    all published skills (skills with at least one version).
+    all published skills (skills with latest_semver IS NOT NULL).
     """
-    has_version = sa.exists().where(versions_table.c.skill_id == skills_table.c.id)
+    published_filter = sa.and_(
+        skills_table.c.latest_semver.isnot(None),
+        skills_table.c.visibility == "public",
+    )
 
     stmt = (
         sa.select(
@@ -1777,12 +1763,7 @@ def fetch_registry_stats(conn: Connection) -> dict:
                 skills_table.c.org_id == organizations_table.c.id,
             )
         )
-        .where(
-            sa.and_(
-                has_version,
-                skills_table.c.visibility == "public",
-            )
-        )
+        .where(published_filter)
     )
 
     row = conn.execute(stmt).one()
@@ -1795,7 +1776,7 @@ def fetch_registry_stats(conn: Connection) -> dict:
                 skills_table.c.category.isnot(None),
                 skills_table.c.category != "",
                 skills_table.c.visibility == "public",
-                sa.exists().where(versions_table.c.skill_id == skills_table.c.id),
+                skills_table.c.latest_semver.isnot(None),
             )
         )
         .order_by(skills_table.c.category)
@@ -1821,22 +1802,8 @@ def fetch_org_stats(
 
     Returns slug, is_personal, avatar_url, skill_count, total_downloads,
     and latest_update for each org that has at least one published skill.
+    Uses denormalized latest_published_at instead of LATERAL subquery.
     """
-    # LATERAL subquery to get the latest version's created_at per skill
-    latest_version = (
-        sa.select(
-            versions_table.c.created_at,
-        )
-        .where(versions_table.c.skill_id == skills_table.c.id)
-        .order_by(
-            versions_table.c.semver_major.desc(),
-            versions_table.c.semver_minor.desc(),
-            versions_table.c.semver_patch.desc(),
-        )
-        .limit(1)
-        .lateral("latest_version")
-    )
-
     stmt = (
         sa.select(
             organizations_table.c.slug,
@@ -1844,18 +1811,20 @@ def fetch_org_stats(
             organizations_table.c.avatar_url,
             sa.func.count(skills_table.c.id).label("skill_count"),
             sa.func.coalesce(sa.func.sum(skills_table.c.download_count), 0).label("total_downloads"),
-            sa.func.max(latest_version.c.created_at).label("latest_update"),
+            sa.func.max(skills_table.c.latest_published_at).label("latest_update"),
         )
         .select_from(
             skills_table.join(
                 organizations_table,
                 skills_table.c.org_id == organizations_table.c.id,
-            ).join(
-                latest_version,
-                sa.literal(True),
             )
         )
-        .where(skills_table.c.visibility == "public")
+        .where(
+            sa.and_(
+                skills_table.c.visibility == "public",
+                skills_table.c.latest_semver.isnot(None),
+            )
+        )
     )
 
     # Filter on non-aggregate columns before grouping (WHERE, not HAVING)
