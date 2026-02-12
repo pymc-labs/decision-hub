@@ -8,6 +8,7 @@ The orchestrator merges with dict.update().
 import base64
 import re
 import time
+from collections.abc import Generator
 
 import httpx
 from loguru import logger
@@ -75,16 +76,21 @@ SIZE_RANGES: list[tuple[int, int | None]] = [
 ]
 
 
-def search_by_file_size(gh: "GitHubClient", stats: CrawlStats) -> dict[str, DiscoveredRepo]:
-    """Split filename:SKILL.md into non-overlapping byte-size ranges."""
-    repos: dict[str, DiscoveredRepo] = {}
+def search_by_file_size(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str, DiscoveredRepo], None, None]:
+    """Split filename:SKILL.md into non-overlapping byte-size ranges.
+
+    Yields one batch per size range so the caller can start processing
+    immediately instead of waiting for all ranges to complete.
+    """
+    total = 0
     for lo, hi in SIZE_RANGES:
         size_q = f"size:>={lo}" if hi is None else f"size:{lo}..{hi}"
         query = f"filename:SKILL.md {size_q}"
         found = _run_code_search(gh, query, stats)
-        repos.update(found)
-        logger.info("Size {}: +{} (total {})", size_q, len(found), len(repos))
-    return repos
+        total += len(found)
+        logger.info("Size {}: +{} (total {})", size_q, len(found), total)
+        if found:
+            yield found
 
 
 # ---------------------------------------------------------------------------
@@ -94,15 +100,19 @@ def search_by_file_size(gh: "GitHubClient", stats: CrawlStats) -> dict[str, Disc
 SKILL_PATHS = ["skills", ".claude", ".codex", ".github", "agent-skills"]
 
 
-def search_by_path(gh: "GitHubClient", stats: CrawlStats) -> dict[str, DiscoveredRepo]:
-    """Target common skill paths where SKILL.md files are typically found."""
-    repos: dict[str, DiscoveredRepo] = {}
+def search_by_path(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str, DiscoveredRepo], None, None]:
+    """Target common skill paths where SKILL.md files are typically found.
+
+    Yields one batch per path so processing can start immediately.
+    """
+    total = 0
     for skill_path in SKILL_PATHS:
         query = f"filename:SKILL.md path:{skill_path}"
         found = _run_code_search(gh, query, stats)
-        repos.update(found)
-        logger.info("Path '{}': +{} (total {})", skill_path, len(found), len(repos))
-    return repos
+        total += len(found)
+        logger.info("Path '{}': +{} (total {})", skill_path, len(found), total)
+        if found:
+            yield found
 
 
 # ---------------------------------------------------------------------------
@@ -121,10 +131,13 @@ SKILL_TOPICS = [
 ]
 
 
-def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> dict[str, DiscoveredRepo]:
-    """Search repos by GitHub topics, paginating up to 5 pages per topic."""
-    repos: dict[str, DiscoveredRepo] = {}
+def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str, DiscoveredRepo], None, None]:
+    """Search repos by GitHub topics, paginating up to 5 pages per topic.
+
+    Yields one batch per topic so processing can start immediately.
+    """
     for topic in SKILL_TOPICS:
+        batch: dict[str, DiscoveredRepo] = {}
         page = 1
         while page <= 5:
             resp = gh.get(
@@ -145,8 +158,8 @@ def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> dict[str, Discover
                 break
             for item in items:
                 fn = item["full_name"]
-                if fn not in repos:
-                    repos[fn] = DiscoveredRepo(
+                if fn not in batch:
+                    batch[fn] = DiscoveredRepo(
                         full_name=fn,
                         owner_login=item["owner"]["login"],
                         owner_type=item["owner"]["type"],
@@ -158,8 +171,9 @@ def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> dict[str, Discover
                 break
             page += 1
             time.sleep(1)
-        logger.info("Topic '{}': total {}", topic, len(repos))
-    return repos
+        logger.info("Topic '{}': {}", topic, len(batch))
+        if batch:
+            yield batch
 
 
 # ---------------------------------------------------------------------------
@@ -171,10 +185,13 @@ def scan_forks(
     gh: "GitHubClient",
     popular_repos: list[str],
     stats: CrawlStats,
-) -> dict[str, DiscoveredRepo]:
-    """Enumerate forks of the top most-starred discovered repos."""
-    repos: dict[str, DiscoveredRepo] = {}
+) -> Generator[dict[str, DiscoveredRepo], None, None]:
+    """Enumerate forks of the top most-starred discovered repos.
+
+    Yields one batch per source repo so processing can start immediately.
+    """
     for repo_name in popular_repos:
+        batch: dict[str, DiscoveredRepo] = {}
         page = 1
         while page <= 3:
             resp = gh.get(
@@ -189,8 +206,8 @@ def scan_forks(
                 break
             for fork in forks:
                 fn = fork["full_name"]
-                if fn not in repos:
-                    repos[fn] = DiscoveredRepo(
+                if fn not in batch:
+                    batch[fn] = DiscoveredRepo(
                         full_name=fn,
                         owner_login=fork["owner"]["login"],
                         owner_type=fork["owner"]["type"],
@@ -201,8 +218,9 @@ def scan_forks(
             if len(forks) < 100:
                 break
             page += 1
-        logger.info("Forks of '{}': {} total", repo_name, len(repos))
-    return repos
+        logger.info("Forks of '{}': {}", repo_name, len(batch))
+        if batch:
+            yield batch
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +235,11 @@ CURATED_LIST_REPOS = [
 ]
 
 
-def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> dict[str, DiscoveredRepo]:
-    """Parse READMEs from known awesome-lists for GitHub repo links."""
-    repos: dict[str, DiscoveredRepo] = {}
+def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str, DiscoveredRepo], None, None]:
+    """Parse READMEs from known awesome-lists for GitHub repo links.
+
+    Yields one batch per curated list so processing can start immediately.
+    """
     link_re = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+)")
     for list_repo in CURATED_LIST_REPOS:
         resp = gh.get(f"/repos/{list_repo}/readme")
@@ -235,15 +255,16 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> dict[str, Disc
             for m in link_re.findall(content)
             if m.rstrip("/").removesuffix(".git").count("/") == 1
         }
+        batch: dict[str, DiscoveredRepo] = {}
         for ref in refs:
-            if ref in repos:
+            if ref in batch:
                 continue
             dr = gh.get(f"/repos/{ref}")
             stats.queries_made += 1
             if dr.status_code != 200:
                 continue
             d = dr.json()
-            repos[ref] = DiscoveredRepo(
+            batch[ref] = DiscoveredRepo(
                 full_name=ref,
                 owner_login=d["owner"]["login"],
                 owner_type=d["owner"]["type"],
@@ -252,7 +273,8 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> dict[str, Disc
                 description=d.get("description") or "",
             )
         logger.info("Curated '{}': {} refs", list_repo, len(refs))
-    return repos
+        if batch:
+            yield batch
 
 
 # ---------------------------------------------------------------------------

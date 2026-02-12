@@ -88,10 +88,12 @@ def discover_batches(
     strategies: list[str],
     stats: CrawlStats,
 ) -> Generator[dict[str, DiscoveredRepo], None, None]:
-    """Yield a batch of newly-discovered repos after each strategy completes.
+    """Yield small batches of newly-discovered repos as they are found.
 
-    Each batch contains only repos not seen in previous batches, so the caller
-    can start processing immediately without waiting for all strategies.
+    Each strategy is a generator that yields sub-batches (e.g. one per size
+    range, one per topic). This function deduplicates across batches and yields
+    immediately so the caller can start processing without waiting for an
+    entire strategy to complete.
     """
     from decision_hub.scripts.crawler.discovery import (
         GitHubClient,
@@ -117,42 +119,40 @@ def discover_batches(
             logger.info("Discovery strategy: {}", _STRATEGY_LABELS.get(name, name))
 
             if name == "size":
-                found = search_by_file_size(gh, stats)
+                sub_batches = search_by_file_size(gh, stats)
             elif name == "path":
-                found = search_by_path(gh, stats)
+                sub_batches = search_by_path(gh, stats)
             elif name == "topic":
-                found = search_by_topic(gh, stats)
+                sub_batches = search_by_topic(gh, stats)
             elif name == "curated":
-                found = parse_curated_lists(gh, stats)
+                sub_batches = parse_curated_lists(gh, stats)
             elif name == "fork":
                 top_repos = sorted(
                     all_repos.values(),
                     key=lambda r: r.stars,
                     reverse=True,
                 )[:10]
-                found = scan_forks(gh, [r.full_name for r in top_repos], stats)
+                sub_batches = scan_forks(gh, [r.full_name for r in top_repos], stats)
             else:
-                found = {}
+                continue
 
-            all_repos.update(found)
+            for found in sub_batches:
+                all_repos.update(found)
 
-            # Yield only repos we haven't yielded before
-            new_batch = {k: v for k, v in found.items() if k not in seen}
-            seen.update(new_batch.keys())
+                # Yield only repos we haven't yielded before
+                new_batch = {k: v for k, v in found.items() if k not in seen}
+                seen.update(new_batch.keys())
 
-            if new_batch:
-                tag_trusted_repos(new_batch)
-                trusted_count = sum(1 for r in new_batch.values() if r.is_trusted)
-                logger.info(
-                    "Strategy '{}' found {} new repos ({} trusted, {} total)",
-                    name,
-                    len(new_batch),
-                    trusted_count,
-                    len(all_repos),
-                )
-                yield new_batch
-            else:
-                logger.info("Strategy '{}' found 0 new repos", name)
+                if new_batch:
+                    tag_trusted_repos(new_batch)
+                    trusted_count = sum(1 for r in new_batch.values() if r.is_trusted)
+                    logger.info(
+                        "Discovered {} new repos ({} trusted, {} total so far)",
+                        len(new_batch),
+                        trusted_count,
+                        len(all_repos),
+                    )
+                    yield new_batch
     finally:
         gh.close()
 

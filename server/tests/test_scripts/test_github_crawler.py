@@ -314,7 +314,9 @@ class TestSearchByFileSize:
         # Return the same repo in every size range
         gh.get.return_value = _make_code_search_response([_make_search_item("owner/repo")])
         stats = CrawlStats()
-        result = search_by_file_size(gh, stats)
+        result: dict[str, DiscoveredRepo] = {}
+        for batch in search_by_file_size(gh, stats):
+            result.update(batch)
         assert len(result) == 1
         assert "owner/repo" in result
 
@@ -324,7 +326,7 @@ class TestSearchByPath:
         gh = MagicMock()
         gh.get.return_value = _make_code_search_response([])
         stats = CrawlStats()
-        search_by_path(gh, stats)
+        list(search_by_path(gh, stats))  # exhaust generator
         queries = [call.args[0] for call in gh.get.call_args_list]
         # Verify each path is used in a query
         assert len(queries) >= len(SKILL_PATHS)
@@ -351,7 +353,7 @@ class TestSearchByTopic:
         stats = CrawlStats()
 
         with patch("decision_hub.scripts.crawler.discovery.time.sleep"):
-            search_by_topic(gh, stats)
+            list(search_by_topic(gh, stats))  # exhaust generator
 
         # Each of the 8 topics paginates 5 pages = 40 queries
         assert stats.queries_made == 40
@@ -376,7 +378,9 @@ class TestScanForks:
         gh.get.return_value = resp
         stats = CrawlStats()
 
-        result = scan_forks(gh, ["original/repo"], stats)
+        result: dict[str, DiscoveredRepo] = {}
+        for batch in scan_forks(gh, ["original/repo"], stats):
+            result.update(batch)
         assert "forker/repo" in result
 
 
@@ -413,7 +417,9 @@ class TestParseCuratedLists:
 
         gh.get.side_effect = [readme_resp, repo_resp, repo_resp] + [fail_resp] * 20
         stats = CrawlStats()
-        result = parse_curated_lists(gh, stats)
+        result: dict[str, DiscoveredRepo] = {}
+        for batch in parse_curated_lists(gh, stats):
+            result.update(batch)
         assert len(result) >= 1
 
     def test_invalid_readme_handled(self):
@@ -424,7 +430,7 @@ class TestParseCuratedLists:
         resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
         gh.get.return_value = resp
         stats = CrawlStats()
-        result = parse_curated_lists(gh, stats)
+        result = list(parse_curated_lists(gh, stats))
         assert len(result) == 0
 
 
