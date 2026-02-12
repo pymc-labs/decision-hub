@@ -600,31 +600,3 @@ def run_assessment_background(
                 version_id,
                 inner,
             )
-
-
-def reconstruct_runtime_config(runtime_dict: dict | None):
-    """Reconstruct a RuntimeConfig from a stored dict (for testing/validation)."""
-    if runtime_dict is None:
-        return None
-
-    from decision_hub.models import DependencySpec, RuntimeConfig
-
-    deps_dict = runtime_dict.get("dependencies")
-    dependencies = None
-    if deps_dict:
-        dependencies = DependencySpec(
-            system=tuple(deps_dict.get("system", [])),
-            package_manager=deps_dict.get("package_manager", ""),
-            packages=tuple(deps_dict.get("packages", [])),
-            lockfile=deps_dict.get("lockfile"),
-        )
-
-    return RuntimeConfig(
-        language=runtime_dict.get("language", ""),
-        entrypoint=runtime_dict.get("entrypoint", ""),
-        version_hint=runtime_dict.get("version_hint"),
-        env=tuple(runtime_dict.get("env", [])),
-        capabilities=tuple(runtime_dict.get("capabilities", [])),
-        dependencies=dependencies,
-        repair_strategy=runtime_dict.get("repair_strategy", "attempt_install"),
-    )

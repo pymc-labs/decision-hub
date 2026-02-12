@@ -1,5 +1,6 @@
 """In-memory sliding-window rate limiter for FastAPI dependencies."""
 
+import threading
 import time
 from collections import defaultdict
 
@@ -14,6 +15,9 @@ class RateLimiter:
     traffic. Not shared across containers -- that's fine for preventing
     a single client from hammering a single container.
 
+    Thread-safe: FastAPI runs sync dependencies in a threadpool, so
+    concurrent access to shared state is guarded by a lock.
+
     Usage as a FastAPI dependency::
 
         limiter = RateLimiter(max_requests=10, window_seconds=60)
@@ -26,34 +30,36 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
+        self._lock = threading.Lock()
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
         now = time.monotonic()
         cutoff = now - self.window_seconds
 
-        # Prune expired timestamps for this key
-        timestamps = self._requests[key]
-        self._requests[key] = [t for t in timestamps if t > cutoff]
+        with self._lock:
+            # Prune expired timestamps for this key
+            timestamps = self._requests[key]
+            self._requests[key] = [t for t in timestamps if t > cutoff]
 
-        if len(self._requests[key]) >= self.max_requests:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"Rate limit exceeded ({self.max_requests} requests per {self.window_seconds}s). Try again shortly."
-                ),
-            )
+            if len(self._requests[key]) >= self.max_requests:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        f"Rate limit exceeded ({self.max_requests} requests per {self.window_seconds}s). Try again shortly."
+                    ),
+                )
 
-        self._requests[key].append(now)
+            self._requests[key].append(now)
 
-        # Periodically purge stale IPs to bound memory growth.
-        # Check every 100 requests (cheap modulo on list length).
-        total = sum(len(v) for v in self._requests.values())
-        if total % 100 == 0:
-            self._purge_stale(cutoff)
+            # Periodically purge stale IPs to bound memory growth.
+            # Check every 100 requests (cheap modulo on list length).
+            total = sum(len(v) for v in self._requests.values())
+            if total % 100 == 0:
+                self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:
-        """Remove IPs with no recent activity."""
+        """Remove IPs with no recent activity. Caller must hold self._lock."""
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
