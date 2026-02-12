@@ -1996,9 +1996,7 @@ def claim_due_trackers(conn: Connection) -> list[SkillTracker]:
             now
             > (
                 skill_trackers_table.c.last_checked_at
-                + sa.func.make_interval(
-                    mins=skill_trackers_table.c.poll_interval_minutes,
-                )
+                + skill_trackers_table.c.poll_interval_minutes * sa.text("INTERVAL '1 minute'")
             ),
         ),
     )
