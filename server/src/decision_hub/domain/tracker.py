@@ -14,6 +14,11 @@ _GITHUB_HTTPS_PATTERN = re.compile(r"https?://github\.com/(?P<owner>[^/]+)/(?P<r
 _GITHUB_SSH_PATTERN = re.compile(r"git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 
 
+def build_canonical_repo_url(owner: str, repo: str) -> str:
+    """Build a canonical HTTPS GitHub URL from owner and repo name."""
+    return f"https://github.com/{owner}/{repo}"
+
+
 def parse_github_repo_url(url: str) -> tuple[str, str]:
     """Extract (owner, repo) from a GitHub URL.
 

@@ -9,7 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_connection, get_current_user
-from decision_hub.domain.tracker import check_repo_accessible, parse_github_repo_url
+from decision_hub.domain.tracker import build_canonical_repo_url, check_repo_accessible, parse_github_repo_url
 from decision_hub.infra.database import (
     delete_skill_tracker,
     find_org_by_slug,
@@ -129,11 +129,13 @@ def create_tracker(
     user: User = Depends(get_current_user),
 ) -> TrackerResponse:
     """Create a new tracker for a GitHub repository."""
-    # Validate GitHub URL
+    # Validate and normalize GitHub URL to a canonical form
+    # (prevents duplicates from https vs ssh vs .git suffix variations)
     try:
-        parse_github_repo_url(body.repo_url)
+        owner, repo = parse_github_repo_url(body.repo_url)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
+    canonical_url = build_canonical_repo_url(owner, repo)
 
     # Validate poll interval
     if body.poll_interval_minutes < 5:
@@ -149,7 +151,7 @@ def create_tracker(
             conn,
             user_id=user.id,
             org_slug=org_slug,
-            repo_url=body.repo_url,
+            repo_url=canonical_url,
             branch=body.branch,
             poll_interval_minutes=body.poll_interval_minutes,
         )
@@ -159,12 +161,11 @@ def create_tracker(
             detail="A tracker for this repo and branch already exists",
         ) from None
 
-    logger.info("Created tracker {}/{} for user={}", body.repo_url, body.branch, user.id)
+    logger.info("Created tracker {}/{} for user={}", canonical_url, body.branch, user.id)
 
     response = _tracker_to_response(tracker)
 
     # Check if the repo is publicly accessible (best-effort, non-blocking)
-    owner, repo = parse_github_repo_url(body.repo_url)
     if not check_repo_accessible(owner, repo):
         response.warning = (
             "This repo appears to be private. To enable tracking, add a GitHub token: dhub keys add GITHUB_TOKEN"

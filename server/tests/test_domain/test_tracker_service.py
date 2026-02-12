@@ -7,15 +7,21 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from decision_hub.domain.tracker_service import (
+from decision_hub.domain.repo_utils import (
     _build_authenticated_url,
-    _bump_version,
-    _create_zip,
-    _discover_skills,
-    _parse_semver,
-    process_tracker,
+    bump_version,
+    create_zip,
+    discover_skills,
+    parse_semver,
 )
+from decision_hub.domain.tracker_service import process_tracker
 from decision_hub.models import SkillTracker
+
+# Backward-compat aliases used in test names
+_bump_version = bump_version
+_parse_semver = parse_semver
+_create_zip = create_zip
+_discover_skills = discover_skills
 
 
 class TestBumpVersion:
@@ -179,8 +185,8 @@ class TestProcessTrackerAllFailed:
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
-    @patch("decision_hub.domain.tracker_service._clone_repo")
-    @patch("decision_hub.domain.tracker_service._discover_skills")
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
     def test_all_failed_does_not_advance_sha(
@@ -219,8 +225,8 @@ class TestProcessTrackerAllFailed:
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
-    @patch("decision_hub.domain.tracker_service._clone_repo")
-    @patch("decision_hub.domain.tracker_service._discover_skills")
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
     def test_partial_success_advances_sha(
@@ -261,8 +267,8 @@ class TestProcessTrackerAllFailed:
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
-    @patch("decision_hub.domain.tracker_service._clone_repo")
-    @patch("decision_hub.domain.tracker_service._discover_skills")
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
     def test_all_rejected_does_not_set_published_at(

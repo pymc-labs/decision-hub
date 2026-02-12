@@ -4,17 +4,20 @@ Discovers skills in tracked repos and republishes them through the
 full publish pipeline (zip, gauntlet, S3, version record, eval trigger).
 """
 
-import io
 import shutil
-import subprocess
-import tempfile
-import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
 
 from decision_hub.domain.publish import build_s3_key, extract_for_evaluation, validate_skill_name
+from decision_hub.domain.repo_utils import (
+    bump_version,
+    clone_repo,
+    create_zip,
+    discover_skills,
+    parse_semver,
+)
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.domain.tracker import has_new_commits, parse_github_repo_url
 from decision_hub.models import SkillTracker
@@ -84,10 +87,10 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
             return
 
         # Clone the repo at the target branch
-        repo_root = _clone_repo(tracker.repo_url, tracker.branch, github_token=github_token)
+        repo_root = clone_repo(tracker.repo_url, tracker.branch, github_token=github_token)
 
         try:
-            skill_dirs = _discover_skills(repo_root)
+            skill_dirs = discover_skills(repo_root)
             if not skill_dirs:
                 with engine.connect() as conn:
                     update_skill_tracker(
@@ -171,23 +174,6 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
             logger.error("Failed to update tracker {} error state: {}", tracker.id, inner)
 
 
-def _discover_skills(root: Path) -> list[Path]:
-    """Find skill directories (containing SKILL.md) under a root path."""
-    from decision_hub.domain.skill_manifest import parse_skill_md
-
-    skill_dirs: list[Path] = []
-    for skill_md in sorted(root.rglob("SKILL.md")):
-        parts = skill_md.relative_to(root).parts
-        if any(p.startswith(".") or p in ("node_modules", "__pycache__") for p in parts):
-            continue
-        try:
-            parse_skill_md(skill_md)
-            skill_dirs.append(skill_md.parent)
-        except (ValueError, FileNotFoundError):
-            continue
-    return skill_dirs
-
-
 def _publish_skill_from_tracker(
     skill_dir: Path,
     org_slug: str,
@@ -229,7 +215,7 @@ def _publish_skill_from_tracker(
 
     validate_skill_name(skill_name)
 
-    zip_data = _create_zip(skill_dir)
+    zip_data = create_zip(skill_dir)
     checksum = compute_checksum(zip_data)
 
     with engine.connect() as conn:
@@ -247,10 +233,10 @@ def _publish_skill_from_tracker(
         manifest_version = manifest.runtime.version_hint if manifest.runtime else None
         if latest is None:
             version = manifest_version or "0.1.0"
-        elif manifest_version and _parse_semver(manifest_version) > _parse_semver(latest.semver):
+        elif manifest_version and parse_semver(manifest_version) > parse_semver(latest.semver):
             version = manifest_version
         else:
-            version = _bump_version(latest.semver)
+            version = bump_version(latest.semver)
 
         # Extract evaluation files and parse manifest
         skill_md_content, source_files, lockfile_content = extract_for_evaluation(zip_data)
@@ -302,7 +288,7 @@ def _publish_skill_from_tracker(
 
         # Check duplicate version
         if find_version(conn, skill.id, version) is not None:
-            version = _bump_version(version)
+            version = bump_version(version)
 
         # Upload to S3 and create version record
         s3_key = build_s3_key(org_slug, skill_name, version)
@@ -360,58 +346,6 @@ def _publish_skill_from_tracker(
     return True
 
 
-def _clone_repo(repo_url: str, branch: str, *, github_token: str | None = None) -> Path:
-    """Clone a git repo into a temp directory.
-
-    When a github_token is provided, rewrites the URL to use HTTPS
-    token authentication (supports private repos).
-    """
-    clone_url = repo_url
-    if github_token:
-        clone_url = _build_authenticated_url(repo_url, github_token)
-
-    tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-tracker-"))
-    cmd = ["git", "clone", "--depth", "1", "--branch", branch, clone_url, str(tmp_dir / "repo")]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        # Clean up the temp directory on failure to prevent leaks
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        # Sanitize token from error messages
-        stderr = result.stderr.strip()
-        if github_token:
-            stderr = stderr.replace(github_token, "***")
-        raise RuntimeError(f"git clone failed: {stderr}")
-    return tmp_dir / "repo"
-
-
-def _create_zip(path: Path) -> bytes:
-    """Create an in-memory zip archive of a skill directory."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file in sorted(path.rglob("*")):
-            if not file.is_file():
-                continue
-            relative = file.relative_to(path)
-            parts = relative.parts
-            if any(part.startswith(".") or part == "__pycache__" for part in parts):
-                continue
-            zf.write(file, relative)
-    return buf.getvalue()
-
-
-def _bump_version(current_semver: str) -> str:
-    """Bump patch version of a semver string."""
-    parts = current_semver.split(".")
-    parts[2] = str(int(parts[2]) + 1)
-    return ".".join(parts)
-
-
-def _parse_semver(v: str) -> tuple[int, int, int]:
-    """Parse a semver string into a comparable (major, minor, patch) tuple."""
-    parts = v.split(".")
-    return int(parts[0]), int(parts[1]), int(parts[2])
-
-
 def _resolve_github_token(engine, tracker: SkillTracker, settings: Settings) -> str | None:
     """Resolve the best available GitHub token for a tracker.
 
@@ -433,12 +367,3 @@ def _resolve_github_token(engine, tracker: SkillTracker, settings: Settings) -> 
         return settings.github_token
 
     return None
-
-
-def _build_authenticated_url(repo_url: str, token: str) -> str:
-    """Rewrite a GitHub repo URL to use HTTPS token authentication.
-
-    Handles both HTTPS and SSH URL formats.
-    """
-    owner, repo = parse_github_repo_url(repo_url)
-    return f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
