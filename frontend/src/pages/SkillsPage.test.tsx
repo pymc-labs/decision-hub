@@ -191,7 +191,7 @@ describe("SkillsPage", () => {
   it("shows skill count in header", async () => {
     renderPage();
     await waitForSkills();
-    expect(screen.getByText(/3 skills published/)).toBeInTheDocument();
+    expect(screen.getByText(/3 skills found/)).toBeInTheDocument();
   });
 
   it("shows no-results message when search matches nothing", async () => {

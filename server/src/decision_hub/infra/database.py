@@ -1452,14 +1452,16 @@ def fetch_all_skills_for_index(
         grade=grade,
     )
 
-    # Sorting
+    # Sorting — always include (org.slug, skill.name) as tiebreaker for
+    # deterministic pagination when the primary sort column has duplicates.
+    tiebreaker = (organizations_table.c.slug, skills_table.c.name)
     if sort == "name":
-        base = base.order_by(skills_table.c.name.asc())
+        base = base.order_by(skills_table.c.name.asc(), *tiebreaker)
     elif sort == "downloads":
-        base = base.order_by(skills_table.c.download_count.desc())
+        base = base.order_by(skills_table.c.download_count.desc(), *tiebreaker)
     else:
         # "updated" — most recently published version first
-        base = base.order_by(latest_version.c.created_at.desc())
+        base = base.order_by(latest_version.c.created_at.desc(), *tiebreaker)
 
     if limit is not None:
         base = base.limit(limit).offset(offset)
@@ -1639,21 +1641,22 @@ def fetch_org_stats(
             )
         )
         .where(skills_table.c.visibility == "public")
-        .group_by(
-            organizations_table.c.slug,
-            organizations_table.c.is_personal,
-            organizations_table.c.avatar_url,
-        )
-        .order_by(organizations_table.c.slug)
     )
 
+    # Filter on non-aggregate columns before grouping (WHERE, not HAVING)
     if search:
-        stmt = stmt.having(organizations_table.c.slug.ilike(f"%{search}%"))
+        stmt = stmt.where(organizations_table.c.slug.ilike(f"%{search}%"))
 
     if type_filter == "orgs":
-        stmt = stmt.having(organizations_table.c.is_personal == sa.false())
+        stmt = stmt.where(organizations_table.c.is_personal == sa.false())
     elif type_filter == "users":
-        stmt = stmt.having(organizations_table.c.is_personal == sa.true())
+        stmt = stmt.where(organizations_table.c.is_personal == sa.true())
+
+    stmt = stmt.group_by(
+        organizations_table.c.slug,
+        organizations_table.c.is_personal,
+        organizations_table.c.avatar_url,
+    ).order_by(organizations_table.c.slug)
 
     rows = conn.execute(stmt).all()
     return [

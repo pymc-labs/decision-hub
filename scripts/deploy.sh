@@ -29,7 +29,7 @@ if [ ! -d node_modules ]; then
 fi
 
 # Set the API base to empty string so the SPA uses relative URLs
-VITE_API_URL="" npx vite build
+VITE_API_URL="" npm run build
 
 echo "    Frontend built: $(du -sh dist | cut -f1)"
 

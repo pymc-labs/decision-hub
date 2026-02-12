@@ -97,7 +97,7 @@ export default function SkillsPage() {
           Skill Registry
         </h1>
         <p className={styles.subtitle}>
-          {total} skills published across {orgs.length} organizations
+          {total} skills found
         </p>
       </div>
 
