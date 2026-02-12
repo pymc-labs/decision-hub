@@ -36,6 +36,7 @@ TRUSTED_ORGS: frozenset[str] = frozenset(
         "cohere-ai",
         # AI-native dev tools
         "replit",
+        "cursor",
         "getcursor",
         "codeium",
         "exafunction",
@@ -265,6 +266,7 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict
     Yields one batch per curated list so processing can start immediately.
     """
     link_re = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+)")
+    seen_refs: set[str] = set()  # dedup across curated lists
     for list_repo in CURATED_LIST_REPOS:
         resp = gh.get(f"/repos/{list_repo}/readme")
         stats.queries_made += 1
@@ -281,8 +283,9 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict
         }
         batch: dict[str, DiscoveredRepo] = {}
         for ref in refs:
-            if ref in batch:
+            if ref in seen_refs:
                 continue
+            seen_refs.add(ref)
             dr = gh.get(f"/repos/{ref}")
             stats.queries_made += 1
             if dr.status_code != 200:
