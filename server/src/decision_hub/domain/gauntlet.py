@@ -238,20 +238,20 @@ def check_safety_scan(
     if analyze_fn is not None:
         judgments = analyze_fn(hits, skill_name, skill_description)
 
-        # Fail-closed: if the LLM didn't return judgments for all hits,
-        # treat uncovered hits as dangerous.
-        if len(judgments) < len(hits):
-            covered_keys = {(j.get("file"), j.get("label")) for j in judgments}
-            for h in hits:
-                if (h["file"], h["label"]) not in covered_keys:
-                    judgments.append(
-                        {
-                            "file": h["file"],
-                            "label": h["label"],
-                            "dangerous": True,
-                            "reason": "LLM did not return judgment for this finding",
-                        }
-                    )
+        # Fail-closed: backfill any hits not covered by the LLM response.
+        # Run unconditionally — the LLM may return duplicates or hallucinated
+        # entries that inflate len(judgments) while leaving real hits uncovered.
+        covered_keys = {(j.get("file"), j.get("label")) for j in judgments}
+        for h in hits:
+            if (h["file"], h["label"]) not in covered_keys:
+                judgments.append(
+                    {
+                        "file": h["file"],
+                        "label": h["label"],
+                        "dangerous": True,
+                        "reason": "LLM did not return judgment for this finding",
+                    }
+                )
 
         dangerous = [j for j in judgments if j.get("dangerous", True)]
         ambiguous = [j for j in judgments if j.get("ambiguous", False) and not j.get("dangerous", True)]
@@ -350,20 +350,20 @@ def check_prompt_safety(
     if analyze_prompt_fn is not None:
         judgments = analyze_prompt_fn(hits, skill_name, skill_description)
 
-        # Fail-closed: if the LLM didn't return judgments for all hits,
-        # treat uncovered hits as dangerous.
-        if len(judgments) < len(hits):
-            covered_labels = {j.get("label") for j in judgments}
-            for h in hits:
-                if h["label"] not in covered_labels:
-                    judgments.append(
-                        {
-                            "label": h["label"],
-                            "dangerous": True,
-                            "ambiguous": False,
-                            "reason": "LLM did not return judgment for this finding",
-                        }
-                    )
+        # Fail-closed: backfill any hits not covered by the LLM response.
+        # Run unconditionally — the LLM may return duplicates or hallucinated
+        # entries that inflate len(judgments) while leaving real hits uncovered.
+        covered_labels = {j.get("label") for j in judgments}
+        for h in hits:
+            if h["label"] not in covered_labels:
+                judgments.append(
+                    {
+                        "label": h["label"],
+                        "dangerous": True,
+                        "ambiguous": False,
+                        "reason": "LLM did not return judgment for this finding",
+                    }
+                )
 
         dangerous = [j for j in judgments if j.get("dangerous", True)]
         ambiguous = [j for j in judgments if j.get("ambiguous", False) and not j.get("dangerous", True)]

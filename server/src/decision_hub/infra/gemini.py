@@ -328,12 +328,15 @@ def analyze_code_safety(
                 try:
                     judgment = CodeSafetyJudgment.model_validate(item)
                     validated.append(judgment.model_dump())
-                except ValidationError:
-                    # Fail-closed: items failing validation are marked dangerous
+                except (ValidationError, AttributeError):
+                    # Fail-closed: items failing validation are marked dangerous.
+                    # Guard against non-dict items (str, int, None) from the LLM.
+                    file_val = item.get("file", "unknown") if isinstance(item, dict) else "unknown"
+                    label_val = item.get("label", "unknown") if isinstance(item, dict) else "unknown"
                     validated.append(
                         {
-                            "file": item.get("file", "unknown"),
-                            "label": item.get("label", "unknown"),
+                            "file": file_val,
+                            "label": label_val,
                             "dangerous": True,
                             "reason": "LLM response item failed schema validation",
                         }
@@ -433,11 +436,13 @@ def analyze_prompt_safety(
                 try:
                     judgment = PromptSafetyJudgment.model_validate(item)
                     validated.append(judgment.model_dump())
-                except ValidationError:
-                    # Fail-closed: items failing validation are marked dangerous
+                except (ValidationError, AttributeError):
+                    # Fail-closed: items failing validation are marked dangerous.
+                    # Guard against non-dict items (str, int, None) from the LLM.
+                    label_val = item.get("label", "unknown") if isinstance(item, dict) else "unknown"
                     validated.append(
                         {
-                            "label": item.get("label", "unknown"),
+                            "label": label_val,
                             "dangerous": True,
                             "ambiguous": False,
                             "reason": "LLM response item failed schema validation",
