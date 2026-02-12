@@ -11,8 +11,13 @@ import styles from "./OrgDetailPage.module.css";
 
 const PAGE_SIZE = 24;
 
+/** Wrapper that forces a full remount when the org changes, resetting all state. */
 export default function OrgDetailPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
+  return <OrgDetailPageInner key={orgSlug} orgSlug={orgSlug!} />;
+}
+
+function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
   const [page, setPage] = useState(1);
 
   const fetchSkills = useCallback(
@@ -21,7 +26,7 @@ export default function OrgDetailPage() {
   );
 
   const { data: skillsData, loading, error } = useApi(fetchSkills, [orgSlug, page]);
-  const { data: profile } = useApi(() => getOrgProfile(orgSlug!), [orgSlug]);
+  const { data: profile } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
 
   const skills = skillsData?.items ?? [];
   const totalSkills = skillsData?.total ?? 0;

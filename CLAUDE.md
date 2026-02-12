@@ -108,6 +108,8 @@ cd server && DHUB_ENV=dev uv run --package decision-hub-server \
 - **Don't worship backward compatibility**: Don't freeze bad designs to avoid breaking changes. Provide clear migration paths instead of stacking hacks
 - **DRY**: Do not repeat yourself — ensure each piece of logic has a single, clear, authoritative implementation instead of being duplicated across the codebase
 - **Comments**: Explain business logic, assumptions, and choices — not the code verbatim
+- **Isolate side operations**: When a non-critical operation (metadata sync, analytics, notifications) runs alongside a critical path, always (1) wrap it in try/except so failures don't block the main flow, and (2) if it uses a separate DB connection, commit pending writes first so they're visible
+- **Reset state on context changes (React)**: When a component holds local state (`useState`, `useRef`) and receives changing inputs (URL params, props), audit which state becomes stale and add `useEffect(() => reset(), [key])` or use a `key=` prop to force remount
 
 ### Logging
 
