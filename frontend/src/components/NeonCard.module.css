@@ -60,6 +60,7 @@
 
 .purple {
   border-color: rgba(180, 0, 255, 0.35);
+  border-width: 2px;
 }
 
 .purple::before {
