@@ -20,19 +20,29 @@
   line-height: 1;
   margin-bottom: 20px;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
 
 .heroAccent {
-  display: block;
-  font-size: 1.2rem;
-  letter-spacing: 12px;
+  letter-spacing: 6px;
   color: var(--neon-pink);
   text-shadow: var(--glow-pink);
-  margin-bottom: 8px;
+}
+
+.heroDivider {
+  font-size: 2.5rem;
+  color: var(--neon-purple);
+  opacity: 0.5;
+  text-shadow: var(--glow-purple);
+  font-weight: 400;
+  letter-spacing: -2px;
 }
 
 .heroMain {
-  display: block;
+  letter-spacing: 6px;
   background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
   -webkit-background-clip: text;
   background-clip: text;
@@ -329,7 +339,12 @@
 
 @media (max-width: 768px) {
   .heroTitle {
-    font-size: 2.5rem;
+    font-size: 2.2rem;
+    gap: 10px;
+  }
+
+  .heroDivider {
+    font-size: 1.6rem;
   }
 
   .stats {

@@ -32,6 +32,7 @@ export default function HomePage() {
         <div className={styles.heroGrid} />
         <h1 className={styles.heroTitle}>
           <span className={styles.heroAccent}>DECISION</span>
+          <span className={styles.heroDivider}>//</span>
           <span className={styles.heroMain}>HUB</span>
         </h1>
         <p className={styles.heroSub}>
@@ -88,7 +89,7 @@ export default function HomePage() {
       <section className={styles.cliSection}>
         <h2 className={styles.sectionTitle}>
           <Bot size={20} />
-          Agent First
+          Agentic First
         </h2>
         <AnimatedTerminal />
       </section>
