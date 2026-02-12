@@ -16,6 +16,48 @@ from decision_hub.scripts.crawler.models import CrawlStats, DiscoveredRepo
 
 GITHUB_API = "https://api.github.com"
 
+# Organizations from major gen-AI companies and tool providers. Repos owned by
+# these orgs are tagged as trusted and processed before community repos so the
+# highest-signal skills are indexed first.
+TRUSTED_ORGS: frozenset[str] = frozenset(
+    {
+        # LLM providers
+        "anthropics",
+        "openai",
+        "google",
+        "google-gemini",
+        "googleapis",
+        "googlecloudplatform",
+        "meta-llama",
+        "mistralai",
+        "cohere-ai",
+        # AI-native dev tools
+        "replit",
+        "cursor-ai",
+        "codeium",
+        "sourcegraph",
+        "continuedev",
+        "github",
+        "microsoft",
+        "aws",
+        "vercel",
+        # Agent / orchestration frameworks
+        "langchain-ai",
+        "run-llama",
+        "huggingface",
+        "deepmind",
+        "stability-ai",
+    }
+)
+
+
+def tag_trusted_repos(repos: dict[str, DiscoveredRepo]) -> None:
+    """Mark repos whose owner is in TRUSTED_ORGS (case-insensitive, in-place)."""
+    for repo in repos.values():
+        if repo.owner_login.lower() in TRUSTED_ORGS:
+            repo.is_trusted = True
+
+
 # ---------------------------------------------------------------------------
 # Strategy 1: File-size partitioning
 # ---------------------------------------------------------------------------

@@ -100,6 +100,7 @@ def discover_batches(
         search_by_file_size,
         search_by_path,
         search_by_topic,
+        tag_trusted_repos,
     )
 
     gh = GitHubClient(github_token)
@@ -140,10 +141,13 @@ def discover_batches(
             seen.update(new_batch.keys())
 
             if new_batch:
+                tag_trusted_repos(new_batch)
+                trusted_count = sum(1 for r in new_batch.values() if r.is_trusted)
                 logger.info(
-                    "Strategy '{}' found {} new repos ({} total)",
+                    "Strategy '{}' found {} new repos ({} trusted, {} total)",
                     name,
                     len(new_batch),
+                    trusted_count,
                     len(all_repos),
                 )
                 yield new_batch
@@ -199,8 +203,8 @@ def _filter_changed_repos(
 
     if skipped:
         logger.info("{} repos unchanged since last crawl, skipping", skipped)
-    # Process most-starred repos first so popular skills are indexed sooner
-    changed.sort(key=lambda r: r.stars, reverse=True)
+    # Trusted orgs first, then by stars within each group
+    changed.sort(key=lambda r: (r.is_trusted, r.stars), reverse=True)
     return changed
 
 

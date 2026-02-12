@@ -13,6 +13,7 @@ class DiscoveredRepo:
     clone_url: str
     stars: int = 0
     description: str = ""
+    is_trusted: bool = False
 
 
 @dataclass
@@ -55,6 +56,7 @@ def repo_to_dict(repo: DiscoveredRepo) -> dict:
         "clone_url": repo.clone_url,
         "stars": repo.stars,
         "description": repo.description,
+        "is_trusted": repo.is_trusted,
     }
 
 
@@ -67,4 +69,5 @@ def dict_to_repo(d: dict) -> DiscoveredRepo:
         clone_url=d["clone_url"],
         stars=d.get("stars", 0),
         description=d.get("description", ""),
+        is_trusted=d.get("is_trusted", False),
     )

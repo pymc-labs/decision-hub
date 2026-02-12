@@ -11,6 +11,7 @@ import pytest
 from decision_hub.scripts.crawler.checkpoint import Checkpoint
 from decision_hub.scripts.crawler.discovery import (
     SKILL_PATHS,
+    TRUSTED_ORGS,
     GitHubClient,
     _run_code_search,
     parse_curated_lists,
@@ -18,6 +19,7 @@ from decision_hub.scripts.crawler.discovery import (
     search_by_file_size,
     search_by_path,
     search_by_topic,
+    tag_trusted_repos,
 )
 from decision_hub.scripts.crawler.models import (
     CrawlStats,
@@ -54,6 +56,21 @@ class TestDiscoveredRepoRoundtrip:
         assert restored.stars == repo.stars
         assert restored.description == repo.description
 
+    def test_is_trusted_roundtrip(self):
+        repo = DiscoveredRepo(
+            full_name="anthropics/skills",
+            owner_login="anthropics",
+            owner_type="Organization",
+            clone_url="https://github.com/anthropics/skills.git",
+            stars=100,
+            description="Official skills",
+            is_trusted=True,
+        )
+        d = repo_to_dict(repo)
+        assert d["is_trusted"] is True
+        restored = dict_to_repo(d)
+        assert restored.is_trusted is True
+
     def test_dict_to_repo_defaults(self):
         d = {
             "full_name": "a/b",
@@ -64,6 +81,7 @@ class TestDiscoveredRepoRoundtrip:
         repo = dict_to_repo(d)
         assert repo.stars == 0
         assert repo.description == ""
+        assert repo.is_trusted is False
 
 
 class TestCrawlStats:
@@ -105,6 +123,79 @@ class TestCrawlStats:
         stats.accumulate(result)
         assert len(stats.errors) == 1
         assert "git clone failed" in stats.errors[0]
+
+
+# ---------------------------------------------------------------------------
+# Trusted org tagging tests
+# ---------------------------------------------------------------------------
+
+
+class TestTagTrustedRepos:
+    def test_tags_known_org(self):
+        repos = {
+            "anthropics/skills": DiscoveredRepo(
+                "anthropics/skills",
+                "anthropics",
+                "Organization",
+                "https://github.com/anthropics/skills.git",
+                stars=50,
+            ),
+        }
+        tag_trusted_repos(repos)
+        assert repos["anthropics/skills"].is_trusted is True
+
+    def test_case_insensitive(self):
+        repos = {
+            "OpenAI/codex": DiscoveredRepo(
+                "OpenAI/codex",
+                "OpenAI",
+                "Organization",
+                "https://github.com/OpenAI/codex.git",
+                stars=200,
+            ),
+        }
+        tag_trusted_repos(repos)
+        assert repos["OpenAI/codex"].is_trusted is True
+
+    def test_unknown_org_not_tagged(self):
+        repos = {
+            "random-user/skill": DiscoveredRepo(
+                "random-user/skill",
+                "random-user",
+                "User",
+                "https://github.com/random-user/skill.git",
+                stars=5,
+            ),
+        }
+        tag_trusted_repos(repos)
+        assert repos["random-user/skill"].is_trusted is False
+
+    def test_mixed_batch(self):
+        repos = {
+            "openai/tool": DiscoveredRepo(
+                "openai/tool",
+                "openai",
+                "Organization",
+                "u",
+                stars=100,
+            ),
+            "nobody/thing": DiscoveredRepo(
+                "nobody/thing",
+                "nobody",
+                "User",
+                "u",
+                stars=500,
+            ),
+        }
+        tag_trusted_repos(repos)
+        assert repos["openai/tool"].is_trusted is True
+        assert repos["nobody/thing"].is_trusted is False
+
+    def test_trusted_orgs_list_not_empty(self):
+        assert len(TRUSTED_ORGS) > 0
+        # All entries should be lowercase
+        for org in TRUSTED_ORGS:
+            assert org == org.lower(), f"TRUSTED_ORGS entry '{org}' must be lowercase"
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +592,7 @@ class TestFilterChangedRepos:
 
     @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
     def test_sorted_by_stars_descending(self, mock_fetch_sha):
-        """Results are sorted by stars (most popular first)."""
+        """Results are sorted by stars (most popular first) within trust tier."""
         from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
 
         mock_fetch_sha.return_value = "new_sha"
@@ -515,6 +606,44 @@ class TestFilterChangedRepos:
 
         result = _filter_changed_repos(repos, cp, github_token=None)
         assert [r.full_name for r in result] == ["high/repo", "mid/repo", "low/repo"]
+
+    @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
+    def test_trusted_repos_sorted_before_untrusted(self, mock_fetch_sha):
+        """Trusted repos appear before untrusted even with fewer stars."""
+        from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
+
+        mock_fetch_sha.return_value = "new_sha"
+
+        repos = [
+            DiscoveredRepo("popular/repo", "popular", "User", "u", stars=1000),
+            DiscoveredRepo(
+                "anthropics/skills",
+                "anthropics",
+                "Organization",
+                "u",
+                stars=10,
+                is_trusted=True,
+            ),
+            DiscoveredRepo(
+                "openai/tools",
+                "openai",
+                "Organization",
+                "u",
+                stars=50,
+                is_trusted=True,
+            ),
+            DiscoveredRepo("another/repo", "another", "User", "u", stars=500),
+        ]
+        cp = Checkpoint()
+
+        result = _filter_changed_repos(repos, cp, github_token=None)
+        # Trusted repos first (sorted by stars), then untrusted (sorted by stars)
+        assert [r.full_name for r in result] == [
+            "openai/tools",
+            "anthropics/skills",
+            "popular/repo",
+            "another/repo",
+        ]
 
     @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
     def test_legacy_none_sha_always_rechecked(self, mock_fetch_sha):
