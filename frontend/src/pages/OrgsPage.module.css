@@ -108,13 +108,17 @@
   text-align: center;
   gap: 12px;
   padding: 8px 0;
+  position: relative;
 }
 
 .featuredBadge {
+  position: absolute;
+  top: -4px;
+  left: -4px;
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -122,7 +126,7 @@
   background: rgba(0, 240, 255, 0.08);
   border: 1px solid rgba(0, 240, 255, 0.25);
   border-radius: 4px;
-  padding: 3px 8px;
+  padding: 2px 6px;
 }
 
 .cardIcon {

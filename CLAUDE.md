@@ -224,10 +224,6 @@ Legacy files use 3-digit numeric prefixes (`001_` through `011_`). Do not add ne
 
 ## Rules for AI Agents
 
-### Forbidden commands
-Never run these — prod deployments are handled by the human maintainer:
-- `make deploy-prod`, `./scripts/deploy.sh prod`
-
 ### Dev deploy
 You **may** deploy to dev when asked. Always use `make deploy-dev` — never bare `modal deploy` (it skips the frontend build).
 
