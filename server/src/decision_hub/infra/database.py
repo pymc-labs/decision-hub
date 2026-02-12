@@ -1533,7 +1533,7 @@ def fetch_all_skills_for_index(
 
 def search_skills_hybrid(
     conn: Connection,
-    query: str,
+    fts_queries: list[str],
     query_embedding: list[float] | None,
     *,
     user_org_ids: list[UUID] | None = None,
@@ -1543,7 +1543,7 @@ def search_skills_hybrid(
     """Hybrid retrieval: FTS + vector search, union + dedup.
 
     Runs two complementary queries and merges results:
-    1. Full-text search via tsvector (keyword match)
+    1. Full-text search via tsvector (keyword match, multiple query phrases)
     2. Vector similarity via pgvector (semantic match)
 
     Results are deduped by (org_slug, skill_name), with vector results
@@ -1603,18 +1603,22 @@ def search_skills_hybrid(
 
         return stmt
 
-    # --- 1. FTS query ---
-    fts_stmt = _base_select(
-        [
-            sa.func.ts_rank_cd(
-                skills_table.c.search_vector,
-                sa.func.websearch_to_tsquery("english", query),
-            ).label("fts_rank"),
-        ]
-    )
-    fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(sa.func.websearch_to_tsquery("english", query)))
-    fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
-    fts_rows = conn.execute(fts_stmt).all()
+    # --- 1. FTS queries (loop over extracted keyword phrases) ---
+    fts_rows: list = []
+    for fts_query in fts_queries:
+        fts_stmt = _base_select(
+            [
+                sa.func.ts_rank_cd(
+                    skills_table.c.search_vector,
+                    sa.func.websearch_to_tsquery("english", fts_query),
+                ).label("fts_rank"),
+            ]
+        )
+        fts_stmt = fts_stmt.where(
+            skills_table.c.search_vector.op("@@")(sa.func.websearch_to_tsquery("english", fts_query))
+        )
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        fts_rows.extend(conn.execute(fts_stmt).all())
 
     # --- 2. Vector query (if embedding available) ---
     vec_rows: list = []

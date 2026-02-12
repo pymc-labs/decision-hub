@@ -51,6 +51,80 @@ NOT searches for a skill:
 Respond ONLY with a JSON object: {"is_skill_query": true/false, "reason": "..."}
 """
 
+_PARSE_QUERY_PROMPT = """\
+You are a query parser for Decision Hub, a skill registry for AI agents.
+
+Extract effective search keywords from the user's query. Strip conversational
+filler ("help me", "learn how to", "I want to", "find a tool for") and extract
+core technical concepts and domain terms.
+
+Generate 3-10 short keyword phrases (1-4 words each) covering:
+- Direct terms from the query
+- Synonyms and closely related terms
+- Broader category terms
+- Individual important keywords (single words)
+
+Each phrase should be something that could match a skill name, description, or
+category. Be generous with variations to maximize recall.
+"""
+
+_PARSE_QUERY_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "fts_queries": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+        },
+    },
+    "required": ["fts_queries"],
+}
+
+
+def parse_query_keywords(
+    client: dict,
+    query: str,
+    model: str = "gemini-2.0-flash",
+) -> list[str]:
+    """Extract FTS keyword phrases from a natural-language query.
+
+    Uses Gemini structured output (responseSchema) for guaranteed valid JSON.
+    Designed to run in parallel with the embedding call.
+
+    Returns:
+        List of keyword phrases for FTS search.
+        Falls back to [query] on any failure (fail-open).
+    """
+    url = f"{client['base_url']}/{model}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": f"{_PARSE_QUERY_PROMPT}\n\nUser query: {query}"}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "responseMimeType": "application/json",
+            "responseSchema": _PARSE_QUERY_SCHEMA,
+        },
+    }
+
+    try:
+        with httpx.Client(timeout=10) as http_client:
+            resp = http_client.post(
+                url,
+                params={"key": client["api_key"]},
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+        result = json.loads(text)
+        if isinstance(result, dict) and "fts_queries" in result:
+            fts_queries = [q.strip() for q in result["fts_queries"] if q.strip()]
+            return fts_queries[:10]
+    except Exception:  # Intentional broad catch: fail-open design
+        logger.opt(exception=True).warning("Query keyword parsing failed, falling back to raw query")
+
+    return [query]
+
 
 def check_query_topicality(
     client: dict,
