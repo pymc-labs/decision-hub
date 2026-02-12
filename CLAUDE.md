@@ -165,6 +165,7 @@ Legacy files use 3-digit numeric prefixes (`001_` through `011_`). Do not add ne
 - **Use `IF NOT EXISTS` / `IF EXISTS`** in DDL when possible for idempotency (especially for `CREATE TABLE`, `ADD COLUMN`).
 - **Keep migration PRs focused.** Prefer multiple small PRs over one large one.
 - **Test locally** before pushing: `make check-migrations` validates filenames, `make migrate-dev` applies to dev.
+- **`created_at` and `updated_at` are managed by PostgreSQL.** `created_at` uses a `DEFAULT now()` server default on insert. `updated_at` is set by a `BEFORE UPDATE` trigger (`set_updated_at()`). Never set either in application code. New mutable tables must include both columns and a `BEFORE UPDATE` trigger for `updated_at`.
 
 ## Rules for AI Agents
 
