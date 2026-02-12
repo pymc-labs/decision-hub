@@ -1,8 +1,11 @@
 """Main Typer app with subcommand registration."""
 
+import shutil
+import subprocess
 from importlib.metadata import version as pkg_version
 
 import typer
+from rich.console import Console
 
 
 def _version_callback(value: bool) -> None:
@@ -62,6 +65,54 @@ app.command("logs")(logs_command)
 app.command("run")(run_command)
 app.command("ask")(ask_command)
 app.command("visibility")(visibility_command)
+
+
+def upgrade_command() -> None:
+    """Upgrade dhub to the latest version from PyPI."""
+    console = Console()
+    current = pkg_version("dhub-cli")
+    console.print(f"Current version: [bold]{current}[/]")
+
+    uv_bin = shutil.which("uv")
+    if not uv_bin:
+        console.print("[red]Error: 'uv' not found on PATH. Install it first: https://docs.astral.sh/uv/[/]")
+        raise typer.Exit(1)
+
+    console.print("Checking for updates...")
+
+    result = subprocess.run(
+        [uv_bin, "tool", "install", "dhub-cli", "--upgrade"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
+        raise typer.Exit(1)
+
+    # Re-query the installed version after upgrade
+    # (importlib cache is stale in the current process)
+    query = subprocess.run(
+        [uv_bin, "tool", "list"],
+        capture_output=True,
+        text=True,
+    )
+    new_version = current
+    for line in query.stdout.splitlines():
+        if line.startswith("dhub-cli"):
+            # Format: "dhub-cli v0.6.3"
+            parts = line.split()
+            if len(parts) >= 2:
+                new_version = parts[1].lstrip("v")
+            break
+
+    if new_version == current:
+        console.print(f"[green]Already up to date ({current}).[/]")
+    else:
+        console.print(f"[green]Upgraded: {current} → {new_version}[/]")
+
+
+app.command("upgrade")(upgrade_command)
 
 # Register subcommand groups
 from dhub.cli.access import access_app  # noqa: E402

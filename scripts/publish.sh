@@ -48,7 +48,26 @@ done
 echo "==> Cleaning previous builds..."
 rm -rf "$DIST_DIR"
 
-echo "==> Building dhub package..."
+# --- Publish dhub-core first (dhub-cli depends on it) ---
+
+echo "==> Building dhub-core..."
+uv build --package dhub-core --directory "$ROOT_DIR"
+
+if ! $BUILD_ONLY; then
+    if $USE_TEST_PYPI; then
+        echo "==> Publishing dhub-core to TestPyPI..."
+        uv publish --publish-url https://test.pypi.org/legacy/ "$DIST_DIR"/* || true
+    else
+        echo "==> Publishing dhub-core to PyPI..."
+        uv publish "$DIST_DIR"/* || true
+    fi
+fi
+
+rm -rf "$DIST_DIR"
+
+# --- Build and publish dhub-cli ---
+
+echo "==> Building dhub-cli..."
 uv build --package dhub-cli --directory "$ROOT_DIR"
 
 echo ""
@@ -63,14 +82,14 @@ fi
 
 if $USE_TEST_PYPI; then
     echo ""
-    echo "==> Publishing to TestPyPI..."
+    echo "==> Publishing dhub-cli to TestPyPI..."
     uv publish --publish-url https://test.pypi.org/legacy/ "$DIST_DIR"/*
     echo ""
     echo "Published to TestPyPI. Install with:"
     echo "  uv tool install dhub-cli --index-url https://test.pypi.org/simple/"
 else
     echo ""
-    echo "==> Publishing to PyPI..."
+    echo "==> Publishing dhub-cli to PyPI..."
     uv publish "$DIST_DIR"/*
     echo ""
     echo "Published to PyPI. Install with:"
