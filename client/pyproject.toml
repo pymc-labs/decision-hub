@@ -1,6 +1,6 @@
 [project]
 name = "dhub-cli"
-version = "0.6.0"
+version = "0.6.1"
 description = "The AI Skill Manager for Data Science Agents"
 requires-python = ">=3.11"
 license = "MIT"
