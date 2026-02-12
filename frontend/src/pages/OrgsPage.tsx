@@ -7,19 +7,11 @@ import type { OrgStatsResponse } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import OrgAvatar from "../components/OrgAvatar";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { FEATURED_ORGS, FEATURED_SET } from "../constants/featuredOrgs";
 import styles from "./OrgsPage.module.css";
 
 type OrgType = "orgs" | "users" | "all";
 const DEBOUNCE_MS = 300;
-
-const FEATURED_ORGS = [
-  "pymc-labs",
-  "anthropics",
-  "openai",
-  "getcursor",
-  "google-deepmind",
-];
-const FEATURED_SET = new Set(FEATURED_ORGS);
 
 export default function OrgsPage() {
   const [searchInput, setSearchInput] = useState("");

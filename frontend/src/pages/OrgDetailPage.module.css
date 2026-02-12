@@ -16,11 +16,32 @@
   margin-bottom: 36px;
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
 .title {
   font-size: 1.8rem;
   color: var(--neon-purple);
   text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
-  margin-bottom: 4px;
+}
+
+.featuredBadge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 4px;
+  padding: 3px 8px;
 }
 
 .description {
