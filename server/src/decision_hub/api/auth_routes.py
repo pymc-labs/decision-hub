@@ -6,9 +6,9 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
-from decision_hub.api.deps import get_connection, get_settings
+from decision_hub.api.deps import get_connection, get_engine, get_settings
 from decision_hub.domain.auth import create_jwt
-from decision_hub.domain.orgs import sync_user_orgs
+from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs
 from decision_hub.infra.database import upsert_user
 from decision_hub.infra.github import (
     AuthorizationPending,
@@ -81,6 +81,7 @@ async def start_device_flow(
 async def exchange_token(
     body: TokenRequest,
     conn: Connection = Depends(get_connection),
+    engine=Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
     """Exchange a device_code for a JWT access token.
@@ -135,6 +136,18 @@ async def exchange_token(
 
     org_slugs = sync_user_orgs(conn, user.id, github_org_logins, username)
     logger.debug("Synced orgs for {}: {}", username, org_slugs)
+
+    # Best-effort: sync GitHub metadata inline so avatars/descriptions are
+    # available immediately. The 24-hour TTL cache in sync_org_github_metadata
+    # skips orgs already synced recently, so this only adds latency on the
+    # first login per day.
+    try:
+        await sync_org_github_metadata(engine, gh_token, org_slugs, username)
+    except Exception:
+        logger.opt(exception=True).warning(
+            "Failed to sync GitHub metadata for {}; continuing",
+            username,
+        )
 
     jwt_token = create_jwt(
         str(user.id),

@@ -219,3 +219,70 @@ async def check_org_membership(access_token: str, org: str, username: str) -> bo
         return False
 
     return False
+
+
+async def fetch_org_metadata(access_token: str, org_login: str) -> dict:
+    """Fetch metadata for a GitHub organization.
+
+    Args:
+        access_token: A valid GitHub OAuth access token.
+        org_login: GitHub organization login (e.g. "pymc-labs").
+
+    Returns:
+        A dict with keys: avatar_url, email, description, blog.
+        Missing fields default to None.
+
+    Raises:
+        httpx.HTTPStatusError: If the GitHub API returns an error response.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"https://api.github.com/orgs/{org_login}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": _ACCEPT_JSON,
+            },
+        )
+    response.raise_for_status()
+    data = response.json()
+    return {
+        "avatar_url": data.get("avatar_url"),
+        "email": data.get("email"),
+        "description": data.get("description"),
+        "blog": data.get("blog"),
+    }
+
+
+async def fetch_user_metadata(access_token: str, username: str) -> dict:
+    """Fetch metadata for a GitHub user (used for personal namespaces).
+
+    Maps the GitHub ``bio`` field to ``description`` for a uniform interface
+    with :func:`fetch_org_metadata`.
+
+    Args:
+        access_token: A valid GitHub OAuth access token.
+        username: GitHub username.
+
+    Returns:
+        A dict with keys: avatar_url, email, description, blog.
+        Missing fields default to None.
+
+    Raises:
+        httpx.HTTPStatusError: If the GitHub API returns an error response.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"https://api.github.com/users/{username}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": _ACCEPT_JSON,
+            },
+        )
+    response.raise_for_status()
+    data = response.json()
+    return {
+        "avatar_url": data.get("avatar_url"),
+        "email": data.get("email"),
+        "description": data.get("bio"),
+        "blog": data.get("blog"),
+    }

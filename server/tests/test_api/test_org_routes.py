@@ -108,11 +108,15 @@ class TestListOrgs:
                 id=UUID("aaaaaaaa-0000-0000-0000-000000000001"),
                 slug="org-one",
                 owner_id=sample_user_id,
+                is_personal=False,
+                avatar_url="https://avatar/org-one",
             ),
             Organization(
                 id=UUID("aaaaaaaa-0000-0000-0000-000000000002"),
                 slug="org-two",
                 owner_id=sample_user_id,
+                is_personal=True,
+                avatar_url=None,
             ),
         ]
 
@@ -122,4 +126,160 @@ class TestListOrgs:
         data = resp.json()
         assert len(data) == 2
         assert data[0]["slug"] == "org-one"
+        assert data[0]["avatar_url"] == "https://avatar/org-one"
+        assert data[0]["is_personal"] is False
         assert data[1]["slug"] == "org-two"
+        assert data[1]["avatar_url"] is None
+        assert data[1]["is_personal"] is True
+
+
+class TestGetOrgProfile:
+    """GET /v1/orgs/{slug}/profile -- public org profile."""
+
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_returns_profile(
+        self,
+        mock_find_org: MagicMock,
+        client: TestClient,
+        sample_user_id: UUID,
+    ) -> None:
+        """Should return public profile without auth."""
+        mock_find_org.return_value = Organization(
+            id=UUID("aaaaaaaa-0000-0000-0000-000000000001"),
+            slug="pymc-labs",
+            owner_id=sample_user_id,
+            is_personal=False,
+            avatar_url="https://avatars.githubusercontent.com/u/123",
+            description="Bayesian stats",
+            blog="https://pymc.io",
+        )
+
+        resp = client.get("/v1/orgs/pymc-labs/profile")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["slug"] == "pymc-labs"
+        assert data["is_personal"] is False
+        assert data["avatar_url"] == "https://avatars.githubusercontent.com/u/123"
+        assert data["description"] == "Bayesian stats"
+        assert data["blog"] == "https://pymc.io"
+        # Should NOT expose internal fields
+        assert "id" not in data
+        assert "email" not in data
+
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_returns_404_when_not_found(
+        self,
+        mock_find_org: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Should return 404 when the org does not exist."""
+        mock_find_org.return_value = None
+
+        resp = client.get("/v1/orgs/ghost-org/profile")
+
+        assert resp.status_code == 404
+
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_works_without_auth(
+        self,
+        mock_find_org: MagicMock,
+        client: TestClient,
+        sample_user_id: UUID,
+    ) -> None:
+        """Should succeed without any authorization headers."""
+        mock_find_org.return_value = Organization(
+            id=UUID("aaaaaaaa-0000-0000-0000-000000000001"),
+            slug="public-org",
+            owner_id=sample_user_id,
+        )
+
+        resp = client.get("/v1/orgs/public-org/profile")
+
+        assert resp.status_code == 200
+        assert resp.json()["slug"] == "public-org"
+
+
+class TestGetOrg:
+    """GET /v1/orgs/{slug} -- get organisation detail."""
+
+    @patch("decision_hub.api.org_routes.find_org_member")
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_returns_org_detail(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Should return full org detail for a member."""
+        org_id = UUID("aaaaaaaa-0000-0000-0000-000000000001")
+        mock_find_org.return_value = Organization(
+            id=org_id,
+            slug="pymc-labs",
+            owner_id=sample_user_id,
+            is_personal=False,
+            avatar_url="https://avatar/pymc",
+            email="info@pymc.com",
+            description="Bayesian stats",
+            blog="https://pymc.io",
+        )
+        mock_find_member.return_value = OrgMember(
+            org_id=org_id,
+            user_id=sample_user_id,
+            role="member",
+        )
+
+        resp = client.get("/v1/orgs/pymc-labs", headers=auth_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["slug"] == "pymc-labs"
+        assert data["is_personal"] is False
+        assert data["avatar_url"] == "https://avatar/pymc"
+        assert data["email"] == "info@pymc.com"
+        assert data["description"] == "Bayesian stats"
+        assert data["blog"] == "https://pymc.io"
+
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_returns_404_when_not_found(
+        self,
+        mock_find_org: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Should return 404 when the org does not exist."""
+        mock_find_org.return_value = None
+
+        resp = client.get("/v1/orgs/ghost-org", headers=auth_headers)
+
+        assert resp.status_code == 404
+
+    @patch("decision_hub.api.org_routes.find_org_member")
+    @patch("decision_hub.api.org_routes.find_org_by_slug")
+    def test_returns_404_when_not_a_member(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Should return 404 when the caller is not a member (avoids leaking existence)."""
+        org_id = UUID("aaaaaaaa-0000-0000-0000-000000000001")
+        mock_find_org.return_value = Organization(
+            id=org_id,
+            slug="secret-org",
+            owner_id=UUID("bbbbbbbb-0000-0000-0000-000000000001"),
+        )
+        mock_find_member.return_value = None
+
+        resp = client.get("/v1/orgs/secret-org", headers=auth_headers)
+
+        assert resp.status_code == 404
+
+    def test_requires_auth(self, client: TestClient) -> None:
+        """Should return 401 without auth headers."""
+        resp = client.get("/v1/orgs/some-org")
+        assert resp.status_code == 401

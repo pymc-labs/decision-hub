@@ -91,6 +91,10 @@ organizations_table = Table(
     ),
     Column("is_personal", Boolean, nullable=False, server_default="false"),
     Column("email", Text, nullable=True),
+    Column("avatar_url", Text, nullable=True),
+    Column("description", Text, nullable=True),
+    Column("blog", Text, nullable=True),
+    Column("github_synced_at", DateTime(timezone=True), nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -522,6 +526,10 @@ def _row_to_organization(row: sa.Row) -> Organization:
         owner_id=row.owner_id,
         is_personal=row.is_personal,
         email=row.email,
+        avatar_url=row.avatar_url,
+        description=row.description,
+        blog=row.blog,
+        github_synced_at=row.github_synced_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -690,6 +698,30 @@ def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
 def update_org_email(conn: Connection, org_id: UUID, email: str) -> None:
     """Update the public email for an organization."""
     stmt = sa.update(organizations_table).where(organizations_table.c.id == org_id).values(email=email)
+    conn.execute(stmt)
+
+
+def update_org_github_metadata(
+    conn: Connection,
+    org_id: UUID,
+    *,
+    avatar_url: str | None = None,
+    email: str | None = None,
+    description: str | None = None,
+    blog: str | None = None,
+) -> None:
+    """Update GitHub-sourced metadata and set github_synced_at = now()."""
+    stmt = (
+        sa.update(organizations_table)
+        .where(organizations_table.c.id == org_id)
+        .values(
+            avatar_url=avatar_url,
+            email=email,
+            description=description,
+            blog=blog,
+            github_synced_at=sa.func.now(),
+        )
+    )
     conn.execute(stmt)
 
 

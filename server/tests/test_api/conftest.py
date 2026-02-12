@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from decision_hub.api.app import _parse_semver
 from decision_hub.api.auth_routes import router as auth_router
 from decision_hub.api.keys_routes import router as keys_router
-from decision_hub.api.org_routes import org_router
+from decision_hub.api.org_routes import org_public_router, org_router
 from decision_hub.api.registry_routes import public_router as registry_public_router
 from decision_hub.api.registry_routes import router as registry_router
 from decision_hub.domain.auth import create_jwt
@@ -66,6 +66,7 @@ def test_app(test_settings: MagicMock) -> FastAPI:
         return await call_next(request)
 
     app.include_router(auth_router)
+    app.include_router(org_public_router)
     app.include_router(org_router)
     app.include_router(registry_public_router)
     app.include_router(registry_router)

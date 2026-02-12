@@ -133,7 +133,7 @@ def create_app() -> FastAPI:
 
     from decision_hub.api.auth_routes import router as auth_router
     from decision_hub.api.keys_routes import router as keys_router
-    from decision_hub.api.org_routes import org_router
+    from decision_hub.api.org_routes import org_public_router, org_router
     from decision_hub.api.registry_routes import public_router as registry_public_router
     from decision_hub.api.registry_routes import router as registry_router
     from decision_hub.api.search_routes import router as search_router
@@ -149,6 +149,7 @@ def create_app() -> FastAPI:
     # filtering will happen at the query layer, not the route layer.
     app.include_router(registry_public_router)
     app.include_router(taxonomy_public_router)
+    app.include_router(org_public_router)
 
     # When an org restriction is active, require a valid JWT on every
     # non-public route. This locks down write operations (publish, delete)

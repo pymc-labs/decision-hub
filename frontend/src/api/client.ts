@@ -1,5 +1,6 @@
 import type {
   SkillSummary,
+  OrgProfile,
   PaginatedSkillsResponse,
   ResolveResponse,
   EvalReport,
@@ -43,6 +44,10 @@ export async function listAllSkills(): Promise<SkillSummary[]> {
     skills.push(...page.items);
   }
   return skills;
+}
+
+export async function getOrgProfile(slug: string): Promise<OrgProfile> {
+  return fetchJSON<OrgProfile>(`/v1/orgs/${slug}/profile`);
 }
 
 export async function getTaxonomy(): Promise<TaxonomyResponse> {

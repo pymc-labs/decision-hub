@@ -1,12 +1,13 @@
 """Tests for decision_hub.domain.orgs -- organisation validation and sync logic."""
 
 from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 
-from decision_hub.domain.orgs import sync_user_orgs, validate_org_slug, validate_role
+from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs, validate_org_slug, validate_role
 
 # ---------------------------------------------------------------------------
 # validate_org_slug
@@ -277,3 +278,236 @@ class TestSyncUserOrgs:
         result = sync_user_orgs(conn, user_id, ["z-org", "a-org"], "m-user")
 
         assert result == ["a-org", "m-user", "z-org"]
+
+
+# ---------------------------------------------------------------------------
+# sync_org_github_metadata
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FakeOrgFull:
+    """Fake Organization with all metadata fields."""
+
+    id: UUID
+    slug: str
+    owner_id: UUID
+    is_personal: bool = False
+    email: str | None = None
+    avatar_url: str | None = None
+    description: str | None = None
+    blog: str | None = None
+    github_synced_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class TestSyncOrgGithubMetadata:
+    """sync_org_github_metadata should fetch and persist GitHub metadata."""
+
+    @staticmethod
+    def _make_engine():
+        """Create a mock engine whose begin() returns a context manager."""
+        engine = MagicMock()
+        mock_conn = MagicMock()
+        engine.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        engine.begin.return_value.__exit__ = MagicMock(return_value=False)
+        return engine, mock_conn
+
+    @pytest.mark.asyncio
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    async def test_syncs_personal_via_fetch_user_metadata(
+        self,
+        mock_find_org,
+        mock_fetch_org,
+        mock_fetch_user,
+        mock_update,
+    ) -> None:
+        """Personal namespace should use fetch_user_metadata."""
+        engine, mock_conn = self._make_engine()
+        org_id = uuid4()
+        mock_find_org.return_value = FakeOrgFull(
+            id=org_id,
+            slug="alice",
+            owner_id=uuid4(),
+            is_personal=True,
+        )
+        mock_fetch_user.return_value = {
+            "avatar_url": "https://avatar/alice",
+            "email": "alice@test.com",
+            "description": "I code",
+            "blog": "https://alice.dev",
+        }
+
+        await sync_org_github_metadata(engine, "gh-token", ["alice"], "Alice")
+
+        mock_fetch_user.assert_called_once_with("gh-token", "Alice")
+        mock_fetch_org.assert_not_called()
+        mock_update.assert_called_once_with(
+            mock_conn,
+            org_id,
+            avatar_url="https://avatar/alice",
+            email="alice@test.com",
+            description="I code",
+            blog="https://alice.dev",
+        )
+
+    @pytest.mark.asyncio
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    async def test_syncs_org_via_fetch_org_metadata(
+        self,
+        mock_find_org,
+        mock_fetch_org,
+        mock_fetch_user,
+        mock_update,
+    ) -> None:
+        """Non-personal orgs should use fetch_org_metadata."""
+        engine, _ = self._make_engine()
+        org_id = uuid4()
+        mock_find_org.return_value = FakeOrgFull(
+            id=org_id,
+            slug="pymc-labs",
+            owner_id=uuid4(),
+        )
+        mock_fetch_org.return_value = {
+            "avatar_url": "https://avatar/pymc",
+            "email": "info@pymc.com",
+            "description": "Bayesian",
+            "blog": "https://pymc.io",
+        }
+
+        await sync_org_github_metadata(engine, "gh-token", ["pymc-labs"], "alice")
+
+        mock_fetch_org.assert_called_once_with("gh-token", "pymc-labs")
+        mock_fetch_user.assert_not_called()
+        mock_update.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    async def test_skips_recently_synced_org(
+        self,
+        mock_find_org,
+        mock_fetch_org,
+        mock_fetch_user,
+        mock_update,
+    ) -> None:
+        """Should skip orgs synced within the last 24 hours."""
+        engine, _ = self._make_engine()
+        recent = datetime.now(UTC) - timedelta(hours=1)
+        mock_find_org.return_value = FakeOrgFull(
+            id=uuid4(),
+            slug="pymc-labs",
+            owner_id=uuid4(),
+            github_synced_at=recent,
+        )
+
+        await sync_org_github_metadata(engine, "gh-token", ["pymc-labs"], "alice")
+
+        mock_fetch_org.assert_not_called()
+        mock_fetch_user.assert_not_called()
+        mock_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    async def test_syncs_stale_org(
+        self,
+        mock_find_org,
+        mock_fetch_org,
+        mock_fetch_user,
+        mock_update,
+    ) -> None:
+        """Should sync orgs that were last synced more than 24 hours ago."""
+        engine, _ = self._make_engine()
+        stale = datetime.now(UTC) - timedelta(hours=25)
+        mock_find_org.return_value = FakeOrgFull(
+            id=uuid4(),
+            slug="pymc-labs",
+            owner_id=uuid4(),
+            github_synced_at=stale,
+        )
+        mock_fetch_org.return_value = {
+            "avatar_url": None,
+            "email": None,
+            "description": None,
+            "blog": None,
+        }
+
+        await sync_org_github_metadata(engine, "gh-token", ["pymc-labs"], "alice")
+
+        mock_fetch_org.assert_called_once()
+        mock_update.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_user_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    async def test_continues_on_individual_org_failure(
+        self,
+        mock_find_org,
+        mock_fetch_org,
+        mock_fetch_user,
+        mock_update,
+    ) -> None:
+        """Failure on one org should not prevent syncing others."""
+        engine, _ = self._make_engine()
+        org_a_id = uuid4()
+        org_b_id = uuid4()
+
+        def find_side(c, slug):
+            if slug == "org-a":
+                return FakeOrgFull(id=org_a_id, slug="org-a", owner_id=uuid4())
+            if slug == "org-b":
+                return FakeOrgFull(id=org_b_id, slug="org-b", owner_id=uuid4())
+            return None
+
+        mock_find_org.side_effect = find_side
+
+        # org-a fetch fails, org-b succeeds
+        call_count = 0
+
+        async def fetch_side(token, slug):
+            nonlocal call_count
+            call_count += 1
+            if slug == "org-a":
+                raise RuntimeError("GitHub API down")
+            return {"avatar_url": "url", "email": None, "description": None, "blog": None}
+
+        mock_fetch_org.side_effect = fetch_side
+
+        await sync_org_github_metadata(engine, "gh-token", ["org-a", "org-b"], "alice")
+
+        # org-b should still be updated
+        assert mock_update.call_count == 1
+        assert mock_update.call_args[0][1] == org_b_id
+
+    @pytest.mark.asyncio
+    @patch("decision_hub.infra.database.update_org_github_metadata")
+    @patch("decision_hub.infra.github.fetch_org_metadata", new_callable=AsyncMock)
+    @patch("decision_hub.infra.database.find_org_by_slug")
+    async def test_skips_unknown_org(
+        self,
+        mock_find_org,
+        mock_fetch_org,
+        mock_update,
+    ) -> None:
+        """Should skip orgs not found in the DB."""
+        engine, _ = self._make_engine()
+        mock_find_org.return_value = None
+
+        await sync_org_github_metadata(engine, "gh-token", ["ghost-org"], "alice")
+
+        mock_fetch_org.assert_not_called()
+        mock_update.assert_not_called()
