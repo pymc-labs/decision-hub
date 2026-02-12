@@ -1335,6 +1335,8 @@ def fetch_all_skills_for_index(
     conn: Connection,
     *,
     user_org_ids: list[UUID] | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict]:
     """Fetch all skills with their latest version info for the search index.
 
@@ -1390,6 +1392,12 @@ def fetch_all_skills_for_index(
     # Visibility filter
     base = _apply_visibility_filter(base, conn, user_org_ids)
 
+    # Deterministic ordering for consistent pagination
+    base = base.order_by(organizations_table.c.slug, skills_table.c.name)
+
+    if limit is not None:
+        base = base.limit(limit).offset(offset)
+
     rows = conn.execute(base).all()
     return [
         {
@@ -1407,6 +1415,35 @@ def fetch_all_skills_for_index(
         }
         for row in rows
     ]
+
+
+def count_all_skills(
+    conn: Connection,
+    *,
+    user_org_ids: list[UUID] | None = None,
+) -> int:
+    """Count total skills visible to the user (for pagination metadata).
+
+    Uses an EXISTS subquery on versions_table to match the inner-join
+    behavior of fetch_all_skills_for_index (only skills with at least
+    one published version are counted).
+    """
+    has_version = sa.exists().where(versions_table.c.skill_id == skills_table.c.id)
+
+    base = (
+        sa.select(sa.func.count())
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            )
+        )
+        .where(has_version)
+    )
+
+    base = _apply_visibility_filter(base, conn, user_org_ids)
+
+    return conn.execute(base).scalar_one()
 
 
 def get_api_keys_for_eval(conn: Connection, user_id: UUID, key_names: list[str]) -> dict[str, bytes]:

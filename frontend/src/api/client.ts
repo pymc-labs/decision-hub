@@ -1,6 +1,7 @@
 import type {
   SkillSummary,
   OrgProfile,
+  PaginatedSkillsResponse,
   ResolveResponse,
   EvalReport,
   AuditLogEntry,
@@ -26,8 +27,23 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export async function listSkills(): Promise<SkillSummary[]> {
-  return fetchJSON<SkillSummary[]>("/v1/skills");
+export async function listSkills(
+  page = 1,
+  pageSize = 20
+): Promise<PaginatedSkillsResponse> {
+  return fetchJSON<PaginatedSkillsResponse>(
+    `/v1/skills?page=${page}&page_size=${pageSize}`
+  );
+}
+
+export async function listAllSkills(): Promise<SkillSummary[]> {
+  const first = await listSkills(1, 100);
+  const skills = [...first.items];
+  for (let p = 2; p <= first.total_pages; p++) {
+    const page = await listSkills(p, 100);
+    skills.push(...page.items);
+  }
+  return skills;
 }
 
 export async function getOrgProfile(slug: string): Promise<OrgProfile> {

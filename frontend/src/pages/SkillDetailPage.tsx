@@ -16,7 +16,7 @@ import {
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import {
-  listSkills,
+  listAllSkills,
   getEvalReport,
   getAuditLog,
   downloadSkillZip,
@@ -52,7 +52,7 @@ export default function SkillDetailPage() {
 
   // Fetch all skills and find the one we need
   const { data: allSkills, loading: skillsLoading } = useApi(
-    () => listSkills(),
+    () => listAllSkills(),
     []
   );
 

@@ -41,12 +41,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Decision Hub environment (default: dev)",
     )
     parser.add_argument(
-        "--concurrency",
-        type=int,
-        default=50,
-        help="Max parallel Modal containers (default: 50)",
-    )
-    parser.add_argument(
         "--strategies",
         nargs="+",
         choices=ALL_STRATEGIES,

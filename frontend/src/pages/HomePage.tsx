@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Package, Building2, Shield, Zap, ArrowRight, Download, Star, Bot, Terminal } from "lucide-react";
-import { listSkills } from "../api/client";
+import { listAllSkills } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -9,7 +9,7 @@ import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
 
 export default function HomePage() {
-  const { data: skills } = useApi(() => listSkills(), []);
+  const { data: skills } = useApi(() => listAllSkills(), []);
 
   const topSkills = skills?.slice(0, 6) ?? [];
   const totalSkills = skills?.length ?? 0;

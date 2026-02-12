@@ -417,12 +417,14 @@ class TestListAccess:
 class TestListSkillsVisibility:
     """GET /v1/skills — verify visibility field is returned."""
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=1)
     @patch("decision_hub.api.registry_routes.list_user_org_ids")
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_returns_visibility(
         self,
         mock_fetch: MagicMock,
         mock_org_ids: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Public listing returns the visibility field."""
@@ -447,5 +449,5 @@ class TestListSkillsVisibility:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 1
-        assert data[0]["visibility"] == "org"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["visibility"] == "org"

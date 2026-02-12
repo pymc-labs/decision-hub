@@ -519,6 +519,27 @@ class TestInstallCommand:
 # ---------------------------------------------------------------------------
 
 
+def _paginated_response(
+    items: list[dict],
+    total: int | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """Helper to build a paginated skills response envelope."""
+    import math
+
+    if total is None:
+        total = len(items)
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
+
+
 class TestListCommand:
     @respx.mock
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")
@@ -529,23 +550,19 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """List displays a table when skills exist."""
-        respx.get("http://test:8000/v1/skills").mock(
-            return_value=httpx.Response(
-                200,
-                json=[
-                    {
-                        "org_slug": "acme",
-                        "skill_name": "doc-writer",
-                        "description": "Writes docs",
-                        "latest_version": "1.0.0",
-                        "updated_at": "2025-06-01",
-                        "safety_rating": "A",
-                        "author": "alice",
-                        "download_count": 5,
-                    },
-                ],
-            )
-        )
+        skills = [
+            {
+                "org_slug": "acme",
+                "skill_name": "doc-writer",
+                "description": "Writes docs",
+                "latest_version": "1.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "A",
+                "author": "alice",
+                "download_count": 5,
+            },
+        ]
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -562,6 +579,7 @@ class TestListCommand:
         assert "1.0.0" in result.output
         assert "alice" in result.output
         assert "5" in result.output
+        assert "Page 1 of 1" in result.output
 
     @respx.mock
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")
@@ -572,7 +590,7 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """List prints a message when no skills are published."""
-        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=[]))
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response([])))
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -592,33 +610,29 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """--org filters results to a single organization."""
-        respx.get("http://test:8000/v1/skills").mock(
-            return_value=httpx.Response(
-                200,
-                json=[
-                    {
-                        "org_slug": "acme",
-                        "skill_name": "skill-a",
-                        "description": "First",
-                        "latest_version": "1.0.0",
-                        "updated_at": "2025-06-01",
-                        "safety_rating": "A",
-                        "author": "alice",
-                        "download_count": 5,
-                    },
-                    {
-                        "org_slug": "other-org",
-                        "skill_name": "skill-b",
-                        "description": "Second",
-                        "latest_version": "2.0.0",
-                        "updated_at": "2025-06-01",
-                        "safety_rating": "A",
-                        "author": "bob",
-                        "download_count": 3,
-                    },
-                ],
-            )
-        )
+        skills = [
+            {
+                "org_slug": "acme",
+                "skill_name": "skill-a",
+                "description": "First",
+                "latest_version": "1.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "A",
+                "author": "alice",
+                "download_count": 5,
+            },
+            {
+                "org_slug": "other-org",
+                "skill_name": "skill-b",
+                "description": "Second",
+                "latest_version": "2.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "A",
+                "author": "bob",
+                "download_count": 3,
+            },
+        ]
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -641,33 +655,29 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """--skill filters by substring match on skill name."""
-        respx.get("http://test:8000/v1/skills").mock(
-            return_value=httpx.Response(
-                200,
-                json=[
-                    {
-                        "org_slug": "acme",
-                        "skill_name": "doc-writer",
-                        "description": "Writes docs",
-                        "latest_version": "1.0.0",
-                        "updated_at": "2025-06-01",
-                        "safety_rating": "A",
-                        "author": "alice",
-                        "download_count": 5,
-                    },
-                    {
-                        "org_slug": "acme",
-                        "skill_name": "code-review",
-                        "description": "Reviews code",
-                        "latest_version": "2.0.0",
-                        "updated_at": "2025-06-01",
-                        "safety_rating": "A",
-                        "author": "bob",
-                        "download_count": 3,
-                    },
-                ],
-            )
-        )
+        skills = [
+            {
+                "org_slug": "acme",
+                "skill_name": "doc-writer",
+                "description": "Writes docs",
+                "latest_version": "1.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "A",
+                "author": "alice",
+                "download_count": 5,
+            },
+            {
+                "org_slug": "acme",
+                "skill_name": "code-review",
+                "description": "Reviews code",
+                "latest_version": "2.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "A",
+                "author": "bob",
+                "download_count": 3,
+            },
+        ]
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -688,23 +698,19 @@ class TestListCommand:
         _mock_token,
     ) -> None:
         """Filtering with no matches shows a descriptive message."""
-        respx.get("http://test:8000/v1/skills").mock(
-            return_value=httpx.Response(
-                200,
-                json=[
-                    {
-                        "org_slug": "acme",
-                        "skill_name": "doc-writer",
-                        "description": "Writes docs",
-                        "latest_version": "1.0.0",
-                        "updated_at": "2025-06-01",
-                        "safety_rating": "A",
-                        "author": "alice",
-                        "download_count": 5,
-                    },
-                ],
-            )
-        )
+        skills = [
+            {
+                "org_slug": "acme",
+                "skill_name": "doc-writer",
+                "description": "Writes docs",
+                "latest_version": "1.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "A",
+                "author": "alice",
+                "download_count": 5,
+            },
+        ]
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
         respx.get("http://test:8000/cli/latest-version").mock(
             return_value=httpx.Response(200, json={"latest_version": ""})
         )
@@ -714,6 +720,64 @@ class TestListCommand:
         assert result.exit_code == 0
         assert "No skills found" in result.output
         assert "nonexistent" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_all_pages(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """--all fetches all pages without prompting."""
+        page1_skills = [
+            {
+                "org_slug": "acme",
+                "skill_name": "skill-a",
+                "description": "First",
+                "latest_version": "1.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "A",
+                "author": "alice",
+                "download_count": 5,
+            },
+        ]
+        page2_skills = [
+            {
+                "org_slug": "acme",
+                "skill_name": "skill-b",
+                "description": "Second",
+                "latest_version": "2.0.0",
+                "updated_at": "2025-06-01",
+                "safety_rating": "B",
+                "author": "bob",
+                "download_count": 3,
+            },
+        ]
+        responses = iter(
+            [
+                httpx.Response(
+                    200,
+                    json=_paginated_response(page1_skills, total=2, page=1, page_size=1),
+                ),
+                httpx.Response(
+                    200,
+                    json=_paginated_response(page2_skills, total=2, page=2, page_size=1),
+                ),
+            ]
+        )
+        respx.get("http://test:8000/v1/skills").mock(side_effect=lambda req: next(responses))
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
+        )
+
+        result = runner.invoke(app, ["list", "--page-size", "1", "--all"])
+
+        assert result.exit_code == 0
+        assert "alice" in result.output
+        assert "bob" in result.output
+        assert "Page 1 of 2" in result.output
+        assert "Page 2 of 2" in result.output
 
 
 # ---------------------------------------------------------------------------

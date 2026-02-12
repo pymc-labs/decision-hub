@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Building2, Package, ArrowRight, Search, Filter, User } from "lucide-react";
-import { listSkills } from "../api/client";
+import { listAllSkills } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { aggregateOrgs, filterOrgs } from "../lib/filters";
 import NeonCard from "../components/NeonCard";
@@ -11,7 +11,7 @@ import styles from "./OrgsPage.module.css";
 type OrgType = "orgs" | "users" | "all";
 
 export default function OrgsPage() {
-  const { data: skills, loading, error } = useApi(() => listSkills(), []);
+  const { data: skills, loading, error } = useApi(() => listAllSkills(), []);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<OrgType>("orgs");
 

@@ -523,46 +523,9 @@ def _create_zip(path: Path) -> bytes:
     return buf.getvalue()
 
 
-def list_command(
-    org: str = typer.Option(None, "--org", "-o", help="Filter by organization"),
-    skill: str = typer.Option(None, "--skill", "-s", help="Filter by skill name (substring match)"),
-) -> None:
-    """List all published skills on the registry."""
-    from dhub.cli.banner import check_and_show_update, print_banner
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token
-
-    print_banner(console)
-
-    api_url = get_api_url()
-
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/skills",
-            headers=build_headers(get_optional_token()),
-        )
-        resp.raise_for_status()
-        skills = resp.json()
-
-    # Client-side filtering
-    if org:
-        skills = [s for s in skills if s["org_slug"] == org]
-    if skill:
-        skill_lower = skill.lower()
-        skills = [s for s in skills if skill_lower in s["skill_name"].lower()]
-
-    console.print(f"Registry: [dim]{api_url}[/]")
-
-    if not skills:
-        filter_msg = ""
-        if org:
-            filter_msg += f" for org '{org}'"
-        if skill:
-            filter_msg += f" matching '{skill}'"
-        console.print(f"No skills found{filter_msg}.")
-        check_and_show_update(console)
-        return
-
-    table = Table(title="Published Skills", show_lines=True)
+def _render_skills_table(skills: list[dict], title: str = "Published Skills") -> Table:
+    """Build a Rich table from a list of skill dicts."""
+    table = Table(title=title, show_lines=True)
     table.add_column("Org", style="cyan")
     table.add_column("Skill", style="green")
     table.add_column("Category", style="magenta")
@@ -588,8 +551,90 @@ def list_command(
             s.get("author", ""),
             s.get("description", ""),
         )
+    return table
 
-    console.print(table)
+
+def _apply_client_filters(skills: list[dict], org: str | None, skill: str | None) -> list[dict]:
+    """Apply client-side org/skill name filters."""
+    if org:
+        skills = [s for s in skills if s["org_slug"] == org]
+    if skill:
+        skill_lower = skill.lower()
+        skills = [s for s in skills if skill_lower in s["skill_name"].lower()]
+    return skills
+
+
+def list_command(
+    org: str = typer.Option(None, "--org", "-o", help="Filter by organization"),
+    skill: str = typer.Option(None, "--skill", "-s", help="Filter by skill name (substring match)"),
+    page_size: int = typer.Option(50, "--page-size", "-n", min=1, max=100, help="Items per page"),
+    all_pages: bool = typer.Option(False, "--all", help="Dump all pages without prompting"),
+) -> None:
+    """List published skills on the registry."""
+    import sys
+
+    from dhub.cli.banner import check_and_show_update, print_banner
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token
+
+    print_banner(console)
+
+    api_url = get_api_url()
+    headers = build_headers(get_optional_token())
+
+    console.print(f"Registry: [dim]{api_url}[/]")
+
+    page = 1
+    found_any = False
+    with httpx.Client(timeout=60) as client:
+        while True:
+            resp = client.get(
+                f"{api_url}/v1/skills",
+                headers=headers,
+                params={"page": page, "page_size": page_size},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            items = _apply_client_filters(data["items"], org, skill)
+            total = data["total"]
+            total_pages = data["total_pages"]
+
+            if total == 0:
+                console.print("No skills found.")
+                break
+
+            if items:
+                found_any = True
+                console.print(_render_skills_table(items))
+
+            console.print(f"[dim]Page {page} of {total_pages} ({total} total skills)[/]")
+
+            if page >= total_pages:
+                if not found_any:
+                    filter_msg = ""
+                    if org:
+                        filter_msg += f" for org '{org}'"
+                    if skill:
+                        filter_msg += f" matching '{skill}'"
+                    console.print(f"No skills found{filter_msg}.")
+                break
+
+            if all_pages:
+                page += 1
+                continue
+
+            # Interactive prompt — only if stdout is a TTY
+            if not sys.stdout.isatty():
+                break
+
+            try:
+                answer = console.input("[bold]Show next page?[/] [dim](y/n)[/] ")
+                if answer.strip().lower() not in ("y", "yes"):
+                    break
+            except (EOFError, KeyboardInterrupt):
+                break
+
+            page += 1
 
     check_and_show_update(console)
 

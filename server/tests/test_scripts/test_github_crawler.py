@@ -652,7 +652,6 @@ class TestOrchestrator:
 
         args = parse_args([])
         assert args.env == "dev"
-        assert args.concurrency == 50
         assert args.max_skills is None
         assert args.dry_run is False
         assert args.resume is False

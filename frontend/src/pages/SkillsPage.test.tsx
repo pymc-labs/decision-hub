@@ -55,7 +55,15 @@ const TAXONOMY = {
 };
 
 const server = setupServer(
-  http.get("/v1/skills", () => HttpResponse.json(SKILLS)),
+  http.get("/v1/skills", () =>
+    HttpResponse.json({
+      items: SKILLS,
+      total: SKILLS.length,
+      page: 1,
+      page_size: 100,
+      total_pages: 1,
+    }),
+  ),
   http.get("/v1/taxonomy", () => HttpResponse.json(TAXONOMY)),
 );
 

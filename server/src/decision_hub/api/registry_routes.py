@@ -1,6 +1,7 @@
 """Skill registry routes -- publish, resolve, and delete."""
 
 import json
+import math
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -35,6 +36,7 @@ from decision_hub.domain.publish import (
 from decision_hub.domain.search import format_trust_score
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
+    count_all_skills,
     delete_all_versions,
     delete_skill_access_grant,
     delete_version,
@@ -158,6 +160,16 @@ class SkillSummary(BaseModel):
     is_personal_org: bool = False
     category: str = ""
     visibility: str = "public"
+
+
+class PaginatedSkillsResponse(BaseModel):
+    """Paginated response for the skills list endpoint."""
+
+    items: list[SkillSummary]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class AuditLogResponse(BaseModel):
@@ -461,15 +473,22 @@ def publish_skill(
     )
 
 
-@public_router.get("/skills", response_model=list[SkillSummary])
+@public_router.get("/skills", response_model=PaginatedSkillsResponse)
 def list_skills(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
-) -> list[SkillSummary]:
-    """List all published skills with their latest version info."""
+) -> PaginatedSkillsResponse:
+    """List published skills with pagination."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    rows = fetch_all_skills_for_index(conn, user_org_ids=user_org_ids)
-    return [
+
+    total = count_all_skills(conn, user_org_ids=user_org_ids)
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    offset = (page - 1) * page_size
+
+    rows = fetch_all_skills_for_index(conn, user_org_ids=user_org_ids, limit=page_size, offset=offset)
+    items = [
         SkillSummary(
             org_slug=row["org_slug"],
             skill_name=row["skill_name"],
@@ -485,6 +504,13 @@ def list_skills(
         )
         for row in rows
     ]
+    return PaginatedSkillsResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 @public_router.get(

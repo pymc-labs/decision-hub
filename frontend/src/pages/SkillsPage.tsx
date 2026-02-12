@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Search, Package, Download, Filter, User, Tag, Layers } from "lucide-react";
-import { listSkills, getTaxonomy } from "../api/client";
+import { Search, Package, Download, Filter, User, Tag, Layers, ChevronLeft, ChevronRight } from "lucide-react";
+import { listAllSkills, getTaxonomy } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import type { SkillSummary } from "../types/api";
 import { extractOrgs, filterSkills } from "../lib/filters";
@@ -10,8 +10,11 @@ import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import styles from "./SkillsPage.module.css";
 
+const PAGE_SIZE = 12;
+
 export default function SkillsPage() {
-  const { data: skills, loading, error } = useApi(() => listSkills(), []);
+  const [page, setPage] = useState(1);
+  const { data: allSkills, loading, error } = useApi(() => listAllSkills(), []);
   const { data: taxonomy } = useApi(() => getTaxonomy(), []);
   const [search, setSearch] = useState("");
   const [orgFilter, setOrgFilter] = useState<string>("all");
@@ -20,30 +23,45 @@ export default function SkillsPage() {
   const [sortBy, setSortBy] = useState<"name" | "downloads" | "updated">("updated");
   const [viewMode, setViewMode] = useState<"grid" | "grouped">("grid");
 
+  const skills = allSkills ?? [];
+
   const orgs = useMemo(
-    () => extractOrgs(skills ?? []),
+    () => extractOrgs(skills),
     [skills],
   );
 
   const activeCategories = useMemo(() => {
-    if (!skills) return new Set<string>();
     return new Set(skills.map((s) => s.category).filter(Boolean));
   }, [skills]);
 
+  // Filter the full dataset, then paginate the result
   const filtered = useMemo(
-    () => filterSkills(skills ?? [], search, orgFilter, gradeFilter, sortBy, categoryFilter),
+    () => filterSkills(skills, search, orgFilter, gradeFilter, sortBy, categoryFilter),
     [skills, search, orgFilter, gradeFilter, sortBy, categoryFilter],
   );
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginatedSkills = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  );
+
   const groupedSkills = useMemo(() => {
-    const groups: Record<string, typeof filtered> = {};
-    for (const skill of filtered) {
+    const groups: Record<string, SkillSummary[]> = {};
+    for (const skill of paginatedSkills) {
       const cat = skill.category || "Uncategorized";
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(skill);
     }
     return groups;
-  }, [filtered]);
+  }, [paginatedSkills]);
+
+  // Reset to page 1 when filters change
+  const resetAndSetSearch = (v: string) => { setSearch(v); setPage(1); };
+  const resetAndSetOrg = (v: string) => { setOrgFilter(v); setPage(1); };
+  const resetAndSetGrade = (v: string) => { setGradeFilter(v); setPage(1); };
+  const resetAndSetCategory = (v: string) => { setCategoryFilter(v); setPage(1); };
+  const resetAndSetSort = (v: "name" | "downloads" | "updated") => { setSortBy(v); setPage(1); };
 
   if (loading) return <LoadingSpinner text="Loading skills..." />;
   if (error) {
@@ -64,7 +82,7 @@ export default function SkillsPage() {
           Skill Registry
         </h1>
         <p className={styles.subtitle}>
-          {skills?.length ?? 0} skills published across {orgs.length} organizations
+          {skills.length} skills published across {orgs.length} organizations
         </p>
       </div>
 
@@ -76,7 +94,7 @@ export default function SkillsPage() {
             type="text"
             placeholder="Search skills..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => resetAndSetSearch(e.target.value)}
             className={styles.searchInput}
           />
         </div>
@@ -85,7 +103,7 @@ export default function SkillsPage() {
           <Filter size={14} />
           <select
             value={orgFilter}
-            onChange={(e) => setOrgFilter(e.target.value)}
+            onChange={(e) => resetAndSetOrg(e.target.value)}
             className={styles.select}
           >
             <option value="all">All Orgs</option>
@@ -98,7 +116,7 @@ export default function SkillsPage() {
 
           <select
             value={gradeFilter}
-            onChange={(e) => setGradeFilter(e.target.value)}
+            onChange={(e) => resetAndSetGrade(e.target.value)}
             className={styles.select}
           >
             <option value="all">All Grades</option>
@@ -109,7 +127,7 @@ export default function SkillsPage() {
 
           <select
             value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            onChange={(e) => resetAndSetCategory(e.target.value)}
             className={styles.select}
           >
             <option value="all">All Categories</option>
@@ -132,7 +150,7 @@ export default function SkillsPage() {
 
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "name" | "downloads" | "updated")}
+            onChange={(e) => resetAndSetSort(e.target.value as "name" | "downloads" | "updated")}
             className={styles.select}
           >
             <option value="updated">Latest</option>
@@ -151,7 +169,7 @@ export default function SkillsPage() {
       </div>
 
       {/* Results */}
-      {filtered.length === 0 ? (
+      {paginatedSkills.length === 0 ? (
         <div className={styles.empty}>
           <Package size={48} />
           <p>No skills match your filters</p>
@@ -175,9 +193,34 @@ export default function SkillsPage() {
         </div>
       ) : (
         <div className={styles.grid}>
-          {filtered.map((skill) => (
+          {paginatedSkills.map((skill) => (
             <SkillCard key={`${skill.org_slug}/${skill.skill_name}`} skill={skill} />
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className={styles.pagination}>
+          <button
+            className={styles.pageButton}
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft size={16} />
+            Prev
+          </button>
+          <span className={styles.pageInfo}>
+            Page {page} of {totalPages}
+          </span>
+          <button
+            className={styles.pageButton}
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Next
+            <ChevronRight size={16} />
+          </button>
         </div>
       )}
     </div>

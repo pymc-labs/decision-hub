@@ -1041,24 +1041,33 @@ class TestDeleteSkillVersion:
 class TestListSkills:
     """GET /v1/skills -- list all published skills."""
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_empty(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
-        """Empty registry returns an empty list."""
+        """Empty registry returns an empty items list."""
         mock_fetch.return_value = []
 
         resp = client.get("/v1/skills")
 
         assert resp.status_code == 200
-        assert resp.json() == []
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
+        assert data["page"] == 1
+        assert data["page_size"] == 20
+        assert data["total_pages"] == 1
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=1)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_returns_data(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Skills are returned with all expected fields."""
@@ -1081,8 +1090,8 @@ class TestListSkills:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 1
-        skill = data[0]
+        assert len(data["items"]) == 1
+        skill = data["items"][0]
         assert skill["org_slug"] == "acme"
         assert skill["skill_name"] == "doc-writer"
         assert skill["description"] == "Writes documentation"
@@ -1092,10 +1101,12 @@ class TestListSkills:
         assert skill["author"] == "alice"
         assert skill["download_count"] == 42
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=4)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_safety_rating(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """Safety rating maps eval_status correctly for both new and legacy values."""
@@ -1145,16 +1156,18 @@ class TestListSkills:
         resp = client.get("/v1/skills")
 
         assert resp.status_code == 200
-        data = resp.json()
-        assert data[0]["safety_rating"] == "A"
-        assert data[1]["safety_rating"] == "B"
-        assert data[2]["safety_rating"] == "C"
-        assert data[3]["safety_rating"] == "A"  # legacy "passed" -> A
+        items = resp.json()["items"]
+        assert items[0]["safety_rating"] == "A"
+        assert items[1]["safety_rating"] == "B"
+        assert items[2]["safety_rating"] == "C"
+        assert items[3]["safety_rating"] == "A"  # legacy "passed" -> A
 
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
     @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
     def test_list_skills_does_not_require_auth(
         self,
         mock_fetch: MagicMock,
+        mock_count: MagicMock,
         client: TestClient,
     ) -> None:
         """List endpoint is public — no auth required."""
@@ -1163,6 +1176,45 @@ class TestListSkills:
         resp = client.get("/v1/skills")
 
         assert resp.status_code == 200
+
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=25)
+    @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
+    def test_list_skills_pagination_params(
+        self,
+        mock_fetch: MagicMock,
+        mock_count: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Page and page_size query params are forwarded correctly."""
+        mock_fetch.return_value = []
+
+        resp = client.get("/v1/skills?page=2&page_size=10")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["page"] == 2
+        assert data["page_size"] == 10
+        assert data["total"] == 25
+        assert data["total_pages"] == 3
+        mock_fetch.assert_called_once()
+        call_kwargs = mock_fetch.call_args
+        assert call_kwargs.kwargs["limit"] == 10
+        assert call_kwargs.kwargs["offset"] == 10
+
+    @patch("decision_hub.api.registry_routes.count_all_skills", return_value=0)
+    @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
+    def test_list_skills_page_size_limit(
+        self,
+        mock_fetch: MagicMock,
+        mock_count: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """page_size > 100 is rejected by validation."""
+        mock_fetch.return_value = []
+
+        resp = client.get("/v1/skills?page_size=200")
+
+        assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

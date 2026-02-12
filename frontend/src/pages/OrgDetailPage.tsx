@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Package, Download, ArrowLeft, Globe, Github } from "lucide-react";
-import { listSkills, getOrgProfile } from "../api/client";
+import { listAllSkills, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -11,7 +11,7 @@ import styles from "./OrgDetailPage.module.css";
 
 export default function OrgDetailPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
-  const { data: allSkills, loading, error } = useApi(() => listSkills(), []);
+  const { data: allSkills, loading, error } = useApi(() => listAllSkills(), []);
   const { data: profile } = useApi(() => getOrgProfile(orgSlug!), [orgSlug]);
 
   const skills = useMemo(() => {

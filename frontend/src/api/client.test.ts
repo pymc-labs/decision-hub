@@ -3,6 +3,7 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   listSkills,
+  listAllSkills,
   resolveSkill,
   getEvalReport,
   getAuditLog,
@@ -16,16 +17,78 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("listSkills", () => {
-  it("returns parsed JSON array", async () => {
-    const skills = [
-      { org_slug: "acme", skill_name: "test-skill", download_count: 42 },
-    ];
+  it("returns paginated response", async () => {
+    const response = {
+      items: [
+        { org_slug: "acme", skill_name: "test-skill", download_count: 42 },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      total_pages: 1,
+    };
     server.use(
-      http.get("/v1/skills", () => HttpResponse.json(skills)),
+      http.get("/v1/skills", () => HttpResponse.json(response)),
     );
 
     const result = await listSkills();
-    expect(result).toEqual(skills);
+    expect(result).toEqual(response);
+    expect(result.items).toHaveLength(1);
+  });
+
+  it("passes page and page_size query params", async () => {
+    const response = {
+      items: [],
+      total: 0,
+      page: 3,
+      page_size: 10,
+      total_pages: 1,
+    };
+    server.use(
+      http.get("/v1/skills", ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get("page")).toBe("3");
+        expect(url.searchParams.get("page_size")).toBe("10");
+        return HttpResponse.json(response);
+      }),
+    );
+
+    await listSkills(3, 10);
+  });
+});
+
+describe("listAllSkills", () => {
+  it("fetches all pages and returns flat array", async () => {
+    let callCount = 0;
+    server.use(
+      http.get("/v1/skills", ({ request }) => {
+        callCount++;
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get("page") ?? "1");
+        if (page === 1) {
+          return HttpResponse.json({
+            items: [{ org_slug: "acme", skill_name: "skill-a" }],
+            total: 2,
+            page: 1,
+            page_size: 100,
+            total_pages: 2,
+          });
+        }
+        return HttpResponse.json({
+          items: [{ org_slug: "acme", skill_name: "skill-b" }],
+          total: 2,
+          page: 2,
+          page_size: 100,
+          total_pages: 2,
+        });
+      }),
+    );
+
+    const result = await listAllSkills();
+    expect(result).toHaveLength(2);
+    expect(result[0].skill_name).toBe("skill-a");
+    expect(result[1].skill_name).toBe("skill-b");
+    expect(callCount).toBe(2);
   });
 });
 

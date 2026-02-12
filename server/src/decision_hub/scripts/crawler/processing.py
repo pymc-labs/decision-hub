@@ -142,6 +142,7 @@ def process_repo_on_modal(
             # Clone and discover
             repo_root = clone_repo(
                 repo_dict["clone_url"],
+                github_token=github_token,
                 timeout=CLONE_TIMEOUT_SECONDS,
             )
             tmp_dir = repo_root.parent
