@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Package, Download, ArrowLeft, Globe, Github, ChevronLeft, ChevronRight } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
@@ -14,6 +14,11 @@ const PAGE_SIZE = 24;
 export default function OrgDetailPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const [page, setPage] = useState(1);
+
+  // Reset pagination when navigating between organizations
+  useEffect(() => {
+    setPage(1);
+  }, [orgSlug]);
 
   const fetchSkills = useCallback(
     () => listSkillsFiltered({ org: orgSlug, sort: "updated", pageSize: PAGE_SIZE, page }),

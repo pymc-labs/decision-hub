@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID
 
 import httpx
+from loguru import logger
 
 from decision_hub.domain.orgs import METADATA_CACHE_TTL
 from decision_hub.domain.publish import (
@@ -143,25 +144,32 @@ def process_repo_on_modal(
 
         # Sync GitHub metadata outside the DB transaction to avoid
         # holding a connection during the HTTP call (up to 15s timeout).
-        needs_sync = org.github_synced_at is None or (datetime.now(UTC) - org.github_synced_at) > METADATA_CACHE_TTL
-        if needs_sync:
-            meta = fetch_owner_metadata(
+        # Best-effort: failures must not block skill publishing.
+        try:
+            needs_sync = org.github_synced_at is None or (datetime.now(UTC) - org.github_synced_at) > METADATA_CACHE_TTL
+            if needs_sync:
+                meta = fetch_owner_metadata(
+                    repo_dict["owner_login"],
+                    repo_dict["owner_type"],
+                    github_token,
+                )
+                if meta:
+                    with engine.connect() as conn:
+                        update_org_github_metadata(
+                            conn,
+                            org.id,
+                            avatar_url=meta.get("avatar_url"),
+                            email=meta.get("email"),
+                            description=meta.get("description"),
+                            blog=meta.get("blog"),
+                        )
+                        conn.commit()
+                    result["metadata_synced"] = True
+        except Exception:
+            logger.opt(exception=True).warning(
+                "Failed to sync GitHub metadata for {}; continuing with skill publishing",
                 repo_dict["owner_login"],
-                repo_dict["owner_type"],
-                github_token,
             )
-            if meta:
-                with engine.connect() as conn:
-                    update_org_github_metadata(
-                        conn,
-                        org.id,
-                        avatar_url=meta.get("avatar_url"),
-                        email=meta.get("email"),
-                        description=meta.get("description"),
-                        blog=meta.get("blog"),
-                    )
-                    conn.commit()
-                result["metadata_synced"] = True
 
         # Clone and discover
         repo_root = clone_repo(
