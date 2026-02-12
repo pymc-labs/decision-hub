@@ -1,11 +1,14 @@
-"""Backfill GitHub metadata (avatar, description, blog) for existing orgs.
+"""Backfill GitHub metadata and fix is_personal for existing orgs.
 
 One-off script to populate metadata for orgs discovered by the crawler
-that never had a user log in via OAuth.
+that never had a user log in via OAuth, and to fix the is_personal flag
+for orgs that were incorrectly classified.
 
 Usage:
     cd server && DHUB_ENV=dev uv run --package decision-hub-server \
         python -m decision_hub.scripts.backfill_org_metadata --github-token "$(gh auth token)"
+    cd server && DHUB_ENV=dev uv run --package decision-hub-server \
+        python -m decision_hub.scripts.backfill_org_metadata fix-is-personal --github-token "$(gh auth token)"
 """
 
 import argparse
@@ -33,22 +36,44 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _make_github_headers(token: str) -> dict[str, str]:
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+    }
+
+
+def _add_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--github-token", type=str, required=True, help="GitHub PAT")
+    parser.add_argument("--dry-run", action="store_true")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Backfill GitHub metadata for orgs missing github_synced_at.",
+        description="Backfill org metadata and fix classifications.",
     )
-    parser.add_argument(
-        "--github-token",
-        type=str,
-        required=True,
-        help="GitHub PAT for API requests",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print what would be done without making changes",
-    )
-    return parser.parse_args(argv)
+    sub = parser.add_subparsers(dest="command")
+
+    # "metadata" subcommand (also the default when no subcommand given)
+    meta_cmd = sub.add_parser("metadata", help="Backfill GitHub metadata for unsynced orgs")
+    _add_common_args(meta_cmd)
+
+    # "fix-is-personal" subcommand
+    fix_cmd = sub.add_parser("fix-is-personal", help="Fix is_personal flag using GitHub API")
+    _add_common_args(fix_cmd)
+
+    args = parser.parse_args(argv)
+
+    # Default to "metadata" when no subcommand given
+    if args.command is None:
+        args = parser.parse_args(["metadata"] + (argv if argv else sys.argv[1:]))
+
+    return args
+
+
+# ---------------------------------------------------------------------------
+# Metadata backfill
+# ---------------------------------------------------------------------------
 
 
 def _fetch_metadata(client: httpx.Client, slug: str, is_personal: bool) -> dict:
@@ -77,7 +102,7 @@ def _fetch_metadata(client: httpx.Client, slug: str, is_personal: bool) -> dict:
     return {}
 
 
-def _fetch_one(client: httpx.Client, org_id: UUID, slug: str, is_personal: bool) -> tuple[UUID, str, dict]:
+def _fetch_metadata_one(client: httpx.Client, org_id: UUID, slug: str, is_personal: bool) -> tuple[UUID, str, dict]:
     """Fetch metadata for a single org. Returns (org_id, slug, meta_dict)."""
     try:
         meta = _fetch_metadata(client, slug, is_personal)
@@ -86,13 +111,8 @@ def _fetch_one(client: httpx.Client, org_id: UUID, slug: str, is_personal: bool)
     return org_id, slug, meta
 
 
-def main() -> None:
-    args = parse_args()
-    env = os.environ.get("DHUB_ENV", "dev")
-    settings = create_settings(env)
-    engine = create_engine(settings.database_url)
-
-    # Find all orgs where github_synced_at is NULL
+def backfill_metadata(engine: sa.engine.Engine, token: str, *, dry_run: bool) -> None:
+    """Backfill GitHub metadata for orgs where github_synced_at is NULL."""
     stmt = (
         sa.select(
             organizations_table.c.id,
@@ -109,7 +129,7 @@ def main() -> None:
     total = len(rows)
     _log(f"Found {total} orgs with github_synced_at IS NULL")
 
-    if args.dry_run:
+    if dry_run:
         for row in rows:
             _log(f"  Would backfill: {row.slug} (personal={row.is_personal})")
         return
@@ -117,16 +137,16 @@ def main() -> None:
     if total == 0:
         return
 
-    # Phase 1: Fetch all metadata concurrently
     _log(f"Fetching metadata from GitHub ({_MAX_WORKERS} concurrent)...")
     results: list[tuple[UUID, str, dict]] = []
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {args.github_token}",
-    }
 
-    with httpx.Client(headers=headers) as client, ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
-        futures = {executor.submit(_fetch_one, client, row.id, row.slug, row.is_personal): row.slug for row in rows}
+    with (
+        httpx.Client(headers=_make_github_headers(token)) as client,
+        ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor,
+    ):
+        futures = {
+            executor.submit(_fetch_metadata_one, client, row.id, row.slug, row.is_personal): row.slug for row in rows
+        }
         for done, future in enumerate(as_completed(futures), 1):
             results.append(future.result())
             if done % 100 == 0:
@@ -134,7 +154,6 @@ def main() -> None:
 
     _log(f"  Fetched {total}/{total}")
 
-    # Phase 2: Batch DB writes in a single transaction
     updated = 0
     failed = 0
     skipped = 0
@@ -158,6 +177,96 @@ def main() -> None:
             updated += 1
 
     _log(f"\nDone: {updated} updated, {skipped} skipped, {failed} failed (of {total})")
+
+
+# ---------------------------------------------------------------------------
+# Fix is_personal classification
+# ---------------------------------------------------------------------------
+
+
+def _fetch_type(client: httpx.Client, slug: str) -> str | None:
+    """Return 'User' or 'Organization' for a GitHub account, or None on error."""
+    resp = client.get(f"{_GITHUB_API}/users/{slug}", timeout=15)
+    if resp.status_code == 200:
+        return resp.json().get("type")
+    return None
+
+
+def _fetch_type_one(client: httpx.Client, org_id: UUID, slug: str) -> tuple[UUID, str, str | None]:
+    try:
+        gh_type = _fetch_type(client, slug)
+    except httpx.HTTPError:
+        gh_type = None
+    return org_id, slug, gh_type
+
+
+def fix_is_personal(engine: sa.engine.Engine, token: str, *, dry_run: bool) -> None:
+    """Fix is_personal for orgs where is_personal=False but GitHub type is User."""
+    stmt = (
+        sa.select(
+            organizations_table.c.id,
+            organizations_table.c.slug,
+        )
+        .where(organizations_table.c.is_personal.is_(False))
+        .order_by(organizations_table.c.slug)
+    )
+
+    with engine.connect() as conn:
+        rows = conn.execute(stmt).fetchall()
+
+    total = len(rows)
+    _log(f"Found {total} orgs with is_personal=False, checking GitHub type...")
+
+    results: list[tuple[UUID, str, str | None]] = []
+
+    with (
+        httpx.Client(headers=_make_github_headers(token)) as client,
+        ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor,
+    ):
+        futures = {executor.submit(_fetch_type_one, client, row.id, row.slug): row.slug for row in rows}
+        for done, future in enumerate(as_completed(futures), 1):
+            results.append(future.result())
+            if done % 100 == 0:
+                _log(f"  Checked {done}/{total}")
+
+    _log(f"  Checked {total}/{total}")
+
+    to_fix = [(org_id, slug) for org_id, slug, gh_type in results if gh_type == "User"]
+    _log(f"  {len(to_fix)} need is_personal=True (actual GitHub Users)")
+
+    if dry_run:
+        for _org_id, slug in to_fix:
+            _log(f"  Would fix: {slug}")
+        return
+
+    if not to_fix:
+        return
+
+    with engine.begin() as conn:
+        for org_id, _slug in to_fix:
+            conn.execute(
+                sa.update(organizations_table).where(organizations_table.c.id == org_id).values(is_personal=True)
+            )
+
+    _log(f"Fixed {len(to_fix)} orgs → is_personal=True")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    args = parse_args()
+    env = os.environ.get("DHUB_ENV", "dev")
+    settings = create_settings(env)
+    engine = create_engine(settings.database_url)
+
+    if args.command == "fix-is-personal":
+        fix_is_personal(engine, args.github_token, dry_run=args.dry_run)
+    elif args.command == "metadata":
+        backfill_metadata(engine, args.github_token, dry_run=args.dry_run)
+
     sys.exit(0)
 
 

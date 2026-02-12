@@ -131,7 +131,8 @@ def process_repo_on_modal(
             # Ensure org exists and bot is a member
             org = find_org_by_slug(conn, slug)
             if org is None:
-                org = insert_organization(conn, slug, bot_user_id, is_personal=False)
+                is_personal = repo_dict["owner_type"] == "User"
+                org = insert_organization(conn, slug, bot_user_id, is_personal=is_personal)
                 insert_org_member(conn, org.id, bot_user_id, "owner")
                 result["org_created"] = True
             else:
