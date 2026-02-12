@@ -22,6 +22,8 @@ GITHUB_API = "https://api.github.com"
 # highest-signal skills are indexed first.
 TRUSTED_ORGS: frozenset[str] = frozenset(
     {
+        # Decision Hub
+        "pymc-labs",
         # LLM providers
         "anthropics",
         "openai",
