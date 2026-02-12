@@ -50,12 +50,14 @@ class TestExchangeToken:
     """POST /auth/github/token -- exchanges device_code for a JWT."""
 
     @respx.mock
+    @patch("decision_hub.api.auth_routes.sync_org_github_metadata")
     @patch("decision_hub.api.auth_routes.sync_user_orgs", return_value=["alice"])
     @patch("decision_hub.api.auth_routes.upsert_user")
     def test_returns_jwt_on_success(
         self,
         mock_upsert: MagicMock,
         mock_sync: MagicMock,
+        mock_meta_sync: MagicMock,
         client: TestClient,
     ) -> None:
         """Successful flow should return an access_token, username, and orgs."""
@@ -96,6 +98,7 @@ class TestExchangeToken:
 
         mock_upsert.assert_called_once()
         mock_sync.assert_called_once()
+        mock_meta_sync.assert_called_once()
 
     @respx.mock
     @patch("decision_hub.api.auth_routes.upsert_user")
@@ -131,12 +134,14 @@ class TestExchangeToken:
         assert org_route.calls[0].request.headers["authorization"] == "Bearer gh-access-token-xyz"
 
     @respx.mock
+    @patch("decision_hub.api.auth_routes.sync_org_github_metadata")
     @patch("decision_hub.api.auth_routes.sync_user_orgs", return_value=["alice", "pymc-labs"])
     @patch("decision_hub.api.auth_routes.upsert_user")
     def test_allows_user_in_required_org(
         self,
         mock_upsert: MagicMock,
         mock_sync: MagicMock,
+        mock_meta_sync: MagicMock,
         client: TestClient,
         test_settings: MagicMock,
     ) -> None:
@@ -169,12 +174,14 @@ class TestExchangeToken:
         assert resp.json()["orgs"] == ["alice", "pymc-labs"]
 
     @respx.mock
+    @patch("decision_hub.api.auth_routes.sync_org_github_metadata")
     @patch("decision_hub.api.auth_routes.sync_user_orgs", return_value=["alice"])
     @patch("decision_hub.api.auth_routes.upsert_user")
     def test_graceful_degradation_when_org_fetch_fails(
         self,
         mock_upsert: MagicMock,
         mock_sync: MagicMock,
+        mock_meta_sync: MagicMock,
         client: TestClient,
     ) -> None:
         """When GitHub org fetch fails, should still succeed with personal namespace."""
@@ -206,6 +213,42 @@ class TestExchangeToken:
         mock_sync.assert_called_once()
         args = mock_sync.call_args[0]
         assert args[2] == []  # github_org_logins should be empty
+
+    @respx.mock
+    @patch("decision_hub.api.auth_routes.sync_org_github_metadata", side_effect=RuntimeError("boom"))
+    @patch("decision_hub.api.auth_routes.sync_user_orgs", return_value=["alice"])
+    @patch("decision_hub.api.auth_routes.upsert_user")
+    def test_metadata_sync_failure_does_not_block_login(
+        self,
+        mock_upsert: MagicMock,
+        mock_sync: MagicMock,
+        mock_meta_sync: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """When metadata sync fails, login should still succeed."""
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
+        )
+        respx.get("https://api.github.com/user").mock(
+            return_value=httpx.Response(200, json={"id": 42, "login": "alice"})
+        )
+        respx.get("https://api.github.com/user/orgs?per_page=100").mock(return_value=httpx.Response(200, json=[]))
+        mock_upsert.return_value = User(
+            id=UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+            github_id="42",
+            username="alice",
+        )
+
+        resp = client.post(
+            "/auth/github/token",
+            json={"device_code": "dev-code-abc"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["username"] == "alice"
+        assert data["orgs"] == ["alice"]
+        mock_meta_sync.assert_called_once()
 
     @respx.mock
     def test_authorization_pending_returns_428(

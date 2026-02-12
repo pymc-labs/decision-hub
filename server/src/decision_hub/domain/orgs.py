@@ -1,6 +1,7 @@
 """Organization validation and sync logic."""
 
 import re
+from datetime import timedelta
 from uuid import UUID
 
 from loguru import logger
@@ -149,3 +150,67 @@ def _ensure_org_membership(
     member = find_member_fn(conn, org.id, user_id)
     if member is None:
         insert_member_fn(conn, org.id, user_id, default_role)
+
+
+_METADATA_CACHE_TTL = timedelta(hours=24)
+
+
+async def sync_org_github_metadata(
+    conn: Connection,
+    gh_token: str,
+    org_slugs: list[str],
+    username: str,
+) -> None:
+    """Sync GitHub metadata (avatar, description, blog) for each org.
+
+    For each org slug:
+    1. Look up the org in the DB — skip if not found.
+    2. Skip if ``github_synced_at`` is within the last 24 hours.
+    3. For the personal namespace (slug == username), fetch from
+       ``/users/{username}``; otherwise fetch from ``/orgs/{slug}``.
+    4. Persist via ``update_org_github_metadata``.
+
+    Individual org failures are logged and skipped so the loop always
+    completes.
+
+    Args:
+        conn: Active database connection.
+        gh_token: GitHub OAuth access token.
+        org_slugs: List of org slugs to sync.
+        username: GitHub username (identifies the personal namespace).
+    """
+    from datetime import UTC, datetime
+
+    from decision_hub.infra.database import find_org_by_slug, update_org_github_metadata
+    from decision_hub.infra.github import fetch_org_metadata, fetch_user_metadata
+
+    now = datetime.now(UTC)
+
+    for slug in org_slugs:
+        try:
+            org = find_org_by_slug(conn, slug)
+            if org is None:
+                continue
+
+            # Skip if recently synced
+            if org.github_synced_at and (now - org.github_synced_at) < _METADATA_CACHE_TTL:
+                continue
+
+            if slug == username.lower():
+                meta = await fetch_user_metadata(gh_token, username)
+            else:
+                meta = await fetch_org_metadata(gh_token, slug)
+
+            update_org_github_metadata(
+                conn,
+                org.id,
+                avatar_url=meta.get("avatar_url"),
+                email=meta.get("email"),
+                description=meta.get("description"),
+                blog=meta.get("blog"),
+            )
+        except Exception:
+            logger.opt(exception=True).debug(
+                "Failed to sync GitHub metadata for org {}; skipping",
+                slug,
+            )

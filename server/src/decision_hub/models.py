@@ -39,6 +39,10 @@ class Organization:
     owner_id: UUID
     is_personal: bool = False
     email: str | None = None
+    avatar_url: str | None = None
+    description: str | None = None
+    blog: str | None = None
+    github_synced_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
