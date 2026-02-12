@@ -1496,7 +1496,22 @@ def fetch_all_skills_for_index(
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
-    total = rows[0]._total if rows else 0
+    # COUNT(*) OVER() is only available on returned rows; when OFFSET
+    # skips past all data the result set is empty.  Fall back to a
+    # lightweight count query so out-of-range pages still report the
+    # correct total (needed for stable pagination metadata).
+    if rows:
+        total = rows[0]._total
+    else:
+        total = count_all_skills(
+            conn,
+            user_org_ids=user_org_ids,
+            granted_skill_ids=granted_skill_ids,
+            search=search,
+            org_slug=org_slug,
+            category=category,
+            grade=grade,
+        )
     items = [
         {
             "org_slug": row.org_slug,

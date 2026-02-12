@@ -555,7 +555,6 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     return table
 
 
-
 def list_command(
     org: str = typer.Option(None, "--org", "-o", help="Filter by organization"),
     skill: str = typer.Option(None, "--skill", "-s", help="Filter by skill name (substring match)"),
@@ -579,7 +578,7 @@ def list_command(
     found_any = False
     with httpx.Client(timeout=60) as client:
         while True:
-            params: dict[str, int | str] = {"page": page, "page_size": page_size}
+            params: dict[str, int | str] = {"page": page, "page_size": page_size, "sort": "downloads"}
             if org:
                 params["org"] = org
             if skill:
