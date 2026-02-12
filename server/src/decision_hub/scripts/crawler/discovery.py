@@ -33,8 +33,9 @@ TRUSTED_ORGS: frozenset[str] = frozenset(
         "cohere-ai",
         # AI-native dev tools
         "replit",
-        "cursor-ai",
+        "getcursor",
         "codeium",
+        "exafunction",
         "sourcegraph",
         "continuedev",
         "github",
@@ -46,6 +47,7 @@ TRUSTED_ORGS: frozenset[str] = frozenset(
         "run-llama",
         "huggingface",
         "deepmind",
+        "google-deepmind",
         "stability-ai",
     }
 )
