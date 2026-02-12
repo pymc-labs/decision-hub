@@ -151,6 +151,55 @@ def run_discovery(
     return all_repos
 
 
+def _filter_changed_repos(
+    repos: list[DiscoveredRepo],
+    checkpoint: Checkpoint,
+    github_token: str | None,
+) -> list[DiscoveredRepo]:
+    """Filter out repos whose HEAD SHA matches the checkpoint (unchanged).
+
+    Uses the GitHub API to fetch current HEAD SHA for each previously-processed
+    repo. Repos not in the checkpoint are always included.
+    """
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    from decision_hub.domain.tracker import fetch_latest_commit_sha
+
+    changed: list[DiscoveredRepo] = []
+    skipped = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("{task.completed}/{task.total}"),
+    ) as progress:
+        task = progress.add_task("Checking for repo changes...", total=len(repos))
+
+        for repo in repos:
+            last_sha = checkpoint.get_last_sha(repo.full_name)
+            if last_sha is not None:
+                # Previously processed — check if HEAD changed
+                parts = repo.full_name.split("/", 1)
+                if len(parts) == 2:
+                    try:
+                        current_sha = fetch_latest_commit_sha(parts[0], parts[1], "HEAD", github_token)
+                        if current_sha == last_sha:
+                            skipped += 1
+                            progress.advance(task)
+                            continue
+                    except Exception:
+                        # If we can't check, process it anyway
+                        pass
+            changed.append(repo)
+            progress.advance(task)
+
+    if skipped:
+        logger.info("{} repos unchanged since last crawl, skipping", skipped)
+    # Process most-starred repos first so popular skills are indexed sooner
+    changed.sort(key=lambda r: r.stars, reverse=True)
+    return changed
+
+
 def run_processing_phase(
     pending_repos: list[DiscoveredRepo],
     bot_user_id: str,
@@ -193,11 +242,13 @@ def run_processing_phase(
             if isinstance(result, Exception):
                 stats.errors.append(str(result)[:500])
                 repo_name = "unknown"
+                commit_sha = None
             else:
                 stats.accumulate(result)
                 repo_name = result.get("repo", "unknown")
+                commit_sha = result.get("commit_sha")
 
-            checkpoint.mark_processed(repo_name, checkpoint_path)
+            checkpoint.mark_processed(repo_name, checkpoint_path, commit_sha=commit_sha)
             progress.update(
                 task,
                 advance=1,
@@ -269,11 +320,11 @@ def run_crawler(args: argparse.Namespace) -> None:
         return
 
     # Phase 2: Processing via Modal
-    processed_set = set(checkpoint.processed_repos)
     from decision_hub.scripts.crawler.models import dict_to_repo
 
-    pending = [dict_to_repo(d) for fn, d in checkpoint.discovered_repos.items() if fn not in processed_set]
-    logger.info("{} repos pending processing", len(pending))
+    all_repos = [dict_to_repo(d) for d in checkpoint.discovered_repos.values()]
+    pending = _filter_changed_repos(all_repos, checkpoint, args.github_token)
+    logger.info("{} repos pending processing ({} total discovered)", len(pending), len(all_repos))
 
     if not pending:
         logger.info("Nothing to process. All repos already handled.")

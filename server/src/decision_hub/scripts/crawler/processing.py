@@ -84,6 +84,7 @@ def process_repo_on_modal(
     result: dict = {
         "repo": repo_dict["full_name"],
         "status": "ok",
+        "commit_sha": None,
         "skills_published": 0,
         "skills_skipped": 0,
         "skills_failed": 0,
@@ -144,6 +145,17 @@ def process_repo_on_modal(
                 timeout=CLONE_TIMEOUT_SECONDS,
             )
             tmp_dir = repo_root.parent
+
+            # Capture commit SHA for checkpoint change-detection
+            sha_proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if sha_proc.returncode == 0:
+                result["commit_sha"] = sha_proc.stdout.strip()
 
             try:
                 skill_dirs = discover_skills(repo_root)

@@ -355,13 +355,38 @@ class TestCheckpoint:
                     "description": "d",
                 }
             },
-            processed_repos=["a/b"],
+            processed_repos={"a/b": "abc123"},
         )
         path = tmp_path / "cp.json"
         cp.save(path)
         loaded = Checkpoint.load(path)
         assert loaded.discovered_repos == cp.discovered_repos
         assert loaded.processed_repos == cp.processed_repos
+
+    def test_legacy_list_migration(self, tmp_path):
+        """Legacy checkpoints with list[str] are auto-migrated to dict."""
+        import json
+
+        path = tmp_path / "cp.json"
+        path.write_text(json.dumps({"discovered_repos": {}, "processed_repos": ["a/b", "c/d"]}))
+        loaded = Checkpoint.load(path)
+        assert loaded.processed_repos == {"a/b": None, "c/d": None}
+
+    def test_mark_processed_stores_sha(self, tmp_path):
+        cp = Checkpoint()
+        path = tmp_path / "cp.json"
+        cp.save(path)
+        cp.mark_processed("a/b", path, commit_sha="abc123", flush_every=1000)
+        assert cp.processed_repos["a/b"] == "abc123"
+        cp.flush(path)
+        loaded = Checkpoint.load(path)
+        assert loaded.processed_repos["a/b"] == "abc123"
+
+    def test_get_last_sha(self):
+        cp = Checkpoint(processed_repos={"a/b": "sha1", "c/d": None})
+        assert cp.get_last_sha("a/b") == "sha1"
+        assert cp.get_last_sha("c/d") is None
+        assert cp.get_last_sha("e/f") is None
 
     def test_mark_processed_flush_every_n(self, tmp_path):
         cp = Checkpoint()
@@ -391,19 +416,6 @@ class TestCheckpoint:
         loaded = Checkpoint.load(path)
         assert "a/b" in loaded.processed_repos
 
-    def test_resume_filters_processed(self):
-        cp = Checkpoint(
-            discovered_repos={
-                "a/b": {"full_name": "a/b"},
-                "c/d": {"full_name": "c/d"},
-                "e/f": {"full_name": "e/f"},
-            },
-            processed_repos=["a/b", "c/d"],
-        )
-        processed_set = set(cp.processed_repos)
-        pending = [fn for fn in cp.discovered_repos if fn not in processed_set]
-        assert pending == ["e/f"]
-
     def test_fresh_deletes_file(self, tmp_path):
         path = tmp_path / "cp.json"
         path.write_text("{}")
@@ -415,13 +427,111 @@ class TestCheckpoint:
         """Verify checkpoint handles 100k entries without issues."""
         cp = Checkpoint(
             discovered_repos={f"owner/repo{i}": {"full_name": f"owner/repo{i}"} for i in range(100_000)},
-            processed_repos=[f"owner/repo{i}" for i in range(50_000)],
+            processed_repos={f"owner/repo{i}": f"sha{i}" for i in range(50_000)},
         )
         path = tmp_path / "cp.json"
         cp.save(path)
         loaded = Checkpoint.load(path)
         assert len(loaded.discovered_repos) == 100_000
         assert len(loaded.processed_repos) == 50_000
+
+
+# ---------------------------------------------------------------------------
+# Change detection / priority sorting tests
+# ---------------------------------------------------------------------------
+
+
+class TestFilterChangedRepos:
+    def test_new_repos_always_included(self):
+        """Repos not in checkpoint are always included."""
+        from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
+
+        repos = [
+            DiscoveredRepo("a/b", "a", "User", "https://github.com/a/b.git", stars=5),
+        ]
+        cp = Checkpoint()  # empty — no processed repos
+
+        result = _filter_changed_repos(repos, cp, github_token=None)
+        assert len(result) == 1
+
+    @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
+    def test_unchanged_repo_skipped(self, mock_fetch_sha):
+        """Repo with same HEAD SHA as checkpoint is skipped."""
+        from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
+
+        mock_fetch_sha.return_value = "abc123"
+
+        repos = [
+            DiscoveredRepo("a/b", "a", "User", "https://github.com/a/b.git", stars=5),
+        ]
+        cp = Checkpoint(processed_repos={"a/b": "abc123"})
+
+        result = _filter_changed_repos(repos, cp, github_token="tok")
+        assert len(result) == 0
+
+    @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
+    def test_changed_repo_included(self, mock_fetch_sha):
+        """Repo with different HEAD SHA is included."""
+        from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
+
+        mock_fetch_sha.return_value = "new_sha"
+
+        repos = [
+            DiscoveredRepo("a/b", "a", "User", "https://github.com/a/b.git", stars=5),
+        ]
+        cp = Checkpoint(processed_repos={"a/b": "old_sha"})
+
+        result = _filter_changed_repos(repos, cp, github_token="tok")
+        assert len(result) == 1
+
+    @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
+    def test_api_error_includes_repo(self, mock_fetch_sha):
+        """If SHA check fails, process the repo anyway (safe default)."""
+        from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
+
+        mock_fetch_sha.side_effect = Exception("API error")
+
+        repos = [
+            DiscoveredRepo("a/b", "a", "User", "https://github.com/a/b.git", stars=5),
+        ]
+        cp = Checkpoint(processed_repos={"a/b": "old_sha"})
+
+        result = _filter_changed_repos(repos, cp, github_token="tok")
+        assert len(result) == 1
+
+    @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
+    def test_sorted_by_stars_descending(self, mock_fetch_sha):
+        """Results are sorted by stars (most popular first)."""
+        from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
+
+        mock_fetch_sha.return_value = "new_sha"
+
+        repos = [
+            DiscoveredRepo("low/repo", "low", "User", "u", stars=1),
+            DiscoveredRepo("high/repo", "high", "User", "u", stars=100),
+            DiscoveredRepo("mid/repo", "mid", "User", "u", stars=50),
+        ]
+        cp = Checkpoint()
+
+        result = _filter_changed_repos(repos, cp, github_token=None)
+        assert [r.full_name for r in result] == ["high/repo", "mid/repo", "low/repo"]
+
+    @patch("decision_hub.domain.tracker.fetch_latest_commit_sha")
+    def test_legacy_none_sha_always_rechecked(self, mock_fetch_sha):
+        """Repos with None SHA (from legacy checkpoint) are always rechecked."""
+        from decision_hub.scripts.crawler.__main__ import _filter_changed_repos
+
+        mock_fetch_sha.return_value = "current_sha"
+
+        repos = [
+            DiscoveredRepo("a/b", "a", "User", "https://github.com/a/b.git", stars=5),
+        ]
+        # Legacy checkpoint: SHA is None (migrated from list)
+        cp = Checkpoint(processed_repos={"a/b": None})
+
+        result = _filter_changed_repos(repos, cp, github_token="tok")
+        # None means "never recorded a SHA", so it should be included
+        assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------
