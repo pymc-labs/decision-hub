@@ -150,3 +150,22 @@ def run_eval_task(
     )
 
     logger.info("Eval task completed for {}/{}", org_slug, skill_name)
+
+
+@app.function(image=image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=300))
+def check_trackers():
+    """Poll GitHub repos for skill updates every 5 minutes.
+
+    Finds all enabled trackers that are due for a check, fetches the
+    latest commit SHA from GitHub, and auto-republishes when changes
+    are detected.
+    """
+    from decision_hub.domain.tracker_service import check_all_due_trackers
+    from decision_hub.logging import setup_logging
+    from decision_hub.settings import create_settings
+
+    settings = create_settings()
+    setup_logging(settings.log_level)
+
+    processed = check_all_due_trackers(settings)
+    print(f"[check_trackers] Processed {processed} tracker(s)", flush=True)

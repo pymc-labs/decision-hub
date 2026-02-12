@@ -36,6 +36,7 @@ from decision_hub.models import (
     OrgMember,
     Skill,
     SkillAccessGrant,
+    SkillTracker,
     User,
     UserApiKey,
     Version,
@@ -359,6 +360,39 @@ search_logs_table = Table(
         nullable=False,
         server_default=sa.func.now(),
     ),
+)
+
+skill_trackers_table = Table(
+    "skill_trackers",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column(
+        "user_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+    ),
+    Column("org_slug", Text, nullable=False),
+    Column("repo_url", Text, nullable=False),
+    Column("branch", String, nullable=False, server_default="main"),
+    Column("last_commit_sha", String, nullable=True),
+    Column("poll_interval_minutes", sa.Integer, nullable=False, server_default="60"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("last_checked_at", DateTime(timezone=True), nullable=True),
+    Column("last_published_at", DateTime(timezone=True), nullable=True),
+    Column("last_error", Text, nullable=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    sa.UniqueConstraint("user_id", "repo_url", "branch"),
 )
 
 
@@ -1701,3 +1735,159 @@ def insert_search_log(
         user_id,
         results_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# Skill tracker queries
+# ---------------------------------------------------------------------------
+
+
+def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
+    """Map a database row to a SkillTracker model."""
+    return SkillTracker(
+        id=row.id,
+        user_id=row.user_id,
+        org_slug=row.org_slug,
+        repo_url=row.repo_url,
+        branch=row.branch,
+        last_commit_sha=row.last_commit_sha,
+        poll_interval_minutes=row.poll_interval_minutes,
+        enabled=row.enabled,
+        last_checked_at=row.last_checked_at,
+        last_published_at=row.last_published_at,
+        last_error=row.last_error,
+        created_at=row.created_at,
+    )
+
+
+def insert_skill_tracker(
+    conn: Connection,
+    user_id: UUID,
+    org_slug: str,
+    repo_url: str,
+    branch: str = "main",
+    poll_interval_minutes: int = 60,
+) -> SkillTracker:
+    """Create a new skill tracker for a GitHub repo."""
+    stmt = (
+        sa.insert(skill_trackers_table)
+        .values(
+            user_id=user_id,
+            org_slug=org_slug,
+            repo_url=repo_url,
+            branch=branch,
+            poll_interval_minutes=poll_interval_minutes,
+        )
+        .returning(*skill_trackers_table.c)
+    )
+    row = conn.execute(stmt).one()
+    tracker = _row_to_skill_tracker(row)
+    logger.debug("Created tracker repo={} branch={} id={}", repo_url, branch, tracker.id)
+    return tracker
+
+
+def find_skill_tracker(conn: Connection, tracker_id: UUID) -> SkillTracker | None:
+    """Find a tracker by its ID."""
+    stmt = sa.select(skill_trackers_table).where(skill_trackers_table.c.id == tracker_id)
+    row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return _row_to_skill_tracker(row)
+
+
+def list_skill_trackers_for_user(conn: Connection, user_id: UUID) -> list[SkillTracker]:
+    """List all trackers owned by a user."""
+    stmt = (
+        sa.select(skill_trackers_table)
+        .where(skill_trackers_table.c.user_id == user_id)
+        .order_by(skill_trackers_table.c.created_at.desc())
+    )
+    rows = conn.execute(stmt).all()
+    return [_row_to_skill_tracker(row) for row in rows]
+
+
+def claim_due_trackers(conn: Connection) -> list[SkillTracker]:
+    """Atomically claim all due trackers for processing.
+
+    Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent concurrent runs
+    from double-processing the same tracker. Claims each selected row
+    by setting last_checked_at = now(), so the next run will skip it.
+
+    Returns the claimed SkillTracker objects (with their pre-claim state).
+    """
+    now = sa.func.now()
+    due_filter = sa.and_(
+        skill_trackers_table.c.enabled.is_(True),
+        sa.or_(
+            skill_trackers_table.c.last_checked_at.is_(None),
+            now
+            > (
+                skill_trackers_table.c.last_checked_at
+                + sa.func.make_interval(
+                    mins=skill_trackers_table.c.poll_interval_minutes,
+                )
+            ),
+        ),
+    )
+
+    # Select due tracker IDs with row-level locking, skipping already-locked rows
+    locked_ids_cte = (
+        sa.select(skill_trackers_table.c.id).where(due_filter).with_for_update(skip_locked=True).cte("locked_ids")
+    )
+
+    # Claim by bumping last_checked_at, returning full rows
+    update_stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(sa.select(locked_ids_cte.c.id)))
+        .values(last_checked_at=now)
+        .returning(*skill_trackers_table.c)
+    )
+    rows = conn.execute(update_stmt).all()
+    return [_row_to_skill_tracker(row) for row in rows]
+
+
+def update_skill_tracker(
+    conn: Connection,
+    tracker_id: UUID,
+    *,
+    last_commit_sha: str | None = None,
+    last_checked_at: datetime | None = None,
+    last_published_at: datetime | None = None,
+    last_error: str | None = ...,  # type: ignore[assignment]
+    enabled: bool | None = None,
+    branch: str | None = None,
+    poll_interval_minutes: int | None = None,
+) -> None:
+    """Update tracker fields. Only non-None values are updated.
+
+    last_error uses a sentinel default (...) so that passing
+    last_error=None explicitly clears the error.
+    """
+    values: dict = {}
+    if last_commit_sha is not None:
+        values["last_commit_sha"] = last_commit_sha
+    if last_checked_at is not None:
+        values["last_checked_at"] = last_checked_at
+    if last_published_at is not None:
+        values["last_published_at"] = last_published_at
+    if last_error is not ...:
+        values["last_error"] = last_error
+    if enabled is not None:
+        values["enabled"] = enabled
+    if branch is not None:
+        values["branch"] = branch
+    if poll_interval_minutes is not None:
+        values["poll_interval_minutes"] = poll_interval_minutes
+
+    if not values:
+        return
+
+    stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id == tracker_id).values(**values)
+    conn.execute(stmt)
+
+
+def delete_skill_tracker(conn: Connection, tracker_id: UUID) -> bool:
+    """Delete a tracker. Returns True if a row was deleted."""
+    stmt = sa.delete(skill_trackers_table).where(skill_trackers_table.c.id == tracker_id)
+    result = conn.execute(stmt)
+    return result.rowcount > 0

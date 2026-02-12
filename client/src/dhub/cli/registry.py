@@ -3,6 +3,7 @@
 import io
 import json
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -127,6 +128,8 @@ def publish_command(
     major: bool = typer.Option(False, "--major", help="Bump major version"),
     ref: str = typer.Option(None, "--ref", help="Branch/tag/commit (only for git repo URLs)"),
     private: bool = typer.Option(False, "--private", help="Publish as org-private (visible only to org members)"),
+    no_track: bool = typer.Option(False, "--no-track", help="Don't auto-create a tracker for this GitHub repo"),
+    track: bool = typer.Option(False, "--track", help="Re-enable tracking for this GitHub repo"),
 ) -> None:
     """Publish skills to the registry.
 
@@ -138,19 +141,30 @@ def publish_command(
 
     Version is auto-bumped by default (patch). Use --major or --minor to
     control the bump level, or --version to set an explicit version.
+
+    When publishing from a GitHub URL, a tracker is automatically created
+    so future commits are republished. Use --no-track to skip, or --track
+    to re-enable a previously disabled tracker.
     """
     from dhub.core.git_repo import looks_like_git_url
 
     # Validate flags early (before auth) to fail fast on bad input
     bump_level = _resolve_bump_level(patch, minor, major)
 
+    if no_track and track:
+        console.print("[red]Error: --no-track and --track are mutually exclusive.[/]")
+        raise typer.Exit(1)
+
     # Detect git URL in the first positional arg
     if looks_like_git_url(source):
-        _publish_from_git_repo(source, ref, version, bump_level, private=private)
+        _publish_from_git_repo(source, ref, version, bump_level, private=private, no_track=no_track, track=track)
         return
 
     if ref is not None:
         console.print("[red]Error: --ref can only be used with a git repository URL.[/]")
+        raise typer.Exit(1)
+    if track:
+        console.print("[red]Error: --track can only be used with a git repository URL.[/]")
         raise typer.Exit(1)
 
     _publish_from_directory(Path(source), version, bump_level, private=private)
@@ -247,9 +261,11 @@ def _publish_from_git_repo(
     bump_level: str,
     *,
     private: bool = False,
+    no_track: bool = False,
+    track: bool = False,
 ) -> None:
     """Clone a git repo, discover skills, and publish each one."""
-    from dhub.cli.config import get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token
     from dhub.core.git_repo import clone_repo, discover_skills
 
     api_url = get_api_url()
@@ -280,8 +296,89 @@ def _publish_from_git_repo(
             token,
             private=private,
         )
+
+        # Detect branch before cleanup — ref=None means the repo's default branch
+        branch = ref or _detect_branch(repo_root)
     finally:
         shutil.rmtree(repo_root.parent, ignore_errors=True)
+
+    # Auto-tracking: create or manage tracker for this GitHub repo
+    if not no_track:
+        _ensure_tracker(api_url, build_headers(token), repo_url, branch, track=track)
+
+
+def _detect_branch(repo_root: Path) -> str:
+    """Detect the current branch of a cloned repo. Falls back to 'main'."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            if branch and branch != "HEAD":
+                return branch
+    except Exception:
+        pass
+    return "main"
+
+
+def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, track: bool = False) -> None:
+    """Create a tracker or re-enable an existing one after a GitHub publish.
+
+    - If no tracker exists: creates one (auto-track on first publish).
+    - If tracker exists and is enabled: does nothing.
+    - If tracker exists but disabled: only re-enables if --track was passed.
+    """
+    # Check if a tracker already exists for this repo+branch
+    try:
+        with httpx.Client(timeout=60) as client:
+            resp = client.get(f"{api_url}/v1/trackers", headers=headers)
+            resp.raise_for_status()
+            existing = resp.json()
+    except Exception:
+        return  # Don't fail the publish if tracker API is unavailable
+
+    match = next((t for t in existing if t["repo_url"] == repo_url and t["branch"] == branch), None)
+
+    if match is None:
+        # No tracker exists — create one
+        try:
+            with httpx.Client(timeout=60) as client:
+                resp = client.post(
+                    f"{api_url}/v1/trackers",
+                    headers=headers,
+                    json={"repo_url": repo_url, "branch": branch},
+                )
+                if resp.status_code == 201:
+                    data = resp.json()
+                    console.print(f"[dim]Auto-tracking enabled for {repo_url}@{branch}[/]")
+                    if data.get("warning"):
+                        console.print(f"[yellow]Warning: {data['warning']}[/]")
+                elif resp.status_code != 409:
+                    # 409 = already exists (race condition), that's fine
+                    pass
+        except Exception:
+            pass  # Best-effort — don't fail the publish
+        return
+
+    if not match["enabled"] and track:
+        # Tracker exists but paused, and user asked to re-enable
+        try:
+            with httpx.Client(timeout=60) as client:
+                resp = client.patch(
+                    f"{api_url}/v1/trackers/{match['id']}",
+                    headers=headers,
+                    json={"enabled": True},
+                )
+                if resp.status_code == 200:
+                    console.print(f"[dim]Tracking re-enabled for {repo_url}@{branch}[/]")
+        except Exception:
+            pass
+    elif not match["enabled"]:
+        console.print("[dim]Tracking is paused for this repo. Use --track to re-enable.[/]")
 
 
 def _auto_detect_org(api_url: str, token: str) -> str:
@@ -418,7 +515,10 @@ def _create_zip(path: Path) -> bytes:
     return buf.getvalue()
 
 
-def list_command() -> None:
+def list_command(
+    org: str = typer.Option(None, "--org", "-o", help="Filter by organization"),
+    skill: str = typer.Option(None, "--skill", "-s", help="Filter by skill name (substring match)"),
+) -> None:
     """List all published skills on the registry."""
     from dhub.cli.banner import check_and_show_update, print_banner
     from dhub.cli.config import build_headers, get_api_url, get_optional_token
@@ -435,10 +535,22 @@ def list_command() -> None:
         resp.raise_for_status()
         skills = resp.json()
 
+    # Client-side filtering
+    if org:
+        skills = [s for s in skills if s["org_slug"] == org]
+    if skill:
+        skill_lower = skill.lower()
+        skills = [s for s in skills if skill_lower in s["skill_name"].lower()]
+
     console.print(f"Registry: [dim]{api_url}[/]")
 
     if not skills:
-        console.print("No skills published yet.")
+        filter_msg = ""
+        if org:
+            filter_msg += f" for org '{org}'"
+        if skill:
+            filter_msg += f" matching '{skill}'"
+        console.print(f"No skills found{filter_msg}.")
         check_and_show_update(console)
         return
 
