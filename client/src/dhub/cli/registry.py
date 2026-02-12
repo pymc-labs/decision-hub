@@ -567,7 +567,7 @@ def _apply_client_filters(skills: list[dict], org: str | None, skill: str | None
 def list_command(
     org: str = typer.Option(None, "--org", "-o", help="Filter by organization"),
     skill: str = typer.Option(None, "--skill", "-s", help="Filter by skill name (substring match)"),
-    page_size: int = typer.Option(20, "--page-size", "-n", min=1, max=100, help="Items per page"),
+    page_size: int = typer.Option(50, "--page-size", "-n", min=1, max=100, help="Items per page"),
     all_pages: bool = typer.Option(False, "--all", help="Dump all pages without prompting"),
 ) -> None:
     """List published skills on the registry."""
