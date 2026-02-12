@@ -135,6 +135,14 @@
   align-items: center;
   justify-content: center;
   color: var(--neon-purple);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.cardIconFeatured {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(0, 240, 255, 0.1));
+  border-color: rgba(0, 240, 255, 0.4);
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.2), 0 0 4px rgba(0, 240, 255, 0.1);
+  color: var(--neon-cyan);
 }
 
 .cardName {

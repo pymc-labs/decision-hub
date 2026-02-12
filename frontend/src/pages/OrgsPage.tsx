@@ -123,7 +123,7 @@ export default function OrgsPage() {
               to={`/orgs/${org.slug}`}
               className={styles.orgLink}
             >
-              <NeonCard glow={FEATURED_SET.has(org.slug) ? "cyan" : "purple"}>
+              <NeonCard glow="purple">
                 <div className={styles.card}>
                   {FEATURED_SET.has(org.slug) && (
                     <div className={styles.featuredBadge}>
@@ -131,7 +131,7 @@ export default function OrgsPage() {
                       Featured
                     </div>
                   )}
-                  <div className={styles.cardIcon}>
+                  <div className={`${styles.cardIcon} ${FEATURED_SET.has(org.slug) ? styles.cardIconFeatured : ""}`}>
                     <OrgAvatar
                       avatarUrl={org.avatar_url}
                       isPersonal={org.is_personal}
