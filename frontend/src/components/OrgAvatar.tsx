@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Building2, User } from "lucide-react";
 import styles from "./OrgAvatar.module.css";
 
@@ -16,6 +16,10 @@ const ICON_SIZES: Record<string, number> = {
 
 export default function OrgAvatar({ avatarUrl, isPersonal, size = "md" }: OrgAvatarProps) {
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [avatarUrl]);
 
   if (avatarUrl && !imgError) {
     return (

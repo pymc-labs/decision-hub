@@ -23,6 +23,10 @@ export default function OrgDetailPage() {
 
   const totalDownloads = skills.reduce((sum, s) => sum + s.download_count, 0);
 
+  const blogUrl = profile?.blog
+    ? profile.blog.match(/^https?:\/\//) ? profile.blog : `https://${profile.blog}`
+    : null;
+
   if (loading) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
   if (error) {
     return (
@@ -61,9 +65,9 @@ export default function OrgDetailPage() {
             </span>
           </div>
           <div className={styles.links}>
-            {profile?.blog && (
+            {blogUrl && (
               <a
-                href={profile.blog}
+                href={blogUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.link}
