@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     download_rate_limit: int = 20  # max requests per window
     download_rate_window: int = 60  # window in seconds
 
+    # Tracker batch size: max trackers claimed per scheduler tick
+    tracker_batch_size: int = 100
+
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
 

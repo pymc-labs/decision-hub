@@ -2216,12 +2216,17 @@ def list_skill_trackers_for_user(conn: Connection, user_id: UUID) -> list[SkillT
     return [_row_to_skill_tracker(row) for row in rows]
 
 
-def claim_due_trackers(conn: Connection) -> list[SkillTracker]:
-    """Atomically claim all due trackers for processing.
+def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[SkillTracker]:
+    """Atomically claim a batch of due trackers for processing.
 
     Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent concurrent runs
     from double-processing the same tracker. Claims each selected row
     by setting last_checked_at = now(), so the next run will skip it.
+
+    Args:
+        batch_size: Maximum number of trackers to claim per invocation.
+            Prevents unbounded row locks and keeps processing within
+            the DB statement timeout.
 
     Returns the claimed SkillTracker objects (with their pre-claim state).
     """
@@ -2238,9 +2243,14 @@ def claim_due_trackers(conn: Connection) -> list[SkillTracker]:
         ),
     )
 
-    # Select due tracker IDs with row-level locking, skipping already-locked rows
+    # Select due tracker IDs with row-level locking, skipping already-locked rows.
+    # LIMIT prevents unbounded lock acquisition at scale.
     locked_ids_cte = (
-        sa.select(skill_trackers_table.c.id).where(due_filter).with_for_update(skip_locked=True).cte("locked_ids")
+        sa.select(skill_trackers_table.c.id)
+        .where(due_filter)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True)
+        .cte("locked_ids")
     )
 
     # Claim by bumping last_checked_at, returning full rows

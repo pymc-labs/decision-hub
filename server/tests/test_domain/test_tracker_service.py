@@ -14,7 +14,7 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
     parse_semver,
 )
-from decision_hub.domain.tracker_service import process_tracker
+from decision_hub.domain.tracker_service import check_all_due_trackers, process_tracker
 from decision_hub.models import SkillTracker
 
 # Backward-compat aliases used in test names
@@ -304,6 +304,25 @@ class TestProcessTrackerAllFailed:
             # last_published_at should NOT be updated since nothing was actually published
             assert kwargs["last_published_at"] is None
             assert kwargs["last_error"] is None
+
+
+class TestCheckAllDueTrackersBatchSize:
+    """Verify check_all_due_trackers passes tracker_batch_size from settings."""
+
+    @patch("decision_hub.infra.database.create_engine")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    def test_passes_batch_size_from_settings(self, mock_claim, mock_engine):
+        mock_conn = MagicMock()
+        mock_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = []
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 42
+
+        check_all_due_trackers(mock_settings)
+
+        mock_claim.assert_called_once_with(mock_conn, batch_size=42)
 
 
 class TestProcessTrackerTokenResolution:
