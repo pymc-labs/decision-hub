@@ -49,7 +49,6 @@ class TestGenerateAndStoreSkillEmbedding:
         settings = MagicMock()
         settings.google_api_key = "test-key"
         settings.embedding_model = "gemini-embedding-001"
-        settings.embedding_dimensions = 768
         conn = MagicMock()
 
         # Should not raise
@@ -63,7 +62,6 @@ class TestGenerateAndStoreSkillEmbedding:
         settings = MagicMock()
         settings.google_api_key = "test-key"
         settings.embedding_model = "gemini-embedding-001"
-        settings.embedding_dimensions = 768
         conn = MagicMock()
         skill_id = uuid4()
 

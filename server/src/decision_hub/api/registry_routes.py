@@ -438,14 +438,14 @@ def publish_skill(
         if visibility is not None:
             update_skill_visibility(conn, skill.id, visibility)
 
-    # Generate embedding (fail-open: never blocks publish)
-    generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, category, description, settings)
-
     if find_version(conn, skill.id, version) is not None:
         raise HTTPException(
             status_code=409,
             detail=f"Version {version} already exists for {org_slug}/{skill_name}",
         )
+
+    # Generate embedding (fail-open: never blocks publish)
+    generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, category, description, settings)
 
     # Upload to S3 and record the version
     s3_key = build_s3_key(org_slug, skill_name, version)

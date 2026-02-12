@@ -9,6 +9,9 @@ from sqlalchemy.engine import Connection
 from decision_hub.infra.database import update_skill_embedding
 from decision_hub.settings import Settings
 
+# Must match the DB column: vector(768) in the migration.
+EMBEDDING_DIMENSIONS = 768
+
 
 def build_embedding_text(
     name: str,
@@ -138,7 +141,7 @@ def generate_and_store_skill_embedding(
             client,
             text,
             settings.embedding_model,
-            settings.embedding_dimensions,
+            EMBEDDING_DIMENSIONS,
         )
         update_skill_embedding(conn, skill_id, embedding)
     except Exception:

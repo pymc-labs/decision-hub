@@ -11,7 +11,7 @@ from decision_hub.api.deps import get_connection, get_current_user_optional, get
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.search import build_index_entry, format_deterministic_results, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
-from decision_hub.infra.embeddings import embed_query
+from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import check_query_topicality, create_gemini_client, search_skills_with_llm
 from decision_hub.infra.storage import upload_search_log
 from decision_hub.models import User
@@ -90,7 +90,7 @@ def search_skills(
     embed_ms = 0
     try:
         embed_start = time.monotonic()
-        query_embedding = embed_query(gemini, q, settings.embedding_model, settings.embedding_dimensions)
+        query_embedding = embed_query(gemini, q, settings.embedding_model, EMBEDDING_DIMENSIONS)
         embed_ms = int((time.monotonic() - embed_start) * 1000)
     except Exception:
         logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")

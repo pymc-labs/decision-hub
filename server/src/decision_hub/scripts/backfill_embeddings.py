@@ -17,7 +17,7 @@ from decision_hub.infra.database import (
     skills_table,
     update_skill_embedding,
 )
-from decision_hub.infra.embeddings import build_embedding_text, embed_texts_batch
+from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, build_embedding_text, embed_texts_batch
 from decision_hub.infra.gemini import create_gemini_client
 from decision_hub.settings import create_settings
 
@@ -76,7 +76,7 @@ def backfill(batch_size: int = 100) -> None:
                     client,
                     texts,
                     settings.embedding_model,
-                    settings.embedding_dimensions,
+                    EMBEDDING_DIMENSIONS,
                 )
             except Exception:
                 logger.opt(exception=True).error(
