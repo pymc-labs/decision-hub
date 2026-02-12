@@ -119,7 +119,8 @@ def parse_query_keywords(
         result = json.loads(text)
         if isinstance(result, dict) and "fts_queries" in result:
             fts_queries = [q.strip() for q in result["fts_queries"] if q.strip()]
-            return fts_queries[:10]
+            if fts_queries:
+                return fts_queries[:10]
     except Exception:  # Intentional broad catch: fail-open design
         logger.opt(exception=True).warning("Query keyword parsing failed, falling back to raw query")
 
