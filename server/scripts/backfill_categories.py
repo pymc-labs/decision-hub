@@ -3,12 +3,16 @@
 Run from server/ with:
     DHUB_ENV=dev uv run --package decision-hub-server python scripts/backfill_categories.py
 
+Use --reset to reclassify ALL skills (not just those with empty categories):
+    DHUB_ENV=dev uv run --package decision-hub-server python scripts/backfill_categories.py --reset
+
 Steps:
-1. Fetch all skills with an empty category.
+1. Fetch skills with an empty category (or all skills if --reset).
 2. For each, download the zip from S3, extract SKILL.md, and classify.
 3. Update the skill record with the new category.
 """
 
+import argparse
 import io
 import zipfile
 
@@ -41,13 +45,17 @@ def _extract_skill_md_from_zip(zip_bytes: bytes) -> str | None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Backfill skill categories")
+    parser.add_argument("--reset", action="store_true", help="Reclassify ALL skills, not just empty ones")
+    args = parser.parse_args()
+
     env = get_env()
-    logger.info("Backfilling categories in {} environment", env)
+    logger.info("Backfilling categories in {} environment (reset={})", env, args.reset)
 
     settings = create_settings(env)
     engine = create_engine(settings.database_url)
 
-    # Fetch skills with empty category and their latest version S3 key
+    # Fetch skills (empty category only, or all if --reset) with their latest version S3 key
     latest_version = (
         sa.select(
             versions_table.c.skill_id,
@@ -61,28 +69,27 @@ def main() -> None:
         )
     ).subquery("latest_version")
 
-    stmt = (
-        sa.select(
-            skills_table.c.id.label("skill_id"),
-            skills_table.c.name.label("skill_name"),
-            skills_table.c.description,
-            organizations_table.c.slug.label("org_slug"),
-            latest_version.c.s3_key,
+    stmt = sa.select(
+        skills_table.c.id.label("skill_id"),
+        skills_table.c.name.label("skill_name"),
+        skills_table.c.description,
+        organizations_table.c.slug.label("org_slug"),
+        latest_version.c.s3_key,
+    ).select_from(
+        skills_table.join(
+            organizations_table,
+            skills_table.c.org_id == organizations_table.c.id,
+        ).join(
+            latest_version,
+            sa.and_(
+                skills_table.c.id == latest_version.c.skill_id,
+                latest_version.c.rn == 1,
+            ),
         )
-        .select_from(
-            skills_table.join(
-                organizations_table,
-                skills_table.c.org_id == organizations_table.c.id,
-            ).join(
-                latest_version,
-                sa.and_(
-                    skills_table.c.id == latest_version.c.skill_id,
-                    latest_version.c.rn == 1,
-                ),
-            )
-        )
-        .where(sa.or_(skills_table.c.category == "", skills_table.c.category.is_(None)))
     )
+
+    if not args.reset:
+        stmt = stmt.where(sa.or_(skills_table.c.category == "", skills_table.c.category.is_(None)))
 
     s3_client = create_s3_client(
         region=settings.aws_region,

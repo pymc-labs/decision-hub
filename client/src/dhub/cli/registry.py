@@ -536,16 +536,19 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     table.add_column("Author")
     table.add_column("Description")
 
+    sorted_skills = sorted(skills, key=lambda s: s.get("download_count", 0), reverse=True)
+
     grade_styles = {"A": "green", "B": "yellow", "C": "dark_orange", "F": "red"}
-    for s in skills:
+    for s in sorted_skills:
         rating = s.get("safety_rating", "")
         rating_style = grade_styles.get(rating, "white")
+        updated = s.get("updated_at", "")[:10]
         table.add_row(
             s["org_slug"],
             s["skill_name"],
             s.get("category", ""),
             s["latest_version"],
-            s.get("updated_at", ""),
+            updated,
             f"[{rating_style}]{rating}[/]",
             str(s.get("download_count", 0)),
             s.get("author", ""),
