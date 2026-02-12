@@ -228,6 +228,14 @@ You **may** deploy to dev when asked. Always use `make deploy-dev` — never bar
 - **Check open PRs** for overlapping work: `gh pr list --state open`
 - **Link to a GitHub issue.** If no issue exists, create one first.
 
+### Resolving PR review comments
+When fixing PR review comments, always complete **all three steps**:
+1. **Fix the code** and push the commit
+2. **Reply** to each comment explaining the fix
+3. **Resolve the thread** via GraphQL: `gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "THREAD_ID"}) { thread { isResolved } } }'`
+
+To get unresolved thread IDs: `gh api graphql -f query='{ repository(owner: "pymc-labs", name: "decision-hub") { pullRequest(number: PR_NUM) { reviewThreads(first: 50) { nodes { id isResolved comments(first: 1) { nodes { body author { login } } } } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | {id, body: .comments.nodes[0].body[:80]}'`
+
 ## Releases & Deployment
 
 ### CLI Versioning & Release
