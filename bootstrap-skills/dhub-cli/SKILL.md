@@ -9,6 +9,10 @@ description: Guide for using the dhub CLI — the AI skill manager for data scie
 ## Installation
 
 ```bash
+# One-line install (installs uv automatically if needed)
+curl -fsSL https://raw.githubusercontent.com/pymc-labs/decision-hub/main/install.sh | sh
+
+# Or install manually
 uv tool install dhub-cli    # via uv (recommended)
 pipx install dhub-cli       # via pipx
 ```

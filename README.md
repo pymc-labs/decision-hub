@@ -7,11 +7,15 @@
 ## Installation
 
 ```bash
-# Via uv (recommended)
-uv tool install dhub-cli
+# One-line install (installs uv automatically if needed)
+curl -fsSL https://raw.githubusercontent.com/pymc-labs/decision-hub/main/install.sh | sh
+```
 
-# Via pipx
-pipx install dhub-cli
+Or install manually if you already have a Python package manager:
+
+```bash
+uv tool install dhub-cli    # via uv (recommended)
+pipx install dhub-cli       # via pipx
 ```
 
 ## Quick Start
