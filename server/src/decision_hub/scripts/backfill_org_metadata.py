@@ -10,8 +10,11 @@ Usage:
 
 import argparse
 import os
-import time
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from uuid import UUID
 
+import httpx
 import sqlalchemy as sa
 
 from decision_hub.infra.database import (
@@ -19,8 +22,15 @@ from decision_hub.infra.database import (
     organizations_table,
     update_org_github_metadata,
 )
-from decision_hub.scripts.crawler.processing import fetch_owner_metadata
 from decision_hub.settings import create_settings
+
+_GITHUB_API = "https://api.github.com"
+_MAX_WORKERS = 30
+
+
+def _log(msg: str) -> None:
+    """Print with immediate flush for non-TTY environments."""
+    print(msg, flush=True)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -39,6 +49,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Print what would be done without making changes",
     )
     return parser.parse_args(argv)
+
+
+def _fetch_metadata(client: httpx.Client, slug: str, is_personal: bool) -> dict:
+    """Fetch GitHub metadata for an org/user using a persistent HTTP client.
+
+    Tries /orgs/{slug} first for non-personal accounts; falls back to
+    /users/{slug} if the org endpoint returns non-200.
+    """
+    endpoints = (
+        [f"{_GITHUB_API}/users/{slug}"]
+        if is_personal
+        else [f"{_GITHUB_API}/orgs/{slug}", f"{_GITHUB_API}/users/{slug}"]
+    )
+    for endpoint in endpoints:
+        resp = client.get(endpoint, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            is_user = "/users/" in endpoint
+            description = data.get("bio") if is_user else data.get("description")
+            return {
+                "avatar_url": data.get("avatar_url") or None,
+                "email": data.get("email") or None,
+                "description": description or None,
+                "blog": data.get("blog") or None,
+            }
+    return {}
+
+
+def _fetch_one(client: httpx.Client, org_id: UUID, slug: str, is_personal: bool) -> tuple[UUID, str, dict]:
+    """Fetch metadata for a single org. Returns (org_id, slug, meta_dict)."""
+    try:
+        meta = _fetch_metadata(client, slug, is_personal)
+    except httpx.HTTPError:
+        meta = {}
+    return org_id, slug, meta
 
 
 def main() -> None:
@@ -62,51 +107,58 @@ def main() -> None:
         rows = conn.execute(stmt).fetchall()
 
     total = len(rows)
-    print(f"Found {total} orgs with github_synced_at IS NULL")
+    _log(f"Found {total} orgs with github_synced_at IS NULL")
 
     if args.dry_run:
         for row in rows:
-            print(f"  Would backfill: {row.slug} (personal={row.is_personal})")
+            _log(f"  Would backfill: {row.slug} (personal={row.is_personal})")
         return
 
+    if total == 0:
+        return
+
+    # Phase 1: Fetch all metadata concurrently
+    _log(f"Fetching metadata from GitHub ({_MAX_WORKERS} concurrent)...")
+    results: list[tuple[UUID, str, dict]] = []
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {args.github_token}",
+    }
+
+    with httpx.Client(headers=headers) as client, ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {executor.submit(_fetch_one, client, row.id, row.slug, row.is_personal): row.slug for row in rows}
+        for done, future in enumerate(as_completed(futures), 1):
+            results.append(future.result())
+            if done % 100 == 0:
+                _log(f"  Fetched {done}/{total}")
+
+    _log(f"  Fetched {total}/{total}")
+
+    # Phase 2: Batch DB writes in a single transaction
     updated = 0
     failed = 0
     skipped = 0
 
-    for i, row in enumerate(rows, 1):
-        owner_type = "User" if row.is_personal else "Organization"
-        meta = fetch_owner_metadata(row.slug, owner_type, args.github_token)
-
-        if not meta and owner_type == "Organization":
-            # GitHub API returned non-200 for /orgs — try /users fallback
-            meta = fetch_owner_metadata(row.slug, "User", args.github_token)
-
-        if not meta:
-            failed += 1
-            print(f"  [{i}/{total}] FAILED  {row.slug}")
-            continue
-
-        # Skip if all metadata fields are empty
-        if not any(meta.values()):
-            skipped += 1
-            print(f"  [{i}/{total}] SKIP    {row.slug} (no metadata)")
-        else:
-            with engine.begin() as conn:
-                update_org_github_metadata(
-                    conn,
-                    row.id,
-                    avatar_url=meta.get("avatar_url"),
-                    email=meta.get("email"),
-                    description=meta.get("description"),
-                    blog=meta.get("blog"),
-                )
+    with engine.begin() as conn:
+        for org_id, _slug, meta in results:
+            if not meta:
+                failed += 1
+                continue
+            if not any(meta.values()):
+                skipped += 1
+                continue
+            update_org_github_metadata(
+                conn,
+                org_id,
+                avatar_url=meta.get("avatar_url"),
+                email=meta.get("email"),
+                description=meta.get("description"),
+                blog=meta.get("blog"),
+            )
             updated += 1
-            print(f"  [{i}/{total}] UPDATED {row.slug}")
 
-        # Brief sleep to stay within GitHub rate limits
-        time.sleep(0.1)
-
-    print(f"\nDone: {updated} updated, {skipped} skipped, {failed} failed (of {total})")
+    _log(f"\nDone: {updated} updated, {skipped} skipped, {failed} failed (of {total})")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
