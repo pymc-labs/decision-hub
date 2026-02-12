@@ -102,6 +102,7 @@ def discover_batches(
         search_by_file_size,
         search_by_path,
         search_by_topic,
+        search_trusted_orgs,
         tag_trusted_repos,
     )
 
@@ -109,12 +110,34 @@ def discover_batches(
     seen: set[str] = set()
     all_repos: dict[str, DiscoveredRepo] = {}
 
+    def _yield_sub_batches(
+        sub_batches: Generator[dict[str, DiscoveredRepo], None, None],
+    ) -> Generator[dict[str, DiscoveredRepo], None, None]:
+        for found in sub_batches:
+            all_repos.update(found)
+            new_batch = {k: v for k, v in found.items() if k not in seen}
+            seen.update(new_batch.keys())
+            if new_batch:
+                tag_trusted_repos(new_batch)
+                trusted_count = sum(1 for r in new_batch.values() if r.is_trusted)
+                logger.info(
+                    "Discovered {} new repos ({} trusted, {} total so far)",
+                    len(new_batch),
+                    trusted_count,
+                    len(all_repos),
+                )
+                yield new_batch
+
     # Fork scanning runs last because it depends on discovered repos
     ordered = [s for s in strategies if s != "fork"]
     if "fork" in strategies:
         ordered.append("fork")
 
     try:
+        # Always search trusted orgs first — fast, high-value repos
+        logger.info("Discovery strategy: Trusted organizations")
+        yield from _yield_sub_batches(search_trusted_orgs(gh, stats))
+
         for name in ordered:
             logger.info("Discovery strategy: {}", _STRATEGY_LABELS.get(name, name))
 
@@ -136,23 +159,7 @@ def discover_batches(
             else:
                 continue
 
-            for found in sub_batches:
-                all_repos.update(found)
-
-                # Yield only repos we haven't yielded before
-                new_batch = {k: v for k, v in found.items() if k not in seen}
-                seen.update(new_batch.keys())
-
-                if new_batch:
-                    tag_trusted_repos(new_batch)
-                    trusted_count = sum(1 for r in new_batch.values() if r.is_trusted)
-                    logger.info(
-                        "Discovered {} new repos ({} trusted, {} total so far)",
-                        len(new_batch),
-                        trusted_count,
-                        len(all_repos),
-                    )
-                    yield new_batch
+            yield from _yield_sub_batches(sub_batches)
     finally:
         gh.close()
 

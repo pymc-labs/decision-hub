@@ -62,6 +62,28 @@ def tag_trusted_repos(repos: dict[str, DiscoveredRepo]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Strategy 0: Trusted org fast-path (runs before other strategies)
+# ---------------------------------------------------------------------------
+
+
+def search_trusted_orgs(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str, DiscoveredRepo], None, None]:
+    """Directly search for SKILL.md in each trusted org.
+
+    One API call per org — much faster than waiting for generic strategies
+    to stumble across trusted repos. Yields one batch per org.
+    """
+    for org in sorted(TRUSTED_ORGS):
+        query = f"filename:SKILL.md org:{org}"
+        found = _run_code_search(gh, query, stats)
+        # Mark all as trusted since they come from known orgs
+        for repo in found.values():
+            repo.is_trusted = True
+        if found:
+            logger.info("Trusted org '{}': {} repos", org, len(found))
+            yield found
+
+
+# ---------------------------------------------------------------------------
 # Strategy 1: File-size partitioning
 # ---------------------------------------------------------------------------
 
