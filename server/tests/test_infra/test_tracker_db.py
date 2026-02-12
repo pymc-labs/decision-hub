@@ -12,6 +12,7 @@ import pytest
 
 from decision_hub.infra.database import (
     _row_to_skill_tracker,
+    claim_due_trackers,
     delete_skill_tracker,
     find_skill_tracker,
     insert_skill_tracker,
@@ -141,6 +142,38 @@ class TestUpdateSkillTracker:
 
         update_skill_tracker(conn, tracker_id)
         conn.execute.assert_not_called()
+
+
+class TestClaimDueTrackers:
+    def test_returns_claimed_trackers(self):
+        conn = MagicMock()
+        rows = [_make_tracker_row() for _ in range(3)]
+        conn.execute.return_value.all.return_value = rows
+
+        result = claim_due_trackers(conn, batch_size=100)
+        assert len(result) == 3
+        assert all(isinstance(t, SkillTracker) for t in result)
+
+    def test_batch_size_is_passed_to_query(self):
+        """Verify that the SQL query includes a LIMIT clause derived from batch_size."""
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        claim_due_trackers(conn, batch_size=42)
+
+        # The UPDATE statement is the one executed; verify it was called
+        conn.execute.assert_called_once()
+        # Compile the statement and check LIMIT is present
+        stmt = conn.execute.call_args[0][0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "42" in compiled
+
+    def test_returns_empty_when_none_due(self):
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        result = claim_due_trackers(conn, batch_size=100)
+        assert result == []
 
 
 class TestDeleteSkillTracker:

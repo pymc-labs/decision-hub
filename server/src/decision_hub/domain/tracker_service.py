@@ -30,7 +30,7 @@ def check_all_due_trackers(settings: Settings) -> int:
 
     engine = create_engine(settings.database_url)
     with engine.connect() as conn:
-        trackers = claim_due_trackers(conn)
+        trackers = claim_due_trackers(conn, batch_size=settings.tracker_batch_size)
         conn.commit()
 
     logger.info("Found {} due tracker(s)", len(trackers))
