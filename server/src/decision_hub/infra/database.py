@@ -1338,23 +1338,66 @@ def delete_api_key(conn: Connection, user_id: UUID, key_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _build_skills_filters(
+    base: sa.Select,
+    latest_version_ref: sa.FromClause,
+    *,
+    search: str | None = None,
+    org_slug: str | None = None,
+    category: str | None = None,
+    grade: str | None = None,
+) -> sa.Select:
+    """Apply optional filter predicates to a skills query.
+
+    Shared between fetch_all_skills_for_index and count_all_skills to
+    keep filter logic consistent. latest_version_ref is needed for grade
+    filtering (eval_status lives on the lateral/exists subquery).
+    """
+    if search:
+        pattern = f"%{search}%"
+        base = base.where(
+            sa.or_(
+                skills_table.c.name.ilike(pattern),
+                skills_table.c.description.ilike(pattern),
+                organizations_table.c.slug.ilike(pattern),
+            )
+        )
+    if org_slug:
+        base = base.where(organizations_table.c.slug == org_slug)
+    if category:
+        base = base.where(skills_table.c.category == category)
+    if grade:
+        grade_statuses = {
+            "A": ["A", "passed"],
+            "B": ["B"],
+            "C": ["C"],
+        }
+        statuses = grade_statuses.get(grade, [grade])
+        base = base.where(latest_version_ref.c.eval_status.in_(statuses))
+    return base
+
+
 def fetch_all_skills_for_index(
     conn: Connection,
     *,
     user_org_ids: list[UUID] | None = None,
     limit: int | None = None,
     offset: int = 0,
+    search: str | None = None,
+    org_slug: str | None = None,
+    category: str | None = None,
+    grade: str | None = None,
+    sort: str = "updated",
 ) -> list[dict]:
-    """Fetch all skills with their latest version info for the search index.
+    """Fetch skills with their latest version info, with optional filters.
 
     Returns a list of dicts, each with keys: org_slug, skill_name,
     latest_version, eval_status, visibility. Uses a LATERAL subquery to find
     the latest version per skill via one index lookup each (ordered by semver
     parts numerically), leveraging idx_versions_skill_semver_parts.
 
-    When user_org_ids is provided, applies visibility filtering so
-    private skills are only returned for org members or granted orgs.
-    When None (unauthenticated), only public skills are returned.
+    Supports server-side filtering by search term, org, category, grade,
+    and sorting by updated/name/downloads.
     """
     # LATERAL subquery: for each skill, one index scan to find the highest semver
     latest_version = (
@@ -1399,8 +1442,24 @@ def fetch_all_skills_for_index(
     # Visibility filter
     base = _apply_visibility_filter(base, conn, user_org_ids)
 
-    # Deterministic ordering for consistent pagination
-    base = base.order_by(organizations_table.c.slug, skills_table.c.name)
+    # Apply optional filters
+    base = _build_skills_filters(
+        base,
+        latest_version,
+        search=search,
+        org_slug=org_slug,
+        category=category,
+        grade=grade,
+    )
+
+    # Sorting
+    if sort == "name":
+        base = base.order_by(skills_table.c.name.asc())
+    elif sort == "downloads":
+        base = base.order_by(skills_table.c.download_count.desc())
+    else:
+        # "updated" — most recently published version first
+        base = base.order_by(latest_version.c.created_at.desc())
 
     if limit is not None:
         base = base.limit(limit).offset(offset)
@@ -1428,29 +1487,186 @@ def count_all_skills(
     conn: Connection,
     *,
     user_org_ids: list[UUID] | None = None,
+    search: str | None = None,
+    org_slug: str | None = None,
+    category: str | None = None,
+    grade: str | None = None,
 ) -> int:
     """Count total skills visible to the user (for pagination metadata).
 
     Uses an EXISTS subquery on versions_table to match the inner-join
     behavior of fetch_all_skills_for_index (only skills with at least
-    one published version are counted).
+    one published version are counted). Accepts the same filter params
+    for consistency.
+    """
+    if grade:
+        # When filtering by grade, we need the lateral join to access eval_status
+        latest_version = (
+            sa.select(
+                versions_table.c.eval_status,
+            )
+            .where(versions_table.c.skill_id == skills_table.c.id)
+            .order_by(
+                versions_table.c.semver_major.desc(),
+                versions_table.c.semver_minor.desc(),
+                versions_table.c.semver_patch.desc(),
+            )
+            .limit(1)
+            .lateral("latest_version")
+        )
+        base = sa.select(sa.func.count()).select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            ).join(
+                latest_version,
+                sa.literal(True),
+            )
+        )
+        base = _apply_visibility_filter(base, conn, user_org_ids)
+        base = _build_skills_filters(
+            base,
+            latest_version,
+            search=search,
+            org_slug=org_slug,
+            category=category,
+            grade=grade,
+        )
+    else:
+        has_version = sa.exists().where(versions_table.c.skill_id == skills_table.c.id)
+        # Create a dummy ref for _build_skills_filters (grade is None, so it won't be used)
+        dummy_lateral = sa.table("latest_version", sa.column("eval_status"))
+        base = (
+            sa.select(sa.func.count())
+            .select_from(
+                skills_table.join(
+                    organizations_table,
+                    skills_table.c.org_id == organizations_table.c.id,
+                )
+            )
+            .where(has_version)
+        )
+        base = _apply_visibility_filter(base, conn, user_org_ids)
+        base = _build_skills_filters(
+            base,
+            dummy_lateral,
+            search=search,
+            org_slug=org_slug,
+            category=category,
+        )
+
+    return conn.execute(base).scalar_one()
+
+
+def fetch_registry_stats(conn: Connection) -> dict:
+    """Fetch aggregate registry statistics for the homepage.
+
+    Returns total_skills, total_orgs, and total_downloads across
+    all published skills (skills with at least one version).
     """
     has_version = sa.exists().where(versions_table.c.skill_id == skills_table.c.id)
 
-    base = (
-        sa.select(sa.func.count())
+    stmt = (
+        sa.select(
+            sa.func.count(sa.distinct(skills_table.c.id)).label("total_skills"),
+            sa.func.count(sa.distinct(organizations_table.c.slug)).label("total_orgs"),
+            sa.func.coalesce(sa.func.sum(skills_table.c.download_count), 0).label("total_downloads"),
+        )
         .select_from(
             skills_table.join(
                 organizations_table,
                 skills_table.c.org_id == organizations_table.c.id,
             )
         )
-        .where(has_version)
+        .where(
+            sa.and_(
+                has_version,
+                skills_table.c.visibility == "public",
+            )
+        )
     )
 
-    base = _apply_visibility_filter(base, conn, user_org_ids)
+    row = conn.execute(stmt).one()
+    return {
+        "total_skills": row.total_skills,
+        "total_orgs": row.total_orgs,
+        "total_downloads": row.total_downloads,
+    }
 
-    return conn.execute(base).scalar_one()
+
+def fetch_org_stats(
+    conn: Connection,
+    *,
+    search: str | None = None,
+    type_filter: str = "all",
+) -> list[dict]:
+    """Fetch aggregated org statistics for the orgs listing page.
+
+    Returns slug, is_personal, avatar_url, skill_count, total_downloads,
+    and latest_update for each org that has at least one published skill.
+    """
+    # LATERAL subquery to get the latest version's created_at per skill
+    latest_version = (
+        sa.select(
+            versions_table.c.created_at,
+        )
+        .where(versions_table.c.skill_id == skills_table.c.id)
+        .order_by(
+            versions_table.c.semver_major.desc(),
+            versions_table.c.semver_minor.desc(),
+            versions_table.c.semver_patch.desc(),
+        )
+        .limit(1)
+        .lateral("latest_version")
+    )
+
+    stmt = (
+        sa.select(
+            organizations_table.c.slug,
+            organizations_table.c.is_personal,
+            organizations_table.c.avatar_url,
+            sa.func.count(skills_table.c.id).label("skill_count"),
+            sa.func.coalesce(sa.func.sum(skills_table.c.download_count), 0).label("total_downloads"),
+            sa.func.max(latest_version.c.created_at).label("latest_update"),
+        )
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            ).join(
+                latest_version,
+                sa.literal(True),
+            )
+        )
+        .where(skills_table.c.visibility == "public")
+        .group_by(
+            organizations_table.c.slug,
+            organizations_table.c.is_personal,
+            organizations_table.c.avatar_url,
+        )
+        .order_by(organizations_table.c.slug)
+    )
+
+    if search:
+        stmt = stmt.having(organizations_table.c.slug.ilike(f"%{search}%"))
+
+    if type_filter == "orgs":
+        stmt = stmt.having(organizations_table.c.is_personal == sa.false())
+    elif type_filter == "users":
+        stmt = stmt.having(organizations_table.c.is_personal == sa.true())
+
+    rows = conn.execute(stmt).all()
+    return [
+        {
+            "slug": row.slug,
+            "is_personal": row.is_personal,
+            "avatar_url": row.avatar_url,
+            "skill_count": row.skill_count,
+            "total_downloads": row.total_downloads,
+            "latest_update": row.latest_update.isoformat() if row.latest_update else None,
+        }
+        for row in rows
+    ]
 
 
 def get_api_keys_for_eval(conn: Connection, user_id: UUID, key_names: list[str]) -> dict[str, bytes]:

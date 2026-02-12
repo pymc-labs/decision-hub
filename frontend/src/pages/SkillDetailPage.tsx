@@ -16,7 +16,7 @@ import {
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import {
-  listAllSkills,
+  getSkill,
   getEvalReport,
   getAuditLog,
   downloadSkillZip,
@@ -50,14 +50,10 @@ export default function SkillDetailPage() {
     setFilesError(null);
   }, [orgSlug, skillName]);
 
-  // Fetch all skills and find the one we need
-  const { data: allSkills, loading: skillsLoading } = useApi(
-    () => listAllSkills(),
-    []
-  );
-
-  const skill: SkillSummary | undefined = allSkills?.find(
-    (s) => s.org_slug === orgSlug && s.skill_name === skillName
+  // Fetch single skill
+  const { data: skill, loading: skillLoading } = useApi<SkillSummary>(
+    () => getSkill(orgSlug!, skillName!),
+    [orgSlug, skillName]
   );
 
   // Fetch eval report
@@ -135,7 +131,7 @@ export default function SkillDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (skillsLoading) {
+  if (skillLoading) {
     return <LoadingSpinner text={`Loading ${orgSlug}/${skillName}...`} />;
   }
 

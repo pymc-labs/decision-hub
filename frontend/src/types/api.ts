@@ -89,3 +89,22 @@ export interface SkillFile {
 export interface TaxonomyResponse {
   groups: Record<string, string[]>;
 }
+
+export interface RegistryStats {
+  total_skills: number;
+  total_orgs: number;
+  total_downloads: number;
+}
+
+export interface OrgStatsEntry {
+  slug: string;
+  is_personal: boolean;
+  avatar_url: string | null;
+  skill_count: number;
+  total_downloads: number;
+  latest_update: string | null;
+}
+
+export interface OrgStatsResponse {
+  items: OrgStatsEntry[];
+}

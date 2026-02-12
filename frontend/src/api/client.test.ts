@@ -2,8 +2,10 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
-  listSkills,
-  listAllSkills,
+  listSkillsFiltered,
+  getSkill,
+  getRegistryStats,
+  listOrgStats,
   resolveSkill,
   getEvalReport,
   getAuditLog,
@@ -16,8 +18,8 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
-describe("listSkills", () => {
-  it("returns paginated response", async () => {
+describe("listSkillsFiltered", () => {
+  it("returns paginated response with default params", async () => {
     const response = {
       items: [
         { org_slug: "acme", skill_name: "test-skill", download_count: 42 },
@@ -31,64 +33,112 @@ describe("listSkills", () => {
       http.get("/v1/skills", () => HttpResponse.json(response)),
     );
 
-    const result = await listSkills();
+    const result = await listSkillsFiltered();
     expect(result).toEqual(response);
     expect(result.items).toHaveLength(1);
   });
 
-  it("passes page and page_size query params", async () => {
+  it("passes filter params as query string", async () => {
     const response = {
       items: [],
       total: 0,
-      page: 3,
-      page_size: 10,
+      page: 1,
+      page_size: 12,
       total_pages: 1,
     };
     server.use(
       http.get("/v1/skills", ({ request }) => {
         const url = new URL(request.url);
-        expect(url.searchParams.get("page")).toBe("3");
-        expect(url.searchParams.get("page_size")).toBe("10");
+        expect(url.searchParams.get("page")).toBe("2");
+        expect(url.searchParams.get("page_size")).toBe("12");
+        expect(url.searchParams.get("search")).toBe("deploy");
+        expect(url.searchParams.get("org")).toBe("acme");
+        expect(url.searchParams.get("grade")).toBe("A");
+        expect(url.searchParams.get("sort")).toBe("downloads");
         return HttpResponse.json(response);
       }),
     );
 
-    await listSkills(3, 10);
+    await listSkillsFiltered({
+      page: 2,
+      pageSize: 12,
+      search: "deploy",
+      org: "acme",
+      grade: "A",
+      sort: "downloads",
+    });
   });
-});
 
-describe("listAllSkills", () => {
-  it("fetches all pages and returns flat array", async () => {
-    let callCount = 0;
+  it("omits empty filter params from query string", async () => {
+    const response = {
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+      total_pages: 1,
+    };
     server.use(
       http.get("/v1/skills", ({ request }) => {
-        callCount++;
         const url = new URL(request.url);
-        const page = Number(url.searchParams.get("page") ?? "1");
-        if (page === 1) {
-          return HttpResponse.json({
-            items: [{ org_slug: "acme", skill_name: "skill-a" }],
-            total: 2,
-            page: 1,
-            page_size: 100,
-            total_pages: 2,
-          });
-        }
-        return HttpResponse.json({
-          items: [{ org_slug: "acme", skill_name: "skill-b" }],
-          total: 2,
-          page: 2,
-          page_size: 100,
-          total_pages: 2,
-        });
+        expect(url.searchParams.has("search")).toBe(false);
+        expect(url.searchParams.has("org")).toBe(false);
+        expect(url.searchParams.has("category")).toBe(false);
+        expect(url.searchParams.has("grade")).toBe(false);
+        return HttpResponse.json(response);
       }),
     );
 
-    const result = await listAllSkills();
-    expect(result).toHaveLength(2);
-    expect(result[0].skill_name).toBe("skill-a");
-    expect(result[1].skill_name).toBe("skill-b");
-    expect(callCount).toBe(2);
+    await listSkillsFiltered();
+  });
+});
+
+describe("getSkill", () => {
+  it("returns a single skill summary", async () => {
+    const skill = {
+      org_slug: "acme",
+      skill_name: "my-skill",
+      description: "A skill",
+      latest_version: "1.0.0",
+    };
+    server.use(
+      http.get("/v1/skills/:org/:skill/summary", () =>
+        HttpResponse.json(skill),
+      ),
+    );
+
+    const result = await getSkill("acme", "my-skill");
+    expect(result).toEqual(skill);
+  });
+});
+
+describe("getRegistryStats", () => {
+  it("returns registry statistics", async () => {
+    const stats = { total_skills: 100, total_orgs: 10, total_downloads: 5000 };
+    server.use(
+      http.get("/v1/stats", () => HttpResponse.json(stats)),
+    );
+
+    const result = await getRegistryStats();
+    expect(result).toEqual(stats);
+  });
+});
+
+describe("listOrgStats", () => {
+  it("returns org statistics with filters", async () => {
+    const response = {
+      items: [{ slug: "acme", skill_count: 5, total_downloads: 100 }],
+    };
+    server.use(
+      http.get("/v1/orgs/stats", ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get("search")).toBe("acme");
+        expect(url.searchParams.get("type_filter")).toBe("orgs");
+        return HttpResponse.json(response);
+      }),
+    );
+
+    const result = await listOrgStats({ search: "acme", typeFilter: "orgs" });
+    expect(result.items).toHaveLength(1);
   });
 });
 
@@ -193,7 +243,7 @@ describe("error handling", () => {
       ),
     );
 
-    await expect(listSkills()).rejects.toThrow("API 500: Internal Server Error");
+    await expect(listSkillsFiltered()).rejects.toThrow("API 500: Internal Server Error");
   });
 
   it("throws on download failure", async () => {

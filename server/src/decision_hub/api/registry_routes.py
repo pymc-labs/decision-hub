@@ -42,6 +42,7 @@ from decision_hub.infra.database import (
     delete_skill_access_grant,
     delete_version,
     fetch_all_skills_for_index,
+    fetch_registry_stats,
     find_active_eval_runs_for_user,
     find_audit_logs,
     find_eval_report_by_skill,
@@ -512,6 +513,16 @@ def publish_skill(
 
 
 @public_router.get(
+    "/stats",
+)
+def get_registry_stats(
+    conn: Connection = Depends(get_connection),
+) -> dict:
+    """Return aggregate registry statistics (total skills, orgs, downloads)."""
+    return fetch_registry_stats(conn)
+
+
+@public_router.get(
     "/skills",
     response_model=PaginatedSkillsResponse,
     dependencies=[Depends(_enforce_list_skills_rate_limit)],
@@ -519,17 +530,39 @@ def publish_skill(
 def list_skills(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, max_length=200),
+    org: str | None = Query(None, max_length=100),
+    category: str | None = Query(None, max_length=100),
+    grade: str | None = Query(None, max_length=1),
+    sort: str = Query("updated", pattern="^(updated|name|downloads)$"),
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedSkillsResponse:
-    """List published skills with pagination."""
+    """List published skills with pagination and server-side filtering."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
 
-    total = count_all_skills(conn, user_org_ids=user_org_ids)
+    total = count_all_skills(
+        conn,
+        user_org_ids=user_org_ids,
+        search=search,
+        org_slug=org,
+        category=category,
+        grade=grade,
+    )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     offset = (page - 1) * page_size
 
-    rows = fetch_all_skills_for_index(conn, user_org_ids=user_org_ids, limit=page_size, offset=offset)
+    rows = fetch_all_skills_for_index(
+        conn,
+        user_org_ids=user_org_ids,
+        search=search,
+        org_slug=org,
+        category=category,
+        grade=grade,
+        limit=page_size,
+        offset=offset,
+        sort=sort,
+    )
     items = [
         SkillSummary(
             org_slug=row["org_slug"],
@@ -552,6 +585,41 @@ def list_skills(
         page=page,
         page_size=page_size,
         total_pages=total_pages,
+    )
+
+
+@public_router.get(
+    "/skills/{org_slug}/{skill_name}/summary",
+    response_model=SkillSummary,
+)
+def get_skill_summary(
+    org_slug: str,
+    skill_name: str,
+    conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> SkillSummary:
+    """Return a single skill summary by org slug and skill name."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    version = resolve_latest_version(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if version is None:
+        raise HTTPException(status_code=404, detail=f"No versions found for {org_slug}/{skill_name}")
+
+    org = find_org_by_slug(conn, org_slug)
+    return SkillSummary(
+        org_slug=org_slug,
+        skill_name=skill_name,
+        description=skill.description,
+        latest_version=version.semver,
+        updated_at=version.created_at.strftime("%Y-%m-%d %H:%M:%S") if version.created_at else "",
+        safety_rating=format_trust_score(version.eval_status),
+        author=version.published_by,
+        download_count=skill.download_count,
+        is_personal_org=org.is_personal if org else False,
+        category=skill.category,
+        visibility=skill.visibility,
     )
 
 

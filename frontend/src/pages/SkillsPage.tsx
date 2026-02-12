@@ -1,69 +1,84 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Search, Package, Download, Filter, User, Tag, Layers, ChevronLeft, ChevronRight } from "lucide-react";
-import { listAllSkills, getTaxonomy } from "../api/client";
+import { listSkillsFiltered, getTaxonomy, listOrgProfiles } from "../api/client";
 import { useApi } from "../hooks/useApi";
-import type { SkillSummary } from "../types/api";
-import { extractOrgs, filterSkills } from "../lib/filters";
+import type { SkillSummary, PaginatedSkillsResponse } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import styles from "./SkillsPage.module.css";
 
 const PAGE_SIZE = 12;
+const DEBOUNCE_MS = 300;
 
 export default function SkillsPage() {
   const [page, setPage] = useState(1);
-  const { data: allSkills, loading, error } = useApi(() => listAllSkills(), []);
-  const { data: taxonomy } = useApi(() => getTaxonomy(), []);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [orgFilter, setOrgFilter] = useState<string>("all");
   const [gradeFilter, setGradeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "downloads" | "updated">("updated");
   const [viewMode, setViewMode] = useState<"grid" | "grouped">("grid");
 
-  const skills = allSkills ?? [];
+  const { data: taxonomy } = useApi(() => getTaxonomy(), []);
+  const { data: orgProfiles } = useApi(() => listOrgProfiles(), []);
+
+  // Debounce the search input
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+      setPage(1);
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchInput]);
+
+  // Build API params from state
+  const fetchSkills = useCallback(() => {
+    return listSkillsFiltered({
+      page,
+      pageSize: PAGE_SIZE,
+      search: debouncedSearch || undefined,
+      org: orgFilter !== "all" ? orgFilter : undefined,
+      category: categoryFilter !== "all" ? categoryFilter : undefined,
+      grade: gradeFilter !== "all" ? gradeFilter : undefined,
+      sort: sortBy,
+    });
+  }, [page, debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy]);
+
+  const { data, loading, error } = useApi<PaginatedSkillsResponse>(
+    fetchSkills,
+    [page, debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy]
+  );
+
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const total = data?.total ?? 0;
+  const totalPages = data?.total_pages ?? 1;
 
   const orgs = useMemo(
-    () => extractOrgs(skills),
-    [skills],
-  );
-
-  const activeCategories = useMemo(() => {
-    return new Set(skills.map((s) => s.category).filter(Boolean));
-  }, [skills]);
-
-  // Filter the full dataset, then paginate the result
-  const filtered = useMemo(
-    () => filterSkills(skills, search, orgFilter, gradeFilter, sortBy, categoryFilter),
-    [skills, search, orgFilter, gradeFilter, sortBy, categoryFilter],
-  );
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginatedSkills = useMemo(
-    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filtered, page],
+    () => (orgProfiles ?? []).map((p) => p.slug).sort(),
+    [orgProfiles],
   );
 
   const groupedSkills = useMemo(() => {
     const groups: Record<string, SkillSummary[]> = {};
-    for (const skill of paginatedSkills) {
+    for (const skill of items) {
       const cat = skill.category || "Uncategorized";
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(skill);
     }
     return groups;
-  }, [paginatedSkills]);
+  }, [items]);
 
-  // Reset to page 1 when filters change
-  const resetAndSetSearch = (v: string) => { setSearch(v); setPage(1); };
+  // Reset to page 1 when filters change (except search, which debounces)
   const resetAndSetOrg = (v: string) => { setOrgFilter(v); setPage(1); };
   const resetAndSetGrade = (v: string) => { setGradeFilter(v); setPage(1); };
   const resetAndSetCategory = (v: string) => { setCategoryFilter(v); setPage(1); };
   const resetAndSetSort = (v: "name" | "downloads" | "updated") => { setSortBy(v); setPage(1); };
 
-  if (loading) return <LoadingSpinner text="Loading skills..." />;
+  if (loading && !data) return <LoadingSpinner text="Loading skills..." />;
   if (error) {
     return (
       <div className="container">
@@ -82,7 +97,7 @@ export default function SkillsPage() {
           Skill Registry
         </h1>
         <p className={styles.subtitle}>
-          {skills.length} skills published across {orgs.length} organizations
+          {total} skills published across {orgs.length} organizations
         </p>
       </div>
 
@@ -93,8 +108,8 @@ export default function SkillsPage() {
           <input
             type="text"
             placeholder="Search skills..."
-            value={search}
-            onChange={(e) => resetAndSetSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className={styles.searchInput}
           />
         </div>
@@ -131,21 +146,15 @@ export default function SkillsPage() {
             className={styles.select}
           >
             <option value="all">All Categories</option>
-            {Object.entries(taxonomy?.groups ?? {}).map(([group, subcategories]) => {
-              const activeSubs = subcategories.filter((sub) =>
-                activeCategories.has(sub)
-              );
-              if (activeSubs.length === 0) return null;
-              return (
-                <optgroup key={group} label={group}>
-                  {activeSubs.map((sub) => (
-                    <option key={sub} value={sub}>
-                      {sub}
-                    </option>
-                  ))}
-                </optgroup>
-              );
-            })}
+            {Object.entries(taxonomy?.groups ?? {}).map(([group, subcategories]) => (
+              <optgroup key={group} label={group}>
+                {subcategories.map((sub) => (
+                  <option key={sub} value={sub}>
+                    {sub}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
           </select>
 
           <select
@@ -169,7 +178,7 @@ export default function SkillsPage() {
       </div>
 
       {/* Results */}
-      {paginatedSkills.length === 0 ? (
+      {items.length === 0 ? (
         <div className={styles.empty}>
           <Package size={48} />
           <p>No skills match your filters</p>
@@ -193,7 +202,7 @@ export default function SkillsPage() {
         </div>
       ) : (
         <div className={styles.grid}>
-          {paginatedSkills.map((skill) => (
+          {items.map((skill) => (
             <SkillCard key={`${skill.org_slug}/${skill.skill_name}`} skill={skill} />
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Package, Building2, Shield, Zap, ArrowRight, Download, Star, Bot, Terminal } from "lucide-react";
-import { listAllSkills } from "../api/client";
+import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -9,12 +9,16 @@ import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
 
 export default function HomePage() {
-  const { data: skills } = useApi(() => listAllSkills(), []);
+  const { data: stats } = useApi(() => getRegistryStats(), []);
+  const { data: latestSkills } = useApi(
+    () => listSkillsFiltered({ page: 1, pageSize: 6, sort: "updated" }),
+    []
+  );
 
-  const topSkills = skills?.slice(0, 6) ?? [];
-  const totalSkills = skills?.length ?? 0;
-  const totalOrgs = new Set(skills?.map((s) => s.org_slug)).size;
-  const totalDownloads = skills?.reduce((sum, s) => sum + s.download_count, 0) ?? 0;
+  const topSkills = latestSkills?.items ?? [];
+  const totalSkills = stats?.total_skills ?? 0;
+  const totalOrgs = stats?.total_orgs ?? 0;
+  const totalDownloads = stats?.total_downloads ?? 0;
 
   return (
     <div className="container">

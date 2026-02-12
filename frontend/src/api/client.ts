@@ -6,6 +6,8 @@ import type {
   EvalReport,
   AuditLogEntry,
   TaxonomyResponse,
+  RegistryStats,
+  OrgStatsResponse,
 } from "../types/api";
 
 // When served from Modal (same origin), use "" so fetches are relative.
@@ -27,23 +29,51 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export async function listSkills(
-  page = 1,
-  pageSize = 20
+export interface SkillsFilterParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  org?: string;
+  category?: string;
+  grade?: string;
+  sort?: "updated" | "name" | "downloads";
+}
+
+export async function listSkillsFiltered(
+  params: SkillsFilterParams = {}
 ): Promise<PaginatedSkillsResponse> {
-  return fetchJSON<PaginatedSkillsResponse>(
-    `/v1/skills?page=${page}&page_size=${pageSize}`
+  const qs = new URLSearchParams();
+  qs.set("page", String(params.page ?? 1));
+  qs.set("page_size", String(params.pageSize ?? 20));
+  if (params.search) qs.set("search", params.search);
+  if (params.org) qs.set("org", params.org);
+  if (params.category) qs.set("category", params.category);
+  if (params.grade) qs.set("grade", params.grade);
+  if (params.sort) qs.set("sort", params.sort);
+  return fetchJSON<PaginatedSkillsResponse>(`/v1/skills?${qs.toString()}`);
+}
+
+export async function getSkill(
+  orgSlug: string,
+  skillName: string
+): Promise<SkillSummary> {
+  return fetchJSON<SkillSummary>(
+    `/v1/skills/${orgSlug}/${skillName}/summary`
   );
 }
 
-export async function listAllSkills(): Promise<SkillSummary[]> {
-  const first = await listSkills(1, 100);
-  const skills = [...first.items];
-  for (let p = 2; p <= first.total_pages; p++) {
-    const page = await listSkills(p, 100);
-    skills.push(...page.items);
-  }
-  return skills;
+export async function getRegistryStats(): Promise<RegistryStats> {
+  return fetchJSON<RegistryStats>("/v1/stats");
+}
+
+export async function listOrgStats(params: {
+  search?: string;
+  typeFilter?: string;
+} = {}): Promise<OrgStatsResponse> {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set("search", params.search);
+  if (params.typeFilter) qs.set("type_filter", params.typeFilter);
+  return fetchJSON<OrgStatsResponse>(`/v1/orgs/stats?${qs.toString()}`);
 }
 
 export async function getOrgProfile(slug: string): Promise<OrgProfile> {

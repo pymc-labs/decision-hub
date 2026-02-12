@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
@@ -54,17 +54,40 @@ const TAXONOMY = {
   },
 };
 
+const ORG_PROFILES = [{ slug: "acme", is_personal: false, avatar_url: null, description: null, blog: null }];
+
+/** Server-side filtering mock: filters SKILLS based on query params. */
+function filterSkillsHandler({ request }: { request: Request }) {
+  const url = new URL(request.url);
+  const search = url.searchParams.get("search")?.toLowerCase();
+  const category = url.searchParams.get("category");
+
+  let filtered = [...SKILLS];
+  if (search) {
+    filtered = filtered.filter(
+      (s) =>
+        s.skill_name.toLowerCase().includes(search) ||
+        s.description.toLowerCase().includes(search) ||
+        s.org_slug.toLowerCase().includes(search),
+    );
+  }
+  if (category) {
+    filtered = filtered.filter((s) => s.category === category);
+  }
+
+  return HttpResponse.json({
+    items: filtered,
+    total: filtered.length,
+    page: 1,
+    page_size: 12,
+    total_pages: 1,
+  });
+}
+
 const server = setupServer(
-  http.get("/v1/skills", () =>
-    HttpResponse.json({
-      items: SKILLS,
-      total: SKILLS.length,
-      page: 1,
-      page_size: 100,
-      total_pages: 1,
-    }),
-  ),
+  http.get("/v1/skills", filterSkillsHandler),
   http.get("/v1/taxonomy", () => HttpResponse.json(TAXONOMY)),
+  http.get("/v1/orgs/profiles", () => HttpResponse.json(ORG_PROFILES)),
 );
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -106,7 +129,6 @@ describe("SkillsPage", () => {
   it("shows category badges on skill cards", async () => {
     renderPage();
     await waitForSkills();
-    // Cards are links — look inside them for the category badge class
     const links = screen.getAllByRole("link");
     const cardTexts = links.map((link) => link.textContent);
     expect(cardTexts.some((t) => t?.includes("Backend & APIs"))).toBe(true);
@@ -118,10 +140,8 @@ describe("SkillsPage", () => {
     renderPage();
     await waitForSkills();
     const select = getCategorySelect();
-    // Should contain optgroups for active categories
     const optgroups = select.querySelectorAll("optgroup");
     expect(optgroups.length).toBeGreaterThan(0);
-    // "All Categories" should be the default
     expect(select.value).toBe("all");
   });
 
@@ -133,10 +153,12 @@ describe("SkillsPage", () => {
     const select = getCategorySelect();
     await user.selectOptions(select, "Backend & APIs");
 
-    // Only "api-gen" should remain
-    expect(screen.getByText("api-gen")).toBeInTheDocument();
-    expect(screen.queryByText("llm-tool")).not.toBeInTheDocument();
-    expect(screen.queryByText("css-fix")).not.toBeInTheDocument();
+    // Server-side filter returns only "api-gen"
+    await waitFor(() => {
+      expect(screen.getByText("api-gen")).toBeInTheDocument();
+      expect(screen.queryByText("llm-tool")).not.toBeInTheDocument();
+      expect(screen.queryByText("css-fix")).not.toBeInTheDocument();
+    });
   });
 
   it("shows grouped view when toggle is clicked", async () => {
@@ -147,7 +169,6 @@ describe("SkillsPage", () => {
     const toggleButton = screen.getByTitle("Group by category");
     await user.click(toggleButton);
 
-    // In grouped view, category names appear as section headings (h2)
     const headings = screen.getAllByRole("heading", { level: 2 });
     const headingTexts = headings.map((h) => h.textContent);
     expect(headingTexts.some((t) => t?.includes("Backend & APIs"))).toBe(true);
@@ -173,18 +194,28 @@ describe("SkillsPage", () => {
     expect(screen.getByText(/3 skills published/)).toBeInTheDocument();
   });
 
-  it("shows no-results message when category filter matches nothing after search", async () => {
+  it("shows no-results message when search matches nothing", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitForSkills();
 
-    // Filter to "Backend & APIs", then search for something that doesn't match
     const select = getCategorySelect();
     await user.selectOptions(select, "Backend & APIs");
+
+    // Wait for category filter to take effect
+    await waitFor(() => {
+      expect(screen.queryByText("llm-tool")).not.toBeInTheDocument();
+    });
 
     const searchInput = screen.getByPlaceholderText("Search skills...");
     await user.type(searchInput, "nonexistent");
 
-    expect(screen.getByText("No skills match your filters")).toBeInTheDocument();
+    // Wait for debounce + server response
+    await waitFor(
+      () => {
+        expect(screen.getByText("No skills match your filters")).toBeInTheDocument();
+      },
+      { timeout: 2000 },
+    );
   });
 });

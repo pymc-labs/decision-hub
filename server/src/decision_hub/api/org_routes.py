@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from decision_hub.api.deps import get_connection, get_current_user
 from decision_hub.domain.orgs import validate_org_slug
 from decision_hub.infra.database import (
+    fetch_org_stats,
     find_org_by_slug,
     find_org_member,
     insert_org_member,
@@ -120,6 +121,45 @@ def list_orgs(
         )
         for o in orgs
     ]
+
+
+class OrgStatsEntry(BaseModel):
+    """Aggregated statistics for a single org."""
+
+    slug: str
+    is_personal: bool
+    avatar_url: str | None = None
+    skill_count: int
+    total_downloads: int
+    latest_update: str | None = None
+
+
+class OrgStatsResponse(BaseModel):
+    """Response for the /orgs/stats endpoint."""
+
+    items: list[OrgStatsEntry]
+
+
+@org_public_router.get("/stats", response_model=OrgStatsResponse)
+def get_org_stats(
+    search: str | None = Query(None, max_length=200),
+    type_filter: str = Query("all", pattern="^(orgs|users|all)$"),
+    conn: Connection = Depends(get_connection),
+) -> OrgStatsResponse:
+    """Return aggregated org statistics for the orgs listing page."""
+    rows = fetch_org_stats(conn, search=search, type_filter=type_filter)
+    items = [
+        OrgStatsEntry(
+            slug=row["slug"],
+            is_personal=row["is_personal"],
+            avatar_url=row["avatar_url"],
+            skill_count=row["skill_count"],
+            total_downloads=row["total_downloads"],
+            latest_update=row["latest_update"],
+        )
+        for row in rows
+    ]
+    return OrgStatsResponse(items=items)
 
 
 @org_public_router.get("/profiles", response_model=list[OrgProfile])

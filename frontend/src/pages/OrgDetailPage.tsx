@@ -1,7 +1,6 @@
-import { useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Package, Download, ArrowLeft, Globe, Github } from "lucide-react";
-import { listAllSkills, getOrgProfile } from "../api/client";
+import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -11,16 +10,13 @@ import styles from "./OrgDetailPage.module.css";
 
 export default function OrgDetailPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
-  const { data: allSkills, loading, error } = useApi(() => listAllSkills(), []);
+  const { data: skillsData, loading, error } = useApi(
+    () => listSkillsFiltered({ org: orgSlug, sort: "updated", pageSize: 100 }),
+    [orgSlug]
+  );
   const { data: profile } = useApi(() => getOrgProfile(orgSlug!), [orgSlug]);
 
-  const skills = useMemo(() => {
-    if (!allSkills || !orgSlug) return [];
-    return allSkills
-      .filter((s) => s.org_slug === orgSlug)
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  }, [allSkills, orgSlug]);
-
+  const skills = skillsData?.items ?? [];
   const totalDownloads = skills.reduce((sum, s) => sum + s.download_count, 0);
 
   const blogUrl = profile?.blog
