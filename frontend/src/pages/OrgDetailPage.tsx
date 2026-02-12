@@ -1,16 +1,18 @@
 import { useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Building2, Package, Download, ArrowLeft } from "lucide-react";
-import { listSkills } from "../api/client";
+import { Package, Download, ArrowLeft, Globe, Github } from "lucide-react";
+import { listSkills, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import OrgAvatar from "../components/OrgAvatar";
 import styles from "./OrgDetailPage.module.css";
 
 export default function OrgDetailPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const { data: allSkills, loading, error } = useApi(() => listSkills(), []);
+  const { data: profile } = useApi(() => getOrgProfile(orgSlug!), [orgSlug]);
 
   const skills = useMemo(() => {
     if (!allSkills || !orgSlug) return [];
@@ -40,11 +42,16 @@ export default function OrgDetailPage() {
       </Link>
 
       <div className={styles.header}>
-        <div className={styles.orgIcon}>
-          <Building2 size={36} />
-        </div>
+        <OrgAvatar
+          avatarUrl={profile?.avatar_url}
+          isPersonal={profile?.is_personal ?? false}
+          size="lg"
+        />
         <div>
           <h1 className={styles.title}>{orgSlug}</h1>
+          {profile?.description && (
+            <p className={styles.description}>{profile.description}</p>
+          )}
           <div className={styles.meta}>
             <span>
               <Package size={14} /> {skills.length} skills
@@ -52,6 +59,28 @@ export default function OrgDetailPage() {
             <span>
               <Download size={14} /> {totalDownloads.toLocaleString()} downloads
             </span>
+          </div>
+          <div className={styles.links}>
+            {profile?.blog && (
+              <a
+                href={profile.blog}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.link}
+              >
+                <Globe size={14} />
+                Website
+              </a>
+            )}
+            <a
+              href={`https://github.com/${orgSlug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.link}
+            >
+              <Github size={14} />
+              GitHub
+            </a>
           </div>
         </div>
       </div>

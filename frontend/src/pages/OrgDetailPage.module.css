@@ -16,24 +16,22 @@
   margin-bottom: 36px;
 }
 
-.orgIcon {
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--neon-purple);
-  flex-shrink: 0;
-}
-
 .title {
   font-size: 1.8rem;
   color: var(--neon-purple);
   text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
   margin-bottom: 4px;
+}
+
+.description {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .meta {
@@ -47,6 +45,33 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.links {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.link:hover {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.15);
+  text-shadow: none;
 }
 
 .grid {

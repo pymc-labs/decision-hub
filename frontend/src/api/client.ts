@@ -1,5 +1,6 @@
 import type {
   SkillSummary,
+  OrgProfile,
   ResolveResponse,
   EvalReport,
   AuditLogEntry,
@@ -27,6 +28,10 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function listSkills(): Promise<SkillSummary[]> {
   return fetchJSON<SkillSummary[]>("/v1/skills");
+}
+
+export async function getOrgProfile(slug: string): Promise<OrgProfile> {
+  return fetchJSON<OrgProfile>(`/v1/orgs/${slug}/profile`);
 }
 
 export async function getTaxonomy(): Promise<TaxonomyResponse> {

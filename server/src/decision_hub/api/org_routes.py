@@ -1,4 +1,6 @@
-"""Organisation management routes -- create and list."""
+"""Organisation management routes -- create, list, and detail."""
+
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -9,6 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from decision_hub.api.deps import get_connection, get_current_user
 from decision_hub.domain.orgs import validate_org_slug
 from decision_hub.infra.database import (
+    find_org_by_slug,
+    find_org_member,
     insert_org_member,
     insert_organization,
     list_user_orgs,
@@ -41,6 +45,31 @@ class OrgSummary(BaseModel):
 
     id: str
     slug: str
+    avatar_url: str | None = None
+    is_personal: bool = False
+
+
+class OrgProfile(BaseModel):
+    """Public org profile — no auth required."""
+
+    slug: str
+    is_personal: bool
+    avatar_url: str | None = None
+    description: str | None = None
+    blog: str | None = None
+
+
+class OrgDetail(BaseModel):
+    """Full organisation profile."""
+
+    id: str
+    slug: str
+    is_personal: bool
+    avatar_url: str | None = None
+    email: str | None = None
+    description: str | None = None
+    blog: str | None = None
+    github_synced_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -80,4 +109,58 @@ def list_orgs(
 ) -> list[OrgSummary]:
     """List organisations the authenticated user belongs to."""
     orgs = list_user_orgs(conn, current_user.id)
-    return [OrgSummary(id=str(o.id), slug=o.slug) for o in orgs]
+    return [
+        OrgSummary(
+            id=str(o.id),
+            slug=o.slug,
+            avatar_url=o.avatar_url,
+            is_personal=o.is_personal,
+        )
+        for o in orgs
+    ]
+
+
+@org_router.get("/{slug}/profile", response_model=OrgProfile)
+def get_org_profile(
+    slug: str,
+    conn: Connection = Depends(get_connection),
+) -> OrgProfile:
+    """Public profile for an organisation."""
+    org = find_org_by_slug(conn, slug)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    return OrgProfile(
+        slug=org.slug,
+        is_personal=org.is_personal,
+        avatar_url=org.avatar_url,
+        description=org.description,
+        blog=org.blog,
+    )
+
+
+@org_router.get("/{slug}", response_model=OrgDetail)
+def get_org(
+    slug: str,
+    conn: Connection = Depends(get_connection),
+    current_user: User = Depends(get_current_user),
+) -> OrgDetail:
+    """Get full profile for an organisation."""
+    org = find_org_by_slug(conn, slug)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+
+    # Only members can view the org detail (avoids leaking org existence)
+    member = find_org_member(conn, org.id, current_user.id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+
+    return OrgDetail(
+        id=str(org.id),
+        slug=org.slug,
+        is_personal=org.is_personal,
+        avatar_url=org.avatar_url,
+        email=org.email,
+        description=org.description,
+        blog=org.blog,
+        github_synced_at=org.github_synced_at,
+    )

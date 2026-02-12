@@ -18,6 +18,14 @@ export interface OrgSummary {
   slug: string;
 }
 
+export interface OrgProfile {
+  slug: string;
+  is_personal: boolean;
+  avatar_url: string | null;
+  description: string | null;
+  blog: string | null;
+}
+
 export interface ResolveResponse {
   version: string;
   download_url: string;
