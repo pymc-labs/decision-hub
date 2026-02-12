@@ -189,13 +189,19 @@ Migrations are also applied automatically during deploys (`scripts/deploy.sh`).
 
 ### Creating a new migration
 
-**Naming**: Use timestamp-based filenames to avoid collisions between parallel branches:
+**Naming**: Use timestamp-based filenames to avoid collisions between parallel branches. **Always generate the timestamp from the actual current time** — never invent a round number like `120000`:
+
+```bash
+# Generate the filename prefix:
+date +%Y%m%d_%H%M%S
+# Example output: 20260212_163047
+```
 
 ```
 YYYYMMDD_HHMMSS_description.sql
 ```
 
-Example: `20260211_143000_add_user_email.sql`
+Example: `20260212_163047_add_user_email.sql`
 
 Legacy files use 3-digit numeric prefixes (`001_` through `011_`). Do not add new files with numeric prefixes.
 
