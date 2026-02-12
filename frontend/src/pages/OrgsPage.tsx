@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Building2, Package, ArrowRight, Search, Filter } from "lucide-react";
-import { listAllSkills, getOrgProfile } from "../api/client";
+import { listAllSkills, listOrgProfiles } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { aggregateOrgs, filterOrgs } from "../lib/filters";
 import type { OrgProfile } from "../types/api";
@@ -14,33 +14,22 @@ type OrgType = "orgs" | "users" | "all";
 
 export default function OrgsPage() {
   const { data: skills, loading, error } = useApi(() => listAllSkills(), []);
+  const { data: profileList } = useApi(() => listOrgProfiles(), []);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<OrgType>("orgs");
-  const [profiles, setProfiles] = useState<Map<string, OrgProfile>>(new Map());
+
+  const profiles = useMemo(() => {
+    const map = new Map<string, OrgProfile>();
+    for (const p of profileList ?? []) {
+      map.set(p.slug, p);
+    }
+    return map;
+  }, [profileList]);
 
   const orgs = useMemo(
     () => aggregateOrgs(skills ?? []),
     [skills],
   );
-
-  // Fetch org profiles in parallel once orgs are known
-  useEffect(() => {
-    if (orgs.length === 0) return;
-    let cancelled = false;
-    Promise.all(
-      orgs.map((o) =>
-        getOrgProfile(o.slug).catch(() => null),
-      ),
-    ).then((results) => {
-      if (cancelled) return;
-      const map = new Map<string, OrgProfile>();
-      for (const p of results) {
-        if (p) map.set(p.slug, p);
-      }
-      setProfiles(map);
-    });
-    return () => { cancelled = true; };
-  }, [orgs]);
 
   const filtered = useMemo(
     () => filterOrgs(orgs, search, typeFilter),

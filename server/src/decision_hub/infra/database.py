@@ -670,6 +670,13 @@ def find_org_by_slug(conn: Connection, slug: str) -> Organization | None:
     return _row_to_organization(row)
 
 
+def list_all_org_profiles(conn: Connection) -> list[Organization]:
+    """Return all organizations (public listing)."""
+    stmt = sa.select(organizations_table).order_by(organizations_table.c.slug)
+    rows = conn.execute(stmt).all()
+    return [_row_to_organization(row) for row in rows]
+
+
 def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
     """List all organizations a user belongs to.
 

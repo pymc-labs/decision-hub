@@ -15,6 +15,7 @@ from decision_hub.infra.database import (
     find_org_member,
     insert_org_member,
     insert_organization,
+    list_all_org_profiles,
     list_user_orgs,
 )
 from decision_hub.models import User
@@ -116,6 +117,24 @@ def list_orgs(
             slug=o.slug,
             avatar_url=o.avatar_url,
             is_personal=o.is_personal,
+        )
+        for o in orgs
+    ]
+
+
+@org_public_router.get("/profiles", response_model=list[OrgProfile])
+def list_org_profiles(
+    conn: Connection = Depends(get_connection),
+) -> list[OrgProfile]:
+    """Public profiles for all organisations (single request, no auth)."""
+    orgs = list_all_org_profiles(conn)
+    return [
+        OrgProfile(
+            slug=o.slug,
+            is_personal=o.is_personal,
+            avatar_url=o.avatar_url,
+            description=o.description,
+            blog=o.blog,
         )
         for o in orgs
     ]

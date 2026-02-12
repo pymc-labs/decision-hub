@@ -50,6 +50,10 @@ export async function getOrgProfile(slug: string): Promise<OrgProfile> {
   return fetchJSON<OrgProfile>(`/v1/orgs/${slug}/profile`);
 }
 
+export async function listOrgProfiles(): Promise<OrgProfile[]> {
+  return fetchJSON<OrgProfile[]>("/v1/orgs/profiles");
+}
+
 export async function getTaxonomy(): Promise<TaxonomyResponse> {
   return fetchJSON<TaxonomyResponse>("/v1/taxonomy");
 }
