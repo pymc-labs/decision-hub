@@ -702,12 +702,6 @@ def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
     return [_row_to_organization(row) for row in rows]
 
 
-def update_org_email(conn: Connection, org_id: UUID, email: str) -> None:
-    """Update the public email for an organization."""
-    stmt = sa.update(organizations_table).where(organizations_table.c.id == org_id).values(email=email)
-    conn.execute(stmt)
-
-
 def update_org_github_metadata(
     conn: Connection,
     org_id: UUID,

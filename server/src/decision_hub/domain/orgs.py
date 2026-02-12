@@ -152,7 +152,7 @@ def _ensure_org_membership(
         insert_member_fn(conn, org.id, user_id, default_role)
 
 
-_METADATA_CACHE_TTL = timedelta(hours=24)
+METADATA_CACHE_TTL = timedelta(hours=24)
 
 
 async def sync_org_github_metadata(
@@ -198,7 +198,7 @@ async def sync_org_github_metadata(
                 continue
 
             # Skip if recently synced
-            if org.github_synced_at and (now - org.github_synced_at) < _METADATA_CACHE_TTL:
+            if org.github_synced_at and (now - org.github_synced_at) < METADATA_CACHE_TTL:
                 continue
 
             # Fetch metadata from GitHub (no DB transaction held)

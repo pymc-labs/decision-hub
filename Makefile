@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill-org-metadata
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -68,6 +68,14 @@ publish: ## Build and publish dhub-cli to PyPI (low-level, prefer publish-cli)
 
 publish-cli: ## Publish CLI to PyPI (BUMP=patch|minor|major, BREAKING=1 to sync servers)
 	./scripts/release-cli.sh $(or $(BUMP),patch) $(if $(BREAKING),--sync,)
+
+# ---------------------------------------------------------------------------
+# Data maintenance
+# ---------------------------------------------------------------------------
+
+backfill-org-metadata: ## Backfill org metadata from GitHub (needs DHUB_ENV, uses gh auth token)
+	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+		python -m decision_hub.scripts.backfill_org_metadata --github-token "$$(gh auth token)"
 
 # ---------------------------------------------------------------------------
 # Setup

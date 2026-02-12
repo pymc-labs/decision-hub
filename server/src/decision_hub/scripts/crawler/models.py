@@ -28,7 +28,7 @@ class CrawlStats:
     skills_failed: int = 0
     skills_quarantined: int = 0
     orgs_created: int = 0
-    emails_saved: int = 0
+    metadata_synced: int = 0
     errors: list[str] = field(default_factory=list)
 
     def accumulate(self, result: dict) -> None:
@@ -40,8 +40,8 @@ class CrawlStats:
         self.skills_quarantined += result.get("skills_quarantined", 0)
         if result.get("org_created"):
             self.orgs_created += 1
-        if result.get("email_saved"):
-            self.emails_saved += 1
+        if result.get("metadata_synced"):
+            self.metadata_synced += 1
         if result.get("error"):
             self.errors.append(f"{result['repo']}: {result['error']}")
 

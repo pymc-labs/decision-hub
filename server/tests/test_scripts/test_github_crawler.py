@@ -27,7 +27,7 @@ from decision_hub.scripts.crawler.models import (
 )
 from decision_hub.scripts.crawler.processing import (
     _SLUG_PATTERN,
-    fetch_owner_email,
+    fetch_owner_metadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ class TestCrawlStats:
             "skills_failed": 0,
             "skills_quarantined": 1,
             "org_created": True,
-            "email_saved": True,
+            "metadata_synced": True,
             "error": None,
         }
         stats.accumulate(result)
@@ -86,7 +86,7 @@ class TestCrawlStats:
         assert stats.skills_skipped == 1
         assert stats.skills_quarantined == 1
         assert stats.orgs_created == 1
-        assert stats.emails_saved == 1
+        assert stats.metadata_synced == 1
         assert len(stats.errors) == 0
 
     def test_accumulate_error(self):
@@ -99,7 +99,7 @@ class TestCrawlStats:
             "skills_failed": 0,
             "skills_quarantined": 0,
             "org_created": False,
-            "email_saved": False,
+            "metadata_synced": False,
             "error": "git clone failed",
         }
         stats.accumulate(result)
@@ -535,20 +535,30 @@ class TestFilterChangedRepos:
 
 
 # ---------------------------------------------------------------------------
-# fetch_owner_email tests
+# fetch_owner_metadata tests
 # ---------------------------------------------------------------------------
 
 
-class TestFetchOwnerEmail:
+class TestFetchOwnerMetadata:
     @patch("decision_hub.scripts.crawler.processing.httpx.get")
-    def test_user_email(self, mock_get):
+    def test_user_metadata(self, mock_get):
         resp = MagicMock()
         resp.status_code = 200
-        resp.json.return_value = {"email": "user@example.com"}
+        resp.json.return_value = {
+            "email": "user@example.com",
+            "avatar_url": "https://avatars.githubusercontent.com/u/1",
+            "bio": "A developer",
+            "blog": "https://example.com",
+        }
         mock_get.return_value = resp
 
-        result = fetch_owner_email("testuser", "User", "token123")
-        assert result == "user@example.com"
+        result = fetch_owner_metadata("testuser", "User", "token123")
+        assert result == {
+            "avatar_url": "https://avatars.githubusercontent.com/u/1",
+            "email": "user@example.com",
+            "description": "A developer",
+            "blog": "https://example.com",
+        }
         mock_get.assert_called_once_with(
             "https://api.github.com/users/testuser",
             headers={"Accept": "application/vnd.github+json", "Authorization": "Bearer token123"},
@@ -556,14 +566,24 @@ class TestFetchOwnerEmail:
         )
 
     @patch("decision_hub.scripts.crawler.processing.httpx.get")
-    def test_org_email(self, mock_get):
+    def test_org_metadata(self, mock_get):
         resp = MagicMock()
         resp.status_code = 200
-        resp.json.return_value = {"email": "org@example.com"}
+        resp.json.return_value = {
+            "email": "org@example.com",
+            "avatar_url": "https://avatars.githubusercontent.com/u/2",
+            "description": "An org",
+            "blog": "https://org.example.com",
+        }
         mock_get.return_value = resp
 
-        result = fetch_owner_email("testorg", "Organization", "token123")
-        assert result == "org@example.com"
+        result = fetch_owner_metadata("testorg", "Organization", "token123")
+        assert result == {
+            "avatar_url": "https://avatars.githubusercontent.com/u/2",
+            "email": "org@example.com",
+            "description": "An org",
+            "blog": "https://org.example.com",
+        }
         mock_get.assert_called_once_with(
             "https://api.github.com/orgs/testorg",
             headers={"Accept": "application/vnd.github+json", "Authorization": "Bearer token123"},
@@ -571,30 +591,36 @@ class TestFetchOwnerEmail:
         )
 
     @patch("decision_hub.scripts.crawler.processing.httpx.get")
-    def test_no_email(self, mock_get):
+    def test_missing_fields_return_none(self, mock_get):
         resp = MagicMock()
         resp.status_code = 200
-        resp.json.return_value = {"email": None}
+        resp.json.return_value = {"email": None, "avatar_url": None}
         mock_get.return_value = resp
 
-        result = fetch_owner_email("testuser", "User")
-        assert result is None
+        result = fetch_owner_metadata("testuser", "User")
+        assert result["email"] is None
+        assert result["avatar_url"] is None
+        assert result["description"] is None
+        assert result["blog"] is None
 
     @patch("decision_hub.scripts.crawler.processing.httpx.get")
     def test_http_error(self, mock_get):
         mock_get.side_effect = httpx.HTTPError("connection failed")
-        result = fetch_owner_email("testuser", "User")
-        assert result is None
+        result = fetch_owner_metadata("testuser", "User")
+        assert result == {}
 
     @patch("decision_hub.scripts.crawler.processing.httpx.get")
-    def test_empty_email_returns_none(self, mock_get):
+    def test_empty_strings_normalized_to_none(self, mock_get):
         resp = MagicMock()
         resp.status_code = 200
-        resp.json.return_value = {"email": ""}
+        resp.json.return_value = {"email": "", "avatar_url": "", "bio": "", "blog": ""}
         mock_get.return_value = resp
 
-        result = fetch_owner_email("testuser", "User")
-        assert result is None
+        result = fetch_owner_metadata("testuser", "User")
+        assert result["email"] is None
+        assert result["avatar_url"] is None
+        assert result["description"] is None
+        assert result["blog"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -711,11 +737,11 @@ class TestProcessRepoOnModal:
 
     @patch("decision_hub.scripts.crawler.processing.clone_repo")
     @patch("decision_hub.scripts.crawler.processing.discover_skills")
-    @patch("decision_hub.scripts.crawler.processing.fetch_owner_email")
+    @patch("decision_hub.scripts.crawler.processing.fetch_owner_metadata")
     def test_no_skills(self, mock_email, mock_discover, mock_clone, tmp_path):
         from decision_hub.scripts.crawler.processing import process_repo_on_modal
 
-        mock_email.return_value = None
+        mock_email.return_value = {}
         mock_clone.return_value = tmp_path / "repo"
         (tmp_path / "repo").mkdir()
         mock_discover.return_value = []
@@ -737,7 +763,7 @@ class TestProcessRepoOnModal:
             patch("decision_hub.infra.database.find_org_by_slug") as mock_find_org,
             patch("decision_hub.infra.database.insert_organization") as mock_insert_org,
             patch("decision_hub.infra.database.insert_org_member"),
-            patch("decision_hub.infra.database.update_org_email"),
+            patch("decision_hub.infra.database.update_org_github_metadata"),
         ):
             mock_settings.return_value = MagicMock()
             mock_conn = MagicMock()
@@ -745,7 +771,7 @@ class TestProcessRepoOnModal:
             mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
 
             mock_org = MagicMock()
-            mock_org.email = None
+            mock_org.github_synced_at = None
             mock_find_org.return_value = None
             mock_insert_org.return_value = mock_org
 
@@ -769,12 +795,12 @@ class TestProcessRepoOnModal:
             patch("decision_hub.settings.create_settings"),
             patch("decision_hub.infra.database.create_engine") as mock_engine,
             patch("decision_hub.infra.storage.create_s3_client"),
-            patch("decision_hub.scripts.crawler.processing.fetch_owner_email", return_value=None),
+            patch("decision_hub.scripts.crawler.processing.fetch_owner_metadata", return_value={}),
             patch("decision_hub.infra.database.upsert_user"),
             patch("decision_hub.infra.database.find_org_by_slug") as mock_find_org,
             patch("decision_hub.infra.database.insert_organization") as mock_insert_org,
             patch("decision_hub.infra.database.insert_org_member"),
-            patch("decision_hub.infra.database.update_org_email"),
+            patch("decision_hub.infra.database.update_org_github_metadata"),
             patch("decision_hub.scripts.crawler.processing.clone_repo") as mock_clone,
         ):
             mock_conn = MagicMock()
@@ -782,7 +808,7 @@ class TestProcessRepoOnModal:
             mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
 
             mock_org = MagicMock()
-            mock_org.email = None
+            mock_org.github_synced_at = None
             mock_find_org.return_value = None
             mock_insert_org.return_value = mock_org
 

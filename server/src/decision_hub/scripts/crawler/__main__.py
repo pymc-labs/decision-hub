@@ -411,7 +411,7 @@ def _print_summary(stats: CrawlStats) -> None:
     print(f"Skills failed:    {stats.skills_failed}")
     print(f"Skills quarantined: {stats.skills_quarantined}")
     print(f"Orgs created:     {stats.orgs_created}")
-    print(f"Emails saved:     {stats.emails_saved}")
+    print(f"Metadata synced:  {stats.metadata_synced}")
     if stats.errors:
         print(f"Errors: {len(stats.errors)}")
         for err in stats.errors[:10]:
