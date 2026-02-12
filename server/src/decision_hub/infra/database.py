@@ -1307,33 +1307,31 @@ def fetch_all_skills_for_index(
     """Fetch all skills with their latest version info for the search index.
 
     Returns a list of dicts, each with keys: org_slug, skill_name,
-    latest_version, eval_status, visibility. Uses a subquery to find
-    the latest version per skill (ordered by semver parts numerically).
+    latest_version, eval_status, visibility. Uses a LATERAL subquery to find
+    the latest version per skill via one index lookup each (ordered by semver
+    parts numerically), leveraging idx_versions_skill_semver_parts.
 
     When user_org_ids is provided, applies visibility filtering so
     private skills are only returned for org members or granted orgs.
     When None (unauthenticated), only public skills are returned.
     """
-    # Subquery: for each skill, find the highest semver using integer columns
+    # LATERAL subquery: for each skill, one index scan to find the highest semver
     latest_version = (
         sa.select(
-            versions_table.c.skill_id,
             versions_table.c.semver,
             versions_table.c.eval_status,
             versions_table.c.created_at,
             versions_table.c.published_by,
-            sa.func.row_number()
-            .over(
-                partition_by=versions_table.c.skill_id,
-                order_by=[
-                    versions_table.c.semver_major.desc(),
-                    versions_table.c.semver_minor.desc(),
-                    versions_table.c.semver_patch.desc(),
-                ],
-            )
-            .label("rn"),
         )
-    ).subquery("ranked")
+        .where(versions_table.c.skill_id == skills_table.c.id)
+        .order_by(
+            versions_table.c.semver_major.desc(),
+            versions_table.c.semver_minor.desc(),
+            versions_table.c.semver_patch.desc(),
+        )
+        .limit(1)
+        .lateral("latest_version")
+    )
 
     base = sa.select(
         organizations_table.c.slug.label("org_slug"),
@@ -1353,10 +1351,7 @@ def fetch_all_skills_for_index(
             skills_table.c.org_id == organizations_table.c.id,
         ).join(
             latest_version,
-            sa.and_(
-                skills_table.c.id == latest_version.c.skill_id,
-                latest_version.c.rn == 1,
-            ),
+            sa.literal(True),
         )
     )
 
