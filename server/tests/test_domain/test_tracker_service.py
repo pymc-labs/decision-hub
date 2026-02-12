@@ -239,8 +239,8 @@ class TestProcessTrackerAllFailed:
             Path("/tmp/fake/repo/skill-a"),
             Path("/tmp/fake/repo/skill-b"),
         ]
-        # First succeeds, second fails
-        mock_publish.side_effect = [None, RuntimeError("gauntlet error")]
+        # First actually publishes, second fails
+        mock_publish.side_effect = [True, RuntimeError("gauntlet error")]
 
         mock_conn = MagicMock()
         mock_engine = MagicMock()
@@ -258,3 +258,82 @@ class TestProcessTrackerAllFailed:
             # SHA should advance since at least one succeeded
             assert kwargs["last_commit_sha"] == "new_sha_xyz"
             assert kwargs["last_error"] is None
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
+    @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
+    @patch("decision_hub.domain.tracker_service._clone_repo")
+    @patch("decision_hub.domain.tracker_service._discover_skills")
+    @patch("decision_hub.infra.storage.create_s3_client")
+    @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    def test_all_rejected_does_not_set_published_at(
+        self,
+        mock_publish,
+        _mock_s3,
+        mock_discover,
+        mock_clone,
+        _mock_commits,
+        _mock_token,
+    ):
+        """When all skills are rejected/skipped (return False), last_published_at must not update."""
+        tracker = self._make_tracker()
+        mock_clone.return_value = Path("/tmp/fake/repo")
+        mock_discover.return_value = [Path("/tmp/fake/repo/skill-a")]
+        # Returns False = skipped (checksum dedup) or rejected (gauntlet)
+        mock_publish.return_value = False
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+
+        with patch("decision_hub.infra.database.update_skill_tracker") as mock_update:
+            process_tracker(tracker, mock_settings, mock_engine)
+
+            mock_update.assert_called_once()
+            _, kwargs = mock_update.call_args
+            # SHA should advance (no errors — skill was processed, just not published)
+            assert kwargs["last_commit_sha"] == "new_sha_xyz"
+            # last_published_at should NOT be updated since nothing was actually published
+            assert kwargs["last_published_at"] is None
+            assert kwargs["last_error"] is None
+
+
+class TestProcessTrackerTokenResolution:
+    """Verify _resolve_github_token failures are recorded as last_error."""
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token")
+    def test_token_resolution_failure_records_error(self, mock_token):
+        """When _resolve_github_token raises, last_error must be set on the tracker."""
+        mock_token.side_effect = RuntimeError("decrypt failed: corrupt token")
+
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=5,
+            last_commit_sha="old_sha_abc",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+
+        with patch("decision_hub.infra.database.update_skill_tracker") as mock_update:
+            process_tracker(tracker, mock_settings, mock_engine)
+
+            mock_update.assert_called_once()
+            _, kwargs = mock_update.call_args
+            assert kwargs["last_error"] is not None
+            assert "decrypt failed" in kwargs["last_error"]
