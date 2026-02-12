@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Building2, User } from "lucide-react";
 import styles from "./OrgAvatar.module.css";
 
@@ -15,19 +15,17 @@ const ICON_SIZES: Record<string, number> = {
 };
 
 export default function OrgAvatar({ avatarUrl, isPersonal, size = "md" }: OrgAvatarProps) {
-  const [imgError, setImgError] = useState(false);
+  // Track which URL failed so a new avatarUrl automatically gets a fresh attempt
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImage = avatarUrl && avatarUrl !== failedUrl;
 
-  useEffect(() => {
-    setImgError(false);
-  }, [avatarUrl]);
-
-  if (avatarUrl && !imgError) {
+  if (showImage) {
     return (
       <img
         src={avatarUrl}
         alt="org avatar"
         className={`${styles.avatar} ${styles[size]}`}
-        onError={() => setImgError(true)}
+        onError={() => setFailedUrl(avatarUrl)}
       />
     );
   }
