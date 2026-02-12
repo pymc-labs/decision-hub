@@ -286,6 +286,11 @@ def _publish_skill_from_tracker(
         else:
             update_skill_description(conn, skill.id, description)
 
+        # Generate embedding (fail-open: never blocks publish)
+        from decision_hub.infra.embeddings import generate_and_store_skill_embedding
+
+        generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, "", description, settings)
+
         # Check duplicate version
         if find_version(conn, skill.id, version) is not None:
             version = bump_version(version)

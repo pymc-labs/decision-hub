@@ -250,6 +250,11 @@ def _publish_one_skill(conn, s3_client, settings, org, skill_dir: Path, result: 
     else:
         update_skill_description(conn, skill.id, description)
 
+    # Generate embedding (fail-open: never blocks publish)
+    from decision_hub.infra.embeddings import generate_and_store_skill_embedding
+
+    generate_and_store_skill_embedding(conn, skill.id, name, org.slug, "", description, settings)
+
     # Determine version (auto-bump patch or start at 0.1.0)
     latest = resolve_latest_version(conn, org.slug, name)
     if latest is not None:

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
 
+    # Hybrid search settings
+    search_candidate_limit: int = 20  # candidates per retrieval signal
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dimensions: int = 768
+
     # Access control: comma-separated list of GitHub orgs.
     # User must belong to at least one. Leave empty to allow all.
     require_github_org: str = ""

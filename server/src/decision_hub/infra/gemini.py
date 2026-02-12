@@ -123,7 +123,8 @@ def search_skills_with_llm(
     system_prompt = (
         "You are a skill recommendation engine for Decision Hub, "
         "an AI skill manager for data science agents. Given a user query and "
-        "a skill index (JSONL format), recommend the most relevant skills. "
+        "a set of candidate skills (pre-filtered by relevance, JSONL format), "
+        "recommend the most relevant skills. "
         "For each recommendation, include the skill reference (org/skill), "
         "version, trust grade, and a brief reason why it matches. "
         "Order by relevance. If no skills match, say so clearly."

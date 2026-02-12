@@ -2,6 +2,7 @@
 
 from decision_hub.domain.search import (
     build_index_entry,
+    format_deterministic_results,
     format_trust_score,
     serialize_index,
 )
@@ -52,3 +53,24 @@ def test_serialize_index():
 def test_serialize_empty():
     jsonl = serialize_index([])
     assert jsonl == ""
+
+
+def test_format_deterministic_results():
+    entries = [
+        build_index_entry("org1", "skill1", "Desc 1", "1.0.0", "passed"),
+        build_index_entry("org2", "skill2", "Desc 2", "0.1.0", "pending"),
+    ]
+    result = format_deterministic_results(entries)
+    assert "1." in result
+    assert "2." in result
+    assert "org1/skill1" in result
+    assert "org2/skill2" in result
+    assert "v1.0.0" in result
+    assert "v0.1.0" in result
+    assert "[A]" in result
+    assert "[C]" in result
+
+
+def test_format_deterministic_results_empty():
+    result = format_deterministic_results([])
+    assert "No skills matched" in result

@@ -12,6 +12,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from loguru import logger
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     Column,
@@ -23,7 +24,7 @@ from sqlalchemy import (
     Table,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.pool import NullPool
@@ -159,6 +160,8 @@ skills_table = Table(
     Column("download_count", sa.Integer, nullable=False, server_default="0"),
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
+    Column("search_vector", TSVECTOR, nullable=True),
+    Column("embedding", Vector(768), nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -173,6 +176,15 @@ skills_table = Table(
     ),
     sa.UniqueConstraint("org_id", "name"),
     sa.Index("idx_skills_created_at", "created_at"),
+    sa.Index("idx_skills_search_vector", "search_vector", postgresql_using="gin"),
+)
+
+sa.Index(
+    "idx_skills_embedding_hnsw",
+    skills_table.c.embedding,
+    postgresql_using="hnsw",
+    postgresql_with={"m": 16, "ef_construction": 64},
+    postgresql_ops={"embedding": "vector_cosine_ops"},
 )
 
 skill_access_grants_table = Table(
@@ -1477,6 +1489,141 @@ def fetch_all_skills_for_index(
         }
         for row in rows
     ]
+
+
+def search_skills_hybrid(
+    conn: Connection,
+    query: str,
+    query_embedding: list[float] | None,
+    *,
+    user_org_ids: list[UUID] | None = None,
+    category: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Hybrid retrieval: FTS + vector search, union + dedup.
+
+    Runs two complementary queries and merges results:
+    1. Full-text search via tsvector (keyword match)
+    2. Vector similarity via pgvector (semantic match)
+
+    Results are deduped by (org_slug, skill_name), with vector results
+    taking precedence (better ranking signal for reranking).
+    """
+
+    # --- Shared building blocks ---
+    def _base_select(extra_columns: list):
+        """Build the base SELECT with LATERAL version join."""
+        latest_version = (
+            sa.select(
+                versions_table.c.semver,
+                versions_table.c.eval_status,
+                versions_table.c.created_at,
+                versions_table.c.published_by,
+            )
+            .where(versions_table.c.skill_id == skills_table.c.id)
+            .order_by(
+                versions_table.c.semver_major.desc(),
+                versions_table.c.semver_minor.desc(),
+                versions_table.c.semver_patch.desc(),
+            )
+            .limit(1)
+            .lateral("latest_version")
+        )
+
+        columns = [
+            organizations_table.c.slug.label("org_slug"),
+            organizations_table.c.is_personal.label("is_personal_org"),
+            skills_table.c.name.label("skill_name"),
+            skills_table.c.description,
+            skills_table.c.download_count,
+            skills_table.c.category,
+            skills_table.c.visibility,
+            latest_version.c.semver.label("latest_version"),
+            latest_version.c.eval_status,
+            latest_version.c.created_at,
+            latest_version.c.published_by,
+            *extra_columns,
+        ]
+
+        stmt = sa.select(*columns).select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            ).join(
+                latest_version,
+                sa.literal(True),
+            )
+        )
+
+        stmt = _apply_visibility_filter(stmt, conn, user_org_ids)
+        if category:
+            stmt = stmt.where(skills_table.c.category == category)
+
+        return stmt
+
+    # --- 1. FTS query ---
+    fts_stmt = _base_select(
+        [
+            sa.func.ts_rank_cd(
+                skills_table.c.search_vector,
+                sa.func.websearch_to_tsquery("english", query),
+            ).label("fts_rank"),
+        ]
+    )
+    fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(sa.func.websearch_to_tsquery("english", query)))
+    fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+    fts_rows = conn.execute(fts_stmt).all()
+
+    # --- 2. Vector query (if embedding available) ---
+    vec_rows: list = []
+    if query_embedding is not None:
+        vec_stmt = _base_select(
+            [
+                skills_table.c.embedding.cosine_distance(query_embedding).label("vec_dist"),
+            ]
+        )
+        vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        vec_rows = conn.execute(vec_stmt).all()
+
+    # --- 3. Union + dedup (vector first, then FTS-only) ---
+    seen: set[tuple[str, str]] = set()
+    results: list[dict] = []
+
+    def _row_to_dict(row) -> dict:
+        return {
+            "org_slug": row.org_slug,
+            "is_personal_org": row.is_personal_org,
+            "skill_name": row.skill_name,
+            "description": row.description,
+            "download_count": row.download_count,
+            "category": row.category,
+            "visibility": row.visibility,
+            "latest_version": row.latest_version,
+            "eval_status": row.eval_status,
+            "created_at": row.created_at,
+            "published_by": row.published_by,
+        }
+
+    for row in vec_rows:
+        key = (row.org_slug, row.skill_name)
+        if key not in seen:
+            seen.add(key)
+            results.append(_row_to_dict(row))
+
+    for row in fts_rows:
+        key = (row.org_slug, row.skill_name)
+        if key not in seen:
+            seen.add(key)
+            results.append(_row_to_dict(row))
+
+    return results
+
+
+def update_skill_embedding(conn: Connection, skill_id: UUID, embedding: list[float]) -> None:
+    """Store an embedding vector for a skill."""
+    stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(embedding=embedding)
+    conn.execute(stmt)
 
 
 def count_all_skills(

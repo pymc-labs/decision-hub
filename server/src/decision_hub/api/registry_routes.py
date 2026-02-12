@@ -71,6 +71,7 @@ from decision_hub.infra.database import (
 from decision_hub.infra.database import (
     delete_skill as delete_skill_record,
 )
+from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 from decision_hub.infra.storage import (
     compute_checksum,
     delete_skill_zip,
@@ -436,6 +437,9 @@ def publish_skill(
         update_skill_category(conn, skill.id, category)
         if visibility is not None:
             update_skill_visibility(conn, skill.id, visibility)
+
+    # Generate embedding (fail-open: never blocks publish)
+    generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, category, description, settings)
 
     if find_version(conn, skill.id, version) is not None:
         raise HTTPException(
