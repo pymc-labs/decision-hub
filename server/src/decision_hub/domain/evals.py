@@ -127,7 +127,7 @@ def run_eval_pipeline(
                     "name": case.name,
                     "description": case.description,
                     "verdict": "error",
-                    "reasoning": f"Sandbox error: {e}",
+                    "reasoning": _redact_secrets(f"Sandbox error: {e}"),
                     "agent_output": "",
                     "agent_stderr": "",
                     "exit_code": -1,
@@ -149,9 +149,9 @@ def run_eval_pipeline(
                     "name": case.name,
                     "description": case.description,
                     "verdict": "error",
-                    "reasoning": f"Agent exited with code {exit_code}: {stderr}",
-                    "agent_output": stdout,
-                    "agent_stderr": stderr,
+                    "reasoning": _redact_secrets(f"Agent exited with code {exit_code}: {stderr}"),
+                    "agent_output": _redact_secrets(stdout),
+                    "agent_stderr": _redact_secrets(stderr),
                     "exit_code": exit_code,
                     "duration_ms": duration_ms,
                     "stage": "agent",
@@ -186,9 +186,9 @@ def run_eval_pipeline(
                 "name": case.name,
                 "description": case.description,
                 "verdict": verdict,
-                "reasoning": reasoning,
-                "agent_output": stdout,
-                "agent_stderr": stderr,
+                "reasoning": _redact_secrets(reasoning),
+                "agent_output": _redact_secrets(stdout),
+                "agent_stderr": _redact_secrets(stderr),
                 "exit_code": exit_code,
                 "duration_ms": duration_ms,
                 "stage": stage,
@@ -277,7 +277,7 @@ def stream_eval_pipeline(
                     "name": case.name,
                     "description": case.description,
                     "verdict": "error",
-                    "reasoning": f"Sandbox error: {e}",
+                    "reasoning": _redact_secrets(f"Sandbox error: {e}"),
                     "agent_output": "",
                     "agent_stderr": "",
                     "exit_code": -1,
@@ -292,7 +292,7 @@ def stream_eval_pipeline(
                 case_index=case_idx,
                 case_name=case.name,
                 verdict="error",
-                reasoning=f"Sandbox error: {e}",
+                reasoning=_redact_secrets(f"Sandbox error: {e}"),
                 duration_ms=0,
             )
             continue
@@ -301,15 +301,15 @@ def stream_eval_pipeline(
 
         # Stage 2: Check exit code
         if exit_code != 0:
-            reasoning = f"Agent exited with code {exit_code}: {stderr[:500]}"
+            reasoning = _redact_secrets(f"Agent exited with code {exit_code}: {stderr[:500]}")
             case_results.append(
                 {
                     "name": case.name,
                     "description": case.description,
                     "verdict": "error",
                     "reasoning": reasoning,
-                    "agent_output": stdout,
-                    "agent_stderr": stderr,
+                    "agent_output": _redact_secrets(stdout),
+                    "agent_stderr": _redact_secrets(stderr),
                     "exit_code": exit_code,
                     "duration_ms": duration_ms,
                     "stage": "agent",
@@ -355,9 +355,9 @@ def stream_eval_pipeline(
                 "name": case.name,
                 "description": case.description,
                 "verdict": verdict,
-                "reasoning": reasoning,
-                "agent_output": stdout,
-                "agent_stderr": stderr,
+                "reasoning": _redact_secrets(reasoning),
+                "agent_output": _redact_secrets(stdout),
+                "agent_stderr": _redact_secrets(stderr),
                 "exit_code": exit_code,
                 "duration_ms": duration_ms,
                 "stage": stage,
@@ -371,7 +371,7 @@ def stream_eval_pipeline(
             case_index=case_idx,
             case_name=case.name,
             verdict=verdict,
-            reasoning=reasoning,
+            reasoning=_redact_secrets(reasoning),
             duration_ms=duration_ms,
         )
 

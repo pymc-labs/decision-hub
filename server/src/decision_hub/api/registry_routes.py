@@ -387,7 +387,7 @@ def publish_skill(
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    runtime_config_dict, eval_config, eval_cases = parse_manifest_from_content(
+    runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
         skill_md_content,
         file_bytes,
     )
@@ -403,6 +403,9 @@ def publish_skill(
         description,
         skill_md_body,
         settings,
+        allowed_tools=allowed_tools,
+        # TODO: implement org verification — default to False (conservative)
+        is_verified_org=False,
     )
     logger.info(
         "Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed
@@ -706,6 +709,7 @@ def download_skill(
     org_slug: str,
     skill_name: str,
     spec: str = Query("latest", max_length=50),
+    allow_risky: bool = Query(False),
     conn: Connection = Depends(get_connection),
     s3_client=Depends(get_s3_client),
     settings: Settings = Depends(get_settings),
@@ -713,7 +717,7 @@ def download_skill(
 ) -> Response:
     """Download a skill zip file, proxied through the server to avoid CORS issues."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    version = resolve_version(conn, org_slug, skill_name, spec, allow_risky=True, user_org_ids=user_org_ids)
+    version = resolve_version(conn, org_slug, skill_name, spec, allow_risky=allow_risky, user_org_ids=user_org_ids)
     if version is None:
         raise HTTPException(
             status_code=404,

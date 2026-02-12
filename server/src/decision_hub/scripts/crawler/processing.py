@@ -285,9 +285,10 @@ def _publish_one_skill(
     desc = extract_description(skill_md_content)
     try:
         _, source_files, lockfile_content = extract_for_evaluation(zip_data)
-    except ValueError:
-        source_files = []
-        lockfile_content = None
+    except ValueError as exc:
+        logger.warning("Skipping {}/{}: extraction failed: {}", org.slug, name, exc)
+        result["skills_failed"] += 1
+        return
 
     # Run Gauntlet
     report, check_results, llm_reasoning = run_gauntlet_pipeline(
@@ -298,6 +299,9 @@ def _publish_one_skill(
         desc,
         skill_md_body,
         settings,
+        allowed_tools=manifest.allowed_tools,
+        # TODO: implement org verification — default to False (conservative)
+        is_verified_org=False,
     )
 
     if not report.passed:

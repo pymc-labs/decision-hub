@@ -115,6 +115,52 @@ def _make_zip(**files: str) -> bytes:
     return buf.getvalue()
 
 
+class TestZipBombPrevention:
+    """Tests for zip bomb prevention limits (Fix 7)."""
+
+    def test_rejects_too_many_entries(self) -> None:
+        """Zip with more entries than _MAX_ZIP_ENTRIES is rejected."""
+        from decision_hub.domain.publish import _MAX_ZIP_ENTRIES
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            for i in range(_MAX_ZIP_ENTRIES + 1):
+                zf.writestr(f"file_{i}.txt", "x")
+        zip_bytes = buf.getvalue()
+
+        with pytest.raises(ValueError, match="entries"):
+            extract_for_evaluation(zip_bytes)
+
+    def test_rejects_excessive_total_size(self) -> None:
+        """Zip whose total uncompressed size exceeds _MAX_TOTAL_EXTRACTED is rejected."""
+        from decision_hub.domain.publish import _MAX_FILE_SIZE, _MAX_TOTAL_EXTRACTED
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            # Create enough files to exceed total limit but stay under per-file limit
+            num_files = (_MAX_TOTAL_EXTRACTED // _MAX_FILE_SIZE) + 2
+            for i in range(num_files):
+                zf.writestr(f"big_{i}.py", "x" * _MAX_FILE_SIZE)
+        zip_bytes = buf.getvalue()
+
+        with pytest.raises(ValueError, match="uncompressed size"):
+            extract_for_evaluation(zip_bytes)
+
+    def test_accepts_within_limits(self) -> None:
+        """Zip within all limits is accepted."""
+        zip_bytes = _make_zip(
+            **{
+                "SKILL.md": "---\nname: s\ndescription: d\n---\n",
+                "main.py": "print('hello')",
+            }
+        )
+        skill_md, sources, _lockfile = extract_for_evaluation(zip_bytes)
+        assert "name: s" in skill_md
+        assert len(sources) == 1
+
+
 class TestExtractForEvaluation:
     def test_rejects_oversized_file_in_zip(self) -> None:
         """A file whose uncompressed size exceeds the limit should raise ValueError."""

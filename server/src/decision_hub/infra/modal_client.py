@@ -327,13 +327,14 @@ def _create_skill_sandbox(
     # Add HOME to env so tools resolve paths correctly
     env["HOME"] = home_dir
 
-    logger.info("Creating sandbox (memory=4096, timeout=900)")
+    logger.info("Creating sandbox (memory=4096, timeout=900, cpu=2.0)")
     sb = modal.Sandbox.create(
         image=image,
         secrets=[modal.Secret.from_dict(env)],
         app=app,
         memory=4096,
         timeout=900,
+        cpu=2.0,
     )
 
     # Set up skill directory (as root, then chown to sandbox user)

@@ -92,7 +92,7 @@ export async function resolveSkill(
   orgSlug: string,
   skillName: string,
   spec = "latest",
-  allowRisky = true
+  allowRisky = false
 ): Promise<ResolveResponse> {
   return fetchJSON<ResolveResponse>(
     `/v1/resolve/${orgSlug}/${skillName}?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
@@ -123,10 +123,11 @@ export async function getAuditLog(
 export async function downloadSkillZip(
   orgSlug: string,
   skillName: string,
-  spec = "latest"
+  spec = "latest",
+  allowRisky = false
 ): Promise<ArrayBuffer> {
   const res = await fetch(
-    `${API_BASE}/v1/skills/${orgSlug}/${skillName}/download?spec=${encodeURIComponent(spec)}`
+    `${API_BASE}/v1/skills/${orgSlug}/${skillName}/download?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
   );
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   return res.arrayBuffer();

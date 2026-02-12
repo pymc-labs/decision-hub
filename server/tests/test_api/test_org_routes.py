@@ -21,11 +21,11 @@ class TestCreateOrganisation:
         auth_headers: dict[str, str],
         sample_user_id: UUID,
     ) -> None:
-        """Should create an org and register the caller as owner."""
+        """Should create an org matching the user's GitHub org membership."""
         org_id = UUID("aaaaaaaa-0000-0000-0000-000000000001")
         mock_insert_org.return_value = Organization(
             id=org_id,
-            slug="my-org",
+            slug="test-org",
             owner_id=sample_user_id,
         )
         mock_insert_member.return_value = OrgMember(
@@ -36,14 +36,28 @@ class TestCreateOrganisation:
 
         resp = client.post(
             "/v1/orgs",
-            json={"slug": "my-org"},
+            json={"slug": "test-org"},
             headers=auth_headers,
         )
 
         assert resp.status_code == 201
         data = resp.json()
-        assert data["slug"] == "my-org"
+        assert data["slug"] == "test-org"
         assert data["id"] == str(org_id)
+
+    def test_create_org_forbidden_slug(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Should return 403 when slug doesn't match user's GitHub identity."""
+        resp = client.post(
+            "/v1/orgs",
+            json={"slug": "microsoft"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 403
+        assert "GitHub username or org memberships" in resp.json()["detail"]
 
     def test_create_org_invalid_slug(
         self,
@@ -83,7 +97,7 @@ class TestCreateOrganisation:
 
         resp = client.post(
             "/v1/orgs",
-            json={"slug": "existing-org"},
+            json={"slug": "test-org"},
             headers=auth_headers,
         )
 

@@ -86,6 +86,14 @@ AnalyzePromptFn = Callable[
     list[dict],
 ]
 
+# Type alias for holistic prompt body review callback.
+# Accepts (body, skill_name, skill_description) -> dict
+# Returns dict with 'dangerous' (bool), 'reason' (str).
+ReviewBodyFn = Callable[
+    [str, str, str],
+    dict,
+]
+
 
 def check_manifest_schema(content: str) -> EvalResult:
     """Validate that SKILL.md YAML frontmatter contains required fields.
@@ -229,6 +237,22 @@ def check_safety_scan(
     # --- LLM judge available: let it decide ---
     if analyze_fn is not None:
         judgments = analyze_fn(hits, skill_name, skill_description)
+
+        # Fail-closed: if the LLM didn't return judgments for all hits,
+        # treat uncovered hits as dangerous.
+        if len(judgments) < len(hits):
+            covered_keys = {(j.get("file"), j.get("label")) for j in judgments}
+            for h in hits:
+                if (h["file"], h["label"]) not in covered_keys:
+                    judgments.append(
+                        {
+                            "file": h["file"],
+                            "label": h["label"],
+                            "dangerous": True,
+                            "reason": "LLM did not return judgment for this finding",
+                        }
+                    )
+
         dangerous = [j for j in judgments if j.get("dangerous", True)]
         ambiguous = [j for j in judgments if j.get("ambiguous", False) and not j.get("dangerous", True)]
         acknowledged = [j for j in judgments if not j.get("dangerous", True) and not j.get("ambiguous", False)]
@@ -295,15 +319,27 @@ def check_prompt_safety(
     skill_name: str = "",
     skill_description: str = "",
     analyze_prompt_fn: AnalyzePromptFn | None = None,
+    review_body_fn: ReviewBodyFn | None = None,
 ) -> EvalResult:
     """Two-stage prompt injection scan for the SKILL.md body.
 
     Stage 1: regex patterns find candidate injection patterns.
     Stage 2 (if analyze_prompt_fn provided): LLM classifies each hit.
+    Stage 3 (if review_body_fn provided and no regex hits): holistic LLM review.
     """
     hits = _find_prompt_injection_hits(skill_md_body)
 
     if not hits:
+        # No regex hits — run holistic LLM review if available
+        if review_body_fn is not None:
+            review = review_body_fn(skill_md_body, skill_name, skill_description)
+            if review.get("dangerous", False):
+                return EvalResult(
+                    check_name="prompt_safety",
+                    severity="fail",
+                    message=f"Holistic body review flagged danger: {review.get('reason', 'flagged')}",
+                    details={"body_review": review},
+                )
         return EvalResult(
             check_name="prompt_safety",
             severity="pass",
@@ -313,6 +349,22 @@ def check_prompt_safety(
     # --- LLM judge available ---
     if analyze_prompt_fn is not None:
         judgments = analyze_prompt_fn(hits, skill_name, skill_description)
+
+        # Fail-closed: if the LLM didn't return judgments for all hits,
+        # treat uncovered hits as dangerous.
+        if len(judgments) < len(hits):
+            covered_labels = {j.get("label") for j in judgments}
+            for h in hits:
+                if h["label"] not in covered_labels:
+                    judgments.append(
+                        {
+                            "label": h["label"],
+                            "dangerous": True,
+                            "ambiguous": False,
+                            "reason": "LLM did not return judgment for this finding",
+                        }
+                    )
+
         dangerous = [j for j in judgments if j.get("dangerous", True)]
         ambiguous = [j for j in judgments if j.get("ambiguous", False) and not j.get("dangerous", True)]
 
@@ -494,6 +546,7 @@ def run_static_checks(
     allowed_tools: str | None = None,
     analyze_prompt_fn: AnalyzePromptFn | None = None,
     is_verified_org: bool = True,
+    review_body_fn: ReviewBodyFn | None = None,
 ) -> GauntletReport:
     """Run all static analysis checks and return a GauntletReport.
 
@@ -531,6 +584,7 @@ def run_static_checks(
                 skill_name=skill_name,
                 skill_description=skill_description,
                 analyze_prompt_fn=analyze_prompt_fn,
+                review_body_fn=review_body_fn,
             )
         )
 

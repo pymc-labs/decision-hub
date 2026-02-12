@@ -60,11 +60,11 @@ def require_org_membership(
 def parse_manifest_from_content(
     skill_md_content: str,
     file_bytes: bytes,
-) -> tuple[dict | None, object | None, tuple]:
-    """Parse SKILL.md and extract runtime config, eval config, and eval cases.
+) -> tuple[dict | None, object | None, tuple, str | None]:
+    """Parse SKILL.md and extract runtime config, eval config, eval cases, and allowed_tools.
 
     Uses a temp file because parse_skill_md expects a file path.
-    Returns (runtime_config_dict, eval_config, eval_cases).
+    Returns (runtime_config_dict, eval_config, eval_cases, allowed_tools).
 
     Raises HTTPException(422) if the manifest is malformed — fail-closed
     to prevent publishing skills with unparseable manifests.
@@ -79,6 +79,7 @@ def parse_manifest_from_content(
             extract_runtime_config_dict(manifest),
             extract_assessment_config(manifest),
             try_parse_assessment_cases(file_bytes),
+            manifest.allowed_tools,
         )
     except ValueError as exc:
         logger.warning("Manifest parse failed (rejecting publish): {}", exc)
@@ -98,6 +99,9 @@ def run_gauntlet_pipeline(
     description: str,
     skill_md_body: str,
     settings: Settings,
+    *,
+    allowed_tools: str | None = None,
+    is_verified_org: bool = False,
 ) -> tuple[GauntletReport, list[dict], dict | None]:
     """Run Gauntlet static checks and serialize results for audit logging.
 
@@ -111,9 +115,10 @@ def run_gauntlet_pipeline(
         skill_description=description,
         analyze_fn=_build_analyze_fn(settings),
         skill_md_body=skill_md_body,
-        allowed_tools=None,
+        allowed_tools=allowed_tools,
         analyze_prompt_fn=_build_analyze_prompt_fn(settings),
-        is_verified_org=True,
+        is_verified_org=is_verified_org,
+        review_body_fn=_build_review_body_fn(settings),
     )
 
     check_results_dicts = [
@@ -232,6 +237,30 @@ def _build_analyze_prompt_fn(settings: Settings):
         )
 
     return analyze_prompt_fn
+
+
+def _build_review_body_fn(settings: Settings):
+    """Build a Gemini holistic body review callback if google_api_key is configured.
+
+    Returns None if no API key is set, disabling the holistic body review.
+    """
+    if not settings.google_api_key:
+        return None
+
+    from decision_hub.infra.gemini import create_gemini_client, review_prompt_body_safety
+
+    gemini_client = create_gemini_client(settings.google_api_key)
+
+    def review_body_fn(body, skill_name, skill_description):
+        return review_prompt_body_safety(
+            gemini_client,
+            body,
+            skill_name,
+            skill_description,
+            model=settings.gemini_model,
+        )
+
+    return review_body_fn
 
 
 def classify_skill_category(

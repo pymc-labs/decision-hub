@@ -35,6 +35,8 @@ def build_quarantine_s3_key(org_slug: str, skill_name: str, version: str) -> str
 
 
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per extracted file
+_MAX_TOTAL_EXTRACTED = 100 * 1024 * 1024  # 100 MB total uncompressed
+_MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
 
 
 def extract_for_evaluation(
@@ -54,14 +56,28 @@ def extract_for_evaluation(
         lockfile_content is None if no lockfile was found.
 
     Raises:
-        ValueError: If the zip does not contain a SKILL.md file, or if any
-            individual file exceeds the size limit.
+        ValueError: If the zip does not contain a SKILL.md file, if any
+            individual file exceeds the size limit, or if total extracted
+            size or entry count exceeds limits (zip bomb prevention).
     """
     skill_md = ""
     source_files: list[tuple[str, str]] = []
     lockfile_content: str | None = None
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        entries = zf.infolist()
+
+        # Zip bomb prevention: check entry count and total uncompressed size
+        if len(entries) > _MAX_ZIP_ENTRIES:
+            raise ValueError(f"Zip archive contains {len(entries)} entries, exceeding limit of {_MAX_ZIP_ENTRIES}")
+
+        total_uncompressed = sum(info.file_size for info in entries)
+        if total_uncompressed > _MAX_TOTAL_EXTRACTED:
+            raise ValueError(
+                f"Total uncompressed size ({total_uncompressed // (1024 * 1024)} MB) "
+                f"exceeds limit of {_MAX_TOTAL_EXTRACTED // (1024 * 1024)} MB"
+            )
+
         for name in zf.namelist():
             if name.endswith("/"):
                 continue

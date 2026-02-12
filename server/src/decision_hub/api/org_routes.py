@@ -92,6 +92,14 @@ def create_organisation(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Only allow creating orgs matching the user's GitHub username or org memberships
+    allowed_slugs = {current_user.username.lower()} | {org_name.lower() for org_name in current_user.github_orgs}
+    if body.slug.lower() not in allowed_slugs:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only create orgs matching your GitHub username or org memberships",
+        )
+
     try:
         org = insert_organization(conn, body.slug, current_user.id)
         insert_org_member(conn, org.id, current_user.id, role="owner")

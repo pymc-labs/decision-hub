@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     download_rate_limit: int = 20  # max requests per window
     download_rate_window: int = 60  # window in seconds
 
+    # Sandbox resource limits for agent evals
+    sandbox_memory_mb: int = 4096
+    sandbox_timeout_seconds: int = 900
+    sandbox_cpu: float = 2.0
+
     # Tracker batch size: max trackers claimed per scheduler tick
     tracker_batch_size: int = 100
 
