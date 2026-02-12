@@ -765,9 +765,7 @@ class TestEnsureTracker:
         """Should create a new tracker when no existing tracker matches."""
         from dhub.cli.registry import _ensure_tracker
 
-        respx.get("http://test:8000/v1/trackers").mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(200, json=[]))
         respx.post("http://test:8000/v1/trackers").mock(
             return_value=httpx.Response(
                 201,
@@ -835,9 +833,7 @@ class TestEnsureTracker:
                 ],
             )
         )
-        respx.patch("http://test:8000/v1/trackers/abc-123").mock(
-            return_value=httpx.Response(200, json={})
-        )
+        respx.patch("http://test:8000/v1/trackers/abc-123").mock(return_value=httpx.Response(200, json={}))
 
         _ensure_tracker(
             "http://test:8000",
@@ -886,9 +882,7 @@ class TestEnsureTracker:
         """Should display warning when tracker creation returns a warning."""
         from dhub.cli.registry import _ensure_tracker
 
-        respx.get("http://test:8000/v1/trackers").mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(200, json=[]))
         respx.post("http://test:8000/v1/trackers").mock(
             return_value=httpx.Response(
                 201,
@@ -913,9 +907,7 @@ class TestEnsureTracker:
         """Should silently fail if the tracker API is unavailable."""
         from dhub.cli.registry import _ensure_tracker
 
-        respx.get("http://test:8000/v1/trackers").mock(
-            return_value=httpx.Response(500)
-        )
+        respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(500))
 
         # Should not raise
         _ensure_tracker(
