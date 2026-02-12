@@ -1,12 +1,13 @@
 import { useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, Download, ArrowLeft, Globe, Github, ChevronLeft, ChevronRight } from "lucide-react";
+import { Package, Download, ArrowLeft, Globe, Github, ChevronLeft, ChevronRight, Star } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import OrgAvatar from "../components/OrgAvatar";
+import { FEATURED_SET } from "../constants/featuredOrgs";
 import styles from "./OrgDetailPage.module.css";
 
 const PAGE_SIZE = 24;
@@ -61,7 +62,15 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
           size="lg"
         />
         <div>
-          <h1 className={styles.title}>{orgSlug}</h1>
+          <div className={styles.titleRow}>
+            <h1 className={styles.title}>{orgSlug}</h1>
+            {FEATURED_SET.has(orgSlug) && (
+              <span className={styles.featuredBadge}>
+                <Star size={12} />
+                Featured
+              </span>
+            )}
+          </div>
           {profile?.description && (
             <p className={styles.description}>{profile.description}</p>
           )}

@@ -110,6 +110,21 @@
   padding: 8px 0;
 }
 
+.featuredBadge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+
 .cardIcon {
   width: 60px;
   height: 60px;

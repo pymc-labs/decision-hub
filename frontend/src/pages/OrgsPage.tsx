@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Building2, Package, ArrowRight, Search, Filter } from "lucide-react";
+import { Building2, Package, ArrowRight, Search, Filter, Star } from "lucide-react";
 import { listOrgStats } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import type { OrgStatsResponse } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import OrgAvatar from "../components/OrgAvatar";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { FEATURED_ORGS, FEATURED_SET } from "../constants/featuredOrgs";
 import styles from "./OrgsPage.module.css";
 
 type OrgType = "orgs" | "users" | "all";
@@ -38,7 +39,19 @@ export default function OrgsPage() {
     [debouncedSearch, typeFilter]
   );
 
-  const orgs = data?.items ?? [];
+  const orgs = useMemo(() => {
+    const items = data?.items ?? [];
+    return [...items].sort((a, b) => {
+      const aFeatured = FEATURED_SET.has(a.slug);
+      const bFeatured = FEATURED_SET.has(b.slug);
+      if (aFeatured && !bFeatured) return -1;
+      if (!aFeatured && bFeatured) return 1;
+      if (aFeatured && bFeatured) {
+        return FEATURED_ORGS.indexOf(a.slug) - FEATURED_ORGS.indexOf(b.slug);
+      }
+      return 0;
+    });
+  }, [data]);
 
   if (loading && !data) return <LoadingSpinner text="Loading organizations..." />;
   if (error) {
@@ -102,8 +115,14 @@ export default function OrgsPage() {
               to={`/orgs/${org.slug}`}
               className={styles.orgLink}
             >
-              <NeonCard glow="purple">
+              <NeonCard glow={FEATURED_SET.has(org.slug) ? "purple" : "cyan"}>
                 <div className={styles.card}>
+                  {FEATURED_SET.has(org.slug) && (
+                    <div className={styles.featuredBadge}>
+                      <Star size={12} />
+                      Featured
+                    </div>
+                  )}
                   <div className={styles.cardIcon}>
                     <OrgAvatar
                       avatarUrl={org.avatar_url}
