@@ -17,6 +17,8 @@ from decision_hub.api.search_routes import router as search_router
 
 _GUARD_PASS = {"is_skill_query": True, "reason": ""}
 
+_PARSED_KEYWORDS = ["weather forecast"]
+
 _SAMPLE_CANDIDATES = [
     {
         "org_slug": "acme",
@@ -99,12 +101,14 @@ class TestSearchSkills:
 
     @respx.mock
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     def test_search_success(
         self,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
+        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -137,12 +141,14 @@ class TestSearchSkills:
         assert "translate" in sent_payload
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     def test_search_empty_database(
         self,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
+        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -171,7 +177,7 @@ class TestSearchSkills:
         assert resp.status_code == 200
         data = resp.json()
         assert "doesn't look like a skill search" in data["results"]
-        assert "dhub ask" in data["results"]
+        assert "help me build a Bayesian model" in data["results"]
 
     @patch(
         "decision_hub.api.search_routes.check_query_topicality",
@@ -191,6 +197,7 @@ class TestSearchSkills:
         mock_hybrid.assert_not_called()
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", side_effect=Exception("API down"))
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     @patch("decision_hub.api.search_routes.search_skills_with_llm", return_value="Gemini result")
@@ -199,6 +206,7 @@ class TestSearchSkills:
         _mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
+        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -210,9 +218,11 @@ class TestSearchSkills:
         assert resp.status_code == 200
         # Verify hybrid was called with query_embedding=None
         call_kwargs = mock_hybrid.call_args
+        assert isinstance(call_kwargs[0][1], list)  # second positional arg is fts_queries
         assert call_kwargs[0][2] is None  # third positional arg is query_embedding
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     @patch("decision_hub.api.search_routes.search_skills_with_llm", side_effect=Exception("Gemini down"))
@@ -221,6 +231,7 @@ class TestSearchSkills:
         _mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
+        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -237,6 +248,7 @@ class TestSearchSkills:
         assert "acme/translate" in data["results"]
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     @patch("decision_hub.api.search_routes.search_skills_with_llm", return_value="result")
@@ -245,6 +257,7 @@ class TestSearchSkills:
         _mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
+        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
         search_settings: MagicMock,
@@ -278,3 +291,40 @@ class TestSearchSkills:
             resp = client.get("/v1/search", params={"q": "cake"})
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
+
+    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
+    @patch(
+        "decision_hub.api.search_routes.parse_query_keywords",
+        return_value=["bayesian statistics", "bayesian inference", "probabilistic modeling", "PyMC"],
+    )
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.search_skills_with_llm", return_value="result")
+    def test_search_conversational_query_parsed(
+        self,
+        _mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_parse: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Conversational query is parsed into multiple FTS keyword phrases."""
+        mock_hybrid.return_value = _SAMPLE_CANDIDATES
+
+        resp = search_client.get(
+            "/v1/search",
+            params={"q": "learn how to do bayesian statistics"},
+        )
+
+        assert resp.status_code == 200
+        # Verify fts_queries list (not raw query) was passed to hybrid search
+        call_args = mock_hybrid.call_args
+        fts_queries = call_args[0][1]
+        assert isinstance(fts_queries, list)
+        assert fts_queries == [
+            "bayesian statistics",
+            "bayesian inference",
+            "probabilistic modeling",
+            "PyMC",
+        ]

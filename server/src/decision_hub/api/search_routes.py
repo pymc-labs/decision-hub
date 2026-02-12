@@ -1,6 +1,7 @@
 """Skill search routes -- natural language discovery via LLM."""
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -12,7 +13,12 @@ from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.search import build_index_entry, format_deterministic_results, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
-from decision_hub.infra.gemini import check_query_topicality, create_gemini_client, search_skills_with_llm
+from decision_hub.infra.gemini import (
+    check_query_topicality,
+    create_gemini_client,
+    parse_query_keywords,
+    search_skills_with_llm,
+)
 from decision_hub.infra.storage import upload_search_log
 from decision_hub.models import User
 from decision_hub.settings import Settings
@@ -55,9 +61,10 @@ def search_skills(
 ) -> SearchResponse:
     """Search for skills using hybrid retrieval + LLM reranking.
 
-    1. Topicality guard (Gemini) rejects off-topic queries
-    2. Embed the query (fail-open to FTS-only on error)
-    3. Hybrid retrieval: FTS + vector search, union + dedup
+    Pipeline:
+    1. Topicality guard (Gemini) — reject off-topic queries
+    2. In parallel: parse query keywords + embed query
+    3. Hybrid retrieval: FTS (parsed keywords) + vector search (embedding)
     4. Gemini reranks the small candidate set
     5. Deterministic fallback if Gemini rerank fails
     """
@@ -67,40 +74,51 @@ def search_skills(
             detail="Search is not configured (missing GOOGLE_API_KEY)",
         )
 
-    # Intent guard: reject off-topic queries before hitting the DB or main LLM
     gemini = create_gemini_client(settings.google_api_key)
+
+    # Step 1: Topicality guard (sequential — cheap, fast)
     guard = check_query_topicality(gemini, q, settings.gemini_model)
     if not guard["is_skill_query"]:
         return SearchResponse(
             query=q,
             results=(
                 "This doesn't look like a skill search query. "
-                "`dhub ask` searches the skill registry for tools and capabilities.\n\n"
+                "`dhub ask` searches the skill registry for AI skills and capabilities.\n\n"
                 "**Try something like:**\n"
-                "- `dhub ask 'data validation'`\n"
-                "- `dhub ask 'causal inference tools'`\n"
-                "- `dhub ask 'A/B test analysis'`"
+                "- `dhub ask 'help me build a Bayesian model'`\n"
+                "- `dhub ask 'I need to create presentation slides'`\n"
+                "- `dhub ask 'tool for writing LinkedIn posts'`\n"
+                "- `dhub ask 'analyze my A/B test results'`"
             ),
         )
 
     start_time = time.monotonic()
 
-    # Step 1: Embed the query (fail-open to FTS-only)
-    query_embedding: list[float] | None = None
-    embed_ms = 0
-    try:
-        embed_start = time.monotonic()
-        query_embedding = embed_query(gemini, q, settings.embedding_model, EMBEDDING_DIMENSIONS)
-        embed_ms = int((time.monotonic() - embed_start) * 1000)
-    except Exception:
-        logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")
+    # Step 2: Parse keywords + embed query (parallel — both are independent LLM calls)
+    def _do_parse() -> list[str]:
+        return parse_query_keywords(gemini, q, settings.gemini_model)
 
-    # Step 2: Hybrid retrieval
+    def _do_embed() -> tuple[list[float] | None, int]:
+        try:
+            t0 = time.monotonic()
+            emb = embed_query(gemini, q, settings.embedding_model, EMBEDDING_DIMENSIONS)
+            return emb, int((time.monotonic() - t0) * 1000)
+        except Exception:
+            logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")
+            return None, 0
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        parse_future = pool.submit(_do_parse)
+        embed_future = pool.submit(_do_embed)
+        fts_queries = parse_future.result()
+        query_embedding, embed_ms = embed_future.result()
+
+    # Step 3: Hybrid retrieval
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     db_start = time.monotonic()
     candidates = search_skills_hybrid(
         conn,
-        q,
+        fts_queries,
         query_embedding,
         user_org_ids=user_org_ids,
         category=category,
@@ -147,8 +165,9 @@ def search_skills(
     latency_ms = int((time.monotonic() - start_time) * 1000)
 
     logger.info(
-        "Search q='{}' candidates={} embed_ms={} db_ms={} llm_ms={} fallback={}",
+        "Search q='{}' fts_queries={} candidates={} embed_ms={} db_ms={} llm_ms={} fallback={}",
         q[:80],
+        fts_queries,
         len(candidates),
         embed_ms,
         db_ms,

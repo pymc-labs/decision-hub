@@ -24,3 +24,6 @@ htmlcov/
 
 .DS_Store
 node_modules/
+
+# Crawler runtime artifacts
+crawl_checkpoint.json

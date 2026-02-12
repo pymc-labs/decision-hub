@@ -21,6 +21,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
 CLIENT_TOML="$ROOT_DIR/client/pyproject.toml"
+SHARED_TOML="$ROOT_DIR/shared/pyproject.toml"
 
 # Load token from .env if not already set
 if [ -z "${UV_PUBLISH_TOKEN:-}" ] && [ -f "$ROOT_DIR/.env" ]; then
@@ -76,6 +77,17 @@ echo "==> Bumping dhub-cli: $CURRENT_VERSION → $NEW_VERSION ($BUMP_LEVEL)"
 # --- Update version in pyproject.toml --------------------------------------
 
 sed -i '' "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" "$CLIENT_TOML"
+
+# --- Bump dhub-core and sync the pin in dhub-cli --------------------------
+
+CORE_VERSION=$(grep '^version = ' "$SHARED_TOML" | head -1 | sed 's/version = "\(.*\)"/\1/')
+IFS='.' read -r C_MAJOR C_MINOR C_PATCH <<< "$CORE_VERSION"
+C_PATCH=$((C_PATCH + 1))
+NEW_CORE_VERSION="$C_MAJOR.$C_MINOR.$C_PATCH"
+
+echo "==> Bumping dhub-core: $CORE_VERSION → $NEW_CORE_VERSION"
+sed -i '' "s/^version = \"$CORE_VERSION\"/version = \"$NEW_CORE_VERSION\"/" "$SHARED_TOML"
+sed -i '' "s/\"dhub-core==$CORE_VERSION\"/\"dhub-core==$NEW_CORE_VERSION\"/" "$CLIENT_TOML"
 
 # --- Run tests -------------------------------------------------------------
 

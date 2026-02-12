@@ -1,6 +1,6 @@
 [project]
 name = "dhub-core"
-version = "0.1.0"
+version = "0.2.1"
 description = "Shared domain models and manifest parsing for Decision Hub"
 requires-python = ">=3.11"
 dependencies = [
