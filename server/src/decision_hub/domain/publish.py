@@ -15,14 +15,41 @@ __all__ = ["validate_semver", "validate_skill_name"]
 # ---------------------------------------------------------------------------
 
 TEXT_EXTENSIONS = frozenset({".md", ".mdx", ".txt", ".latex", ".dot"})
-CODE_EXTENSIONS = frozenset({
-    ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".sh", ".ps1",
-    ".rb", ".R", ".go", ".gd", ".sql", ".html", ".bicep", ".svg", ".glsl",
-})
-CONFIG_EXTENSIONS = frozenset({
-    ".json", ".yaml", ".yml", ".toml", ".xml", ".ini", ".conf",
-    ".template", ".j2",
-})
+CODE_EXTENSIONS = frozenset(
+    {
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".sh",
+        ".ps1",
+        ".rb",
+        ".R",
+        ".go",
+        ".gd",
+        ".sql",
+        ".html",
+        ".bicep",
+        ".svg",
+        ".glsl",
+    }
+)
+CONFIG_EXTENSIONS = frozenset(
+    {
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".xml",
+        ".ini",
+        ".conf",
+        ".template",
+        ".j2",
+    }
+)
 SCANNABLE_EXTENSIONS = TEXT_EXTENSIONS | CODE_EXTENSIONS | CONFIG_EXTENSIONS
 
 
