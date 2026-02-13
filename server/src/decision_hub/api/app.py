@@ -94,8 +94,13 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application.
 
     Initialises the database engine, S3 client, and registers all routers.
-    When ``require_github_org`` is set, all non-auth routes require a valid
-    JWT (enforced via an app-wide dependency).
+    Write endpoints (publish, delete, keys, orgs, trackers) always require
+    a valid JWT — authentication is unconditional.  The ``require_github_org``
+    setting is an *authorization* restriction checked at login time, not an
+    authentication toggle.
+
+    Set ``DISABLE_AUTH=true`` to explicitly skip auth for local dev/testing
+    (a loud warning is emitted at startup).
 
     Returns:
         A fully-configured FastAPI instance.
@@ -151,11 +156,16 @@ def create_app() -> FastAPI:
     app.include_router(taxonomy_public_router)
     app.include_router(org_public_router)
 
-    # When an org restriction is active, require a valid JWT on every
-    # non-public route. This locks down write operations (publish, delete)
-    # and user-specific endpoints (eval runs, API keys).
-    global_deps: list = []
-    if settings.require_github_org:
+    # Always require a valid JWT on write routers. Authentication is
+    # unconditional — it must not depend on whether an authorization
+    # setting like require_github_org happens to be populated.
+    # The only escape hatch is the explicit DISABLE_AUTH flag.
+    if settings.disable_auth:
+        logger.warning(
+            "*** DISABLE_AUTH is set — write endpoints have NO authentication. Do NOT use this in production! ***"
+        )
+        global_deps: list = []
+    else:
         global_deps = [Depends(get_current_user)]
 
     app.include_router(org_router, dependencies=global_deps)

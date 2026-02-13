@@ -41,9 +41,18 @@ class Settings(BaseSettings):
     search_candidate_limit: int = 20  # candidates per retrieval signal
     embedding_model: str = "gemini-embedding-001"
 
-    # Access control: comma-separated list of GitHub orgs.
-    # User must belong to at least one. Leave empty to allow all.
+    # Authorization: comma-separated list of GitHub orgs.
+    # When set, only members of these orgs can log in (checked at token
+    # exchange time in auth_routes). Leave empty to allow all GitHub users.
+    # NOTE: This is an *authorization* restriction, not authentication.
+    # Authentication (valid JWT) is always required on write endpoints.
     require_github_org: str = ""
+
+    # Explicit opt-in to disable authentication on write endpoints.
+    # Intended ONLY for local development and testing. When True, write
+    # routers are mounted without JWT verification. A loud startup warning
+    # is emitted. NEVER enable this in production.
+    disable_auth: bool = False
 
     @property
     def required_github_orgs(self) -> list[str]:
