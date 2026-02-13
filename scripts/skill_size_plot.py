@@ -2,14 +2,14 @@
 """Generate log-log histogram of skill sizes to check for power-law behavior."""
 
 import csv
-import math
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+
+matplotlib.use("Agg")  # headless
 
 CSV_PATH = Path(__file__).resolve().parent / "skill_sizes.csv"
 OUT_DIR = Path(__file__).resolve().parent
@@ -44,8 +44,8 @@ def main() -> None:
     ax1 = axes[0]
     lo, hi = sizes_arr.min(), sizes_arr.max()
     bins = np.logspace(np.log10(max(lo, 1)), np.log10(hi), 40)
-    counts, edges, _ = ax1.hist(sizes_arr, bins=bins, edgecolor="white", linewidth=0.5,
-                                 color="#4C72B0", alpha=0.85)
+    ax1.hist(sizes_arr, bins=bins, edgecolor="white", linewidth=0.5,
+             color="#4C72B0", alpha=0.85)
     ax1.set_xscale("log")
     ax1.set_yscale("log")
     ax1.set_xlabel("Uncompressed size (bytes)")
