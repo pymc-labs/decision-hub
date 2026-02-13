@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { Zap, Package, Building2, Home, BookOpen, Menu, X } from "lucide-react";
 import styles from "./Layout.module.css";
@@ -12,12 +12,12 @@ const NAV_ITEMS = [
 
 export default function Layout() {
   const location = useLocation();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  // Close mobile menu on any route change (logo, back/forward, etc.)
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [location.pathname]);
+  const [mobileMenuState, setMobileMenuState] = useState({
+    isOpen: false,
+    openedOnPath: location.pathname,
+  });
+  const mobileMenuOpen =
+    mobileMenuState.isOpen && mobileMenuState.openedOnPath === location.pathname;
 
   return (
     <div className={styles.layout}>
@@ -30,7 +30,12 @@ export default function Layout() {
 
           <button
             className={styles.menuToggle}
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            onClick={() =>
+              setMobileMenuState(() => ({
+                isOpen: !mobileMenuOpen,
+                openedOnPath: location.pathname,
+              }))
+            }
             aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
           >
             {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -41,7 +46,12 @@ export default function Layout() {
               <Link
                 key={path}
                 to={path}
-                onClick={() => setMobileMenuOpen(false)}
+                onClick={() =>
+                  setMobileMenuState({
+                    isOpen: false,
+                    openedOnPath: location.pathname,
+                  })
+                }
                 className={`${styles.navLink} ${
                   (path === "/" ? location.pathname === "/" : location.pathname.startsWith(path)) ? styles.navLinkActive : ""
                 }`}
