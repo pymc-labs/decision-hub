@@ -79,9 +79,7 @@ export default function SkillDetailPage() {
     [orgSlug, skillName]
   );
 
-  const seoTitle = skill
-    ? `${orgSlug}/${skillName} - ${skill.description}`
-    : `${orgSlug}/${skillName}`;
+  const seoTitle = `${orgSlug}/${skillName}`;
   const seoDescription = skill
     ? `${skill.description} — Safety grade: ${skill.safety_rating}, v${skill.latest_version}. Install with: dhub install ${orgSlug}/${skillName}`
     : `View the ${orgSlug}/${skillName} skill on Decision Hub.`;
