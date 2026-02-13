@@ -41,6 +41,8 @@ export function useInfiniteScroll<T>(
     pageRef.current = 1;
     setItems([]);
     setLoading(true);
+    setLoadingMore(false);
+    loadingRef.current = false;
     setError(null);
     setHasMore(false);
 
@@ -83,6 +85,7 @@ export function useInfiniteScroll<T>(
       .catch((err) => {
         if (currentFetchId !== fetchIdRef.current) return;
         setError(err.message);
+        setHasMore(false);
       })
       .finally(() => {
         if (currentFetchId !== fetchIdRef.current) return;

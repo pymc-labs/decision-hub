@@ -144,6 +144,13 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
               {loadingMore && <span className={styles.loadingMore}>Loading more skills...</span>}
             </div>
           )}
+
+          {/* Inline error when loading more pages fails */}
+          {error && skills.length > 0 && (
+            <div className={styles.sentinel}>
+              <span className={styles.loadMoreError}>Failed to load more skills. Try scrolling again.</span>
+            </div>
+          )}
         </>
       )}
     </div>

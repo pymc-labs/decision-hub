@@ -253,6 +253,13 @@
   letter-spacing: 1px;
 }
 
+.loadMoreError {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--neon-pink);
+  letter-spacing: 1px;
+}
+
 /* Empty */
 .empty {
   display: flex;
