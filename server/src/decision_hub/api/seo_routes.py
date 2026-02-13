@@ -48,14 +48,8 @@ def sitemap_xml(conn: Connection = Depends(get_connection)) -> Response:
         .order_by(organizations_table.c.slug, skills_table.c.name)
     )
     for row in conn.execute(stmt):
-        lastmod = (
-            row.latest_published_at.strftime("%Y-%m-%d")
-            if row.latest_published_at
-            else today
-        )
-        urls.append(
-            (f"{_BASE_URL}/skills/{row.org_slug}/{row.skill_name}", lastmod, "weekly")
-        )
+        lastmod = row.latest_published_at.strftime("%Y-%m-%d") if row.latest_published_at else today
+        urls.append((f"{_BASE_URL}/skills/{row.org_slug}/{row.skill_name}", lastmod, "weekly"))
 
     # Public orgs (only those with at least one published skill)
     org_stmt = (
@@ -92,10 +86,5 @@ def sitemap_xml(conn: Connection = Depends(get_connection)) -> Response:
 @router.get("/robots.txt", include_in_schema=False)
 def robots_txt() -> Response:
     """Serve robots.txt with sitemap reference."""
-    content = (
-        "User-agent: *\n"
-        "Allow: /\n"
-        "\n"
-        f"Sitemap: {_BASE_URL}/sitemap.xml\n"
-    )
+    content = f"User-agent: *\nAllow: /\n\nSitemap: {_BASE_URL}/sitemap.xml\n"
     return Response(content=content, media_type="text/plain")
