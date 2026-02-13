@@ -82,7 +82,7 @@ def main() -> None:
         for ext in r["extensions"].split():
             if ext:
                 ext_counter[ext] += 1
-    print(f"\nExtension frequency (top 20):")
+    print("\nExtension frequency (top 20):")
     for ext, count in ext_counter.most_common(20):
         print(f"  {ext:<12} {count:>4} skills")
 
