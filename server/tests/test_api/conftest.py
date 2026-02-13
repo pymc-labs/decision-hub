@@ -5,12 +5,13 @@ from uuid import UUID
 
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from decision_hub.api.app import _parse_semver
 from decision_hub.api.auth_routes import router as auth_router
+from decision_hub.api.deps import get_current_user
 from decision_hub.api.keys_routes import router as keys_router
 from decision_hub.api.org_routes import org_public_router, org_router
 from decision_hub.api.registry_routes import public_router as registry_public_router
@@ -76,10 +77,14 @@ def test_app(test_settings: MagicMock) -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(org_public_router)
-    app.include_router(org_router)
     app.include_router(registry_public_router)
-    app.include_router(registry_router)
-    app.include_router(keys_router)
+
+    # Mirror production app.py: write routers get unconditional auth deps
+    # as defense-in-depth alongside per-endpoint Depends(get_current_user).
+    write_deps = [Depends(get_current_user)]
+    app.include_router(org_router, dependencies=write_deps)
+    app.include_router(registry_router, dependencies=write_deps)
+    app.include_router(keys_router, dependencies=write_deps)
 
     return app
 

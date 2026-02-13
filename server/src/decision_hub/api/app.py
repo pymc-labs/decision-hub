@@ -94,8 +94,10 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application.
 
     Initialises the database engine, S3 client, and registers all routers.
-    When ``require_github_org`` is set, all non-auth routes require a valid
-    JWT (enforced via an app-wide dependency).
+    Write endpoints (publish, delete, keys, orgs, trackers) always require
+    a valid JWT — authentication is unconditional.  The ``require_github_org``
+    setting is an *authorization* restriction checked at login time, not an
+    authentication toggle.
 
     Returns:
         A fully-configured FastAPI instance.
@@ -151,17 +153,18 @@ def create_app() -> FastAPI:
     app.include_router(taxonomy_public_router)
     app.include_router(org_public_router)
 
-    # When an org restriction is active, require a valid JWT on every
-    # non-public route. This locks down write operations (publish, delete)
-    # and user-specific endpoints (eval runs, API keys).
-    global_deps: list = []
-    if settings.require_github_org:
-        global_deps = [Depends(get_current_user)]
+    # Always require a valid JWT on write routers.  This is defense-in-depth:
+    # each endpoint also declares its own Depends(get_current_user) to inject
+    # the User object, so even if a new endpoint forgot the parameter-level
+    # dependency, the router-level guard would still reject anonymous requests.
+    # Authentication must not depend on whether an authorization setting like
+    # require_github_org happens to be populated.
+    write_deps: list = [Depends(get_current_user)]
 
-    app.include_router(org_router, dependencies=global_deps)
-    app.include_router(registry_router, dependencies=global_deps)
-    app.include_router(keys_router, dependencies=global_deps)
-    app.include_router(tracker_router, dependencies=global_deps)
+    app.include_router(org_router, dependencies=write_deps)
+    app.include_router(registry_router, dependencies=write_deps)
+    app.include_router(keys_router, dependencies=write_deps)
+    app.include_router(tracker_router, dependencies=write_deps)
     # Search is read-only and should be accessible without auth, like the
     # public registry endpoints.
     app.include_router(search_router)

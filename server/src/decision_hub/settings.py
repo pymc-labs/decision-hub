@@ -41,8 +41,12 @@ class Settings(BaseSettings):
     search_candidate_limit: int = 20  # candidates per retrieval signal
     embedding_model: str = "gemini-embedding-001"
 
-    # Access control: comma-separated list of GitHub orgs.
-    # User must belong to at least one. Leave empty to allow all.
+    # Authorization: comma-separated list of GitHub orgs.
+    # When set, only members of these orgs can log in (checked at token
+    # exchange time in auth_routes). Leave empty to allow all GitHub users.
+    # NOTE: This is an *authorization* restriction, not authentication.
+    # Authentication (valid JWT) is always required on write endpoints
+    # regardless of this setting.
     require_github_org: str = ""
 
     @property
