@@ -212,4 +212,39 @@
   .grid {
     grid-template-columns: 1fr;
   }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .meta {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .title {
+    font-size: 1.3rem;
+  }
+
+  .titleRow {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .pagination {
+    gap: 8px;
+  }
+
+  .pageButton {
+    padding: 8px 10px;
+    font-size: 0.75rem;
+  }
+
+  .pageInfo {
+    font-size: 0.75rem;
+  }
 }

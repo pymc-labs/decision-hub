@@ -243,3 +243,36 @@
   border-radius: 4px;
   align-self: flex-start;
 }
+
+@media (max-width: 480px) {
+  .summaryInner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .summaryNumber {
+    font-size: 2rem;
+  }
+
+  .summarySlash,
+  .summaryTotal {
+    font-size: 1.2rem;
+  }
+
+  .summaryMeta {
+    gap: 8px;
+    font-size: 0.75rem;
+  }
+
+  .caseHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .casePre {
+    font-size: 0.7rem;
+    padding: 8px;
+  }
+}

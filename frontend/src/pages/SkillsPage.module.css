@@ -302,4 +302,21 @@
   .filters {
     flex-direction: column;
   }
+  .searchBox {
+    min-width: 0;
+    width: 100%;
+  }
+  .title {
+    font-size: 1.3rem;
+  }
+  .pagination {
+    gap: 8px;
+  }
+  .pageButton {
+    padding: 8px 10px;
+    font-size: 0.75rem;
+  }
+  .pageInfo {
+    font-size: 0.75rem;
+  }
 }

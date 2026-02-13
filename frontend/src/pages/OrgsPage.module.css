@@ -200,4 +200,11 @@
   .filters {
     flex-direction: column;
   }
+  .searchBox {
+    min-width: 0;
+    width: 100%;
+  }
+  .title {
+    font-size: 1.3rem;
+  }
 }

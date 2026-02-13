@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Zap, Package, Building2, Home, BookOpen } from "lucide-react";
+import { Zap, Package, Building2, Home, BookOpen, Menu, X } from "lucide-react";
 import styles from "./Layout.module.css";
 
 const NAV_ITEMS = [
@@ -11,6 +12,12 @@ const NAV_ITEMS = [
 
 export default function Layout() {
   const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className={styles.layout}>
@@ -21,7 +28,15 @@ export default function Layout() {
             <span className={styles.logoText}>Decision Hub</span>
           </Link>
 
-          <nav className={styles.nav}>
+          <button
+            className={styles.menuToggle}
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+          >
+            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+
+          <nav className={`${styles.nav} ${mobileMenuOpen ? styles.navOpen : ""}`}>
             {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
               <Link
                 key={path}

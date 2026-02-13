@@ -53,6 +53,9 @@ body {
   overflow-x: hidden;
   line-height: 1.6;
   font-size: 16px;
+  /* Safe area insets for iPhone notch/dynamic island */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* Subtle scanline overlay */
@@ -141,6 +144,12 @@ code, pre {
   margin: 0 auto;
   padding: 0 24px;
   width: 100%;
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 0 16px;
+  }
 }
 
 @keyframes neonFlicker {

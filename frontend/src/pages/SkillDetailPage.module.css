@@ -370,3 +370,48 @@ a.metaItem:hover {
     display: none;
   }
 }
+
+@media (max-width: 480px) {
+  .name {
+    font-size: 1.3rem;
+  }
+
+  .overviewGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .headerRight {
+    flex-direction: column;
+  }
+
+  .actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .installBtn,
+  .downloadBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .tab {
+    padding: 10px 14px;
+    font-size: 0.8rem;
+  }
+
+  .codeBlock {
+    padding: 10px 12px;
+  }
+
+  .codeBlock code {
+    font-size: 0.75rem;
+    word-break: break-all;
+  }
+
+  .auditHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}

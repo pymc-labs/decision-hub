@@ -361,4 +361,53 @@
     flex-direction: column;
     align-items: center;
   }
+
+  .sectionHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero {
+    padding: 32px 0 24px;
+  }
+
+  .heroTitle {
+    font-size: 1.6rem;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .heroDivider {
+    font-size: 1.2rem;
+  }
+
+  .heroSub {
+    font-size: 1rem;
+    margin-bottom: 24px;
+  }
+
+  .statNumber {
+    font-size: 1.4rem;
+  }
+
+  .statLabel {
+    font-size: 0.7rem;
+  }
+
+  .featured,
+  .howItWorks,
+  .installSection {
+    margin: 32px 0;
+  }
+
+  .cliSection {
+    margin: 32px auto;
+  }
+
+  .stepNumber {
+    font-size: 1.5rem;
+  }
 }
