@@ -106,6 +106,13 @@ def _extract_skill_body(skill_zip: bytes) -> str:
     return ""
 
 
+def _write_file_to_sandbox(sb, path: str, content: str) -> None:
+    """Write a text file into a Modal sandbox using the filesystem API."""
+    f = sb.open(path, "w")
+    f.write(content)
+    f.close()
+
+
 def _write_claude_md_from_skill_zip(
     sb,
     skill_zip: bytes,
@@ -118,8 +125,6 @@ def _write_claude_md_from_skill_zip(
     skill's system prompt context to the agent during eval runs.
     Prepends the skill directory path so the agent knows where to find files.
     """
-    import base64
-
     body = _extract_skill_body(skill_zip)
     if not body:
         return
@@ -139,13 +144,7 @@ def _write_claude_md_from_skill_zip(
         f"{body}"
     )
 
-    b64_body = base64.b64encode(full_body.encode()).decode()
-    _run_in_sandbox(
-        sb,
-        "python3",
-        "-c",
-        f"import base64; open('{home_dir}/CLAUDE.md', 'w').write(base64.b64decode('{b64_body}').decode())",
-    )
+    _write_file_to_sandbox(sb, f"{home_dir}/CLAUDE.md", full_body)
     logger.debug("Wrote CLAUDE.md ({} chars)", len(full_body))
 
 
@@ -203,10 +202,39 @@ def _run_in_sandbox(sb, *args: str):
     return proc.stdout.read(), proc.returncode
 
 
+def _write_agent_scripts(sb, shell_cmd: str) -> None:
+    """Write the inner and outer agent runner scripts into the sandbox.
+
+    Uses sb.open() to write files directly, avoiding shell interpolation.
+    The inner script uses $SKILL_PATH from the environment for the venv PATH.
+    """
+    # Inner script: prepend skill venv to PATH (via env var), then run agent.
+    # shell_cmd is already shlex.quote'd by the caller.
+    inner_script = (
+        "#!/bin/bash\n"
+        'if [ -n "$SKILL_PATH" ] && [ -d "$SKILL_PATH/.venv/bin" ]; then\n'
+        '  export PATH="$SKILL_PATH/.venv/bin:$PATH"\n'
+        "fi\n"
+        f"cd $HOME && {shell_cmd}\n"
+    )
+
+    # Outer script: run the inner script as the sandbox user, capture output.
+    launch_script = (
+        "#!/bin/bash\n"
+        "su -m sandbox /tmp/run_inner.sh > /tmp/agent_stdout.txt 2> /tmp/agent_stderr.txt\n"
+        "echo $? > /tmp/agent_rc.txt\n"
+    )
+
+    _write_file_to_sandbox(sb, "/tmp/run_inner.sh", inner_script)
+    _run_in_sandbox(sb, "chmod", "+x", "/tmp/run_inner.sh")
+
+    _write_file_to_sandbox(sb, "/tmp/run_agent.sh", launch_script)
+    _run_in_sandbox(sb, "chmod", "+x", "/tmp/run_agent.sh")
+
+
 def _run_agent_in_sandbox(
     sb,
     shell_cmd: str,
-    skill_path: str = "",
     poll_interval: int = 5,
     max_wait: int = 840,
 ) -> tuple[str, str, int, int]:
@@ -221,38 +249,17 @@ def _run_agent_in_sandbox(
     """
     import time
 
-    out_file = "/tmp/agent_stdout.txt"
-    err_file = "/tmp/agent_stderr.txt"
-    rc_file = "/tmp/agent_rc.txt"
-    pid_file = "/tmp/agent_pid.txt"
+    # Write scripts using the filesystem API (no shell interpolation).
+    # The inner script reads $SKILL_PATH from the environment.
+    _write_agent_scripts(sb, shell_cmd)
 
-    # Build PATH with the skill's venv/bin so `python` resolves to the
-    # venv interpreter with installed deps.
-    path_prefix = ""
-    if skill_path:
-        path_prefix = f"export PATH={skill_path}/.venv/bin:$PATH && "
-
-    # Launch agent in background, capture output to files, write exit code
-    # when done. Use su -m to preserve env vars (API keys from Modal secrets).
-    # cd $HOME first so Claude Code discovers CLAUDE.md as project instructions.
-    #
-    # The agent command is written to a separate inner script to avoid
-    # nested shell quoting issues with su -c. This prevents prompt content
-    # containing quotes from breaking out of the shell command.
-    inner_script = f"#!/bin/bash\n{path_prefix}cd $HOME && {shell_cmd}\n"
-    launch_script = f"#!/bin/bash\nsu -m sandbox /tmp/run_inner.sh > {out_file} 2> {err_file}\necho $? > {rc_file}\n"
-    # Write the inner script (agent command) and outer script (su wrapper).
-    # Using quoted heredoc (<<'EOF') prevents shell expansion of script contents.
-    _run_in_sandbox(
-        sb, "bash", "-c", f"cat > /tmp/run_inner.sh << 'INNER_EOF'\n{inner_script}INNER_EOF\nchmod +x /tmp/run_inner.sh"
-    )
+    # Launch agent in background
     _run_in_sandbox(
         sb,
         "bash",
         "-c",
-        f"cat > /tmp/run_agent.sh << 'SCRIPT_EOF'\n{launch_script}SCRIPT_EOF\nchmod +x /tmp/run_agent.sh",
+        "nohup /tmp/run_agent.sh &\necho $! > /tmp/agent_pid.txt",
     )
-    _run_in_sandbox(sb, "bash", "-c", f"nohup /tmp/run_agent.sh &\necho $! > {pid_file}")
 
     start = time.monotonic()
     elapsed = 0.0
@@ -266,7 +273,7 @@ def _run_agent_in_sandbox(
             sb,
             "bash",
             "-c",
-            f"cat {rc_file} 2>/dev/null || echo RUNNING",
+            "cat /tmp/agent_rc.txt 2>/dev/null || echo RUNNING",
         )
         status = check_stdout.strip()
         if status != "RUNNING":
@@ -278,15 +285,15 @@ def _run_agent_in_sandbox(
             sb,
             "bash",
             "-c",
-            f"kill $(cat {pid_file} 2>/dev/null) 2>/dev/null; echo 137 > {rc_file}",
+            "kill $(cat /tmp/agent_pid.txt 2>/dev/null) 2>/dev/null; echo 137 > /tmp/agent_rc.txt",
         )
 
     duration_ms = int((time.monotonic() - start) * 1000)
 
     # Read captured output
-    stdout, _ = _run_in_sandbox(sb, "bash", "-c", f"cat {out_file} 2>/dev/null")
-    stderr, _ = _run_in_sandbox(sb, "bash", "-c", f"cat {err_file} 2>/dev/null")
-    rc_str, _ = _run_in_sandbox(sb, "bash", "-c", f"cat {rc_file} 2>/dev/null")
+    stdout, _ = _run_in_sandbox(sb, "bash", "-c", "cat /tmp/agent_stdout.txt 2>/dev/null")
+    stderr, _ = _run_in_sandbox(sb, "bash", "-c", "cat /tmp/agent_stderr.txt 2>/dev/null")
+    rc_str, _ = _run_in_sandbox(sb, "bash", "-c", "cat /tmp/agent_rc.txt 2>/dev/null")
 
     try:
         exit_code = int(rc_str.strip())
@@ -309,10 +316,15 @@ def _create_skill_sandbox(
 ):
     """Create and prepare a Modal sandbox with a skill installed.
 
+    Uses Modal's filesystem API (sb.open, sb.mkdir) for file operations
+    and passes skill_path as the SKILL_PATH env var to avoid interpolating
+    user-derived values into shell command strings.
+
     Returns:
         A tuple of (sandbox, skill_path) ready for running commands.
     """
-    import base64
+    import io
+    import zipfile
 
     import modal
 
@@ -328,8 +340,10 @@ def _create_skill_sandbox(
     home_dir = "/home/sandbox"
     skill_path = f"{home_dir}/{agent_config.skills_path}/{org_slug}/{skill_name}"
 
-    # Add HOME to env so tools resolve paths correctly
+    # Expose paths as env vars so shell commands never need f-string
+    # interpolation of user-derived values.
     env["HOME"] = home_dir
+    env["SKILL_PATH"] = skill_path
 
     logger.info(
         "Creating sandbox (memory={}, timeout={}, cpu={})",
@@ -346,33 +360,40 @@ def _create_skill_sandbox(
         cpu=sandbox_cpu,
     )
 
-    # Set up skill directory (as root, then chown to sandbox user)
+    # Set up skill directory using the filesystem API (no shell needed)
     logger.debug("Creating skill dir: {}", skill_path)
-    _run_in_sandbox(sb, "mkdir", "-p", skill_path)
+    sb.mkdir(skill_path, parents=True)
 
-    # Transfer and extract skill zip via base64 + Python zipfile
+    # Transfer skill zip using the filesystem API — write each file
+    # directly instead of base64-encoding into a python3 -c command.
     logger.info("Transferring skill zip ({} bytes)", len(skill_zip))
-    b64_zip = base64.b64encode(skill_zip).decode()
-    _run_in_sandbox(
-        sb,
-        "python3",
-        "-c",
-        f"import base64,zipfile,io; "
-        f"data=base64.b64decode('{b64_zip}'); "
-        f"zipfile.ZipFile(io.BytesIO(data)).extractall('{skill_path}')",
-    )
+    with zipfile.ZipFile(io.BytesIO(skill_zip)) as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                sb.mkdir(f"{skill_path}/{info.filename}", parents=True)
+            else:
+                # Ensure parent directory exists
+                parent = "/".join(f"{skill_path}/{info.filename}".split("/")[:-1])
+                if parent:
+                    sb.mkdir(parent, parents=True)
+                data = zf.read(info.filename)
+                f = sb.open(f"{skill_path}/{info.filename}", "wb")
+                f.write(data)
+                f.close()
 
-    # Install Python deps if pyproject.toml exists
+    # Install Python deps if pyproject.toml exists.
+    # Shell commands reference $SKILL_PATH from the environment —
+    # no user-derived values are interpolated into the command string.
     logger.info("Installing deps (uv sync if pyproject.toml exists)")
     stdout, exit_code = _run_in_sandbox(
         sb,
         "bash",
         "-c",
-        f"if [ -f '{skill_path}/pyproject.toml' ]; then "
-        f"echo 'pyproject.toml found, running uv sync'; "
-        f"uv sync --directory '{skill_path}' 2>&1; "
-        f"echo 'uv sync exit code:' $?; "
-        f"else echo 'No pyproject.toml found'; fi",
+        'if [ -f "$SKILL_PATH/pyproject.toml" ]; then '
+        "echo 'pyproject.toml found, running uv sync'; "
+        'uv sync --directory "$SKILL_PATH" 2>&1; '
+        "echo 'uv sync exit code:' $?; "
+        "else echo 'No pyproject.toml found'; fi",
     )
     logger.info("Dep install result: exit={} stdout={}", exit_code, stdout[:500])
 
@@ -381,7 +402,7 @@ def _create_skill_sandbox(
         sb,
         "bash",
         "-c",
-        f"ls -la {skill_path}/.venv/bin/python 2>&1 && {skill_path}/.venv/bin/python --version 2>&1",
+        'ls -la "$SKILL_PATH/.venv/bin/python" 2>&1 && "$SKILL_PATH/.venv/bin/python" --version 2>&1',
     )
     logger.debug("Venv check: {}", verify_stdout.strip())
 
@@ -389,15 +410,16 @@ def _create_skill_sandbox(
     # Claude Code reads CLAUDE.md as project instructions (system prompt).
     _write_claude_md_from_skill_zip(sb, skill_zip, home_dir, skill_path)
 
-    # Initialize a git repo so Claude Code recognizes the project root
+    # Initialize a git repo so Claude Code recognizes the project root.
+    # home_dir is a hardcoded constant (/home/sandbox), not user input.
     _run_in_sandbox(
         sb,
         "bash",
         "-c",
-        f"cd {home_dir} && git init -q "
-        f"&& git config user.email 'eval@decision-hub' "
-        f"&& git config user.name 'eval' "
-        f"&& git add -A && git commit -q -m init",
+        "cd $HOME && git init -q "
+        "&& git config user.email 'eval@decision-hub' "
+        "&& git config user.name 'eval' "
+        "&& git add -A && git commit -q -m init",
     )
 
     # Make everything owned by sandbox user so agent runs as non-root
@@ -504,7 +526,7 @@ def stream_eval_case_in_sandbox(
     import base64
     import time
 
-    sb, skill_path = _create_skill_sandbox(
+    sb, _skill_path = _create_skill_sandbox(
         skill_zip,
         agent_config,
         agent_env_vars,
@@ -521,32 +543,15 @@ def stream_eval_case_in_sandbox(
         shell_cmd = " ".join(shlex.quote(c) for c in cmd)
         logger.info("Streaming agent execution: {} (prompt_len={})", cmd[0], len(prompt))
 
-        out_file = "/tmp/agent_stdout.txt"
-        err_file = "/tmp/agent_stderr.txt"
-        rc_file = "/tmp/agent_rc.txt"
-        pid_file = "/tmp/agent_pid.txt"
-
-        path_prefix = ""
-        if skill_path:
-            path_prefix = f"export PATH={skill_path}/.venv/bin:$PATH && "
-
-        inner_script = f"#!/bin/bash\n{path_prefix}cd $HOME && {shell_cmd}\n"
-        launch_script = (
-            f"#!/bin/bash\nsu -m sandbox /tmp/run_inner.sh > {out_file} 2> {err_file}\necho $? > {rc_file}\n"
-        )
+        # Write scripts using the filesystem API (no shell interpolation).
+        # The inner script reads $SKILL_PATH from the environment.
+        _write_agent_scripts(sb, shell_cmd)
         _run_in_sandbox(
             sb,
             "bash",
             "-c",
-            f"cat > /tmp/run_inner.sh << 'INNER_EOF'\n{inner_script}INNER_EOF\nchmod +x /tmp/run_inner.sh",
+            "nohup /tmp/run_agent.sh &\necho $! > /tmp/agent_pid.txt",
         )
-        _run_in_sandbox(
-            sb,
-            "bash",
-            "-c",
-            f"cat > /tmp/run_agent.sh << 'SCRIPT_EOF'\n{launch_script}SCRIPT_EOF\nchmod +x /tmp/run_agent.sh",
-        )
-        _run_in_sandbox(sb, "bash", "-c", f"nohup /tmp/run_agent.sh &\necho $! > {pid_file}")
 
         start = time.monotonic()
 
@@ -616,7 +621,7 @@ def run_eval_case_in_sandbox(
         Tuple of (stdout, stderr, exit_code, duration_ms).
     """
 
-    sb, skill_path = _create_skill_sandbox(
+    sb, _skill_path = _create_skill_sandbox(
         skill_zip,
         agent_config,
         agent_env_vars,
@@ -637,7 +642,6 @@ def run_eval_case_in_sandbox(
         stdout, stderr, exit_code, duration_ms = _run_agent_in_sandbox(
             sb,
             shell_cmd,
-            skill_path=skill_path,
         )
         logger.info(
             "Agent finished: exit={} duration={}ms stdout_len={}",
