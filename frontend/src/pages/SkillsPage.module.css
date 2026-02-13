@@ -243,6 +243,8 @@
 .sentinel {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 12px;
   padding: 32px 0;
 }
 
@@ -258,6 +260,21 @@
   font-size: 0.85rem;
   color: var(--neon-pink);
   letter-spacing: 1px;
+}
+
+.retryBtn {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--neon-cyan);
+  background: transparent;
+  border: 1px solid var(--neon-cyan);
+  padding: 4px 12px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+
+.retryBtn:hover {
+  background: rgba(0, 255, 255, 0.1);
 }
 
 /* Empty */

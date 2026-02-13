@@ -30,6 +30,7 @@ export function useInfiniteScroll<T>(
   const fetchIdRef = useRef(0);
   const loadingRef = useRef(false);
   const hasMoreRef = useRef(false);
+  const errorRef = useRef(false);
 
   // Keep refs in sync with state for use in observer callback
   loadingRef.current = loading || loadingMore;
@@ -43,6 +44,8 @@ export function useInfiniteScroll<T>(
     setLoading(true);
     setLoadingMore(false);
     loadingRef.current = false;
+    hasMoreRef.current = false;
+    errorRef.current = false;
     setError(null);
     setHasMore(false);
 
@@ -66,7 +69,7 @@ export function useInfiniteScroll<T>(
 
   // Load next page — uses refs to avoid stale closures in the observer
   const loadNextPage = useCallback(() => {
-    if (loadingRef.current || !hasMoreRef.current) return;
+    if (loadingRef.current || !hasMoreRef.current || errorRef.current) return;
 
     const nextPage = pageRef.current + 1;
     const currentFetchId = fetchIdRef.current;
@@ -85,7 +88,7 @@ export function useInfiniteScroll<T>(
       .catch((err) => {
         if (currentFetchId !== fetchIdRef.current) return;
         setError(err.message);
-        setHasMore(false);
+        errorRef.current = true;
       })
       .finally(() => {
         if (currentFetchId !== fetchIdRef.current) return;
@@ -98,6 +101,13 @@ export function useInfiniteScroll<T>(
   // Stable ref for observer callback
   const loadNextPageRef = useRef(loadNextPage);
   loadNextPageRef.current = loadNextPage;
+
+  // Allow pages to retry after a load-more error
+  const retry = useCallback(() => {
+    errorRef.current = false;
+    setError(null);
+    loadNextPageRef.current();
+  }, []);
 
   // IntersectionObserver via callback ref — handles DOM insertion/removal
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -126,5 +136,5 @@ export function useInfiniteScroll<T>(
     return () => observerRef.current?.disconnect();
   }, []);
 
-  return { items, total, loading, loadingMore, error, hasMore, sentinelRef };
+  return { items, total, loading, loadingMore, error, hasMore, sentinelRef, retry };
 }

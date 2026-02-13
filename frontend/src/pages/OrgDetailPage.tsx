@@ -26,7 +26,7 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
     [orgSlug],
   );
 
-  const { items: skills, total: totalSkills, loading, loadingMore, error, hasMore, sentinelRef } =
+  const { items: skills, total: totalSkills, loading, loadingMore, error, hasMore, sentinelRef, retry } =
     useInfiniteScroll(fetchPage, [orgSlug]);
   const { data: profile } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
 
@@ -148,7 +148,8 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
           {/* Inline error when loading more pages fails */}
           {error && skills.length > 0 && (
             <div className={styles.sentinel}>
-              <span className={styles.loadMoreError}>Failed to load more skills. Try scrolling again.</span>
+              <span className={styles.loadMoreError}>Failed to load more skills.</span>
+              <button className={styles.retryBtn} onClick={retry}>Retry</button>
             </div>
           )}
         </>

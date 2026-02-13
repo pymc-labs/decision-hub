@@ -54,7 +54,7 @@ export default function SkillsPage() {
     [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy],
   );
 
-  const { items, total, loading, loadingMore, error, hasMore, sentinelRef } =
+  const { items, total, loading, loadingMore, error, hasMore, sentinelRef, retry } =
     useInfiniteScroll(fetchPage, [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy]);
 
   const orgs = useMemo(
@@ -216,7 +216,8 @@ export default function SkillsPage() {
       {/* Inline error when loading more pages fails */}
       {error && items.length > 0 && (
         <div className={styles.sentinel}>
-          <span className={styles.loadMoreError}>Failed to load more skills. Try scrolling again.</span>
+          <span className={styles.loadMoreError}>Failed to load more skills.</span>
+          <button className={styles.retryBtn} onClick={retry}>Retry</button>
         </div>
       )}
     </div>
