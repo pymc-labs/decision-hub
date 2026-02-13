@@ -68,15 +68,17 @@ class TestSandboxZipSlipProtection:
 
         malicious_zip = self._make_zip({"../../.bashrc": b"malicious"})
 
-        with patch.dict(sys.modules, {"modal": mock_modal}):
-            with pytest.raises(ValueError, match="escapes target directory"):
-                _create_skill_sandbox(
-                    malicious_zip,
-                    config,
-                    {"TEST_KEY": "fake-key"},
-                    "testorg",
-                    "testskill",
-                )
+        with (
+            patch.dict(sys.modules, {"modal": mock_modal}),
+            pytest.raises(ValueError, match="escapes target directory"),
+        ):
+            _create_skill_sandbox(
+                malicious_zip,
+                config,
+                {"TEST_KEY": "fake-key"},
+                "testorg",
+                "testskill",
+            )
 
     def test_accepts_safe_zip(self) -> None:
         """A zip with normal entries should not raise."""
