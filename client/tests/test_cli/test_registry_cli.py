@@ -476,6 +476,46 @@ class TestInstallCommand:
         assert "Linked to claude" in result.output
 
     @respx.mock
+    @patch("dhub.core.install.verify_checksum")
+    @patch("dhub.core.install.get_dhub_skill_path")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_install_rejects_zip_slip(
+        self,
+        _mock_url,
+        _mock_token,
+        mock_skill_path,
+        mock_checksum,
+        tmp_path: Path,
+    ) -> None:
+        """Install should reject a zip with path-traversal entries."""
+        skill_dir = tmp_path / "myorg" / "my-skill"
+        mock_skill_path.return_value = skill_dir
+
+        # Create a malicious zip with a path-traversal entry
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("../../.bashrc", b"malicious")
+        malicious_zip = buf.getvalue()
+
+        respx.get("http://test:8000/v1/resolve/myorg/my-skill").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "version": "1.0.0",
+                    "download_url": "http://test:8000/download/skill.zip",
+                    "checksum": "abc123",
+                },
+            )
+        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=malicious_zip))
+
+        result = runner.invoke(app, ["install", "myorg/my-skill"])
+
+        assert result.exit_code == 1
+        assert "escapes target directory" in result.output
+
+    @respx.mock
     @patch("dhub.core.install.link_skill_to_all_agents", return_value=["claude", "cursor"])
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")

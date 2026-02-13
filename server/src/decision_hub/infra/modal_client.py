@@ -368,6 +368,12 @@ def _create_skill_sandbox(
     # directly instead of base64-encoding into a python3 -c command.
     logger.info("Transferring skill zip ({} bytes)", len(skill_zip))
     with zipfile.ZipFile(io.BytesIO(skill_zip)) as zf:
+        # Validate all entries before extracting to prevent zip-slip attacks
+        # where entries like "../../.bashrc" could escape skill_path.
+        from dhub_core.ziputil import validate_zip_entries
+
+        validate_zip_entries(zf, skill_path)
+
         for info in zf.infolist():
             if info.is_dir():
                 sb.mkdir(f"{skill_path}/{info.filename}", parents=True)

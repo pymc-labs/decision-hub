@@ -21,6 +21,7 @@ from dhub_core.taxonomy import (
     SkillClassification,
 )
 from dhub_core.validation import FIRST_VERSION, validate_semver, validate_skill_name
+from dhub_core.ziputil import validate_zip_entries
 
 __all__ = [
     "ALL_SUBCATEGORIES",
@@ -39,4 +40,5 @@ __all__ = [
     "validate_manifest",
     "validate_semver",
     "validate_skill_name",
+    "validate_zip_entries",
 ]
