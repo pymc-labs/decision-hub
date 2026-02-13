@@ -85,8 +85,9 @@ def _resolve_egress_cidrs(agent_config: AgentSandboxConfig) -> list[str]:
     for host in hosts:
         try:
             results = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)
-            for _family, _type, _proto, _canonname, (ip, _port) in results:
-                cidrs.add(f"{ip}/32")
+            for _family, _type, _proto, _canonname, sockaddr in results:
+                # AF_INET sockaddr is (host, port); extract host at index 0.
+                cidrs.add(f"{sockaddr[0]}/32")
         except socket.gaierror:
             logger.warning("DNS resolution failed for {}, skipping", host)
 
