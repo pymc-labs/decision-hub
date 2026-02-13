@@ -40,6 +40,7 @@ def _make_eval_case() -> MagicMock:
 _DB_MOD = "decision_hub.infra.database"
 _MODAL_MOD = "decision_hub.infra.modal_client"
 _EVALS_MOD = "decision_hub.domain.evals"
+_STORAGE_MOD = "decision_hub.infra.storage"
 
 
 class TestJudgeKeyIsolation:
@@ -154,6 +155,9 @@ class TestJudgeKeyIsolation:
         assert "ANTHROPIC_API_KEY" in agent_env, "ANTHROPIC_API_KEY must remain in sandbox env for Claude agent"
         assert agent_env["ANTHROPIC_API_KEY"] == "shared-key-value"
 
+        # The judge key must still be correctly extracted
+        assert kwargs["judge_api_key"] == "shared-key-value"
+
     @patch(f"{_EVALS_MOD}.run_eval_pipeline")
     @patch(f"{_MODAL_MOD}.validate_api_key")
     @patch(f"{_MODAL_MOD}.get_agent_config")
@@ -200,6 +204,58 @@ class TestJudgeKeyIsolation:
 
         mock_run_pipeline.assert_called_once()
         _, kwargs = mock_run_pipeline.call_args
+        agent_env = kwargs["agent_env_vars"]
+
+        assert "ANTHROPIC_API_KEY" not in agent_env
+        assert agent_env["GEMINI_API_KEY"] == "gemini-key-value"
+        assert kwargs["judge_api_key"] == "judge-key-value"
+
+    @patch(f"{_STORAGE_MOD}.create_s3_client")
+    @patch(f"{_EVALS_MOD}.run_streaming_eval")
+    @patch(f"{_MODAL_MOD}.validate_api_key")
+    @patch(f"{_MODAL_MOD}.get_agent_config")
+    @patch(f"{_DB_MOD}.get_api_keys_for_eval")
+    @patch(f"{_DB_MOD}.create_engine")
+    def test_gemini_agent_excludes_judge_key_from_sandbox_streaming(
+        self,
+        mock_engine: MagicMock,
+        mock_get_keys: MagicMock,
+        mock_get_config: MagicMock,
+        mock_validate: MagicMock,
+        mock_run_streaming: MagicMock,
+        mock_s3_client: MagicMock,
+    ) -> None:
+        """Streaming path: ANTHROPIC_API_KEY (judge) must not appear in agent_env_vars."""
+        real_key = Fernet.generate_key()
+        fernet = Fernet(real_key)
+        settings = _make_settings(real_key.decode())
+
+        mock_get_config.return_value = MagicMock(key_env_var="GEMINI_API_KEY")
+
+        mock_conn = MagicMock()
+        mock_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_get_keys.return_value = {
+            "GEMINI_API_KEY": _encrypt(fernet, "gemini-key-value"),
+            "ANTHROPIC_API_KEY": _encrypt(fernet, "judge-key-value"),
+        }
+
+        eval_config = MagicMock(agent="gemini", judge_model="claude-sonnet-4-5-20250929")
+
+        run_assessment_background(
+            version_id=uuid4(),
+            assessment_config=eval_config,
+            assessment_cases=(_make_eval_case(),),
+            skill_zip=b"fake-zip",
+            org_slug="test-org",
+            skill_name="test-skill",
+            settings=settings,
+            user_id=uuid4(),
+            run_id=uuid4(),
+        )
+
+        mock_run_streaming.assert_called_once()
+        _, kwargs = mock_run_streaming.call_args
         agent_env = kwargs["agent_env_vars"]
 
         assert "ANTHROPIC_API_KEY" not in agent_env
