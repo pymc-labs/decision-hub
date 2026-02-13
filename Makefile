@@ -74,8 +74,7 @@ publish-cli: ## Publish CLI to PyPI (BUMP=patch|minor|major, BREAKING=1 to sync 
 # ---------------------------------------------------------------------------
 
 backfill: ## Run all backfills: categories, embeddings, org metadata (needs DHUB_ENV)
-	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE && \
-		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python scripts/backfill_categories.py
 	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python -m decision_hub.scripts.backfill_embeddings
