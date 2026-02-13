@@ -49,8 +49,6 @@ anthropics,skill-creator,7,19207,50199,18086,.md .py .txt
 anthropics,response-drafting,1,4730,10729,10729,.md
 anthropics,knowledge-management,1,4167,9539,9539,.md
 anthropics,skill-development,2,12279,34372,22825,.md
-anthropics,plugin-structure,7,27382,74940,18746,.md
-anthropics,escalation,1,3719,8287,8287,.md
 anthropics,plugin-settings,8,17656,44395,12097,.md .sh
 anthropics,customer-research,1,3790,9043,9043,.md
 anthropics,pdf,12,21504,58692,16692,.md .py .txt
@@ -69,7 +67,6 @@ anthropics,frontend-design,2,5903,14614,10174,.md .txt
 anthropics,creating-financial-models,3,9452,33863,17213,.md .py
 anthropics,playground,7,14347,30087,6196,.md
 anthropics,applying-brand-guidelines,4,11087,34285,15286,.md .py
-anthropics,writing-hookify-rules,1,3544,8423,8423,.md
 anthropics,nextflow-development,22,63638,202188,28480,.md .py .txt .yaml
 anthropics,analyzing-financial-statements,3,8338,31820,16469,.md .py
 anthropics,prior-auth-review-skill,13,49422,93723,21764,.md .pdf
@@ -98,19 +95,13 @@ github,refactor,1,5451,16843,16843,.md
 github,prd,1,2229,4307,4307,.md
 github,powerbi-modeling,6,12643,28508,5979,.md
 github,plantuml-ascii,1,2588,6096,6096,.md
-github,penpot-uiux-design,5,19274,50615,12950,.md
-github,nuget-manager,1,1555,3418,3418,.md
 github,nano-banana-pro-openrouter,3,4592,9767,5926,.md .py
-github,microsoft-skill-creator,2,5642,14428,7226,.md
 github,microsoft-docs,1,2297,4906,4906,.md
 github,microsoft-code-reference,1,1561,3353,3353,.md
 github,meeting-minutes,1,3500,7894,7894,.md
-github,mcp-cli,1,1160,2539,2539,.md
-github,markdown-to-html,16,39493,115700,31397,.md
 github,make-skill-template,1,2404,5368,5368,.md
 github,make-repo-contribution,3,3201,6317,4625,.md
 github,legacy-circuit-mockups,21,55477,149141,33114,.md
-github,image-manipulation-image-magick,1,2358,6963,6963,.md
 github,github-issues,2,2956,6167,4783,.md
 github,git-commit,1,1589,3198,3198,.md
 github,gh-cli,1,10541,40494,40494,.md
@@ -159,41 +150,29 @@ nymbo,hugging-face-dataset-creator,11,24393,70644,18289,.json .md .py .txt
 nymbo,hf-jobs,8,38779,120626,24883,.md .py
 nymbo,tool-design,5,17837,45105,15389,.md .py
 nymbo,multi-agent-patterns,3,13521,41975,14926,.md .py
-nymbo,memory-systems,3,12313,42083,15419,.md .py
 nymbo,evaluation,3,11412,36636,16060,.md .py
-nymbo,context-optimization,3,10900,30013,12283,.md .py
 nymbo,context-fundamentals,3,11807,31346,11968,.md .py
-nymbo,context-degradation,3,13469,39975,15416,.md .py
 nymbo,context-compression,3,12943,41162,21752,.md .py
-sd0xdev,test-review,3,4675,9515,4915,.md
 sd0xdev,tech-spec,2,2232,4496,2509,.md
-sd0xdev,skill-health-check,3,7771,22638,15803,.js .md
 sd0xdev,security-review,3,4479,8606,3676,.md
 sd0xdev,risk-assess,4,12189,37300,29190,.js .md
 sd0xdev,request-tracking,3,2935,5889,2311,.md
-sd0xdev,repo-intake,5,13504,38405,20648,.js .md
 sd0xdev,project-setup,2,3782,9790,6342,.md
 sd0xdev,project-audit,4,11874,41142,34054,.js .md
 tao3k,writer,11,14542,32923,13910,.md .py
 sd0xdev,post-dev-test,2,4053,15124,9550,.md
 sd0xdev,portfolio,3,3953,10675,4795,.md
 tao3k,skill,20,28352,77079,8476,.json .md .py .yaml
-sd0xdev,next-step,2,11564,38917,30893,.js .md
 sd0xdev,issue-analyze,3,4216,13204,7886,.md
-sd0xdev,git-investigate,2,2301,4756,2526,.md
 tao3k,researcher,8,25542,80967,35810,.md .py
 tao3k,memory,8,10407,28153,11102,.md .py
 sd0xdev,feature-verify,3,3562,6741,3007,.md
 sd0xdev,feature-dev,1,1556,3672,3672,.md
-tao3k,knowledge,25,45231,136405,15295,.md .py
 sd0xdev,feasibility-study,4,5980,12713,3827,.md
-sd0xdev,doc-review,3,3822,7396,3961,.md
-antoniocascais,workflow-review,7,9131,19262,6775,.md .sh
 sd0xdev,de-ai-flavor,1,1233,2571,2571,.md
 sd0xdev,create-skill,2,4943,15566,9146,.md
 antoniocascais,skill-creator,2,6865,16389,12939,.md
 sd0xdev,codex-implement,2,4057,8682,4769,.md
-antoniocascais,pr-review,1,3073,6293,6293,.md
 sd0xdev,codex-explain,2,2133,3907,2276,.md
 antoniocascais,git-commit,1,1874,3613,3613,.md
 sd0xdev,codex-code-review,7,7994,14280,3516,.md
@@ -201,7 +180,6 @@ antoniocascais,ctask,2,3864,11794,8567,.md
 sd0xdev,codex-brainstorm,4,6540,15699,4430,.md
 tao3k,git,38,46029,134278,21373,.j2 .md .py .toml
 antoniocascais,codex,1,2290,4775,4775,.md
-tao3k,documentation,3,1317,1877,1075,.md .py
 sd0xdev,codex-architect,2,2732,5670,3413,.md
 alps-asd,release,1,1529,3517,3517,.md
 tao3k,demo,9,8284,22305,7277,.md .py .yaml
@@ -234,14 +212,12 @@ pymc-labs,dhub-cli,2,9335,22894,12636,.md
 pymc-labs,pymc-modeling,13,67742,190237,26979,.md
 pymc-labs,session-state,1,694,1051,1051,.md
 pymc-labs,marimo-notebook,8,14140,31114,11550,.md .py
-pymc-labs,skill-name,2,2725,5374,3693,.md
 pymc-labs,base,3,3035,5454,2335,.md
 pymc-labs,marimo-notebooks,9,15134,32918,11551,.md .py
 openai,snap-o-network-inspector,2,1798,3646,3407,.md .yaml
 openai,csv-workbench,2,896,1185,598,.md
 openai,skill-creator,9,23376,59833,18664,.md .png .py .svg .txt .yaml
 langchain-ai,langsmith-trace,2,10750,40366,32461,.md .py
-langchain-ai,langsmith-evaluator,2,6541,20584,10604,.md .py
 langchain-ai,langsmith-dataset,3,12885,45773,27162,.md .py
 langchain-ai,langchain-agents,1,6509,19380,19380,.md
 google-gemini,skill-creator,4,13781,34469,20090,.cjs .md
@@ -258,8 +234,6 @@ microsoft,azure-observability,9,7332,12532,3754,.md
 microsoft,azure-kusto,1,3629,8670,8670,.md
 microsoft,azure-diagnostics,3,3501,7650,3433,.md
 microsoft,azure-deploy,31,23371,39928,4491,.md .yml
-microsoft,python-standards,1,1939,4389,4389,.md
-microsoft,azure-cost-optimization,6,10515,24062,13633,.md
 microsoft,summarize-github-issue-pr-notification,1,917,1737,1737,.md
 microsoft,azure-compliance,14,17613,38997,7946,.md
 microsoft,module-development,1,2410,6106,6106,.md
@@ -275,7 +249,6 @@ microsoft,agent-customization,6,8508,16088,3657,.md
 microsoft,fabric-cli,10,35188,112587,25772,.md
 microsoft,skill-with-hooks,4,2326,3575,1541,.md .sh
 microsoft,rushstack-best-practices,7,16770,47512,8769,.md
-microsoft,dataverse-sdk-dev,1,964,1636,1636,.md
 microsoft,playwright-cli,8,11202,30200,6638,.md
 microsoft,mcp-builder,1,2193,5459,5459,.md
 langchain-ai,web-research,1,1882,4293,4293,.md
@@ -283,7 +256,6 @@ langchain-ai,skill-creator,3,13189,35849,19822,.md .py
 langchain-ai,langgraph-docs,1,637,1053,1053,.md
 langchain-ai,arxiv-search,2,2425,5193,3520,.md .py
 langchain-ai,schema-exploration,1,2057,4640,4640,.md
-langchain-ai,query-writing,1,1067,1818,1818,.md
 langchain-ai,social-media,1,2422,5040,5040,.md
 langchain-ai,blog-post,1,2450,4910,4910,.md
 langchain-ai,file-organizer,1,3094,6928,6928,.md
@@ -304,8 +276,6 @@ googlecloudplatform,gke-workload-scaling,3,2410,4488,3532,.md .yaml
 googlecloudplatform,go-project-setup,17,8944,15438,7697,.go .md .mod
 googlecloudplatform,gke-inference-quickstart,1,1562,3202,3202,.md
 googlecloudplatform,gke-compute-class-creator,3,3660,7658,3489,.md
-googlecloudplatform,gke-creation,1,2643,6493,6493,.md
-google-gemini,gemini-api-dev,1,2039,4924,4924,.md
 google,secops-triage,1,2156,4748,4748,.md
 google,secops-setup-gemini,1,967,1766,1766,.md
 google,secops-investigate,1,2441,5839,5839,.md
@@ -330,13 +300,9 @@ yasuhito,md-converter,2,2757,6654,5081,.md .rb
 yasuhito,markdown-converter,1,1307,2357,2357,.md
 petyosi,seo,1,3398,8321,8321,.md
 yasuhito,frontend-design,2,6465,16369,10758,.md .txt
-yasuhito,doc-fetcher,2,4357,11240,8775,.md .rb
 petyosi,prp-workflow,3,6408,13189,5301,.md
 yasuhito,create-cli,2,6272,12653,9116,.md
-yasuhito,brave-search,5,10823,30291,20515,.js .json .md
 petyosi,code-review,1,3907,8869,8869,.md
-yasuhito,anthropic-best-practices-update,2,3154,7476,5702,.md .sh
-yasuhito,1password,3,2681,4534,2820,.md
 majesticlabs-dev,topical-authority,1,1685,3630,3630,.md
 majesticlabs-dev,review-management,1,1833,3543,3543,.md
 majesticlabs-dev,press-release-aeo,1,2081,4480,4480,.md
@@ -354,7 +320,6 @@ hainamchung,pc-games,1,1545,2973,2973,.md
 majesticlabs-dev,positioning-angles,1,4205,9920,9920,.md
 hainamchung,multiplayer,1,1385,2813,2813,.md
 majesticlabs-dev,plg-ai-funnel,1,2623,5894,5894,.md
-hainamchung,mobile-games,1,1250,2282,2282,.md
 majesticlabs-dev,outreach-templates,1,1832,3674,3674,.md
 hainamchung,game-design,1,1415,2645,2645,.md
 majesticlabs-dev,newsletter,1,4417,9675,9675,.md
@@ -364,9 +329,7 @@ hainamchung,game-art,1,2386,5049,5049,.md
 majesticlabs-dev,marketing-strategy,1,2063,4562,4562,.md
 hainamchung,game-development,11,18205,36010,5361,.md
 hainamchung,3d-games,1,1371,2563,2563,.md
-majesticlabs-dev,marketing-playbook,1,3073,11880,11880,.md
 hainamchung,2d-games,1,1217,2190,2190,.md
-majesticlabs-dev,market-research,1,2759,6717,6717,.md
 alsk1992,yoink,2,3432,11364,10169,.md .ts
 hainamchung,game-developer,6,17066,53110,12793,.md
 majesticlabs-dev,linkedin-content,2,5173,10235,5715,.md
@@ -384,7 +347,6 @@ alsk1992,voice,2,5116,16580,12080,.md .ts
 majesticlabs-dev,keyword-research,1,3450,8923,8923,.md
 alsk1992,virtuals,2,3319,10437,8580,.md .ts
 hainamchung,foundry-sdk-python,8,15698,54873,12016,.md
-majesticlabs-dev,irresistible-offer,1,5331,11830,11830,.md
 alsk1992,verify,2,4115,11020,6100,.md .ts
 hainamchung,foundry-nextgen-frontend,7,74231,131098,40120,.md .png .py
 majesticlabs-dev,hook-writer,1,2102,4288,4288,.md
@@ -393,7 +355,6 @@ hainamchung,flutter-expert,6,7526,16514,3197,.md
 alsk1992,usage,2,4360,15132,9712,.md .ts
 hainamchung,finishing-a-development-branch,1,1933,4250,4250,.md
 majesticlabs-dev,help-docs-writer,1,3661,8105,8105,.md
-jzupnick,json-generator,1,304,289,289,.md
 hainamchung,fine-tuning-expert,6,27299,83425,18163,.md
 alsk1992,tweet-ideas,2,5177,15950,13707,.md .ts
 majesticlabs-dev,google-ads-strategy,2,6268,15856,8891,.md
@@ -418,8 +379,6 @@ alsk1992,trading-solana,2,6854,23867,12679,.md .ts
 jzupnick,infrastructure-testing-expert,1,771,1155,1155,.md
 hainamchung,fastapi-router,2,2012,6108,4518,.md .py
 a5c-ai,npm-publish-config,2,761,894,751,.md
-starwreckntx,value-pluralism-resolver,2,515,460,391,.md .py
-mdbabumiamssm,bio-clip-seq-clip-alignment,3,1597,2411,1001,.md .sh
 majesticlabs-dev,customer-discovery,1,1497,2970,2970,.md
 hainamchung,fastapi-expert,7,17697,52128,27809,.md
 jzupnick,infrastructure-security-expert,1,778,1167,1167,.md
@@ -444,7 +403,6 @@ alsk1992,trading-kalshi,2,11818,49897,46474,.md .ts
 majesticlabs-dev,content-optimizer,1,2681,5896,5896,.md
 starwreckntx,symbol-map-entropy-calc,2,623,555,370,.json .md
 mdbabumiamssm,bio-chipseq-peak-calling,3,3481,7879,5225,.md .sh
-hainamchung,executing-plans,1,1192,2171,2171,.md
 thebeardedbearsas,testing-flutter,1,313,316,316,.md
 jzupnick,identity-access-expert,1,787,1123,1123,.md
 a5c-ai,mcp-tool-schema-generator,2,5285,15294,8022,.md
@@ -476,30 +434,22 @@ starwreckntx,shatter-and-recalibrate,1,321,366,366,.md
 mdbabumiamssm,bio-chipseq-differential-binding,3,3799,8475,5338,.R .md
 alsk1992,tailscale,2,3735,10929,5582,.md .ts
 aiskillstore,css-development,5,19240,78379,40131,.json .md
-a5c-ai,mcp-resource-uri-designer,2,2265,5278,4273,.md
 jzupnick,golang-pro,1,326,337,337,.md
 hainamchung,dotnet-core-expert,6,18788,65781,15094,.md
 majesticlabs-dev,community-strategy,1,1463,2704,2704,.md
 thebeardedbearsas,performance,1,276,249,249,.md
-aiskillstore,cookoff,2,8737,31125,17477,.json .md
 mdbabumiamssm,bio-chipseq-visualization,4,4260,9243,5517,.R .md .sh
-starwreckntx,sequence-memory-storage-and-recall,1,328,414,414,.md
 alsk1992,streaming,2,3019,8705,5457,.md .ts
 a5c-ai,mcp-mock-client,2,883,1294,1147,.md
 jzupnick,gitops-specialist,1,777,1122,1122,.md
 hainamchung,domain-name-brainstormer,1,2701,5696,5696,.md
 majesticlabs-dev,case-study-writer,1,2985,6086,6086,.md
 thebeardedbearsas,coding-standards,1,291,273,273,.md
-aiskillstore,ceo-personal-os,14,24230,52940,15580,.json .md
 alsk1992,strategy,2,4233,11674,6157,.md .ts
 mdbabumiamssm,bio-chipseq-qc,5,6464,14679,9191,.md .py .sh
 a5c-ai,mcp-inspector-integration,2,2243,4942,4052,.md
-starwreckntx,self-audit-against-protocol,1,318,371,371,.md
-jzupnick,gdpr-specialist,1,784,1104,1104,.md
 hainamchung,docx,1,1186,2286,2286,.md
 majesticlabs-dev,brand-voice,1,4880,10484,10484,.md
-a5c-ai,mcp-error-code-mapper,2,2610,6408,5389,.md
-mdbabumiamssm,bio-atac-seq-nucleosome-positioning,3,4753,11798,7232,.R .md
 starwreckntx,secure-multi-tenancy-isolation,1,326,401,401,.md
 jzupnick,game-developer,1,335,344,344,.md
 hainamchung,documentation-templates,1,1692,3312,3312,.md
@@ -509,7 +459,6 @@ jzupnick,fullstack-developer,1,340,352,352,.md
 starwreckntx,rtc-consensus-synthesis,2,856,1131,1057,.md .yaml
 alsk1992,slippage,2,3621,10659,7896,.md .ts
 thebeardedbearsas,security-symfony,1,311,303,303,.md
-a5c-ai,line-ending-normalizer,2,1061,1794,1333,.md
 jzupnick,frontend-testing-expert,1,817,1205,1205,.md
 alsk1992,sizing,2,3908,10956,5568,.md .ts
 aiskillstore,building-multiagent-systems,7,19574,54234,19089,.json .md
@@ -521,10 +470,7 @@ jzupnick,frontend-performance-expert,1,819,1236,1236,.md
 a5c-ai,ink-component-generator,2,2673,6274,5289,.md
 starwreckntx,resonant-probe-deployment,1,317,368,368,.md
 alsk1992,shield,2,2934,9013,8337,.md .ts
-aiskillstore,binary-re-tool-setup,2,8686,36030,25163,.json .md
-jzupnick,frontend-developer,1,344,359,359,.md
 majesticlabs-dev,brand-positioning,1,4568,10938,10938,.md
-hainamchung,pptx,56,189479,1230013,242277,.js .md .py .txt .xsd
 a5c-ai,homebrew-formula-generator,2,811,981,821,.md
 starwreckntx,red-team-exploit-dev,2,552,452,368,.md .py
 aiskillstore,binary-re-synthesis,2,8123,21949,12114,.json .md
@@ -532,7 +478,6 @@ alsk1992,setup,2,4705,16612,15331,.md .ts
 jzupnick,frontend-forms-expert,1,829,1206,1206,.md
 majesticlabs-dev,bofu-keywords,1,1937,4868,4868,.md
 a5c-ai,help-text-formatter,2,2717,6857,5731,.md
-hainamchung,pdf,12,22377,64296,16692,.md .py .txt
 starwreckntx,recursive-thought-committee-activation,1,338,429,429,.md
 alsk1992,sessions,2,4048,12465,6733,.md .ts
 aiskillstore,binary-re-static-analysis,2,7913,20443,10428,.json .md
@@ -547,34 +492,27 @@ jzupnick,fintech-engineer,1,344,359,359,.md
 a5c-ai,getopts-parser-generator,2,1724,3625,2868,.md
 majesticlabs-dev,pareto,1,2682,5982,5982,.md
 alsk1992,sandbox,2,1912,4384,3020,.md .ts
-starwreckntx,reciprocity-mandate-sync,1,319,365,365,.md
-mdbabumiamssm,bio-atac-seq-motif-deviation,3,5428,13133,7761,.R .md
 jzupnick,exploratory-tester,1,760,1101,1101,.md
 a5c-ai,env-var-mapper,2,3484,9033,7669,.md
 majesticlabs-dev,founder-mode,1,2515,5112,5112,.md
 alsk1992,routing,2,4526,14695,8307,.md .ts
 starwreckntx,proof-weighted-optimization,1,317,368,368,.md
-a5c-ai,encoding-handler,2,1128,1996,1580,.md
 mdbabumiamssm,bio-atac-seq-footprinting,3,4202,8911,5666,.md .sh
 jzupnick,backend-error-handling-expert,1,848,1272,1272,.md
 majesticlabs-dev,challenge-mode,1,1095,1983,1983,.md
 hainamchung,docker-expert,1,5075,14062,14062,.md
 alsk1992,router,2,3818,11083,5706,.md .ts
 a5c-ai,dotenv-integration,2,940,1298,916,.md
-jzupnick,error-detective,1,304,292,292,.md
 starwreckntx,proof-packet-generation,1,316,358,358,.md
 mdbabumiamssm,bio-atac-seq-differential-accessibility,3,4337,9340,5533,.R .md
-thebeardedbearsas,architecture-clean-ddd,1,317,349,349,.md
 hainamchung,doc-coauthoring,1,5872,15815,15815,.md
 majesticlabs-dev,calendar-optimization,1,2889,7164,7164,.md
 a5c-ai,cross-platform-path-handler,2,1209,2794,2309,.md
 alsk1992,risk,2,8075,24871,15073,.md .ts
 jzupnick,encryption-specialist,1,788,1113,1113,.md
-mdbabumiamssm,bio-atac-seq-atac-qc,3,4751,10706,6696,.R .md
 starwreckntx,proactive-collaborative-contribution,1,317,406,406,.md
 hainamchung,django-expert,6,9390,25263,5601,.md
 a5c-ai,cross-env-setup,2,881,1323,897,.md
-majesticlabs-dev,ux-brief,2,7373,21731,20770,.md
 alsk1992,research,2,2837,7896,6065,.md .ts
 jzupnick,embedded-systems,1,311,304,304,.md
 aiskillstore,binary-re,7,31671,77275,14985,.json .md
@@ -585,13 +523,10 @@ jzupnick,electron-pro,1,342,343,343,.md
 alsk1992,remote,2,3662,10941,6426,.md .ts
 majesticlabs-dev,technical-writer,1,4499,9866,9866,.md
 hainamchung,dispatching-parallel-agents,1,2557,6104,6104,.md
-aiskillstore,web-scrape,3,6789,16306,8877,.js .json .md
 thebeardedbearsas,security-reactnative,1,320,337,337,.md
 starwreckntx,polymorphic-analytics-instantiation,1,316,413,413,.md
 mdbabumiamssm,tpd-ternary-complex-agent,1,2966,6890,6890,.md
 a5c-ai,config-schema-validator,2,1016,1622,1210,.md
-alsk1992,raydium,2,6676,29523,24060,.md .ts
-jzupnick,e2e-testing-specialist,1,776,1120,1120,.md
 aiskillstore,pdf-analyze,12,22942,77290,25348,.json .md .py
 majesticlabs-dev,tdd-workflow,2,4227,8950,6359,.md
 starwreckntx,phenomenal-caas-provision,1,321,372,372,.md
@@ -625,21 +560,15 @@ mdbabumiamssm,molecular-glue-discovery-agent,1,2997,7082,7082,.md
 alsk1992,pump-swarm,2,20524,90813,80695,.md .ts
 a5c-ai,cobra-scaffolder,2,3420,8238,6074,.md
 starwreckntx,patch-deployment-exec,2,510,430,355,.md .py
-jzupnick,documentation-engineer,1,334,351,351,.md
 majesticlabs-dev,attempt-ledger,1,2413,5240,5240,.md
 boboc135612,mcp-builder,10,42147,121768,28550,.md .py .txt .xml
 aiskillstore,timescaledb,16,1576992,6946200,3475088,.json .md
 alsk1992,processes,2,3153,8215,5268,.md .ts
-a5c-ai,click-scaffolder,2,3325,7983,5794,.md
 boboc135612,internal-comms,6,9862,22405,11357,.md .txt
-starwreckntx,occlusion-trace-meta-proof,1,318,367,367,.md
 jzupnick,docker-specialist,1,790,1127,1127,.md
 majesticlabs-dev,readme-craft,2,6125,13662,7490,.md
 alsk1992,presence,2,3163,9139,4832,.md .ts
-hainamchung,deployment-procedures,1,2627,5708,5708,.md
 a5c-ai,cli-table-formatter,2,2762,6641,5691,.md
-aiskillstore,telegram-dev,7,35168,139387,68765,.json .md
-jzupnick,dns-expert,1,772,1098,1098,.md
 majesticlabs-dev,pr-screenshot-docs,1,1895,4032,4032,.md
 starwreckntx,neutral-target-baseline,2,534,444,363,.md .ts
 ratacat,xcode-test,1,2780,6609,6609,.md
@@ -667,18 +596,14 @@ jzupnick,devops-incident-responder,1,314,322,322,.md
 a5c-ai,cli-mock-stdin,2,839,1151,996,.md
 boboc135612,frontend-design,2,5903,14614,10174,.md .txt
 aiskillstore,proxychains,8,19426,49904,10535,.conf .json .md .sh
-majesticlabs-dev,init-agents-config,8,7374,13658,2936,.md .yaml
-ratacat,workflows-work,1,5038,12054,12054,.md
 jzupnick,devops-engineer,1,336,345,345,.md
 mdbabumiamssm,bio-molecular-io,3,4505,11273,4669,.md .py
-starwreckntx,metaphor-to-protocol-translation,1,317,402,402,.md
 boboc135612,finishing-a-development-branch,1,1933,4250,4250,.md
 a5c-ai,cli-e2e-test-harness,2,971,1470,1321,.md
 aiskillstore,postgresql,5,919443,3179112,2913183,.json .md
 majesticlabs-dev,hierarchical-agents,2,11779,32718,21838,.md
 ratacat,workflows-review,1,6979,17226,17226,.md
 jzupnick,deployment-engineer,1,341,369,369,.md
-boboc135612,executing-plans,1,1192,2171,2171,.md
 mdbabumiamssm,bio-molecular-descriptors,3,4345,10875,4589,.md .py
 a5c-ai,clap-scaffolder,2,3477,8025,5950,.md
 starwreckntx,mental-saccade-execution,1,324,370,370,.md
@@ -691,10 +616,8 @@ a5c-ai,chocolatey-package-generator,2,779,1007,839,.md
 starwreckntx,mathematical-constraint-formalization,1,317,410,410,.md
 mdbabumiamssm,bio-admet-prediction,3,4737,11272,5237,.md .py
 aiskillstore,hummingbot,13,223725,795173,244155,.json .md
-alsk1992,permissions,2,4589,13136,7539,.md .ts
 jzupnick,debugger,1,299,272,272,.md
 hainamchung,database-optimizer,6,18554,54061,14696,.md
-ratacat,workflows-compound,1,2939,7272,7272,.md
 majesticlabs-dev,frontend-design-philosophy,1,1251,2301,2301,.md
 boboc135612,docx,59,171629,1185916,242277,.md .py .txt .xml .xsd
 a5c-ai,chalk-styling-system,2,2639,6228,5196,.md
@@ -706,9 +629,7 @@ starwreckntx,longitudinal-drift-detector,2,574,474,380,.bin .md
 hainamchung,database-design,1,2190,4617,4617,.md
 majesticlabs-dev,frontend-design,8,17485,38367,8947,.md
 ratacat,workflows-brainstorm,1,1889,3814,3814,.md
-boboc135612,doc-coauthoring,1,5872,15815,15815,.md
 a5c-ai,bubble-tea-scaffolder,2,2198,4815,3845,.md
-aiskillstore,coingecko,16,223317,1523331,597423,.json .md
 mdbabumiamssm,chemcrow-drug-discovery,3,8579,27548,24514,.md .py
 jzupnick,database-optimizer,1,308,308,308,.md
 alsk1992,pancakeswap,2,3182,10242,8293,.md .ts
@@ -719,9 +640,7 @@ starwreckntx,lattice-spatial-collective,1,7859,19319,19319,.md
 ratacat,web-interface-design,10,23098,51124,8014,.md
 aiskillstore,claude-skills,12,21952,51885,11519,.json .md .sh
 a5c-ai,blessed-widget-generator,2,2343,5311,4388,.md
-csheng,workflow-patterns,1,427,550,550,.md
 jzupnick,database-designer,1,842,1235,1235,.md
-mdbabumiamssm,chematagent-drug-discovery,1,894,1467,1467,.md
 hainamchung,crewai,1,2561,6017,6017,.md
 alsk1992,pairing,2,4232,14348,8405,.md .ts
 starwreckntx,jc-baseline-v2-1-eval,2,629,544,355,.json .md
@@ -737,7 +656,6 @@ boboc135612,brand-guidelines,2,5212,13592,11357,.md .txt
 majesticlabs-dev,fix-decision-router,1,1701,3534,3534,.md
 aiskillstore,claude-code-guide,4,118985,473139,322535,.json .md
 starwreckntx,intervention-tier-classifier,2,603,578,400,.json .md
-ratacat,vercel-react-best-practices,49,55805,134893,65538,.md
 csheng,workflow-discipline,1,437,630,630,.md
 mdbabumiamssm,antibody-design-agent,39,3247714,7238153,2236165,.csv .ipynb .md .npy .py .txt .xlsx .zip
 a5c-ai,bash-script-template,2,2211,4733,3932,.md
@@ -760,10 +678,7 @@ majesticlabs-dev,create-adr,2,2537,4812,3068,.md
 ratacat,triage,1,3453,7773,7773,.md
 jzupnick,csv-processor,1,328,338,338,.md
 a5c-ai,argparse-scaffolder,2,3790,9833,7660,.md
-starwreckntx,immutable-audit-trail-archiving,1,323,386,386,.md
 alsk1992,onchainkit,2,4498,12529,10515,.md .ts
-aiskillstore,git-analysis,5,10045,27633,10282,.json .md .sh
-boboc135612,skill-lookup,1,1199,2382,2382,.md
 hainamchung,copy-editing,1,5484,12981,12981,.md
 majesticlabs-dev,config-reader,2,2612,6283,4511,.md .sh
 mdbabumiamssm,agentd-drug-discovery,4,5117,9393,3405,.md .py
@@ -777,7 +692,6 @@ starwreckntx,high-cost-signal-generator,2,611,601,426,.json .md
 hainamchung,conversation-memory,1,985,1773,1773,.md
 csheng,testing-strategy,1,5342,17107,17107,.md
 majesticlabs-dev,code-story,4,3286,5543,2024,.md
-mdbabumiamssm,bio-data-visualization-volcano-customization,4,7127,18625,6298,.R .md .py
 boboc135612,requesting-code-review,2,3203,6085,3385,.md
 aiskillstore,running-tests,2,3855,9764,8685,.json .md
 a5c-ai,suffix-structure-builder,2,1251,2447,1791,.md
@@ -787,7 +701,6 @@ hainamchung,context-window-management,1,853,1439,1439,.md
 starwreckntx,ground-truth-axiom-establishment,1,321,398,398,.md
 nickcrew,writing-skills,10,32610,82289,45798,.dot .md
 boboc135612,receiving-code-review,1,2874,6314,6314,.md
-majesticlabs-dev,cloudflare-worker,6,9848,22070,4934,.md
 aiskillstore,managing-branches,2,3569,9221,8038,.json .md
 mdbabumiamssm,bio-data-visualization-upset-plots,4,5894,13920,5385,.R .md .py
 jzupnick,csharp-developer,1,341,337,337,.md
@@ -798,7 +711,6 @@ hainamchung,content-research-writer,1,5756,14244,14244,.md
 nickcrew,workflow-security-audit,1,1156,2339,2339,.md
 csheng,subagents,1,337,372,372,.md
 starwreckntx,graceful-reintegration-protocol,1,312,393,393,.md
-boboc135612,quanzhankaifa,6,11576,26063,8751,.doc .md
 aiskillstore,implementing-code,2,3460,9012,7973,.json .md
 majesticlabs-dev,check-ci,2,3018,6038,4104,.md .sh
 alsk1992,mexc-futures,2,4641,16797,14765,.md .ts
@@ -806,7 +718,6 @@ jzupnick,cross-platform-mobile-architect,1,744,1189,1189,.md
 mdbabumiamssm,bio-data-visualization-specialized-omics-plots,3,5229,12588,7752,.R .md
 a5c-ai,solution-explainer,2,1357,2513,1843,.md
 nickcrew,workflow-performance,1,1405,2856,2856,.md
-ratacat,technical-planning,1,4509,11255,11255,.md
 hainamchung,content-creator,7,21783,57220,15636,.md .py
 starwreckntx,graceful-degradation-protocol,1,317,390,390,.md
 nickcrew,workflow-feature-development,1,1072,1957,1957,.md
@@ -820,15 +731,12 @@ ratacat,systematic-debugging,11,18835,40755,9884,.md .sh .ts
 nickcrew,workflow-feature,1,1386,2677,2677,.md
 aiskillstore,seo-copywriter-pro,11,45542,139287,50804,.json .md .py
 a5c-ai,segment-tree-builder,2,1291,2622,1901,.md
-alsk1992,metrics,2,3770,10485,8551,.md .ts
 jzupnick,cpp-pro,1,343,327,327,.md
 majesticlabs-dev,blueprint-execution,1,840,1644,1644,.md
-mdbabumiamssm,bio-data-visualization-interactive-visualization,3,3951,8992,5361,.md .py
 ratacat,spec-flow-analyzer,1,2605,5625,5625,.md
 csheng,skill-creator,7,18995,49412,17750,.md .py .txt
 nickcrew,workflow-bug-fix,1,1032,1812,1812,.md
 hainamchung,competitive-ads-extractor,1,3534,7912,7912,.md
-aiskillstore,frontend-design,5,7078,16281,10009,.js .json .md
 a5c-ai,proof-assistant,2,1199,2239,1686,.md
 alsk1992,meteora-dbc,2,7767,40085,39052,.md .ts
 jzupnick,component-library-designer,1,818,1214,1214,.md
@@ -844,11 +752,9 @@ nickcrew,webapp-testing,6,9455,22420,11357,.md .py .txt
 majesticlabs-dev,backlog-manager,7,9657,20701,4331,.md .yml
 ratacat,security-sentinel,1,2237,4864,4864,.md
 hainamchung,code-review-checklist,1,1438,2574,2574,.md
-aiskillstore,yolo,8,185116,273760,163551,.json .md .png
 mdbabumiamssm,bio-data-visualization-ggplot2-fundamentals,3,4862,12064,6738,.R .md
 alsk1992,metaculus,2,2388,7079,5668,.md .ts
 a5c-ai,number-theory-toolkit,2,1280,2373,1634,.md
-jzupnick,code-reviewer-agent,1,304,297,297,.md
 nickcrew,visual-modes,4,16023,37506,17575,.md
 starwreckntx,functional-introspection-principle,1,313,407,407,.md
 majesticlabs-dev,wrangler-coder,7,8400,18604,5736,.md
@@ -857,7 +763,6 @@ ratacat,run-simulations,1,6670,18866,18866,.md
 aiskillstore,lovable,6,21027,99863,60144,.json .md
 mdbabumiamssm,bio-data-visualization-genome-tracks,3,3655,8235,5336,.ini .md
 a5c-ai,micro-optimizer,2,1350,2467,1852,.md
-nickcrew,verification-before-completion,1,2101,4201,4201,.md
 jzupnick,code-reviewer,1,318,345,345,.md
 alsk1992,memory,2,4207,12024,7220,.md .ts
 csheng,security-guardrails,1,5619,15722,15722,.md
@@ -880,10 +785,7 @@ jzupnick,cloud-security-expert,1,780,1126,1126,.md
 ratacat,reproduce-bug,1,1370,2992,2992,.md
 aiskillstore,linear,2,5727,15494,11873,.json .md
 nickcrew,using-git-worktrees,1,2369,5509,5509,.md
-mdbabumiamssm,bio-data-visualization-color-palettes,3,4242,9331,4731,.R .md
-starwreckntx,field-archivist-memory,2,557,463,376,.md .prisma
 alsk1992,market-index,2,4089,12275,6399,.md .ts
-a5c-ai,interview-simulator,2,1397,2544,1874,.md
 hainamchung,code-documentation,1,2742,5747,5747,.md
 majesticlabs-dev,infra-security-review,1,1672,3997,3997,.md
 jzupnick,cloud-architect,1,309,314,314,.md
@@ -905,10 +807,8 @@ robertpelloni,webapp-testing,6,9445,22406,11357,.md .py .txt
 alsk1992,lighter,2,3989,15344,13604,.md .ts
 jzupnick,cicd-architect,1,775,1123,1123,.md
 aiskillstore,coder,2,3608,8995,8143,.json .md
-a5c-ai,graph-modeler,2,1348,2664,1958,.md
 starwreckntx,failsafe-shatter-recalibrate,2,614,583,403,.json .md
 nickcrew,typescript-advanced-patterns,15,14426,29766,5671,.md
-hainamchung,cloud-architect,4,18580,47457,17222,.md
 ratacat,release-docs,1,2251,6108,6108,.md
 mdbabumiamssm,virtual-lab-agent,1,3105,7638,7638,.md
 majesticlabs-dev,digitalocean-coder,1,2854,10328,10328,.md
@@ -916,7 +816,6 @@ robertpelloni,video-downloader,1,1340,2687,2687,.md
 aiskillstore,architect,2,3832,9469,8533,.json .md
 alsk1992,ledger,2,2616,7173,6637,.md .ts
 jzupnick,ci-testing-expert,1,754,1083,1083,.md
-a5c-ai,graph-algorithm-selector,2,1388,2720,2109,.md
 nickcrew,tool-selection,2,2563,5778,4781,.md
 csheng,output-style-governance,1,1498,3278,3278,.md
 starwreckntx,failsafe-chassis-activation,2,595,560,382,.json .md
@@ -934,11 +833,9 @@ starwreckntx,experiential-wisdom-inquiry,1,319,382,382,.md
 majesticlabs-dev,devops-platform-patterns,1,1387,3010,3010,.md
 alsk1992,jupiter,2,7685,38629,34120,.md .ts
 jzupnick,cdn-strategist,1,775,1105,1105,.md
-nickcrew,threat-modeling-techniques,12,25705,58497,11643,.md
 a5c-ai,geometry-algorithm-library,2,1230,2256,1606,.md
 aiskillstore,route,2,4007,12185,10012,.json .md
 robertpelloni,slack-gif-creator,23,60965,213368,17142,.md .py .txt
-ratacat,pr-comment-resolver,1,1706,3673,3673,.md
 hainamchung,chrome-devtools,20,42310,119624,21643,.js .json .md .sh
 majesticlabs-dev,devops-plan,1,1370,2935,2935,.md
 nickcrew,testing-skills-with-subagents,2,7545,18168,12745,.md
@@ -947,7 +844,6 @@ jzupnick,frontend-caching-strategist,1,838,1227,1227,.md
 aiskillstore,learn-reset,2,3923,11793,9582,.json .md
 starwreckntx,enumeration-protocol-execution,1,1140,1948,1948,.md
 alsk1992,integrations,2,4480,12648,8021,.md .ts
-a5c-ai,flow-network-builder,2,1277,2468,1846,.md
 robertpelloni,skill-creator,5,14690,39179,11547,.md .py .txt
 nickcrew,testing-anti-patterns,1,3358,8404,8404,.md
 hainamchung,chaos-engineer,6,21137,59001,14326,.md
@@ -955,7 +851,6 @@ ratacat,postgres-query-expert,1,3680,7393,7393,.md
 aiskillstore,learn-on,2,3632,10421,8742,.json .md
 alsk1992,identity,2,4074,13033,7641,.md .ts
 jzupnick,cache-strategist,1,838,1229,1229,.md
-a5c-ai,dp-state-designer,2,1417,2723,1998,.md
 mdbabumiamssm,safety-monitor,4,2848,5177,2422,.md .py .yaml
 majesticlabs-dev,devops-maintainability-checker,1,1497,3175,3175,.md
 starwreckntx,engine-superpower-profiling,1,323,376,376,.md
@@ -964,18 +859,14 @@ nickcrew,test-generation,2,2206,4487,3405,.md
 aiskillstore,learn-off,2,3467,10049,8912,.json .md
 hainamchung,changelog-generator,1,1609,3096,3096,.md
 ratacat,performance-oracle,1,2322,5295,5295,.md
-a5c-ai,dp-pattern-library,2,6915,17989,9078,.md
 jzupnick,frontend-bundler-expert,1,822,1207,1207,.md
-alsk1992,hyperliquid,2,12160,55891,50400,.md .ts
 mdbabumiamssm,radgpt-radiology-reporter,1,900,1493,1493,.md
 starwreckntx,enforce-security-vigilance,1,318,376,376,.md
 robertpelloni,notion-spec-to-implementation,15,27291,64947,13579,.json .md
 nickcrew,test-driven-development,1,4196,9736,9736,.md
 majesticlabs-dev,cloudflare-coder,4,6974,20005,10985,.md
-aiskillstore,learn,2,5015,15188,11141,.json .md
 ratacat,pattern-recognition-specialist,1,1993,4404,4404,.md
 a5c-ai,dp-optimizer,2,1395,2691,1911,.md
-techlemariam,writer,1,380,443,443,.md
 jzupnick,build-tool-expert,1,824,1187,1187,.md
 hainamchung,canvas-design,83,2645548,5554015,191304,.md .ttf .txt
 alsk1992,history,2,4521,13222,6690,.md .ts
@@ -1057,79 +948,37 @@ alsk1992,erc8004,2,4185,11925,9960,.md .ts
 nickcrew,subagent-driven-development,1,2237,5074,5074,.md
 majesticlabs-dev,sql-patterns,1,2476,5578,5578,.md
 starwreckntx,credential-recovery-protocol,1,304,370,370,.md
-mdbabumiamssm,ehr-fhir-integration,3,7804,19996,15555,.md .py
 aiskillstore,python-fastapi,2,9399,31291,18363,.json .md
 ratacat,kieran-typescript-reviewer,1,2492,4900,4900,.md
 techlemariam,sync-project,1,415,523,523,.md
 hainamchung,brainstorming,1,1299,2505,2505,.md
 robertpelloni,internal-comms,6,9862,22405,11357,.md .txt
 a5c-ai,code-profiler,2,1239,2289,1682,.md
-jzupnick,backend-performance-engineer,1,850,1265,1265,.md
 alsk1992,ens,2,3618,10259,8803,.md .ts
-nickcrew,skill-creator,5,14699,39171,11539,.md .py .txt
-aiskillstore,pdf-processing,2,3624,9135,7941,.json .md
-majesticlabs-dev,pydantic-validation,2,2616,6400,3792,.md .py
 starwreckntx,creative-chronicle-log,2,549,467,382,.md .xml
 robertpelloni,image-enhancer,1,1277,2540,2540,.md
 mdbabumiamssm,chatehr-clinician-assistant,1,860,1403,1403,.md
-ratacat,kieran-rails-reviewer,1,2278,4447,4447,.md
-jzupnick,backend-developer,1,335,354,354,.md
-csheng,language-python,1,817,1466,1466,.md
 a5c-ai,atcoder-client,2,1205,2194,1445,.md
-alsk1992,endaoment,2,4144,10990,9622,.md .ts
-nickcrew,sharing-skills,1,2029,4614,4614,.md
-adamrdrew,ir-kat,1,1676,4325,4325,.md
-aiskillstore,memory-bank,2,5687,16951,10497,.json .md
-robertpelloni,file-organizer,1,4525,11312,11312,.md
-techlemariam,stresstests,1,382,483,483,.md
-majesticlabs-dev,parquet-coder,1,2603,6915,6915,.md
-starwreckntx,contingency-module-architecture,1,319,398,398,.md
-ratacat,kieran-python-reviewer,1,2635,5105,5105,.md
-mdbabumiamssm,digital-twin-clinical-agent,1,3068,7035,7035,.md
-jzupnick,azure-infra-engineer,1,353,367,367,.md
-nickcrew,session-management,4,5948,15521,5029,.md
 hainamchung,better-auth,8,23423,78658,16394,.md .py .txt
-a5c-ai,algorithm-visualizer,2,1362,2441,1760,.md
-aiskillstore,data-visualization,2,3786,9410,8245,.json .md
-alsk1992,embeddings,2,5218,16809,11614,.md .ts
-robertpelloni,domain-name-brainstormer,1,2701,5696,5696,.md
-techlemariam,strategist,1,384,475,475,.md
 majesticlabs-dev,pandera-validation,2,2481,6320,3549,.md .py
-starwreckntx,context-preservation-protocol-execution,1,315,430,430,.md
-nickcrew,security-testing-patterns,8,11459,25985,6177,.md
-ratacat,calci-prediction-market,2,4596,8991,4938,.md
 jzupnick,auto-scaling-expert,1,783,1142,1142,.md
-aiskillstore,doc-writer,2,3887,10976,9491,.json .md
-a5c-ai,advanced-ds-library,2,1315,2458,1665,.md
-alsk1992,edge,2,3454,8321,6409,.md .ts
-hainamchung,best-practices,9,55711,146490,32620,.md
-mdbabumiamssm,clinical-note-summarization,6,14011,38002,27747,.md .py .txt
 adamrdrew,get-phase-status,1,761,1355,1355,.md
 nickcrew,secure-coding-practices,9,15205,32578,5945,.md .yaml
-techlemariam,startup,1,381,451,451,.md
 majesticlabs-dev,pandas-coder,1,2105,4824,4824,.md
 aiskillstore,tool-discovery,5,12085,70444,47761,.json .md
-starwreckntx,consciousness-copy-and-backup,1,317,377,377,.md
-jzupnick,authentication-architect,1,849,1262,1262,.md
 ratacat,julik-frontend-races-reviewer,1,4567,10926,10926,.md
-a5c-ai,zep-memory-integration,2,1089,1881,1367,.md
 hainamchung,behavioral-modes,1,2716,5379,5379,.md
-mdbabumiamssm,clinical-nlp-extractor,3,7586,18055,11523,.md .py
 nickcrew,root-cause-tracing,2,3176,7122,5602,.md .sh
 techlemariam,sprint-plan,1,384,483,483,.md
 aiskillstore,testing-patterns,7,14872,40473,9394,.json .md .sh
 majesticlabs-dev,great-expectations,2,2797,8206,5157,.md .py
 jzupnick,security-auditor,1,778,1094,1094,.md
-starwreckntx,computational-model-design,1,317,382,382,.md
 alsk1992,drift,2,3750,15527,14330,.md .ts
 ratacat,heal-skill,1,1935,3953,3953,.md
-a5c-ai,weaviate-integration,2,1139,1815,1263,.md
 hainamchung,bash-linux,1,2041,4156,4156,.md
 nickcrew,requesting-code-review,2,3234,6205,3385,.md
 aiskillstore,task-runner,2,3880,10998,9109,.json .md
 mdbabumiamssm,bio-clinical-databases-variant-prioritization,3,5011,12180,5917,.md .py
-techlemariam,sprint-auto,1,384,483,483,.md
-majesticlabs-dev,etl-patterns,1,1291,2766,2766,.md
 csheng,language-go,1,756,1329,1329,.md
 jzupnick,architect-reviewer,1,316,331,331,.md
 a5c-ai,spacy-ner,2,1053,1590,1165,.md
@@ -1140,29 +989,21 @@ ratacat,git-worktree,2,5713,17656,8950,.md .sh
 aiskillstore,tailwind-patterns,3,7948,23622,11862,.json .md
 nickcrew,repo-cleanup,6,21263,54258,12445,.md
 robertpelloni,pptx,56,189479,1230013,242277,.js .md .py .txt .xsd
-adamrdrew,find-next-step,1,910,1760,1760,.md
 techlemariam,spec,1,403,465,465,.md
 jzupnick,security-architect,1,795,1114,1114,.md
 mdbabumiamssm,bio-clinical-databases-tumor-mutational-burden,3,6050,14772,6922,.md .py
-majesticlabs-dev,etl-incremental-patterns,1,1960,4543,4543,.md
-aiskillstore,structural-search,8,12611,50080,30621,.json .md .yaml
 a5c-ai,setfit-few-shot,2,1063,1721,1241,.md
-alsk1992,divergence,2,4704,13279,10939,.md .ts
 nickcrew,release-prep,2,2777,6526,5046,.md
 hainamchung,backend-dev-guidelines,12,39668,133162,22299,.md
 ratacat,git-history-analyzer,1,1810,3934,3934,.md
 starwreckntx,cognitive-style-assessment,2,601,556,374,.json .md
-robertpelloni,pdf,12,22377,64296,16692,.md .py .txt
 techlemariam,security,1,382,459,459,.md
 jzupnick,mobile-app-store-expert,1,757,1172,1172,.md
 majesticlabs-dev,etl-core-patterns,1,2315,5803,5803,.md
 alsk1992,dex,2,7191,28461,25420,.md .ts
 nickcrew,receiving-code-review,1,2766,6111,6111,.md
-mdbabumiamssm,bio-clinical-databases-somatic-signatures,4,7725,18976,6467,.R .md .py
 aiskillstore,sqlite-ops,5,12098,43608,18125,.json .md
-a5c-ai,semantic-kernel-setup,2,1063,1664,1170,.md
 hainamchung,azure-functions,1,780,1386,1386,.md
-ratacat,gemini-imagegen,7,11845,33866,8069,.md .py .txt
 starwreckntx,cognitive-baseline-eval,2,996,1174,1085,.md .xml
 adamrdrew,find-next-phase-number,1,629,889,889,.md
 csheng,git,1,305,296,296,.md
@@ -1184,7 +1025,6 @@ aiskillstore,security-patterns,8,18745,49827,11030,.json .md .sh
 jzupnick,api-testing-specialist,1,766,1111,1111,.md
 alsk1992,crypto-hft,2,7654,24489,16853,.md .ts
 a5c-ai,rasa-nlu-integration,2,1049,1774,1289,.md
-majesticlabs-dev,data-validation,2,2998,9437,6524,.md .py
 adamrdrew,find-current-phase,1,720,1140,1140,.md
 mdbabumiamssm,bio-clinical-databases-pharmacogenomics,3,4977,13477,6280,.md .py
 hainamchung,azure-ai-search-python,3,6673,21320,7898,.md .py
@@ -1197,39 +1037,22 @@ techlemariam,qa,1,376,411,411,.md
 alsk1992,credentials,2,3879,11080,5779,.md .ts
 a5c-ai,rag-reranking,2,1087,1869,1283,.md
 majesticlabs-dev,data-quality,2,3542,10222,7510,.md .py
-nickcrew,python-testing-patterns,13,24193,62143,8703,.md .yaml
 jzupnick,api-security-specialist,1,788,1123,1123,.md
 robertpelloni,competitive-ads-extractor,1,3534,7912,7912,.md
-hainamchung,azure-ai-agents-python,4,10969,41104,13895,.md
-ratacat,file-todos,2,5139,11358,7623,.md
 aiskillstore,python-typing-patterns,10,22636,88987,40642,.json .md .sh .toml
 starwreckntx,chronicle-protocol-v5-log,2,550,454,369,.md .xml
-mdbabumiamssm,bio-clinical-databases-myvariant-queries,3,3427,7048,3186,.md .py
-techlemariam,pre-pr,1,402,476,476,.md
 alsk1992,copy-trading-solana,2,4504,15186,13016,.md .ts
 adamrdrew,describe-ushabti,1,377,420,420,.md
 a5c-ai,rag-query-transformation,2,1132,1832,1276,.md
-nickcrew,python-performance-optimization,6,9419,20710,6767,.md
-robertpelloni,changelog-generator,1,1609,3096,3096,.md
-jzupnick,api-gateway-designer,1,846,1252,1252,.md
-majesticlabs-dev,data-profiler,2,2840,7517,5013,.md .py
-csheng,error-patterns,1,3102,7630,7630,.md
 aiskillstore,python-pytest-patterns,13,30602,118259,48889,.json .md .sh .template
 ratacat,figma-design-sync,1,3730,9013,9013,.md
-starwreckntx,choir-perspective-analysis,2,542,480,402,.md .yaml
-hainamchung,aws-serverless-eda,7,45465,137537,24678,.md
 mdbabumiamssm,bio-clinical-databases-hla-typing,3,4784,10374,5216,.md .sh
 alsk1992,copy-trading,2,5106,15507,7863,.md .ts
 nickcrew,owasp-top-10,12,13146,24333,5017,.md
-techlemariam,pre-deploy,1,385,475,475,.md
-jzupnick,api-designer-agent,1,314,306,306,.md
 a5c-ai,rag-hybrid-search,2,6791,16516,9033,.md
 robertpelloni,canvas-design,83,2645548,5554015,191304,.md .ttf .txt
 majesticlabs-dev,csv-wrangler,1,3042,8830,8830,.md
-aiskillstore,python-observability-patterns,6,15707,51879,19562,.json .md .py
-starwreckntx,choir-consensus-vote,2,612,545,359,.json .md
 hainamchung,aws-cost-operations,3,11322,34941,13736,.md
-nickcrew,multi-perspective-analysis,1,2118,4612,4612,.md
 adamrdrew,describe-steps-file,1,438,554,554,.md
 alsk1992,clanker,2,7857,33612,30481,.md .ts
 mdbabumiamssm,bio-clinical-databases-gnomad-frequencies,3,3965,9236,4818,.md .py
@@ -1237,17 +1060,13 @@ ratacat,feature-video,1,3486,8373,8373,.md
 a5c-ai,rag-embedding-generation,2,1145,1887,1305,.md
 jzupnick,api-designer,1,302,288,288,.md
 techlemariam,postgres,2,816,943,816,.json .md
-majesticlabs-dev,anomaly-detector,2,2895,8635,5716,.md .py
 robertpelloni,brand-guidelines,2,5212,13592,11357,.md .txt
 peiiii,obra-superpowers-pack,1,490,1479,1479,.md
 nickcrew,multi-llm-consult,3,4935,13438,10356,.md .py
 aiskillstore,python-fastapi-patterns,8,19574,59021,12048,.json .md .py .sh
 starwreckntx,caas-emoji-decoder,2,611,537,354,.json .md
-alsk1992,bybit-futures,2,4477,16422,14375,.md .ts
 hainamchung,aws-cdk-development,3,9699,27032,9977,.md .sh
 a5c-ai,rag-chunking-strategy,2,1195,2116,1495,.md
-doodledood,update-claude-md,1,1097,1763,1763,.md
-ratacat,every-style-editor-2,1,1932,3660,3660,.md
 jzupnick,api-architect,1,844,1241,1241,.md
 techlemariam,polish,1,380,443,443,.md
 mdbabumiamssm,bio-clinical-databases-dbsnp-queries,3,3463,7878,3552,.md .py
@@ -1261,17 +1080,13 @@ adamrdrew,describe-review-file,1,399,463,463,.md
 peiiii,claude-dev-pack,1,569,1061,1061,.md
 alsk1992,bridge,2,5529,18059,12902,.md .ts
 starwreckntx,behavioral-profile-calibration,1,321,393,393,.md
-hainamchung,aws-agentic-ai,13,38765,107912,14145,.md .sh
 a5c-ai,qdrant-integration,2,1174,1947,1373,.md
 ratacat,every-style-editor,2,14177,34121,29236,.md
 doodledood,rewrite-history,1,1275,2355,2355,.md
 jzupnick,animation-expert,1,819,1194,1194,.md
 techlemariam,platform,1,382,459,459,.md
-aiskillstore,python-database-patterns,7,17334,63859,25902,.json .md .template
-peiiii,claude-design-pack,1,375,569,569,.md
 nickcrew,kubernetes-security-policies,9,12463,30920,7367,.md
 majesticlabs-dev,pm-jobs-to-be-done,1,1409,2735,2735,.md
-alsk1992,botchan,2,4389,15269,13844,.md .ts
 mdbabumiamssm,bio-clinical-databases-clinvar-lookup,3,3842,8926,4126,.md .py
 hainamchung,autonomous-agents,1,1189,2221,2221,.md
 robertpelloni,git-master,1,11416,29337,29337,.md
@@ -1279,7 +1094,6 @@ starwreckntx,bci-interaction-interface-provision,1,324,412,412,.md
 a5c-ai,prompt-template-design,2,1072,1784,1249,.md
 csheng,development-standards,1,2883,7206,7206,.md
 peiiii,claude-content-pack,1,445,811,811,.md
-jzupnick,angular-architect,1,321,328,328,.md
 doodledood,research-web,1,11416,34127,34127,.md
 aiskillstore,python-cli-patterns,6,14482,40572,9742,.json .md .py
 techlemariam,perf,1,378,427,427,.md
@@ -1386,7 +1200,6 @@ peiiii,hello-skill-inline,1,239,190,190,.md
 starwreckntx,antidote-threat-handler,2,816,909,727,.json .md
 mdbabumiamssm,care-coordination,2,4367,14331,14039,.md .py
 adamrdrew,describe-phase-file,1,603,934,934,.md
-a5c-ai,nemo-guardrails,2,1025,1636,1173,.md
 jzupnick,ai-workflow-designer,1,776,1133,1133,.md
 ratacat,design-iterator,1,4609,9992,9992,.md
 starlake-ai,test,1,398,572,572,.md
@@ -1482,7 +1295,6 @@ trymirai,download-model,1,342,361,361,.md
 mdbabumiamssm,openai-platform-operations-2026,3,1128,1421,945,.md .yaml
 ravnhq,tech-react,10,8175,14983,1949,.md
 starwreckntx,cross-model-trust-verification,3,7142,21963,15549,.json .md .py
-majesticlabs-dev,launch-legal,1,1803,3509,3509,.md
 alsk1992,agentbets,2,2365,6947,6489,.md .ts
 robertpelloni,astropy-fundamentals,4,27542,83621,29302,.md
 cisco-ai-defense,file-validator,3,1581,2410,1860,.json .md .py
@@ -1719,7 +1531,6 @@ adamrdrew,approve-phase,2,1894,4457,3296,.md .py
 hainamchung,agent-evaluation,1,1126,2089,2089,.md
 eojedred,integration-test,3,547,291,217,.md .py
 ravnhq,core-coding-standards,4,3045,4926,2157,.md
-mdbabumiamssm,bio-hi-c-analysis-hic-data-io,3,3313,7399,5577,.md .py
 empathic,edit,1,1291,2671,2671,.md
 nickcrew,constructive-dissent,1,2488,5808,5808,.md
 eron1703,supervisor,1,738,962,962,.md
@@ -1728,7 +1539,6 @@ knuckles-team,servicenow-table-api,1,414,473,473,.md
 finesssee,linear-roadmaps,1,345,423,423,.md
 trmdy,session-protocol,2,599,589,420,.md
 ratacat,bug-reproduction-validator,1,2080,4682,4682,.md
-a5c-ai,langchain-chains,2,1150,1894,1260,.md
 starlake-ai,iam-policies,1,322,347,347,.md
 techlemariam,game-designer,1,387,499,499,.md
 mbtz,sv-issue-tracking,2,1067,1839,1320,.md
@@ -1736,7 +1546,6 @@ jzupnick,llm-optimizer,1,772,1115,1115,.md
 cisco-ai-defense,config-analyzer,6,5526,11490,2699,.json .md .py
 hainamchung,aesthetic,7,10135,20287,5992,.md
 largomst,web-search,1,270,160,160,.md
-ravnhq,agent-skill-creator,7,19058,49557,17884,.md .py .txt
 aiskillstore,go-best-practices,2,6377,20108,13103,.json .md
 nickcrew,condition-based-waiting,2,3264,8803,5054,.md .ts
 doodledood,review,1,2034,4044,4044,.md
@@ -1826,7 +1635,6 @@ eojedred,detr-peer-simulation,3,568,312,230,.md .py
 chipagosfinest,people-catchall,1,356,422,422,.md
 tolgaio,article-extractor,1,3536,9709,9709,.md
 ravnhq,tech-react-native,1,294,263,263,.md
-patrick-motard,git-rewrite,2,4586,11236,10789,.md
 largomst,fetcher,1,293,186,186,.md
 tiann,execplan,3,7197,16129,14638,.md
 xdg,refactor,1,271,217,217,.md
