@@ -63,11 +63,13 @@ def _make_app(require_github_org: str = "") -> FastAPI:
 
 
 # Representative write endpoints — one from each protected router.
+# Payloads are minimally valid so FastAPI doesn't reject with 422 (body
+# validation) before the auth dependency has a chance to fire.
 _WRITE_ENDPOINTS = [
-    ("POST", "/v1/orgs", {}),
-    ("POST", "/v1/keys", {}),
+    ("POST", "/v1/orgs", {"slug": "test-org"}),
+    ("POST", "/v1/keys", {"key_name": "test-key", "value": "test-value"}),
     ("DELETE", "/v1/skills/test-org/test-skill/1.0.0", None),
-    ("POST", "/v1/trackers", {}),
+    ("POST", "/v1/trackers", {"repo_url": "https://github.com/example/repo"}),
 ]
 
 
