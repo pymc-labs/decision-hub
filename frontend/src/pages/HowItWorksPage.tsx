@@ -1,6 +1,7 @@
 import { Search, Shield, FlaskConical, Link, Lock, GitBranch } from "lucide-react";
 import NeonCard from "../components/NeonCard";
 import TerminalBlock from "../components/TerminalBlock";
+import { useSEO } from "../hooks/useSEO";
 import styles from "./HowItWorksPage.module.css";
 
 const SECTIONS = [
@@ -127,6 +128,13 @@ Select default namespace for publishing:
 ] as const;
 
 export default function HowItWorksPage() {
+  useSEO({
+    title: "How It Works",
+    description:
+      "Learn how Decision Hub works: publish skills from GitHub, run automated safety analysis and evals, and install to Claude, Cursor, Codex, and more with one command.",
+    path: "/how-it-works",
+  });
+
   return (
     <div className="container">
       <section className={styles.page}>

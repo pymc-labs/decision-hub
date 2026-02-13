@@ -4,6 +4,7 @@ import { Package, Download, ArrowLeft, Globe, Github, Star } from "lucide-react"
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import { useSEO } from "../hooks/useSEO";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -20,6 +21,12 @@ export default function OrgDetailPage() {
 }
 
 function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
+  useSEO({
+    title: orgSlug,
+    description: `View skills published by ${orgSlug} on Decision Hub. Browse their AI agent skills with safety grades and evaluations.`,
+    path: `/orgs/${orgSlug}`,
+  });
+
   const fetchPage = useCallback(
     (page: number) =>
       listSkillsFiltered({ org: orgSlug, sort: "updated", pageSize: PAGE_SIZE, page }),
