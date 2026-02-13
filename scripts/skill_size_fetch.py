@@ -24,13 +24,21 @@ CSV_COLUMNS = [
 ]
 
 
-def fetch_skill_list(page_size: int = 100) -> list[dict]:
-    """Fetch the first page of skills from the registry."""
-    url = f"{BASE_URL}/v1/skills?page_size={page_size}&page=1"
-    with urlopen(Request(url), timeout=TIMEOUT) as resp:
-        data = json.loads(resp.read())
-    print(f"Registry total: {data['total']} skills  (fetched {len(data['items'])})")
-    return data["items"]
+def fetch_skill_list(pages: int = 20, page_size: int = 100) -> list[dict]:
+    """Fetch *pages* pages of skills (page_size each) from the registry."""
+    all_items: list[dict] = []
+    for page in range(1, pages + 1):
+        url = f"{BASE_URL}/v1/skills?page_size={page_size}&page={page}"
+        with urlopen(Request(url), timeout=TIMEOUT) as resp:
+            data = json.loads(resp.read())
+        items = data["items"]
+        total = data["total"]
+        all_items.extend(items)
+        print(f"  Page {page}/{pages}: got {len(items)} skills  (registry total: {total})")
+        if not items or len(all_items) >= total:
+            break
+    print(f"  Fetched {len(all_items)} skills to download.\n")
+    return all_items
 
 
 def analyse_zip(body: bytes) -> dict:
@@ -57,17 +65,20 @@ def analyse_zip(body: bytes) -> dict:
 
 
 def main() -> None:
-    skills = fetch_skill_list()
+    pages = int(sys.argv[1]) if len(sys.argv) > 1 else 20
+    skills = fetch_skill_list(pages=pages)
+    total = len(skills)
 
     with CSV_PATH.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
         writer.writeheader()
 
+        ok = 0
         for i, skill in enumerate(skills, 1):
             org = skill["org_slug"]
             name = skill["skill_name"]
             label = f"{org}/{name}"
-            print(f"  [{i:>3}/{len(skills)}] {label} …", end=" ", flush=True)
+            print(f"  [{i:>{len(str(total))}}/{total}] {label} …", end=" ", flush=True)
 
             try:
                 url = f"{BASE_URL}/v1/skills/{org}/{name}/download"
@@ -76,11 +87,12 @@ def main() -> None:
                 row = {"org_slug": org, "skill_name": name, **analyse_zip(body)}
                 writer.writerow(row)
                 f.flush()
+                ok += 1
                 print(f"OK  ({row['compressed_bytes']} bytes)")
             except Exception as exc:
                 print(f"FAILED  ({exc})", file=sys.stderr)
 
-    print(f"\nWrote {CSV_PATH}")
+    print(f"\nWrote {ok}/{total} skills to {CSV_PATH}")
 
 
 if __name__ == "__main__":
