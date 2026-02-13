@@ -233,7 +233,7 @@ def _publish_one_skill(
     conn, s3_client, settings, org, skill_dir: Path, result: dict, *, source_repo_url: str | None = None
 ) -> None:
     """Parse, gauntlet-check, and publish a single skill. Mutates result counts."""
-    from decision_hub.api.registry_service import run_gauntlet_pipeline
+    from decision_hub.api.registry_service import classify_skill_category, run_gauntlet_pipeline
     from decision_hub.infra.database import (
         find_skill,
         find_version,
@@ -241,6 +241,7 @@ def _publish_one_skill(
         insert_skill,
         insert_version,
         resolve_latest_version,
+        update_skill_category,
         update_skill_description,
         update_skill_source_repo_url,
     )
@@ -325,10 +326,14 @@ def _publish_one_skill(
         return
 
     # Grade A/B/C — publish
+    # Classify category (non-critical, graceful fallback to empty string)
+    category = classify_skill_category(name, desc, skill_md_body, settings)
+    update_skill_category(conn, skill.id, category)
+
     # Generate embedding only for approved skills (fail-open: never blocks publish)
     from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 
-    generate_and_store_skill_embedding(conn, skill.id, name, org.slug, "", description, settings)
+    generate_and_store_skill_embedding(conn, skill.id, name, org.slug, category, description, settings)
 
     s3_key = build_s3_key(org.slug, name, version)
     upload_skill_zip(s3_client, settings.s3_bucket, s3_key, zip_data)

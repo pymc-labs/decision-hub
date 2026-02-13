@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill-org-metadata
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -73,7 +73,12 @@ publish-cli: ## Publish CLI to PyPI (BUMP=patch|minor|major, BREAKING=1 to sync 
 # Data maintenance
 # ---------------------------------------------------------------------------
 
-backfill-org-metadata: ## Backfill org metadata from GitHub (needs DHUB_ENV, uses gh auth token)
+backfill: ## Run all backfills: categories, embeddings, org metadata (needs DHUB_ENV)
+	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE && \
+		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+		python scripts/backfill_categories.py
+	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+		python -m decision_hub.scripts.backfill_embeddings
 	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python -m decision_hub.scripts.backfill_org_metadata --github-token "$$(gh auth token)"
 

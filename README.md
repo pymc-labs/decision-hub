@@ -237,6 +237,7 @@ uv sync --all-packages --all-extras
 make test              # all tests
 make test-client       # client only
 make test-server       # server only
+make test-frontend     # frontend only
 
 # Lint and type check
 make lint              # ruff check + format

@@ -168,6 +168,7 @@ Use `pytest` with fixtures in `conftest.py`. Mock external services (S3, OpenAI,
 make test              # all tests
 make test-client       # client only
 make test-server       # server only
+make test-frontend     # frontend only
 ```
 
 ### CI
@@ -177,6 +178,7 @@ GitHub Actions runs on every PR to `main`:
 - **typecheck**: mypy type checks
 - **test-client**: client pytest suite
 - **test-server**: server pytest suite
+- **test-frontend**: frontend vitest suite
 - **lint-frontend**: TypeScript type check + ESLint
 - **check-migrations**: validates migration filename formats and detects duplicates
 - **migrate-check**: replays all SQL migrations from scratch against a fresh Postgres (CI only)
@@ -294,6 +296,17 @@ Merging to `main` auto-deploys dev via `.github/workflows/deploy-dev.yml` — no
 After implementing significant changes, check whether these need updating:
 - **`README.md`** — new/changed CLI commands, API endpoints, features, setup requirements, or architecture
 - **`bootstrap-skills/dhub-cli/SKILL.md`** and **`bootstrap-skills/dhub-cli/references/command_reference.md`** — new/changed CLI commands, flags, or behavior
+
+## Data Maintenance
+
+Run all backfills (categories, embeddings, org metadata) in one command:
+
+```bash
+make backfill                    # against dev (default)
+DHUB_ENV=prod make backfill      # against prod
+```
+
+Individual backfill scripts can also be run directly from `server/` — see `server/scripts/backfill_categories.py` and `server/src/decision_hub/scripts/backfill_embeddings.py`.
 
 ## Monitoring Trackers
 
