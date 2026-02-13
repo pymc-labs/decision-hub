@@ -495,7 +495,13 @@ def run_assessment_background(
             validate_api_key(key_name, key_value)
         logger.info("API key validation passed")
 
-        judge_api_key = agent_env_vars.get(judge_key_name, "")
+        # Pop the judge key out of agent_env_vars so it is never exposed
+        # inside the sandbox. When the agent key IS the judge key (Claude),
+        # we must leave it — the agent needs it to run.
+        if judge_key_name != agent_config.key_env_var:
+            judge_api_key = agent_env_vars.pop(judge_key_name, "")
+        else:
+            judge_api_key = agent_env_vars.get(judge_key_name, "")
 
         # --- Phase 2: run pipeline ---
         if run_id is not None:
