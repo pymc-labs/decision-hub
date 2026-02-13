@@ -871,7 +871,8 @@ class TestRunStaticChecks:
         )
         check_names = [r.check_name for r in report.results]
         assert "size_budget" in check_names
-        assert report.grade == "B"  # unverified org default
+        # is_verified_org defaults to True, no elevated perms -> A
+        assert report.grade == "A"
 
     def test_size_budget_warn_downgrades_to_c(self):
         """Oversized zip -> warn -> grade C."""
