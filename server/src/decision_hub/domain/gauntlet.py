@@ -11,6 +11,7 @@ import json
 import re
 from collections.abc import Callable
 
+from decision_hub.domain.publish import CODE_EXTENSIONS, CONFIG_EXTENSIONS, SCANNABLE_EXTENSIONS, TEXT_EXTENSIONS
 from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCase
 
 # ---------------------------------------------------------------------------
@@ -185,6 +186,96 @@ def check_dependency_audit(lockfile_content: str) -> EvalResult:
         check_name="dependency_audit",
         severity="fail",
         message=f"Blocked dependencies found: {', '.join(found)}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Size budget check
+# ---------------------------------------------------------------------------
+
+TEXT_BUDGET = 100 * 1024  # 100 KB cumulative text
+CODE_BUDGET = 50 * 1024  # 50 KB cumulative code
+CONFIG_BUDGET = 25 * 1024  # 25 KB cumulative config
+MAX_FILE_COUNT = 20  # max non-directory entries
+
+
+def check_size_budget(
+    zip_entries: list[tuple[str, int, str]],
+) -> EvalResult:
+    """Check that the skill zip stays within size and file-count budgets.
+
+    Classifies each entry by its file extension into text, code, or config
+    categories and sums uncompressed bytes per category.
+
+    - **pass**: all within budget, <= MAX_FILE_COUNT files, no unscannable extensions
+    - **warn**: budget exceeded OR > MAX_FILE_COUNT files (grade C)
+    - **fail**: unscannable binary files present (grade F)
+
+    The details dict includes the full breakdown for audit logging.
+    """
+    text_bytes = 0
+    code_bytes = 0
+    config_bytes = 0
+    unscannable_files: list[str] = []
+
+    for filename, size, ext in zip_entries:
+        if ext in TEXT_EXTENSIONS:
+            text_bytes += size
+        elif ext in CODE_EXTENSIONS:
+            code_bytes += size
+        elif ext in CONFIG_EXTENSIONS:
+            config_bytes += size
+        elif ext not in SCANNABLE_EXTENSIONS:
+            # Extension-less files (ext == "") and unknown extensions
+            unscannable_files.append(filename)
+
+    file_count = len(zip_entries)
+
+    details = {
+        "text_bytes": text_bytes,
+        "text_budget": TEXT_BUDGET,
+        "code_bytes": code_bytes,
+        "code_budget": CODE_BUDGET,
+        "config_bytes": config_bytes,
+        "config_budget": CONFIG_BUDGET,
+        "file_count": file_count,
+        "max_file_count": MAX_FILE_COUNT,
+        "unscannable_files": unscannable_files,
+    }
+
+    # Fail: unscannable binary files present
+    if unscannable_files:
+        return EvalResult(
+            check_name="size_budget",
+            severity="fail",
+            message=f"Unscannable files detected: {', '.join(unscannable_files[:5])}",
+            details=details,
+        )
+
+    # Warn: budget exceeded or too many files
+    warnings: list[str] = []
+    if text_bytes > TEXT_BUDGET:
+        warnings.append(f"text {text_bytes // 1024}KB > {TEXT_BUDGET // 1024}KB")
+    if code_bytes > CODE_BUDGET:
+        warnings.append(f"code {code_bytes // 1024}KB > {CODE_BUDGET // 1024}KB")
+    if config_bytes > CONFIG_BUDGET:
+        warnings.append(f"config {config_bytes // 1024}KB > {CONFIG_BUDGET // 1024}KB")
+    if file_count > MAX_FILE_COUNT:
+        warnings.append(f"file count {file_count} > {MAX_FILE_COUNT}")
+
+    if warnings:
+        return EvalResult(
+            check_name="size_budget",
+            severity="warn",
+            message=f"Size budget exceeded: {'; '.join(warnings)}",
+            details=details,
+        )
+
+    return EvalResult(
+        check_name="size_budget",
+        severity="pass",
+        message="Within size budget",
+        details=details,
     )
 
 
@@ -547,6 +638,7 @@ def run_static_checks(
     analyze_prompt_fn: AnalyzePromptFn | None = None,
     is_verified_org: bool = True,
     review_body_fn: ReviewBodyFn | None = None,
+    zip_entries: list[tuple[str, int, str]] | None = None,
 ) -> GauntletReport:
     """Run all static analysis checks and return a GauntletReport.
 
@@ -561,6 +653,8 @@ def run_static_checks(
         allowed_tools: The allowed_tools field from the manifest.
         analyze_prompt_fn: Optional LLM callback for prompt safety scan.
         is_verified_org: Whether the publishing org is verified.
+        review_body_fn: Optional LLM callback for holistic body review.
+        zip_entries: Per-file metadata from the zip archive for size budget check.
     """
     results = [check_manifest_schema(skill_md_content)]
 
@@ -587,6 +681,10 @@ def run_static_checks(
                 review_body_fn=review_body_fn,
             )
         )
+
+    # Size budget check (only if zip metadata is provided)
+    if zip_entries is not None:
+        results.append(check_size_budget(zip_entries))
 
     elevated = detect_elevated_permissions(source_files, allowed_tools)
     result_tuple = tuple(results)

@@ -382,10 +382,14 @@ def publish_skill(
     checksum = compute_checksum(file_bytes)
 
     try:
-        skill_md_content, source_files, lockfile_content = extract_for_evaluation(file_bytes)
+        bundle = extract_for_evaluation(file_bytes)
     except ValueError as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    skill_md_content = bundle.skill_md_content
+    source_files = bundle.source_files
+    lockfile_content = bundle.lockfile_content
 
     runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
         skill_md_content,
@@ -406,6 +410,7 @@ def publish_skill(
         allowed_tools=allowed_tools,
         # TODO: implement org verification — default to False (conservative)
         is_verified_org=False,
+        zip_entries=bundle.zip_entries,
     )
     logger.info(
         "Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed

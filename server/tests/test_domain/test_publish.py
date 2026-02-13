@@ -156,9 +156,9 @@ class TestZipBombPrevention:
                 "main.py": "print('hello')",
             }
         )
-        skill_md, sources, _lockfile = extract_for_evaluation(zip_bytes)
-        assert "name: s" in skill_md
-        assert len(sources) == 1
+        bundle = extract_for_evaluation(zip_bytes)
+        assert "name: s" in bundle.skill_md_content
+        assert len(bundle.source_files) == 1
 
 
 class TestExtractForEvaluation:
@@ -184,14 +184,14 @@ class TestExtractForEvaluation:
                 "lib/utils.py": "def helper(): pass",
             }
         )
-        skill_md, sources, lockfile = extract_for_evaluation(zip_bytes)
+        bundle = extract_for_evaluation(zip_bytes)
 
-        assert "name: test" in skill_md
-        assert len(sources) == 2
-        filenames = [name for name, _ in sources]
+        assert "name: test" in bundle.skill_md_content
+        assert len(bundle.source_files) == 2
+        filenames = [name for name, _ in bundle.source_files]
         assert "main.py" in filenames
         assert "lib/utils.py" in filenames
-        assert lockfile is None
+        assert bundle.lockfile_content is None
 
     def test_extracts_lockfile(self) -> None:
         zip_bytes = _make_zip(
@@ -200,9 +200,9 @@ class TestExtractForEvaluation:
                 "requirements.txt": "requests==2.31.0\n",
             }
         )
-        _, _, lockfile = extract_for_evaluation(zip_bytes)
-        assert lockfile is not None
-        assert "requests" in lockfile
+        bundle = extract_for_evaluation(zip_bytes)
+        assert bundle.lockfile_content is not None
+        assert "requests" in bundle.lockfile_content
 
     def test_raises_on_missing_skill_md(self) -> None:
         zip_bytes = _make_zip(**{"main.py": "pass"})
@@ -212,10 +212,10 @@ class TestExtractForEvaluation:
     def test_nested_skill_md(self) -> None:
         """SKILL.md in a subdirectory should still be found."""
         zip_bytes = _make_zip(**{"subdir/SKILL.md": "---\nname: nested\ndescription: d\n---\n"})
-        skill_md, sources, lockfile = extract_for_evaluation(zip_bytes)
-        assert "name: nested" in skill_md
-        assert sources == []
-        assert lockfile is None
+        bundle = extract_for_evaluation(zip_bytes)
+        assert "name: nested" in bundle.skill_md_content
+        assert bundle.source_files == []
+        assert bundle.lockfile_content is None
 
     def test_skips_directories(self) -> None:
         """Zip entries ending with / (directories) should be skipped."""
@@ -224,9 +224,9 @@ class TestExtractForEvaluation:
             zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
             zf.writestr("subdir/", "")  # directory entry
         zip_bytes = buf.getvalue()
-        skill_md, sources, _lockfile = extract_for_evaluation(zip_bytes)
-        assert skill_md
-        assert sources == []
+        bundle = extract_for_evaluation(zip_bytes)
+        assert bundle.skill_md_content
+        assert bundle.source_files == []
 
     def test_uv_lock_as_lockfile(self) -> None:
         zip_bytes = _make_zip(
@@ -235,5 +235,26 @@ class TestExtractForEvaluation:
                 "uv.lock": "some-lock-content",
             }
         )
-        _, _, lockfile = extract_for_evaluation(zip_bytes)
-        assert lockfile == "some-lock-content"
+        bundle = extract_for_evaluation(zip_bytes)
+        assert bundle.lockfile_content == "some-lock-content"
+
+    def test_zip_entries_populated(self) -> None:
+        """zip_entries should contain metadata for all non-directory entries."""
+        zip_bytes = _make_zip(
+            **{
+                "SKILL.md": "---\nname: s\ndescription: d\n---\n",
+                "main.py": "print('hello')",
+                "config.json": "{}",
+            }
+        )
+        bundle = extract_for_evaluation(zip_bytes)
+        assert len(bundle.zip_entries) == 3
+        names = [name for name, _, _ in bundle.zip_entries]
+        assert "SKILL.md" in names
+        assert "main.py" in names
+        assert "config.json" in names
+        # Check extensions
+        exts = {ext for _, _, ext in bundle.zip_entries}
+        assert ".md" in exts
+        assert ".py" in exts
+        assert ".json" in exts
