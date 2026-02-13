@@ -13,6 +13,9 @@ __all__ = [
     "SCANNABLE_EXTENSIONS",
     "TEXT_EXTENSIONS",
     "EvaluationBundle",
+    "build_quarantine_s3_key",
+    "build_s3_key",
+    "extract_for_evaluation",
     "validate_semver",
     "validate_skill_name",
 ]
@@ -108,10 +111,13 @@ def extract_for_evaluation(
 ) -> EvaluationBundle:
     """Extract evaluation-relevant files from a skill zip archive.
 
-    Reads SKILL.md, all .py source files, and the lockfile (if present)
-    from the in-memory zip without writing to disk.  Also collects
-    per-entry metadata (filename, uncompressed size, extension) for
-    the size-budget check.
+    Reads SKILL.md, Python source files, and the lockfile (if present)
+    from the in-memory zip without writing to disk.  Collects per-entry
+    metadata (filename, uncompressed size, extension) for the size-budget
+    check.
+
+    Note: Phase 2 will expand extraction to all CODE_EXTENSIONS files
+    and add text_files / config_files to the bundle.
 
     Args:
         zip_bytes: Raw bytes of the skill zip archive.
