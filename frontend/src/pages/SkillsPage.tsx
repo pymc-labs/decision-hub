@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Search, Package, Download, Filter, User, Tag, Layers, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Package, Download, Filter, User, Tag, Layers } from "lucide-react";
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
 import { useApi } from "../hooks/useApi";
-import type { SkillSummary, PaginatedSkillsResponse } from "../types/api";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import type { SkillSummary } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -13,7 +14,6 @@ const PAGE_SIZE = 12;
 const DEBOUNCE_MS = 300;
 
 export default function SkillsPage() {
-  const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [orgFilter, setOrgFilter] = useState<string>("all");
@@ -35,32 +35,27 @@ export default function SkillsPage() {
   useEffect(() => {
     debounceRef.current = setTimeout(() => {
       setDebouncedSearch(searchInput);
-      setPage(1);
     }, DEBOUNCE_MS);
     return () => clearTimeout(debounceRef.current);
   }, [searchInput]);
 
-  // Build API params from state
-  const fetchSkills = useCallback(() => {
-    return listSkillsFiltered({
-      page,
-      pageSize: PAGE_SIZE,
-      search: debouncedSearch || undefined,
-      org: orgFilter !== "all" ? orgFilter : undefined,
-      category: categoryFilter !== "all" ? categoryFilter : undefined,
-      grade: gradeFilter !== "all" ? gradeFilter : undefined,
-      sort: sortBy,
-    });
-  }, [page, debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy]);
-
-  const { data, loading, error } = useApi<PaginatedSkillsResponse>(
-    fetchSkills,
-    [page, debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy]
+  // Build API fetcher for infinite scroll
+  const fetchPage = useCallback(
+    (page: number) =>
+      listSkillsFiltered({
+        page,
+        pageSize: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        org: orgFilter !== "all" ? orgFilter : undefined,
+        category: categoryFilter !== "all" ? categoryFilter : undefined,
+        grade: gradeFilter !== "all" ? gradeFilter : undefined,
+        sort: sortBy,
+      }),
+    [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy],
   );
 
-  const items = useMemo(() => data?.items ?? [], [data]);
-  const total = data?.total ?? 0;
-  const totalPages = data?.total_pages ?? 1;
+  const { items, total, loading, loadingMore, error, hasMore, sentinelRef } =
+    useInfiniteScroll(fetchPage, [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy]);
 
   const orgs = useMemo(
     () => (orgProfiles ?? []).map((p) => p.slug).sort(),
@@ -77,14 +72,8 @@ export default function SkillsPage() {
     return groups;
   }, [items]);
 
-  // Reset to page 1 when filters change (except search, which debounces)
-  const resetAndSetOrg = (v: string) => { setOrgFilter(v); setPage(1); };
-  const resetAndSetGrade = (v: string) => { setGradeFilter(v); setPage(1); };
-  const resetAndSetCategory = (v: string) => { setCategoryFilter(v); setPage(1); };
-  const resetAndSetSort = (v: "name" | "downloads" | "updated") => { setSortBy(v); setPage(1); };
-
-  if (loading && !data) return <LoadingSpinner text="Loading skills..." />;
-  if (error) {
+  if (loading && items.length === 0) return <LoadingSpinner text="Loading skills..." />;
+  if (error && items.length === 0) {
     return (
       <div className="container">
         <NeonCard glow="pink">
@@ -123,7 +112,7 @@ export default function SkillsPage() {
           <Filter size={14} />
           <select
             value={orgFilter}
-            onChange={(e) => resetAndSetOrg(e.target.value)}
+            onChange={(e) => setOrgFilter(e.target.value)}
             className={styles.select}
           >
             <option value="all">All Orgs</option>
@@ -136,7 +125,7 @@ export default function SkillsPage() {
 
           <select
             value={gradeFilter}
-            onChange={(e) => resetAndSetGrade(e.target.value)}
+            onChange={(e) => setGradeFilter(e.target.value)}
             className={styles.select}
           >
             <option value="all">All Grades</option>
@@ -147,7 +136,7 @@ export default function SkillsPage() {
 
           <select
             value={categoryFilter}
-            onChange={(e) => resetAndSetCategory(e.target.value)}
+            onChange={(e) => setCategoryFilter(e.target.value)}
             className={styles.select}
           >
             <option value="all">All Categories</option>
@@ -168,7 +157,7 @@ export default function SkillsPage() {
 
           <select
             value={sortBy}
-            onChange={(e) => resetAndSetSort(e.target.value as "name" | "downloads" | "updated")}
+            onChange={(e) => setSortBy(e.target.value as "name" | "downloads" | "updated")}
             className={styles.select}
           >
             <option value="updated">Latest</option>
@@ -187,7 +176,7 @@ export default function SkillsPage() {
       </div>
 
       {/* Results */}
-      {items.length === 0 ? (
+      {items.length === 0 && !loading ? (
         <div className={styles.empty}>
           <Package size={48} />
           <p>No skills match your filters</p>
@@ -217,28 +206,10 @@ export default function SkillsPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className={styles.pagination}>
-          <button
-            className={styles.pageButton}
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            <ChevronLeft size={16} />
-            Prev
-          </button>
-          <span className={styles.pageInfo}>
-            Page {page} of {totalPages}
-          </span>
-          <button
-            className={styles.pageButton}
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-          >
-            Next
-            <ChevronRight size={16} />
-          </button>
+      {/* Infinite scroll sentinel */}
+      {hasMore && (
+        <div ref={sentinelRef} className={styles.sentinel}>
+          {loadingMore && <span className={styles.loadingMore}>Loading more skills...</span>}
         </div>
       )}
     </div>

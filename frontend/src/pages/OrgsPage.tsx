@@ -12,11 +12,13 @@ import styles from "./OrgsPage.module.css";
 
 type OrgType = "orgs" | "users" | "all";
 const DEBOUNCE_MS = 300;
+const CHUNK_SIZE = 24;
 
 export default function OrgsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<OrgType>("orgs");
+  const [visibleCount, setVisibleCount] = useState(CHUNK_SIZE);
 
   // Debounce the search input
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -52,6 +54,51 @@ export default function OrgsPage() {
       return 0;
     });
   }, [data]);
+
+  // Reset visible count when data changes (render-time adjustment)
+  const [prevData, setPrevData] = useState(data);
+  if (data !== prevData) {
+    setPrevData(data);
+    setVisibleCount(CHUNK_SIZE);
+  }
+
+  const visibleOrgs = useMemo(() => orgs.slice(0, visibleCount), [orgs, visibleCount]);
+  const hasMore = visibleCount < orgs.length;
+
+  // Client-side infinite scroll via IntersectionObserver
+  const loadMoreRef = useRef(() => {});
+  useEffect(() => {
+    loadMoreRef.current = () => {
+      setVisibleCount((prev) => {
+        const total = orgs.length;
+        const next = prev + CHUNK_SIZE;
+        return next >= total ? total : next;
+      });
+    };
+  }, [orgs.length]);
+
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (node) {
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            loadMoreRef.current();
+          }
+        },
+        { rootMargin: "200px" },
+      );
+      observerRef.current.observe(node);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => observerRef.current?.disconnect();
+  }, []);
 
   if (loading && !data) return <LoadingSpinner text="Loading organizations..." />;
   if (error) {
@@ -108,47 +155,55 @@ export default function OrgsPage() {
           <p>No organizations match your filters</p>
         </div>
       ) : (
-        <div className={styles.grid}>
-          {orgs.map((org) => (
-            <Link
-              key={org.slug}
-              to={`/orgs/${org.slug}`}
-              className={styles.orgLink}
-            >
-              <NeonCard glow={FEATURED_SET.has(org.slug) ? "purple" : "cyan"}>
-                <div className={styles.card}>
-                  {FEATURED_SET.has(org.slug) && (
-                    <div className={styles.featuredBadge}>
-                      <Star size={12} />
-                      Featured
+        <>
+          <div className={styles.grid}>
+            {visibleOrgs.map((org) => (
+              <Link
+                key={org.slug}
+                to={`/orgs/${org.slug}`}
+                className={styles.orgLink}
+              >
+                <NeonCard glow={FEATURED_SET.has(org.slug) ? "purple" : "cyan"}>
+                  <div className={styles.card}>
+                    {FEATURED_SET.has(org.slug) && (
+                      <div className={styles.featuredBadge}>
+                        <Star size={12} />
+                        Featured
+                      </div>
+                    )}
+                    <div className={styles.cardIcon}>
+                      <OrgAvatar
+                        avatarUrl={org.avatar_url}
+                        isPersonal={org.is_personal}
+                        size="md"
+                      />
                     </div>
-                  )}
-                  <div className={styles.cardIcon}>
-                    <OrgAvatar
-                      avatarUrl={org.avatar_url}
-                      isPersonal={org.is_personal}
-                      size="md"
-                    />
-                  </div>
-                  <h3 className={styles.cardName}>{org.slug}</h3>
-                  <div className={styles.cardStats}>
-                    <div className={styles.stat}>
-                      <Package size={14} />
-                      <span>{org.skill_count} skills</span>
+                    <h3 className={styles.cardName}>{org.slug}</h3>
+                    <div className={styles.cardStats}>
+                      <div className={styles.stat}>
+                        <Package size={14} />
+                        <span>{org.skill_count} skills</span>
+                      </div>
+                      <div className={styles.stat}>
+                        <span>{org.total_downloads.toLocaleString()} downloads</span>
+                      </div>
                     </div>
-                    <div className={styles.stat}>
-                      <span>{org.total_downloads.toLocaleString()} downloads</span>
+                    <div className={styles.cardFooter}>
+                      <span>View skills</span>
+                      <ArrowRight size={14} />
                     </div>
                   </div>
-                  <div className={styles.cardFooter}>
-                    <span>View skills</span>
-                    <ArrowRight size={14} />
-                  </div>
-                </div>
-              </NeonCard>
-            </Link>
-          ))}
-        </div>
+                </NeonCard>
+              </Link>
+            ))}
+          </div>
+
+          {hasMore && (
+            <div ref={sentinelRef} className={styles.sentinel}>
+              <span className={styles.loadingMore}>Loading more organizations...</span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

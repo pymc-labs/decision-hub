@@ -169,43 +169,18 @@
   color: var(--text-muted);
 }
 
-.pagination {
+/* Infinite scroll sentinel */
+.sentinel {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 16px;
-  margin-top: 32px;
+  padding: 32px 0;
 }
 
-.pageButton {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--neon-cyan);
+.loadingMore {
   font-family: 'Share Tech Mono', monospace;
   font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.pageButton:hover:not(:disabled) {
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
-}
-
-.pageButton:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.pageInfo {
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  letter-spacing: 1px;
 }
 
 @media (max-width: 768px) {
