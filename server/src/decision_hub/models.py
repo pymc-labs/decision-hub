@@ -126,6 +126,7 @@ class AgentSandboxConfig:
     run_cmd: tuple[str, ...]
     key_env_var: str
     extra_env: dict[str, str]
+    api_hosts: tuple[str, ...] = ()  # API hostnames the agent needs network access to
 
 
 @dataclass(frozen=True)

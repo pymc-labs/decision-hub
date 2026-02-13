@@ -22,6 +22,7 @@ AGENT_CONFIGS: dict[str, AgentSandboxConfig] = {
         run_cmd=("claude", "-p", "--dangerously-skip-permissions"),
         key_env_var="ANTHROPIC_API_KEY",
         extra_env={"NON_INTERACTIVE_MODE": "true"},
+        api_hosts=("api.anthropic.com",),
     ),
     "codex": AgentSandboxConfig(
         npm_package="codex",
@@ -29,6 +30,7 @@ AGENT_CONFIGS: dict[str, AgentSandboxConfig] = {
         run_cmd=("codex", "run", "--json", "--ask-for-approval", "never"),
         key_env_var="CODEX_API_KEY",
         extra_env={},
+        api_hosts=("api.openai.com",),
     ),
     "gemini": AgentSandboxConfig(
         npm_package="@google/gemini-cli",
@@ -36,6 +38,7 @@ AGENT_CONFIGS: dict[str, AgentSandboxConfig] = {
         run_cmd=("gemini", "--prompt"),
         key_env_var="GEMINI_API_KEY",
         extra_env={},
+        api_hosts=("generativelanguage.googleapis.com",),
     ),
 }
 
@@ -51,6 +54,43 @@ def get_agent_config(agent_name: str) -> AgentSandboxConfig:
         supported = ", ".join(sorted(AGENT_CONFIGS))
         raise ValueError(f"Unknown agent '{agent_name}'. Supported agents: {supported}")
     return config
+
+
+# ---------------------------------------------------------------------------
+# Network egress restriction
+# ---------------------------------------------------------------------------
+
+# Infrastructure hosts that must be reachable during sandbox setup
+# (e.g. uv sync downloads packages from PyPI).
+_INFRA_HOSTS: tuple[str, ...] = ("pypi.org", "files.pythonhosted.org")
+
+
+def _resolve_egress_cidrs(agent_config: AgentSandboxConfig) -> list[str]:
+    """Resolve agent API hosts and infra hosts to /32 CIDR blocks.
+
+    Called before sandbox creation to build a ``cidr_allowlist`` for
+    ``modal.Sandbox.create(block_network=True)``.  Resolves each hostname
+    via ``socket.getaddrinfo`` (IPv4 only) and returns deduplicated,
+    sorted ``/32`` CIDR strings.
+
+    DNS resolution failures are logged but never block sandbox creation —
+    the resulting allowlist may be incomplete, which is safer than falling
+    back to unrestricted egress.
+    """
+    import socket
+
+    hosts = [*agent_config.api_hosts, *_INFRA_HOSTS]
+    cidrs: set[str] = set()
+
+    for host in hosts:
+        try:
+            results = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)
+            for _family, _type, _proto, _canonname, (ip, _port) in results:
+                cidrs.add(f"{ip}/32")
+        except socket.gaierror:
+            logger.warning("DNS resolution failed for {}, skipping", host)
+
+    return sorted(cidrs)
 
 
 # Lightweight validation endpoints per provider.
@@ -345,11 +385,17 @@ def _create_skill_sandbox(
     env["HOME"] = home_dir
     env["SKILL_PATH"] = skill_path
 
+    # Resolve API + infra hostnames to /32 CIDRs for egress allowlist.
+    # Sandboxes run with block_network=True so only these IPs are reachable,
+    # preventing exfiltration of env vars (API keys) to arbitrary servers.
+    egress_cidrs = _resolve_egress_cidrs(agent_config)
+
     logger.info(
-        "Creating sandbox (memory={}, timeout={}, cpu={})",
+        "Creating sandbox (memory={}, timeout={}, cpu={}, egress_cidrs={})",
         sandbox_memory_mb,
         sandbox_timeout_seconds,
         sandbox_cpu,
+        egress_cidrs,
     )
     sb = modal.Sandbox.create(
         image=image,
@@ -358,6 +404,8 @@ def _create_skill_sandbox(
         memory=sandbox_memory_mb,
         timeout=sandbox_timeout_seconds,
         cpu=sandbox_cpu,
+        block_network=True,
+        cidr_allowlist=egress_cidrs,
     )
 
     # Set up skill directory using the filesystem API (no shell needed)
