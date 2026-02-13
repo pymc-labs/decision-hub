@@ -11,6 +11,7 @@
   background: linear-gradient(180deg, var(--bg-darkest) 0%, rgba(10, 10, 18, 0.95) 100%);
   border-bottom: 1px solid var(--border-color);
   backdrop-filter: blur(12px);
+  padding-top: env(safe-area-inset-top);
 }
 
 .headerInner {
@@ -94,6 +95,7 @@
 .footer {
   border-top: 1px solid var(--border-color);
   padding: 24px 0;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
   margin-top: auto;
 }
 
