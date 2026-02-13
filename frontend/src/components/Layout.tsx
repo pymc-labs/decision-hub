@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { Zap, Package, Building2, Home, BookOpen, Menu, X } from "lucide-react";
 import styles from "./Layout.module.css";
@@ -13,6 +13,11 @@ const NAV_ITEMS = [
 export default function Layout() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close mobile menu on any route change (logo, back/forward, etc.)
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className={styles.layout}>

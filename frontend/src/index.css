@@ -54,6 +54,8 @@ body {
   line-height: 1.6;
   font-size: 16px;
   /* Safe area insets for iPhone notch/dynamic island */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
