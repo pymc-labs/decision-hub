@@ -93,18 +93,14 @@ def run_eval_pipeline(
         org_slug: Organization slug.
         skill_name: Skill name.
         runtime: Optional RuntimeConfig (reserved for future use).
-        judge_api_key: Anthropic API key for the LLM judge. When empty,
-            falls back to the agent's own key (works for Claude agent).
+        judge_api_key: Anthropic API key for the LLM judge (from the
+            user's stored keys). Required — the judge always calls the
+            Anthropic API regardless of which agent is being evaluated.
 
     Returns:
         Tuple of (case_results, passed_count, total_count, total_duration_ms).
     """
     agent_config = get_agent_config(eval_config.agent)
-
-    # The judge always calls the Anthropic API. Use the dedicated judge key
-    # when provided, falling back to the agent key for Claude (where the
-    # agent runtime key and judge key are the same ANTHROPIC_API_KEY).
-    effective_judge_key = judge_api_key or agent_env_vars.get(agent_config.key_env_var, "")
 
     logger.info("Starting eval pipeline: {} cases, agent={}", len(eval_cases), eval_config.agent)
 
@@ -170,7 +166,7 @@ def run_eval_pipeline(
         logger.info("Judging case '{}' with model={}", case.name, eval_config.judge_model)
         try:
             judgment = judge_eval_output(
-                api_key=effective_judge_key,
+                api_key=judge_api_key,
                 model=eval_config.judge_model,
                 eval_case_name=case.name,
                 eval_criteria=case.judge_criteria,
@@ -229,7 +225,6 @@ def stream_eval_pipeline(
     Each event has a monotonically increasing seq number.
     """
     agent_config = get_agent_config(eval_config.agent)
-    effective_judge_key = judge_api_key or agent_env_vars.get(agent_config.key_env_var, "")
 
     seq = 0
     case_results: list[dict] = []
@@ -347,7 +342,7 @@ def stream_eval_pipeline(
 
         try:
             judgment = judge_eval_output(
-                api_key=effective_judge_key,
+                api_key=judge_api_key,
                 model=eval_config.judge_model,
                 eval_case_name=case.name,
                 eval_criteria=case.judge_criteria,
