@@ -1,0 +1,101 @@
+org_slug,skill_name,entries,compressed_bytes,uncompressed_bytes,largest_file_bytes,extensions
+anthropics,draft-outreach,1,4159,10110,10110,.md
+anthropics,daily-briefing,1,2764,7390,7390,.md
+anthropics,create-an-asset,3,13657,31935,25286,.md
+anthropics,competitive-intelligence,1,4837,13176,13176,.md
+anthropics,call-prep,1,3324,8492,8492,.md
+anthropics,account-research,1,3185,8002,8002,.md
+anthropics,task-management,1,1394,2582,2582,.md
+anthropics,memory-management,1,3626,8720,8720,.md
+anthropics,user-research-synthesis,1,4774,11218,11218,.md
+anthropics,stakeholder-comms,1,4669,10783,10783,.md
+anthropics,roadmap-management,1,3878,8805,8805,.md
+anthropics,metrics-tracking,1,5607,13372,13372,.md
+anthropics,feature-spec,1,3972,8860,8860,.md
+anthropics,competitive-analysis,1,4554,10540,10540,.md
+anthropics,performance-analytics,1,5895,14805,14805,.md
+anthropics,content-creation,1,3992,8808,8808,.md
+anthropics,campaign-planning,1,4198,10144,10144,.md
+anthropics,brand-voice,1,3874,8493,8493,.md
+anthropics,nda-triage,1,4263,11485,11485,.md
+anthropics,meeting-briefing,1,3597,8990,8990,.md
+anthropics,legal-risk-assessment,1,4840,12581,12581,.md
+anthropics,contract-review,1,4292,10859,10859,.md
+anthropics,compliance,1,4941,12818,12818,.md
+anthropics,canned-responses,1,4608,11574,11574,.md
+anthropics,variance-analysis,1,4564,11178,11178,.md
+anthropics,reconciliation,1,3190,8108,8108,.md
+anthropics,journal-entry-prep,1,3252,7819,7819,.md
+anthropics,financial-statements,1,3913,10009,10009,.md
+anthropics,close-management,1,3834,10256,10256,.md
+anthropics,audit-support,1,6190,16779,16779,.md
+anthropics,source-management,1,2515,5712,5712,.md
+anthropics,search-strategy,1,3065,7176,7176,.md
+anthropics,knowledge-synthesis,1,3504,8504,8504,.md
+anthropics,statistical-analysis,1,4665,10412,10412,.md
+anthropics,sql-queries,1,4086,11104,11104,.md
+anthropics,xlsx,54,149804,1093063,242277,.md .py .txt .xsd
+anthropics,interactive-dashboard-builder,1,5922,20514,20514,.md
+anthropics,data-visualization,1,4595,11029,11029,.md
+anthropics,webapp-testing,6,9445,22406,11357,.md .py .txt
+anthropics,data-validation,1,4323,9533,9533,.md
+anthropics,web-artifacts-builder,5,29989,45852,19967,.gz .md .sh .txt
+anthropics,data-exploration,1,3776,7895,7895,.md
+anthropics,theme-factory,13,123042,144106,124310,.md .pdf .txt
+anthropics,data-context-extractor,6,13063,29112,7233,.md .py
+anthropics,slack-gif-creator,7,15597,43709,11357,.md .py .txt
+anthropics,ticket-triage,1,3551,8141,8141,.md
+anthropics,skill-creator,7,19207,50199,18086,.md .py .txt
+anthropics,response-drafting,1,4730,10729,10729,.md
+anthropics,knowledge-management,1,4167,9539,9539,.md
+anthropics,skill-development,2,12279,34372,22825,.md
+anthropics,plugin-structure,7,27382,74940,18746,.md
+anthropics,escalation,1,3719,8287,8287,.md
+anthropics,plugin-settings,8,17656,44395,12097,.md .sh
+anthropics,customer-research,1,3790,9043,9043,.md
+anthropics,pdf,12,21504,58692,16692,.md .py .txt
+anthropics,mcp-integration,7,17560,46603,12519,.json .md
+anthropics,create-cowork-plugin,3,12411,30094,12022,.md
+anthropics,mcp-builder,10,42147,121768,28550,.md .py .txt .xml
+anthropics,single-cell-rna-qc,6,17564,50582,10254,.md .py .txt
+anthropics,hook-development,11,23652,64347,16246,.md .sh
+anthropics,cowork-plugin-customizer,5,10379,24793,11357,.json .md .txt
+anthropics,scvi-tools,22,70340,206670,17434,.md .py .txt
+anthropics,internal-comms,6,9862,22405,11357,.md .txt
+anthropics,command-development,11,55971,153849,20980,.md
+anthropics,scientific-problem-selection,11,47782,115355,18167,.md .txt
+anthropics,agent-development,7,25221,70223,14117,.md .sh
+anthropics,frontend-design,2,5903,14614,10174,.md .txt
+anthropics,creating-financial-models,3,9452,33863,17213,.md .py
+anthropics,playground,7,14347,30087,6196,.md
+anthropics,applying-brand-guidelines,4,11087,34285,15286,.md .py
+anthropics,writing-hookify-rules,1,3544,8423,8423,.md
+anthropics,nextflow-development,22,63638,202188,28480,.md .py .txt .yaml
+anthropics,analyzing-financial-statements,3,8338,31820,16469,.md .py
+anthropics,prior-auth-review-skill,13,49422,93723,21764,.md .pdf
+anthropics,example-skill,1,1290,2725,2725,.md
+anthropics,instrument-data-to-allotrope,11,43582,133553,36719,.md .py .txt
+anthropics,doc-coauthoring,1,5872,15815,15815,.md
+anthropics,claude-md-improver,4,7269,15529,6028,.md
+anthropics,fhir-developer-skill,6,13859,37281,9955,.md .py
+anthropics,canvas-design,83,2645548,5554015,191304,.md .ttf .txt
+anthropics,clinical-trial-protocol-skill,11,133455,420631,176697,.md .py .txt
+anthropics,claude-automation-recommender,6,16322,42268,10856,.md
+anthropics,brand-guidelines,2,5212,13592,11357,.md .txt
+anthropics,stripe-best-practices,1,2121,5502,5502,.md
+anthropics,claude-opus-4-5-migration,3,5904,12613,6139,.md
+github,workiq-copilot,1,2581,5539,5539,.md
+github,winapp-cli,1,2911,7654,7654,.md
+github,webapp-testing,2,2377,4832,3311,.js .md
+github,web-design-reviewer,3,9979,23946,10520,.md
+github,vscode-ext-localization,1,777,1473,1473,.md
+github,vscode-ext-commands,1,871,1545,1545,.md
+github,terraform-azurerm-set-diff-analyzer,5,13791,47561,30996,.json .md .py
+github,sponsor-finder,1,4263,10639,10639,.md
+github,snowflake-semanticview,1,1937,4411,4411,.md
+github,scoutqa-test,1,4235,12001,12001,.md
+github,refactor,1,5451,16843,16843,.md
+github,prd,1,2229,4307,4307,.md
+github,powerbi-modeling,6,12643,28508,5979,.md
+github,plantuml-ascii,1,2588,6096,6096,.md
+github,penpot-uiux-design,5,19274,50615,12950,.md
