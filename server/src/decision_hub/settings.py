@@ -45,14 +45,9 @@ class Settings(BaseSettings):
     # When set, only members of these orgs can log in (checked at token
     # exchange time in auth_routes). Leave empty to allow all GitHub users.
     # NOTE: This is an *authorization* restriction, not authentication.
-    # Authentication (valid JWT) is always required on write endpoints.
+    # Authentication (valid JWT) is always required on write endpoints
+    # regardless of this setting.
     require_github_org: str = ""
-
-    # Explicit opt-in to disable authentication on write endpoints.
-    # Intended ONLY for local development and testing. When True, write
-    # routers are mounted without JWT verification. A loud startup warning
-    # is emitted. NEVER enable this in production.
-    disable_auth: bool = False
 
     @property
     def required_github_orgs(self) -> list[str]:

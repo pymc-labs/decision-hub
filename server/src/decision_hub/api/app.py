@@ -99,9 +99,6 @@ def create_app() -> FastAPI:
     setting is an *authorization* restriction checked at login time, not an
     authentication toggle.
 
-    Set ``DISABLE_AUTH=true`` to explicitly skip auth for local dev/testing
-    (a loud warning is emitted at startup).
-
     Returns:
         A fully-configured FastAPI instance.
     """
@@ -156,22 +153,18 @@ def create_app() -> FastAPI:
     app.include_router(taxonomy_public_router)
     app.include_router(org_public_router)
 
-    # Always require a valid JWT on write routers. Authentication is
-    # unconditional — it must not depend on whether an authorization
-    # setting like require_github_org happens to be populated.
-    # The only escape hatch is the explicit DISABLE_AUTH flag.
-    if settings.disable_auth:
-        logger.warning(
-            "*** DISABLE_AUTH is set — write endpoints have NO authentication. Do NOT use this in production! ***"
-        )
-        global_deps: list = []
-    else:
-        global_deps = [Depends(get_current_user)]
+    # Always require a valid JWT on write routers.  This is defense-in-depth:
+    # each endpoint also declares its own Depends(get_current_user) to inject
+    # the User object, so even if a new endpoint forgot the parameter-level
+    # dependency, the router-level guard would still reject anonymous requests.
+    # Authentication must not depend on whether an authorization setting like
+    # require_github_org happens to be populated.
+    write_deps: list = [Depends(get_current_user)]
 
-    app.include_router(org_router, dependencies=global_deps)
-    app.include_router(registry_router, dependencies=global_deps)
-    app.include_router(keys_router, dependencies=global_deps)
-    app.include_router(tracker_router, dependencies=global_deps)
+    app.include_router(org_router, dependencies=write_deps)
+    app.include_router(registry_router, dependencies=write_deps)
+    app.include_router(keys_router, dependencies=write_deps)
+    app.include_router(tracker_router, dependencies=write_deps)
     # Search is read-only and should be accessible without auth, like the
     # public registry endpoints.
     app.include_router(search_router)
