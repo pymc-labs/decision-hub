@@ -115,6 +115,7 @@ cd server && DHUB_ENV=dev uv run --package decision-hub-server \
 - **Use server totals, not local array length**: After introducing pagination, never use `.length` of a local array as a display count — always use the server's `total` field
 - **Don't advance state on failure**: For every state-advancing side effect (advancing cursors, clearing errors, updating timestamps), explicitly handle the failure case — do not advance state when the operation it represents has failed
 - **Clean up after refactors**: After every refactor, search for all references to the old function/argument and remove dead code — no orphaned functions, unused imports, or selected-but-unmapped fields
+- **Mobile-first frontend**: Design and test all UI changes for mobile viewports first (target ~400px, e.g. iPhone 17 Pro). Use CSS Modules media queries at `480px` and `768px` breakpoints. Every new page/component must include responsive styles — never ship desktop-only layouts
 
 ### Logging
 
