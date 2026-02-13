@@ -193,6 +193,20 @@
   }
 }
 
+/* Infinite scroll sentinel */
+.sentinel {
+  display: flex;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+.loadingMore {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
 @media (max-width: 480px) {
   .grid {
     grid-template-columns: 1fr;

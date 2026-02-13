@@ -1,8 +1,9 @@
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, Download, ArrowLeft, Globe, Github, ChevronLeft, ChevronRight, Star } from "lucide-react";
+import { Package, Download, ArrowLeft, Globe, Github, Star } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -19,26 +20,22 @@ export default function OrgDetailPage() {
 }
 
 function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
-  const [page, setPage] = useState(1);
-
-  const fetchSkills = useCallback(
-    () => listSkillsFiltered({ org: orgSlug, sort: "updated", pageSize: PAGE_SIZE, page }),
-    [orgSlug, page],
+  const fetchPage = useCallback(
+    (page: number) =>
+      listSkillsFiltered({ org: orgSlug, sort: "updated", pageSize: PAGE_SIZE, page }),
+    [orgSlug],
   );
 
-  const { data: skillsData, loading, error } = useApi(fetchSkills, [orgSlug, page]);
+  const { items: skills, total: totalSkills, loading, loadingMore, error, hasMore, sentinelRef, retry } =
+    useInfiniteScroll(fetchPage, [orgSlug]);
   const { data: profile } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
-
-  const skills = skillsData?.items ?? [];
-  const totalSkills = skillsData?.total ?? 0;
-  const totalPages = skillsData?.total_pages ?? 1;
 
   const blogUrl = profile?.blog
     ? profile.blog.match(/^https?:\/\//) ? profile.blog : `https://${profile.blog}`
     : null;
 
-  if (loading && !skillsData) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
-  if (error) {
+  if (loading && skills.length === 0) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
+  if (error && skills.length === 0) {
     return (
       <div className="container">
         <NeonCard glow="pink">
@@ -104,7 +101,7 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
         </div>
       </div>
 
-      {totalSkills === 0 ? (
+      {totalSkills === 0 && !loading ? (
         <div className={styles.empty}>
           <p>No skills published by this organization yet</p>
         </div>
@@ -142,27 +139,17 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
             ))}
           </div>
 
-          {totalPages > 1 && (
-            <div className={styles.pagination}>
-              <button
-                className={styles.pageButton}
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                <ChevronLeft size={16} />
-                Prev
-              </button>
-              <span className={styles.pageInfo}>
-                Page {page} of {totalPages}
-              </span>
-              <button
-                className={styles.pageButton}
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              >
-                Next
-                <ChevronRight size={16} />
-              </button>
+          {hasMore && (
+            <div ref={sentinelRef} className={styles.sentinel}>
+              {loadingMore && <span className={styles.loadingMore}>Loading more skills...</span>}
+            </div>
+          )}
+
+          {/* Inline error when loading more pages fails */}
+          {error && skills.length > 0 && (
+            <div className={styles.sentinel}>
+              <span className={styles.loadMoreError}>Failed to load more skills.</span>
+              <button className={styles.retryBtn} onClick={retry}>Retry</button>
             </div>
           )}
         </>
