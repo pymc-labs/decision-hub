@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Fetch all published skills from the Decision Hub dev registry and write per-skill size data to CSV."""
+"""Fetch published skills from the Decision Hub dev registry and write size data to CSV.
+
+Produces two files:
+  skill_sizes.csv  — one row per skill (aggregate metrics)
+  skill_files.csv  — one row per file inside each skill zip (per-file metrics)
+"""
 
 import csv
 import io
@@ -11,9 +16,11 @@ from urllib.request import Request, urlopen
 
 BASE_URL = "https://pymc-labs--api-dev.modal.run"
 TIMEOUT = 60
-CSV_PATH = Path(__file__).resolve().parent / "skill_sizes.csv"
+SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_CSV = SCRIPT_DIR / "skill_sizes.csv"
+FILES_CSV = SCRIPT_DIR / "skill_files.csv"
 
-CSV_COLUMNS = [
+SKILL_COLUMNS = [
     "org_slug",
     "skill_name",
     "entries",
@@ -21,6 +28,16 @@ CSV_COLUMNS = [
     "uncompressed_bytes",
     "largest_file_bytes",
     "extensions",
+]
+
+FILE_COLUMNS = [
+    "org_slug",
+    "skill_name",
+    "filepath",
+    "extension",
+    "uncompressed_bytes",
+    "compressed_bytes",
+    "is_dir",
 ]
 
 
@@ -41,9 +58,10 @@ def fetch_skill_list(pages: int = 20, page_size: int = 100) -> list[dict]:
     return all_items
 
 
-def analyse_zip(body: bytes) -> dict:
-    """Return size metrics for a skill zip's raw bytes."""
+def analyse_zip(body: bytes, org_slug: str, skill_name: str) -> tuple[dict, list[dict]]:
+    """Return (skill_row, file_rows) for a skill zip's raw bytes."""
     extensions: set[str] = set()
+    file_rows: list[dict] = []
     with zipfile.ZipFile(io.BytesIO(body)) as zf:
         infos = zf.infolist()
         total_uncompressed = 0
@@ -55,13 +73,25 @@ def analyse_zip(body: bytes) -> dict:
             ext = PurePosixPath(info.filename).suffix
             if ext:
                 extensions.add(ext)
-    return {
+            file_rows.append(
+                {
+                    "org_slug": org_slug,
+                    "skill_name": skill_name,
+                    "filepath": info.filename,
+                    "extension": ext,
+                    "uncompressed_bytes": info.file_size,
+                    "compressed_bytes": info.compress_size,
+                    "is_dir": info.is_dir(),
+                }
+            )
+    skill_row = {
         "entries": len(infos),
         "compressed_bytes": len(body),
         "uncompressed_bytes": total_uncompressed,
         "largest_file_bytes": largest,
         "extensions": " ".join(sorted(extensions)),
     }
+    return skill_row, file_rows
 
 
 def main() -> None:
@@ -69,11 +99,17 @@ def main() -> None:
     skills = fetch_skill_list(pages=pages)
     total = len(skills)
 
-    with CSV_PATH.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
-        writer.writeheader()
+    with (
+        SKILL_CSV.open("w", newline="") as sf,
+        FILES_CSV.open("w", newline="") as ff,
+    ):
+        skill_writer = csv.DictWriter(sf, fieldnames=SKILL_COLUMNS)
+        skill_writer.writeheader()
+        file_writer = csv.DictWriter(ff, fieldnames=FILE_COLUMNS)
+        file_writer.writeheader()
 
         ok = 0
+        total_files = 0
         for i, skill in enumerate(skills, 1):
             org = skill["org_slug"]
             name = skill["skill_name"]
@@ -84,15 +120,19 @@ def main() -> None:
                 url = f"{BASE_URL}/v1/skills/{org}/{name}/download"
                 with urlopen(Request(url), timeout=TIMEOUT) as resp:
                     body = resp.read()
-                row = {"org_slug": org, "skill_name": name, **analyse_zip(body)}
-                writer.writerow(row)
-                f.flush()
+                skill_row, file_rows = analyse_zip(body, org, name)
+                skill_writer.writerow({"org_slug": org, "skill_name": name, **skill_row})
+                sf.flush()
+                file_writer.writerows(file_rows)
+                ff.flush()
                 ok += 1
-                print(f"OK  ({row['compressed_bytes']} bytes)")
+                total_files += len(file_rows)
+                print(f"OK  ({skill_row['compressed_bytes']} bytes, {len(file_rows)} files)")
             except Exception as exc:
                 print(f"FAILED  ({exc})", file=sys.stderr)
 
-    print(f"\nWrote {ok}/{total} skills to {CSV_PATH}")
+    print(f"\nWrote {ok}/{total} skills to {SKILL_CSV}")
+    print(f"Wrote {total_files} file entries to {FILES_CSV}")
 
 
 if __name__ == "__main__":
