@@ -7,7 +7,15 @@ from pathlib import PurePosixPath
 
 from dhub_core.validation import validate_semver, validate_skill_name
 
-__all__ = ["validate_semver", "validate_skill_name"]
+__all__ = [
+    "CODE_EXTENSIONS",
+    "CONFIG_EXTENSIONS",
+    "SCANNABLE_EXTENSIONS",
+    "TEXT_EXTENSIONS",
+    "EvaluationBundle",
+    "validate_semver",
+    "validate_skill_name",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +56,7 @@ CONFIG_EXTENSIONS = frozenset(
         ".conf",
         ".template",
         ".j2",
+        ".lock",
     }
 )
 SCANNABLE_EXTENSIONS = TEXT_EXTENSIONS | CODE_EXTENSIONS | CONFIG_EXTENSIONS

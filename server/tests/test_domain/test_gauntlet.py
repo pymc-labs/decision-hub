@@ -419,6 +419,32 @@ class TestCheckSizeBudget:
         assert d["max_file_count"] == MAX_FILE_COUNT
         assert d["unscannable_files"] == []
 
+    def test_lockfile_not_flagged_as_unscannable(self):
+        """Lockfiles (.lock) should be treated as config, not unscannable."""
+        entries = [
+            ("SKILL.md", 500, ".md"),
+            ("main.py", 100, ".py"),
+            ("uv.lock", 3000, ".lock"),
+            ("poetry.lock", 2000, ".lock"),
+        ]
+        result = check_size_budget(entries)
+        assert result.severity == "pass"
+        assert result.details is not None
+        assert result.details["unscannable_files"] == []
+        # .lock bytes should count toward config budget
+        assert result.details["config_bytes"] == 5000
+
+    def test_requirements_txt_not_unscannable(self):
+        """requirements.txt has .txt extension, so it falls under text budget."""
+        entries = [
+            ("SKILL.md", 500, ".md"),
+            ("requirements.txt", 200, ".txt"),
+        ]
+        result = check_size_budget(entries)
+        assert result.severity == "pass"
+        assert result.details is not None
+        assert result.details["unscannable_files"] == []
+
 
 class TestParseTestCases:
     def test_parse_valid(self):
@@ -912,3 +938,19 @@ class TestRunStaticChecks:
         )
         check_names = [r.check_name for r in report.results]
         assert "size_budget" not in check_names
+
+    def test_lockfiles_do_not_cause_grade_f(self):
+        """Lockfiles in zip_entries should not be treated as unscannable."""
+        report = run_static_checks(
+            skill_md_content="---\nname: foo\ndescription: bar\n---\n",
+            lockfile_content="some-lock",
+            source_files=[("main.py", "def hello(): pass\n")],
+            zip_entries=[
+                ("SKILL.md", 500, ".md"),
+                ("main.py", 100, ".py"),
+                ("uv.lock", 3000, ".lock"),
+            ],
+        )
+        assert report.grade != "F"
+        size_result = next(r for r in report.results if r.check_name == "size_budget")
+        assert size_result.severity == "pass"

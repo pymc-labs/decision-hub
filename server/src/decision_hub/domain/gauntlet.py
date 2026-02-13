@@ -11,7 +11,7 @@ import json
 import re
 from collections.abc import Callable
 
-from decision_hub.domain.publish import CODE_EXTENSIONS, CONFIG_EXTENSIONS, SCANNABLE_EXTENSIONS, TEXT_EXTENSIONS
+from decision_hub.domain.publish import CODE_EXTENSIONS, CONFIG_EXTENSIONS, TEXT_EXTENSIONS
 from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCase
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ def check_size_budget(
             code_bytes += size
         elif ext in CONFIG_EXTENSIONS:
             config_bytes += size
-        elif ext not in SCANNABLE_EXTENSIONS:
+        else:
             # Extension-less files (ext == "") and unknown extensions
             unscannable_files.append(filename)
 
