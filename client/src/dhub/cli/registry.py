@@ -825,6 +825,15 @@ def install_command(
     skill_path.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        # Validate entries before extracting to prevent zip-slip attacks
+        # where entries like "../../.bashrc" could write outside skill_path.
+        from dhub_core.ziputil import validate_zip_entries
+
+        try:
+            validate_zip_entries(zf, str(skill_path))
+        except ValueError as exc:
+            console.print(f"[red]Error: Refusing to install — {exc}[/]")
+            raise typer.Exit(1) from None
         zf.extractall(skill_path)
 
     console.print(f"[green]Installed {org_slug}/{skill_name}@{resolved_version} to {skill_path}[/]")
