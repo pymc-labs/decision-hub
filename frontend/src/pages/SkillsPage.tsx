@@ -4,6 +4,7 @@ import { Search, Package, Download, Filter, User, Tag, Layers } from "lucide-rea
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import { useSEO } from "../hooks/useSEO";
 import type { SkillSummary } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -21,6 +22,13 @@ export default function SkillsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "downloads" | "updated">("updated");
   const [viewMode, setViewMode] = useState<"grid" | "grouped">("grid");
+
+  useSEO({
+    title: "Skills",
+    description:
+      "Browse the Decision Hub skill registry. Search and filter AI agent skills by category, safety grade, and organization.",
+    path: "/skills",
+  });
 
   const { data: taxonomy } = useApi(() => getTaxonomy(), []);
   const { data: orgProfiles } = useApi(() => listOrgProfiles(), []);

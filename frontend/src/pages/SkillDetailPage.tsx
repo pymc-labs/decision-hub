@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -23,6 +23,7 @@ import {
   downloadSkillZip,
 } from "../api/client";
 import { useApi } from "../hooks/useApi";
+import { useSEO } from "../hooks/useSEO";
 import type { SkillSummary, EvalReport, AuditLogEntry, SkillFile } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -77,6 +78,37 @@ export default function SkillDetailPage() {
         : Promise.resolve([]),
     [orgSlug, skillName]
   );
+
+  const seoTitle = skill
+    ? `${orgSlug}/${skillName} - ${skill.description}`
+    : `${orgSlug}/${skillName}`;
+  const seoDescription = skill
+    ? `${skill.description} — Safety grade: ${skill.safety_rating}, v${skill.latest_version}. Install with: dhub install ${orgSlug}/${skillName}`
+    : `View the ${orgSlug}/${skillName} skill on Decision Hub.`;
+  const jsonLd = useMemo(
+    () =>
+      skill
+        ? {
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: `${orgSlug}/${skillName}`,
+            description: skill.description,
+            softwareVersion: skill.latest_version,
+            author: {
+              "@type": "Organization",
+              name: skill.org_slug,
+            },
+            applicationCategory: skill.category || "AI Agent Skill",
+          }
+        : undefined,
+    [skill, orgSlug, skillName],
+  );
+  useSEO({
+    title: seoTitle,
+    description: seoDescription,
+    path: `/skills/${orgSlug}/${skillName}`,
+    jsonLd,
+  });
 
   // Load files from zip when "files" tab is selected
   const loadFiles = useCallback(async () => {

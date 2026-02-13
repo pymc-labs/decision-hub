@@ -166,6 +166,13 @@ def create_app() -> FastAPI:
     # public registry endpoints.
     app.include_router(search_router)
 
+    # SEO routes (sitemap.xml, robots.txt) — must be registered before the
+    # SPA catch-all so these paths are handled by the API, not served as
+    # index.html.
+    from decision_hub.api.seo_routes import router as seo_router
+
+    app.include_router(seo_router)
+
     # --- Frontend SPA serving ---
     # If the frontend build was baked into the image, serve it from the
     # same origin.  Static assets (JS/CSS) are served from /assets/ and

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Building2, Package, ArrowRight, Search, Filter, Star } from "lucide-react";
 import { listOrgStats } from "../api/client";
 import { useApi } from "../hooks/useApi";
+import { useSEO } from "../hooks/useSEO";
 import type { OrgStatsResponse } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import OrgAvatar from "../components/OrgAvatar";
@@ -15,6 +16,13 @@ const DEBOUNCE_MS = 300;
 const CHUNK_SIZE = 24;
 
 export default function OrgsPage() {
+  useSEO({
+    title: "Organizations",
+    description:
+      "Browse organizations publishing AI agent skills on Decision Hub. Find teams building tools for data science, machine learning, and more.",
+    path: "/orgs",
+  });
+
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<OrgType>("orgs");

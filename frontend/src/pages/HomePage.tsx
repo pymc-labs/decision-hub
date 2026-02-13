@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Package, Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useCountUp } from "../hooks/useCountUp";
+import { useSEO } from "../hooks/useSEO";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import AnimatedTerminal from "../components/AnimatedTerminal";
@@ -21,6 +23,20 @@ export default function HomePage() {
   const totalOrgs = stats?.total_orgs ?? 0;
   const totalPublishers = stats?.total_publishers ?? 0;
   const totalDownloads = stats?.total_downloads ?? 0;
+
+  const jsonLd = useMemo(
+    () => ({
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "Decision Hub",
+      url: "https://decisionhub.dev",
+      description:
+        "The skill registry for data science agents. Discover, install, and share executable skills with built-in safety grading and automated evaluations.",
+    }),
+    [],
+  );
+
+  useSEO({ path: "/", jsonLd });
 
   const [animatedSkills, skillsRef] = useCountUp(totalSkills);
   const [animatedOrgs, orgsRef] = useCountUp(totalOrgs);
