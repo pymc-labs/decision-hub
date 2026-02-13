@@ -1,6 +1,7 @@
 """SEO routes -- sitemap.xml and robots.txt for search engine crawlers."""
 
 from datetime import UTC, datetime
+from xml.sax.saxutils import escape
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends
@@ -73,9 +74,9 @@ def sitemap_xml(conn: Connection = Depends(get_connection)) -> Response:
     lines.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
     for loc, lastmod, changefreq in urls:
         lines.append("  <url>")
-        lines.append(f"    <loc>{loc}</loc>")
-        lines.append(f"    <lastmod>{lastmod}</lastmod>")
-        lines.append(f"    <changefreq>{changefreq}</changefreq>")
+        lines.append(f"    <loc>{escape(loc)}</loc>")
+        lines.append(f"    <lastmod>{escape(lastmod)}</lastmod>")
+        lines.append(f"    <changefreq>{escape(changefreq)}</changefreq>")
         lines.append("  </url>")
     lines.append("</urlset>")
 
