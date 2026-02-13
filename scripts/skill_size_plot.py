@@ -5,11 +5,11 @@ import csv
 from pathlib import Path
 
 import matplotlib
+
+matplotlib.use("Agg")  # headless — must be set before importing pyplot
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
-
-matplotlib.use("Agg")  # headless
 
 CSV_PATH = Path(__file__).resolve().parent / "skill_sizes.csv"
 OUT_DIR = Path(__file__).resolve().parent
@@ -33,6 +33,9 @@ def _human_label(x: float, _pos: object = None) -> str:
 
 def main() -> None:
     sizes = load_sizes()
+    if not sizes:
+        print("No data in skill_sizes.csv — nothing to plot.")
+        return
     sizes_arr = np.array(sizes, dtype=float)
     n = len(sizes_arr)
     print(f"Loaded {n} skills")

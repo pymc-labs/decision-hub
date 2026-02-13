@@ -41,19 +41,23 @@ FILE_COLUMNS = [
 ]
 
 
-def fetch_skill_list(pages: int = 20, page_size: int = 100) -> list[dict]:
-    """Fetch *pages* pages of skills (page_size each) from the registry."""
+def fetch_skill_list(page_size: int = 100) -> list[dict]:
+    """Fetch all skills from the registry, paginating until exhausted."""
     all_items: list[dict] = []
-    for page in range(1, pages + 1):
+    page = 1
+    total_pages = 1  # updated after first response
+    while page <= total_pages:
         url = f"{BASE_URL}/v1/skills?page_size={page_size}&page={page}"
         with urlopen(Request(url), timeout=TIMEOUT) as resp:
             data = json.loads(resp.read())
         items = data["items"]
         total = data["total"]
+        total_pages = data.get("total_pages", (total + page_size - 1) // page_size)
         all_items.extend(items)
-        print(f"  Page {page}/{pages}: got {len(items)} skills  (registry total: {total})")
-        if not items or len(all_items) >= total:
+        print(f"  Page {page}/{total_pages}: got {len(items)} skills  (registry total: {total})")
+        if not items:
             break
+        page += 1
     print(f"  Fetched {len(all_items)} skills to download.\n")
     return all_items
 
@@ -95,8 +99,7 @@ def analyse_zip(body: bytes, org_slug: str, skill_name: str) -> tuple[dict, list
 
 
 def main() -> None:
-    pages = int(sys.argv[1]) if len(sys.argv) > 1 else 20
-    skills = fetch_skill_list(pages=pages)
+    skills = fetch_skill_list()
     total = len(skills)
 
     with (
