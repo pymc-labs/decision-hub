@@ -196,6 +196,7 @@ def check_dependency_audit(lockfile_content: str) -> EvalResult:
 TEXT_BUDGET = 100 * 1024  # 100 KB cumulative text
 CODE_BUDGET = 50 * 1024  # 50 KB cumulative code
 CONFIG_BUDGET = 25 * 1024  # 25 KB cumulative config
+SKILL_MD_BUDGET = 50 * 1024  # 50 KB for SKILL.md alone
 MAX_FILE_COUNT = 20  # max non-directory entries
 
 
@@ -216,9 +217,13 @@ def check_size_budget(
     text_bytes = 0
     code_bytes = 0
     config_bytes = 0
+    skill_md_bytes = 0
     unscannable_files: list[str] = []
 
     for filename, size, ext in zip_entries:
+        basename = filename.rsplit("/", 1)[-1] if "/" in filename else filename
+        if basename == "SKILL.md":
+            skill_md_bytes = size
         if ext in TEXT_EXTENSIONS:
             text_bytes += size
         elif ext in CODE_EXTENSIONS:
@@ -238,6 +243,8 @@ def check_size_budget(
         "code_budget": CODE_BUDGET,
         "config_bytes": config_bytes,
         "config_budget": CONFIG_BUDGET,
+        "skill_md_bytes": skill_md_bytes,
+        "skill_md_budget": SKILL_MD_BUDGET,
         "file_count": file_count,
         "max_file_count": MAX_FILE_COUNT,
         "unscannable_files": unscannable_files,
@@ -254,6 +261,8 @@ def check_size_budget(
 
     # Warn: budget exceeded or too many files
     warnings: list[str] = []
+    if skill_md_bytes > SKILL_MD_BUDGET:
+        warnings.append(f"SKILL.md {skill_md_bytes // 1024}KB > {SKILL_MD_BUDGET // 1024}KB")
     if text_bytes > TEXT_BUDGET:
         warnings.append(f"text {text_bytes // 1024}KB > {TEXT_BUDGET // 1024}KB")
     if code_bytes > CODE_BUDGET:

@@ -8,6 +8,7 @@ from decision_hub.domain.gauntlet import (
     CODE_BUDGET,
     CONFIG_BUDGET,
     MAX_FILE_COUNT,
+    SKILL_MD_BUDGET,
     TEXT_BUDGET,
     check_dependency_audit,
     check_manifest_schema,
@@ -444,6 +445,40 @@ class TestCheckSizeBudget:
         assert result.severity == "pass"
         assert result.details is not None
         assert result.details["unscannable_files"] == []
+
+    def test_skill_md_within_budget(self):
+        """SKILL.md under the budget -> pass, details track size."""
+        entries = [
+            ("SKILL.md", 5000, ".md"),
+            ("main.py", 100, ".py"),
+        ]
+        result = check_size_budget(entries)
+        assert result.severity == "pass"
+        assert result.details is not None
+        assert result.details["skill_md_bytes"] == 5000
+        assert result.details["skill_md_budget"] == SKILL_MD_BUDGET
+
+    def test_skill_md_budget_exceeded(self):
+        """SKILL.md over 50 KB -> warn."""
+        entries = [
+            ("SKILL.md", SKILL_MD_BUDGET + 1, ".md"),
+            ("main.py", 100, ".py"),
+        ]
+        result = check_size_budget(entries)
+        assert result.severity == "warn"
+        assert "SKILL.md" in result.message
+
+    def test_skill_md_nested_path(self):
+        """SKILL.md in a subdirectory is still detected."""
+        entries = [
+            ("subdir/SKILL.md", SKILL_MD_BUDGET + 1, ".md"),
+            ("main.py", 100, ".py"),
+        ]
+        result = check_size_budget(entries)
+        assert result.severity == "warn"
+        assert "SKILL.md" in result.message
+        assert result.details is not None
+        assert result.details["skill_md_bytes"] == SKILL_MD_BUDGET + 1
 
 
 class TestParseTestCases:
@@ -938,6 +973,22 @@ class TestRunStaticChecks:
         )
         check_names = [r.check_name for r in report.results]
         assert "size_budget" not in check_names
+
+    def test_oversized_skill_md_downgrades_to_c(self):
+        """SKILL.md over 50 KB -> warn -> grade C."""
+        report = run_static_checks(
+            skill_md_content="---\nname: foo\ndescription: bar\n---\n",
+            lockfile_content=None,
+            source_files=[("main.py", "def hello(): pass\n")],
+            zip_entries=[
+                ("SKILL.md", SKILL_MD_BUDGET + 1, ".md"),
+                ("main.py", 100, ".py"),
+            ],
+        )
+        assert report.grade == "C"
+        size_result = next(r for r in report.results if r.check_name == "size_budget")
+        assert size_result.severity == "warn"
+        assert "SKILL.md" in size_result.message
 
     def test_lockfiles_do_not_cause_grade_f(self):
         """Lockfiles in zip_entries should not be treated as unscannable."""
