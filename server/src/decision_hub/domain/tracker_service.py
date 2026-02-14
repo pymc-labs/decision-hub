@@ -239,7 +239,10 @@ def _publish_skill_from_tracker(
             version = bump_version(latest.semver)
 
         # Extract evaluation files and parse manifest
-        skill_md_content, source_files, lockfile_content = extract_for_evaluation(zip_data)
+        bundle = extract_for_evaluation(zip_data)
+        skill_md_content = bundle.skill_md_content
+        source_files = bundle.source_files
+        lockfile_content = bundle.lockfile_content
         runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
             skill_md_content,
             zip_data,
@@ -259,6 +262,7 @@ def _publish_skill_from_tracker(
             allowed_tools=allowed_tools,
             # TODO: implement org verification — default to False (conservative)
             is_verified_org=False,
+            zip_entries=bundle.zip_entries,
         )
 
         if not report.passed:

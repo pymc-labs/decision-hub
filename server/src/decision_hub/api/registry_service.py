@@ -102,6 +102,7 @@ def run_gauntlet_pipeline(
     *,
     allowed_tools: str | None = None,
     is_verified_org: bool = False,
+    zip_entries: list[tuple[str, int, str]] | None = None,
 ) -> tuple[GauntletReport, list[dict], dict | None]:
     """Run Gauntlet static checks and serialize results for audit logging.
 
@@ -119,6 +120,7 @@ def run_gauntlet_pipeline(
         analyze_prompt_fn=_build_analyze_prompt_fn(settings),
         is_verified_org=is_verified_org,
         review_body_fn=_build_review_body_fn(settings),
+        zip_entries=zip_entries,
     )
 
     check_results_dicts = [

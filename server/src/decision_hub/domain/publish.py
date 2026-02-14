@@ -2,10 +2,77 @@
 
 import io
 import zipfile
+from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from dhub_core.validation import validate_semver, validate_skill_name
 
-__all__ = ["validate_semver", "validate_skill_name"]
+__all__ = [
+    "CODE_EXTENSIONS",
+    "CONFIG_EXTENSIONS",
+    "SCANNABLE_EXTENSIONS",
+    "TEXT_EXTENSIONS",
+    "EvaluationBundle",
+    "build_quarantine_s3_key",
+    "build_s3_key",
+    "extract_for_evaluation",
+    "validate_semver",
+    "validate_skill_name",
+]
+
+
+# ---------------------------------------------------------------------------
+# File extension categories for scannable content
+# ---------------------------------------------------------------------------
+
+TEXT_EXTENSIONS = frozenset({".md", ".mdx", ".txt", ".latex", ".dot"})
+CODE_EXTENSIONS = frozenset(
+    {
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".sh",
+        ".ps1",
+        ".rb",
+        ".R",
+        ".go",
+        ".gd",
+        ".sql",
+        ".html",
+        ".bicep",
+        ".svg",
+        ".glsl",
+    }
+)
+CONFIG_EXTENSIONS = frozenset(
+    {
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".xml",
+        ".ini",
+        ".conf",
+        ".template",
+        ".j2",
+        ".lock",
+    }
+)
+SCANNABLE_EXTENSIONS = TEXT_EXTENSIONS | CODE_EXTENSIONS | CONFIG_EXTENSIONS
+
+
+@dataclass(frozen=True)
+class EvaluationBundle:
+    """All content extracted from a skill zip for evaluation."""
+
+    skill_md_content: str
+    source_files: list[tuple[str, str]]  # code files (filename, content)
+    lockfile_content: str | None
+    zip_entries: list[tuple[str, int, str]]  # (filename, uncompressed_size, extension)
 
 
 def build_s3_key(org_slug: str, skill_name: str, version: str) -> str:
@@ -41,19 +108,22 @@ _MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
 
 def extract_for_evaluation(
     zip_bytes: bytes,
-) -> tuple[str, list[tuple[str, str]], str | None]:
+) -> EvaluationBundle:
     """Extract evaluation-relevant files from a skill zip archive.
 
-    Reads SKILL.md, all .py source files, and the lockfile (if present)
-    from the in-memory zip without writing to disk.
+    Reads SKILL.md, Python source files, and the lockfile (if present)
+    from the in-memory zip without writing to disk.  Collects per-entry
+    metadata (filename, uncompressed size, extension) for the size-budget
+    check.
+
+    Note: Phase 2 will expand extraction to all CODE_EXTENSIONS files
+    and add text_files / config_files to the bundle.
 
     Args:
         zip_bytes: Raw bytes of the skill zip archive.
 
     Returns:
-        A tuple of (skill_md_content, source_files, lockfile_content) where
-        source_files is a list of (filename, content) tuples and
-        lockfile_content is None if no lockfile was found.
+        An EvaluationBundle with all extracted content and zip metadata.
 
     Raises:
         ValueError: If the zip does not contain a SKILL.md file, if any
@@ -63,6 +133,7 @@ def extract_for_evaluation(
     skill_md = ""
     source_files: list[tuple[str, str]] = []
     lockfile_content: str | None = None
+    zip_entries: list[tuple[str, int, str]] = []
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         entries = zf.infolist()
@@ -82,10 +153,15 @@ def extract_for_evaluation(
             if name.endswith("/"):
                 continue
 
-            if zf.getinfo(name).file_size > _MAX_FILE_SIZE:
+            info = zf.getinfo(name)
+            if info.file_size > _MAX_FILE_SIZE:
                 raise ValueError(f"File '{name}' exceeds maximum size of {_MAX_FILE_SIZE // (1024 * 1024)} MB")
 
+            ext = PurePosixPath(name).suffix.lower()
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
+
+            # Track zip metadata for size budget check
+            zip_entries.append((name, info.file_size, ext))
 
             if basename == "SKILL.md":
                 skill_md = zf.read(name).decode()
@@ -97,4 +173,9 @@ def extract_for_evaluation(
     if not skill_md:
         raise ValueError("Zip archive does not contain a SKILL.md file")
 
-    return skill_md, source_files, lockfile_content
+    return EvaluationBundle(
+        skill_md_content=skill_md,
+        source_files=source_files,
+        lockfile_content=lockfile_content,
+        zip_entries=zip_entries,
+    )
