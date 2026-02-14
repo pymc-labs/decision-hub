@@ -40,6 +40,39 @@ _PROMPT_INJECTION_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\\x[0-9a-f]{2}|\\u[0-9a-f]{4}", "escaped unicode sequences"),
 )
 
+# High-confidence credential patterns — known formats that definitively
+# identify real secrets.  This check always rejects (no LLM override)
+# because embedded credentials are never legitimate in a skill.
+# Built via concat to avoid triggering secret-scanning hooks.
+_CREDENTIAL_PATTERNS: tuple[tuple[str, str], ...] = (
+    # AWS access key IDs
+    ("AKI" + r"A[0-9A-Z]{16}", "AWS access key"),
+    # GitHub tokens (classic & fine-grained)
+    ("gh" + r"[ps]_[A-Za-z0-9_]{36,}", "GitHub token"),
+    ("github_pat" + r"_[A-Za-z0-9_]{22,}", "GitHub personal access token"),
+    # Slack tokens
+    ("xox" + r"[bpras]-[A-Za-z0-9-]{10,}", "Slack token"),
+    # Stripe secret / restricted keys
+    ("sk_live" + r"_[A-Za-z0-9]{24,}", "Stripe secret key"),
+    ("rk_live" + r"_[A-Za-z0-9]{24,}", "Stripe restricted key"),
+    # Google API keys
+    ("AIza" + r"[0-9A-Za-z_-]{35}", "Google API key"),
+    # PEM private keys
+    (r"-----BEGIN[ A-Z]*PRIVATE KEY-----", "private key"),
+    # Anthropic API keys
+    ("sk-ant" + r"-[A-Za-z0-9_-]{20,}", "Anthropic API key"),
+    # OpenAI API keys (48+ chars after prefix)
+    ("sk-" + r"[A-Za-z0-9]{48,}", "OpenAI API key"),
+    # Generic high-entropy assignments (20+ char values)
+    (
+        r"(?i)(api[_-]?key|secret[_-]?key|auth[_-]?token|access[_-]?token"
+        r"|client[_-]?secret)\s*[=:]\s*['\"][A-Za-z0-9+/=_-]{20,}['\"]",
+        "hardcoded secret",
+    ),
+    # JWT tokens (header.payload.signature)
+    (r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", "JWT token"),
+)
+
 # Permission categories that elevate a skill from A to B
 _ELEVATED_PERMISSION_PATTERNS: dict[str, list[str]] = {
     "shell": [
@@ -185,6 +218,62 @@ def check_dependency_audit(lockfile_content: str) -> EvalResult:
         check_name="dependency_audit",
         severity="fail",
         message=f"Blocked dependencies found: {', '.join(found)}",
+    )
+
+
+def _find_credential_hits(
+    content: str,
+    source_label: str,
+) -> list[dict]:
+    """Scan content for high-confidence credential patterns.
+
+    Returns a list of dicts with keys 'source', 'label', 'line'.
+    """
+    hits: list[dict] = []
+    for line in content.splitlines():
+        for pattern, label in _CREDENTIAL_PATTERNS:
+            if re.search(pattern, line):
+                hits.append(
+                    {
+                        "source": source_label,
+                        "label": label,
+                        "line": line.strip()[:200],
+                    }
+                )
+    return hits
+
+
+def check_embedded_credentials(
+    skill_md_content: str,
+    source_files: list[tuple[str, str]],
+) -> EvalResult:
+    """Scan all skill content for embedded credentials.
+
+    Checks both SKILL.md and source files for known credential formats
+    (AWS keys, GitHub tokens, private keys, etc.).  This check always
+    fails when credentials are found — there is no LLM override because
+    embedding real secrets in a skill is never legitimate.
+    """
+    all_hits: list[dict] = []
+
+    all_hits.extend(_find_credential_hits(skill_md_content, "SKILL.md"))
+
+    for filename, content in source_files:
+        all_hits.extend(_find_credential_hits(content, filename))
+
+    if not all_hits:
+        return EvalResult(
+            check_name="embedded_credentials",
+            severity="pass",
+            message="No embedded credentials detected",
+        )
+
+    findings = [f"{h['source']}: {h['label']}" for h in all_hits]
+    return EvalResult(
+        check_name="embedded_credentials",
+        severity="fail",
+        message=f"Embedded credentials detected: {'; '.join(findings)}",
+        details={"hits": all_hits},
     )
 
 
@@ -566,6 +655,8 @@ def run_static_checks(
 
     if lockfile_content is not None:
         results.append(check_dependency_audit(lockfile_content))
+
+    results.append(check_embedded_credentials(skill_md_content, source_files))
 
     results.append(
         check_safety_scan(
