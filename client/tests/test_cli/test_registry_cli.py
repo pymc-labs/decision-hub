@@ -330,6 +330,60 @@ class TestPublishCommand:
         else:
             raise AssertionError("metadata field not found in request")
 
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_with_org_flag_skips_auto_detect(
+        self,
+        _mock_url,
+        _mock_token,
+        tmp_path: Path,
+    ) -> None:
+        """--org overrides auto-detection and uses the specified org."""
+        _write_skill_md(tmp_path)
+        publish_route = respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
+
+        result = runner.invoke(
+            app,
+            ["publish", str(tmp_path), "--version", "1.0.0", "--org", "custom-org"],
+        )
+
+        assert result.exit_code == 0
+        assert "Using namespace: custom-org" in result.output
+        assert "Published: custom-org/test-skill@1.0.0" in result.output
+        # Verify the org in metadata
+        request = publish_route.calls[0].request
+        body = request.content.decode("utf-8", errors="replace")
+        for part in body.split("Content-Disposition"):
+            if 'name="metadata"' in part:
+                json_str = part.split("\r\n\r\n", 1)[1].split("\r\n--", 1)[0]
+                meta = json.loads(json_str)
+                assert meta["org_slug"] == "custom-org"
+                break
+        else:
+            raise AssertionError("metadata field not found in request")
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_with_org_short_flag(
+        self,
+        _mock_url,
+        _mock_token,
+        tmp_path: Path,
+    ) -> None:
+        """Short -o flag works as an alias for --org."""
+        _write_skill_md(tmp_path)
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={}))
+
+        result = runner.invoke(
+            app,
+            ["publish", str(tmp_path), "--version", "1.0.0", "-o", "short-org"],
+        )
+
+        assert result.exit_code == 0
+        assert "Published: short-org/test-skill@1.0.0" in result.output
+
 
 # ---------------------------------------------------------------------------
 # install_command

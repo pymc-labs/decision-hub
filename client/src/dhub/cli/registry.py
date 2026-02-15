@@ -123,6 +123,7 @@ def _publish_skill_directory(
 def publish_command(
     source: str = typer.Argument(..., help="Path to a directory containing skills, or a git repo URL"),
     version: str = typer.Option(None, "--version", help="Explicit semver version (overrides auto-bump)"),
+    org: str = typer.Option(None, "--org", "-o", help="Override the default namespace (org slug)"),
     patch: bool = typer.Option(False, "--patch", help="Bump patch version"),
     minor: bool = typer.Option(False, "--minor", help="Bump minor version"),
     major: bool = typer.Option(False, "--major", help="Bump major version"),
@@ -142,6 +143,9 @@ def publish_command(
     Version is auto-bumped by default (patch). Use --major or --minor to
     control the bump level, or --version to set an explicit version.
 
+    Use --org to override the default namespace. You can also specify the
+    org inline: dhub publish org/skill-name .
+
     When publishing from a GitHub URL, a tracker is automatically created
     so future commits are republished. Use --no-track to skip, or --track
     to re-enable a previously disabled tracker.
@@ -157,7 +161,9 @@ def publish_command(
 
     # Detect git URL in the first positional arg
     if looks_like_git_url(source):
-        _publish_from_git_repo(source, ref, version, bump_level, private=private, no_track=no_track, track=track)
+        _publish_from_git_repo(
+            source, ref, version, bump_level, private=private, no_track=no_track, track=track, org_override=org
+        )
         return
 
     if ref is not None:
@@ -167,7 +173,7 @@ def publish_command(
         console.print("[red]Error: --track can only be used with a git repository URL.[/]")
         raise typer.Exit(1)
 
-    _publish_from_directory(Path(source), version, bump_level, private=private)
+    _publish_from_directory(Path(source), version, bump_level, private=private, org_override=org)
 
 
 def _publish_discovered_skills(
@@ -232,6 +238,7 @@ def _publish_from_directory(
     bump_level: str,
     *,
     private: bool = False,
+    org_override: str | None = None,
 ) -> None:
     """Discover and publish all skills under a local directory."""
     from dhub.cli.config import get_api_url, get_token
@@ -249,7 +256,12 @@ def _publish_from_directory(
 
     api_url = get_api_url()
     token = get_token()
-    org = _auto_detect_org(api_url, token)
+
+    if org_override:
+        console.print(f"Using namespace: [cyan]{org_override}[/]")
+        org = org_override
+    else:
+        org = _auto_detect_org(api_url, token)
 
     _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private)
 
@@ -263,6 +275,7 @@ def _publish_from_git_repo(
     private: bool = False,
     no_track: bool = False,
     track: bool = False,
+    org_override: str | None = None,
 ) -> None:
     """Clone a git repo, discover skills, and publish each one."""
     from dhub.cli.config import build_headers, get_api_url, get_token
@@ -270,7 +283,12 @@ def _publish_from_git_repo(
 
     api_url = get_api_url()
     token = get_token()
-    org = _auto_detect_org(api_url, token)
+
+    if org_override:
+        console.print(f"Using namespace: [cyan]{org_override}[/]")
+        org = org_override
+    else:
+        org = _auto_detect_org(api_url, token)
 
     with console.status(f"Cloning {repo_url}..."):
         try:
@@ -416,7 +434,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
             f"[red]Error: You have multiple namespaces ({slugs}). "
             f"Run 'dhub config default-org' to set a default, "
             f"or set DHUB_DEFAULT_ORG, "
-            f"or specify: dhub publish <org>/<skill>[/]"
+            f"or use --org to specify the namespace.[/]"
         )
         raise typer.Exit(1)
 
@@ -439,7 +457,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
             f"[red]Error: You have multiple namespaces ({slugs}). "
             f"Run 'dhub config default-org' to set a default, "
             f"or set DHUB_DEFAULT_ORG, "
-            f"or specify: dhub publish <org>/<skill>[/]"
+            f"or use --org to specify the namespace.[/]"
         )
         raise typer.Exit(1)
 

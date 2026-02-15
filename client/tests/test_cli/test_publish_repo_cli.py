@@ -297,3 +297,33 @@ class TestPublishFromGitRepo:
 
         assert result.exit_code == 0
         mock_clone.assert_called_once_with("git@github.com:example/repo.git", ref=None)
+
+    @respx.mock
+    @patch("dhub.core.git_repo.clone_repo")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_git_with_org_flag(
+        self,
+        _mock_url,
+        _mock_token,
+        mock_clone,
+        tmp_path: Path,
+    ) -> None:
+        """--org overrides auto-detection when publishing from a git repo."""
+        repo_root = tmp_path / "repo"
+        _write_skill_md(repo_root / "my-skill", name="my-skill")
+        mock_clone.return_value = repo_root
+
+        respx.get("http://test:8000/v1/skills/custom-org/my-skill/latest-version").mock(
+            return_value=httpx.Response(404)
+        )
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
+
+        result = runner.invoke(
+            app,
+            ["publish", "https://github.com/example/repo", "--org", "custom-org"],
+        )
+
+        assert result.exit_code == 0
+        assert "Using namespace: custom-org" in result.output
+        assert "1 published" in result.output
