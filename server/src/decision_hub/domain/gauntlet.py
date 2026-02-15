@@ -70,10 +70,10 @@ _ELEVATED_PERMISSION_PATTERNS: dict[str, list[str]] = {
 
 
 # Type alias for the LLM judge callback.
-# Accepts (source_snippets, skill_name, skill_description) -> list[dict]
+# Accepts (source_snippets, source_files, skill_name, skill_description) -> list[dict]
 # Each returned dict has 'file', 'label', 'dangerous' (bool), 'reason'.
 AnalyzeFn = Callable[
-    [list[dict], str, str],
+    [list[dict], list[tuple[str, str]], str, str],
     list[dict],
 ]
 
@@ -236,7 +236,9 @@ def check_safety_scan(
 
     # --- LLM judge available: let it decide ---
     if analyze_fn is not None:
-        judgments = analyze_fn(hits, skill_name, skill_description)
+        hit_filenames = {h["file"] for h in hits}
+        hit_files = [(f, c) for f, c in source_files if f in hit_filenames]
+        judgments = analyze_fn(hits, hit_files, skill_name, skill_description)
 
         # Fail-closed: backfill any hits not covered by the LLM response.
         # Run unconditionally — the LLM may return duplicates or hallucinated

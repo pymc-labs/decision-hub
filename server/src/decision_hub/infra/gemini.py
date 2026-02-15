@@ -326,6 +326,7 @@ def classify_skill(
 def analyze_code_safety(
     client: dict,
     source_snippets: list[dict],
+    source_files: list[tuple[str, str]],
     skill_name: str,
     skill_description: str,
     model: str = "gemini-2.0-flash",
@@ -333,13 +334,16 @@ def analyze_code_safety(
     """Ask Gemini to judge whether flagged code patterns are actually dangerous.
 
     A regex pre-scan finds suspicious patterns (subprocess, etc.). This function
-    sends those findings plus the skill's stated purpose to the LLM so it can
-    decide which findings are legitimate for the skill vs genuinely risky.
+    sends those findings plus the full file content and the skill's stated purpose
+    to the LLM so it can decide which findings are legitimate for the skill vs
+    genuinely risky.
 
     Args:
         client: Gemini client config dict.
         source_snippets: List of dicts with keys 'file', 'label', 'line'
             describing each flagged pattern.
+        source_files: List of (filename, content) tuples for files with hits,
+            so the LLM can see the full context around flagged patterns.
         skill_name: Name of the skill being scanned.
         skill_description: What the skill says it does.
         model: Gemini model to use.
@@ -347,6 +351,7 @@ def analyze_code_safety(
     Returns:
         List of dicts with keys 'file', 'label', 'dangerous' (bool), 'reason'.
     """
+    _MAX_FILE_SIZE = 50_000  # 50 KB cap per file to avoid blowing up the prompt
 
     prompt = (
         "You are a security reviewer for Decision Hub, a package registry for "
@@ -355,10 +360,17 @@ def analyze_code_safety(
         "is genuinely dangerous or is legitimate given the skill's purpose.\n\n"
         f"Skill name: {skill_name}\n"
         f"Skill description: {skill_description}\n\n"
-        "Flagged patterns:\n"
     )
+
+    if source_files:
+        prompt += "Source files with flagged patterns:\n\n"
+        for filename, content in source_files:
+            truncated = content[:_MAX_FILE_SIZE]
+            prompt += f"=== {filename} ===\n{truncated}\n\n"
+
+    prompt += "Flagged patterns:\n"
     for s in source_snippets:
-        prompt += f"- File: {s['file']}, Pattern: {s['label']}, Context: {s['line']}\n"
+        prompt += f"- File: {s['file']}, Pattern: {s['label']}, Line: {s['line']}\n"
 
     prompt += (
         "\nFor each finding, respond with a JSON array. Each element must have:\n"

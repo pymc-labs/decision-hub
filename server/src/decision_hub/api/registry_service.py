@@ -202,10 +202,11 @@ def _build_analyze_fn(settings: Settings):
 
     gemini_client = create_gemini_client(settings.google_api_key)
 
-    def analyze_fn(snippets, skill_name, skill_description):
+    def analyze_fn(snippets, source_files, skill_name, skill_description):
         return analyze_code_safety(
             gemini_client,
             snippets,
+            source_files,
             skill_name,
             skill_description,
             model=settings.gemini_model,
