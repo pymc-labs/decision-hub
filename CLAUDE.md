@@ -1,3 +1,42 @@
+# CLAUDE.md — Decision Hub Agent Guide
+
+## Quick Start (Do this first)
+
+1. Confirm branch and local status:
+   ```bash
+   git status --short --branch
+   ```
+2. Check overlapping work:
+   ```bash
+   gh pr list --state open
+   ```
+3. Track progress in `/workspace/tasks.md` (create it if missing).
+4. Use `DHUB_ENV=dev` unless explicitly instructed to use prod.
+5. Use `uv run` for Python commands.
+6. Run server package commands from `server/` so `.env.dev`/`.env.prod` resolve correctly.
+7. Prefer `rg` and `glob` for search (avoid recursive `grep`/`find` patterns).
+
+## Agent Workflow Checklist
+
+### Before coding
+- Search for existing implementations first (`rg`, `glob`, `shared/src/`).
+- Check open PRs for overlap: `gh pr list --state open`.
+- Link work to a GitHub issue (create one if needed and you have permission).
+- Add/update the task in `/workspace/tasks.md`.
+
+### While coding
+- Keep changes focused and follow existing architecture and conventions.
+- Update `tasks.md` as milestones are completed.
+- Use project-native commands (`make`, `uv run`, `DHUB_ENV=dev`).
+
+### Before pushing
+- Run relevant checks/tests for touched components.
+- Update `tasks.md` statuses to completed/blocked.
+- Commit with a descriptive message.
+- Push with upstream tracking:
+  ```bash
+  git push -u origin <branch-name>
+  ```
 
 ## Project Overview
 
@@ -236,9 +275,10 @@ You **may** deploy to dev when asked. Always use `make deploy-dev` — never bar
 - Never modify `.github/workflows/` without explicit instructions
 
 ### Before starting work
-- **Search for existing implementations** before writing new code (`grep`, `glob`, check `shared/src/`)
+- **Search for existing implementations** before writing new code (`rg`, `glob`, check `shared/src/`)
 - **Check open PRs** for overlapping work: `gh pr list --state open`
 - **Link to a GitHub issue.** If no issue exists, create one first.
+- **Track task status in `tasks.md`** and mark items completed/blocked as work progresses.
 
 ### Resolving PR review comments
 When fixing PR review comments, always complete **all three steps**:
@@ -314,8 +354,8 @@ Trackers (`skill_trackers` table) poll GitHub repos for new commits and republis
 
 **Check Modal logs for failures:**
 ```bash
-modal app logs decision-hub 2>&1 | grep -i "tracker\|check_trackers"     # prod
-modal app logs decision-hub-dev 2>&1 | grep -i "tracker\|check_trackers"  # dev
+modal app logs decision-hub 2>&1 | rg -i "tracker|check_trackers"     # prod
+modal app logs decision-hub-dev 2>&1 | rg -i "tracker|check_trackers"  # dev
 ```
 
 **Query tracker health in DB:**
@@ -339,7 +379,7 @@ modal app logs decision-hub          # prod
 modal app logs decision-hub-dev      # dev
 
 # Filter by request ID to trace a single request
-modal app logs decision-hub-dev 2>&1 | grep "a1b2c3d4"
+modal app logs decision-hub-dev 2>&1 | rg "a1b2c3d4"
 ```
 
 ### Debugging Modal Sandboxes
