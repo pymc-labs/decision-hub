@@ -551,7 +551,7 @@ class TestSafetyScanFailClosed:
         """When LLM returns [] for regex hits, treat all hits as dangerous."""
         files = [("main.py", "subprocess.run(['ls'])\n")]
 
-        def empty_analyze(snippets, name, desc):
+        def empty_analyze(snippets, source_files, name, desc):
             return []
 
         result = check_safety_scan(
@@ -571,7 +571,7 @@ class TestSafetyScanFailClosed:
             ("b.py", 'api_key = "sk-1234567890abcdef"\n'),
         ]
 
-        def partial_analyze(snippets, name, desc):
+        def partial_analyze(snippets, source_files, name, desc):
             # Only return judgment for the first hit
             return [
                 {
@@ -690,7 +690,7 @@ class TestSafetyScanWithLlmJudge:
     def _make_analyze_fn(self, all_safe: bool):
         """Return a fake analyze_fn that marks everything as safe or dangerous."""
 
-        def fake_analyze(snippets, name, desc):
+        def fake_analyze(snippets, source_files, name, desc):
             return [
                 {
                     "file": s["file"],
@@ -735,7 +735,7 @@ class TestSafetyScanWithLlmJudge:
             ("main.py", 'api_key = "sk-1234567890abcdef"\n'),
         ]
 
-        def mixed_analyze(snippets, name, desc):
+        def mixed_analyze(snippets, source_files, name, desc):
             results = []
             for s in snippets:
                 if "subprocess" in s["label"]:
@@ -757,7 +757,7 @@ class TestSafetyScanWithLlmJudge:
         """LLM marks findings as ambiguous -> severity warn."""
         files = [("main.py", "subprocess.run(['ls'])\n")]
 
-        def ambiguous_analyze(snippets, name, desc):
+        def ambiguous_analyze(snippets, source_files, name, desc):
             return [
                 {
                     "file": s["file"],
@@ -782,7 +782,7 @@ class TestSafetyScanWithLlmJudge:
         """When regex finds nothing, the LLM is never called."""
         called = []
 
-        def should_not_be_called(snippets, name, desc):
+        def should_not_be_called(snippets, source_files, name, desc):
             called.append(True)
             return []
 
@@ -827,7 +827,7 @@ class TestRunStaticChecks:
     def test_with_analyze_fn_passes_through(self):
         """run_static_checks forwards analyze_fn to check_safety_scan."""
 
-        def approve_all(snippets, name, desc):
+        def approve_all(snippets, source_files, name, desc):
             return [{**s, "dangerous": False, "ambiguous": False, "reason": "approved"} for s in snippets]
 
         report = run_static_checks(
@@ -843,7 +843,7 @@ class TestRunStaticChecks:
     def test_grade_b_elevated_permissions(self):
         """Skills with subprocess usage but LLM-approved get grade B."""
 
-        def approve_all(snippets, name, desc):
+        def approve_all(snippets, source_files, name, desc):
             return [{**s, "dangerous": False, "ambiguous": False, "reason": "approved"} for s in snippets]
 
         report = run_static_checks(

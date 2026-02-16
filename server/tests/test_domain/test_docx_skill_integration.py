@@ -63,7 +63,7 @@ class TestStaticAnalysis:
         """When an LLM judge recognises subprocess as legitimate for a
         document processing skill, the safety scan should pass."""
 
-        def approve_all(snippets, name, desc):
+        def approve_all(snippets, source_files, name, desc):
             return [{**s, "dangerous": False, "reason": f"Legitimate for {name}: {desc[:40]}"} for s in snippets]
 
         source_files = _collect_python_sources()
@@ -79,7 +79,7 @@ class TestStaticAnalysis:
     def test_run_static_checks_with_llm_passes(self) -> None:
         """Full Gauntlet with an LLM judge should pass the docx skill."""
 
-        def approve_all(snippets, name, desc):
+        def approve_all(snippets, source_files, name, desc):
             return [{**s, "dangerous": False, "reason": "legitimate"} for s in snippets]
 
         skill_md_content = (DOCX_SKILL_PATH / "SKILL.md").read_text()
