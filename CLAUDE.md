@@ -85,12 +85,18 @@ cd server && DHUB_ENV=dev uv run --package decision-hub-server \
   python -m decision_hub.scripts.github_crawler \
   --resume --github-token "$(gh auth token)"
 
+# Process specific repos (skip discovery)
+cd server && DHUB_ENV=dev uv run --package decision-hub-server \
+  python -m decision_hub.scripts.github_crawler \
+  --repos git@github.com:machina-sports/sports-skills.git owner/repo \
+  --github-token "$(gh auth token)"
+
 # Dry-run (discovery only, no processing)
 cd server && DHUB_ENV=dev uv run --package decision-hub-server \
   python -m decision_hub.scripts.github_crawler --dry-run
 ```
 
-**Key flags:** `--max-skills N` (stop after N published), `--strategies size|path|topic|fork|curated` (pick subset), `--fresh` (delete checkpoint), `--resume` (skip discovery). A GitHub token is required — unauthenticated rate limit is only 60 req/hr.
+**Key flags:** `--max-skills N` (stop after N published), `--strategies size|path|topic|fork|curated` (pick subset), `--fresh` (delete checkpoint), `--resume` (skip discovery), `--repos REPO [REPO ...]` (process specific repos, accepts `owner/repo`, HTTPS, or SSH URLs). A GitHub token is required — unauthenticated rate limit is only 60 req/hr.
 
 ## Code Standards
 

@@ -57,6 +57,72 @@ TRUSTED_ORGS: frozenset[str] = frozenset(
 )
 
 
+_BARE_OWNER_REPO = re.compile(r"^[\w.-]+/[\w.-]+$")
+
+
+def parse_repo_url(url: str) -> str:
+    """Extract 'owner/repo' from various GitHub URL formats.
+
+    Supports:
+        owner/repo
+        https://github.com/owner/repo
+        https://github.com/owner/repo.git
+        git@github.com:owner/repo.git
+
+    Delegates SSH/HTTPS parsing to :func:`decision_hub.domain.tracker.parse_github_repo_url`
+    and adds bare ``owner/repo`` support on top.
+    """
+    from decision_hub.domain.tracker import parse_github_repo_url
+
+    # Bare owner/repo — check first since it's not a URL
+    if _BARE_OWNER_REPO.match(url):
+        return url
+
+    try:
+        owner, repo = parse_github_repo_url(url)
+        return f"{owner}/{repo}"
+    except ValueError:
+        msg = f"Cannot parse GitHub repo from: {url}"
+        raise ValueError(msg) from None
+
+
+def resolve_repos(
+    gh: "GitHubClient",
+    repo_identifiers: list[str],
+    stats: CrawlStats,
+) -> dict[str, DiscoveredRepo]:
+    """Resolve a list of repo identifiers to DiscoveredRepo objects via the GitHub API."""
+    repos: dict[str, DiscoveredRepo] = {}
+    for raw in repo_identifiers:
+        try:
+            full_name = parse_repo_url(raw)
+        except ValueError:
+            logger.error("Skipping invalid repo identifier: {}", raw)
+            stats.errors.append(f"Invalid repo identifier: {raw}")
+            continue
+
+        resp = gh.get(f"/repos/{full_name}")
+        stats.queries_made += 1
+        if resp.status_code != 200:
+            logger.error("Could not fetch repo {}: HTTP {}", full_name, resp.status_code)
+            stats.errors.append(f"HTTP {resp.status_code} for {full_name}")
+            continue
+
+        d = resp.json()
+        repos[full_name] = DiscoveredRepo(
+            full_name=full_name,
+            owner_login=d["owner"]["login"],
+            owner_type=d["owner"]["type"],
+            clone_url=d["clone_url"],
+            stars=d.get("stargazers_count", 0),
+            description=d.get("description") or "",
+        )
+        logger.info("Resolved repo: {} ({}★)", full_name, repos[full_name].stars)
+
+    tag_trusted_repos(repos)
+    return repos
+
+
 def tag_trusted_repos(repos: dict[str, DiscoveredRepo]) -> None:
     """Mark repos whose owner is in TRUSTED_ORGS (case-insensitive, in-place)."""
     for repo in repos.values():
