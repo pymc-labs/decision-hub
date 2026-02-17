@@ -63,19 +63,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Checkpoint file path",
     )
 
-    resume_group = parser.add_mutually_exclusive_group()
-    resume_group.add_argument(
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
         "--resume",
         action="store_true",
         help="Resume from existing checkpoint (skip discovery)",
     )
-    resume_group.add_argument(
+    source_group.add_argument(
         "--fresh",
         action="store_true",
         help="Delete checkpoint and start over",
     )
-
-    parser.add_argument(
+    source_group.add_argument(
         "--repos",
         nargs="+",
         metavar="REPO",
@@ -403,7 +402,7 @@ def run_crawler(args: argparse.Namespace) -> None:
 
     # --repos: skip discovery, resolve specific repos and process them
     if args.repos:
-        from decision_hub.scripts.crawler.discovery import GitHubClient, resolve_repos, tag_trusted_repos
+        from decision_hub.scripts.crawler.discovery import GitHubClient, resolve_repos
 
         gh = GitHubClient(args.github_token)
         try:
@@ -415,8 +414,6 @@ def run_crawler(args: argparse.Namespace) -> None:
         if not resolved:
             logger.error("No repos could be resolved. Nothing to process.")
             sys.exit(1)
-
-        tag_trusted_repos(resolved)
 
         if args.dry_run:
             print(f"\nResolved {len(resolved)} repos:")

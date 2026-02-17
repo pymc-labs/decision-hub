@@ -987,6 +987,12 @@ class TestOrchestrator:
         args = parse_args([])
         assert args.repos is None
 
+    def test_parse_args_repos_and_resume_mutually_exclusive(self):
+        from decision_hub.scripts.crawler.__main__ import parse_args
+
+        with pytest.raises(SystemExit):
+            parse_args(["--repos", "owner/repo", "--resume"])
+
 
 # ---------------------------------------------------------------------------
 # process_repo_on_modal tests

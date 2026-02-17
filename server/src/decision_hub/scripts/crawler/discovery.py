@@ -57,6 +57,9 @@ TRUSTED_ORGS: frozenset[str] = frozenset(
 )
 
 
+_BARE_OWNER_REPO = re.compile(r"^[\w.-]+/[\w.-]+$")
+
+
 def parse_repo_url(url: str) -> str:
     """Extract 'owner/repo' from various GitHub URL formats.
 
@@ -65,24 +68,22 @@ def parse_repo_url(url: str) -> str:
         https://github.com/owner/repo
         https://github.com/owner/repo.git
         git@github.com:owner/repo.git
+
+    Delegates SSH/HTTPS parsing to :func:`decision_hub.domain.tracker.parse_github_repo_url`
+    and adds bare ``owner/repo`` support on top.
     """
-    # SSH format: git@github.com:owner/repo.git
-    ssh_match = re.match(r"git@github\.com:([\w.-]+/[\w.-]+?)(?:\.git)?$", url)
-    if ssh_match:
-        return ssh_match.group(1)
+    from decision_hub.domain.tracker import parse_github_repo_url
 
-    # HTTPS format: https://github.com/owner/repo[.git]
-    https_match = re.match(r"https?://github\.com/([\w.-]+/[\w.-]+?)(?:\.git)?/?$", url)
-    if https_match:
-        return https_match.group(1)
+    # Bare owner/repo — check first since it's not a URL
+    if _BARE_OWNER_REPO.match(url):
+        return url
 
-    # Bare owner/repo
-    bare_match = re.match(r"^([\w.-]+/[\w.-]+)$", url)
-    if bare_match:
-        return bare_match.group(1)
-
-    msg = f"Cannot parse GitHub repo from: {url}"
-    raise ValueError(msg)
+    try:
+        owner, repo = parse_github_repo_url(url)
+        return f"{owner}/{repo}"
+    except ValueError:
+        msg = f"Cannot parse GitHub repo from: {url}"
+        raise ValueError(msg) from None
 
 
 def resolve_repos(
