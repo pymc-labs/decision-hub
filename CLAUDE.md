@@ -248,6 +248,17 @@ When fixing PR review comments, always complete **all three steps**:
 
 To get unresolved thread IDs: `gh api graphql -f query='{ repository(owner: "pymc-labs", name: "decision-hub") { pullRequest(number: PR_NUM) { reviewThreads(first: 50) { nodes { id isResolved comments(first: 1) { nodes { body author { login } } } } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | {id, body: .comments.nodes[0].body[:80]}'`
 
+### Code review workflow
+
+When reviewing code (PRs, refactors, or when explicitly asked), evaluate these four dimensions:
+
+1. **Architecture** — Component boundaries, coupling, data flow, scaling characteristics, security boundaries (auth, data access, API surface).
+2. **Code quality** — DRY violations (flag aggressively), error handling gaps and missing edge cases, over- or under-engineering relative to the task, technical debt hotspots.
+3. **Test coverage** — Unit/integration/e2e gaps, weak assertions, untested error paths and failure modes, missing edge case coverage.
+4. **Performance** — N+1 queries and DB access patterns, memory concerns, caching opportunities, high-complexity code paths.
+
+**Decision-making protocol for non-trivial changes:** When a review finding or implementation choice has multiple valid approaches, do not assume a direction. Instead: (1) describe the problem concretely with file and line references, (2) present 2-3 options including "do nothing" where reasonable, with effort/risk/maintenance tradeoffs for each, (3) give an opinionated recommendation with rationale, and (4) ask for input before proceeding.
+
 ## Releases & Deployment
 
 ### CLI Versioning & Release
