@@ -297,6 +297,7 @@ def run_processing_phase(
                 chunk_dicts,
                 kwargs={"bot_user_id": bot_user_id, "github_token": github_token},
                 return_exceptions=True,
+                wrap_returned_exceptions=False,
             ):
                 if isinstance(result, Exception):
                     stats.errors.append(str(result)[:500])
