@@ -299,7 +299,7 @@ def run_processing_phase(
                 return_exceptions=True,
                 wrap_returned_exceptions=False,
             ):
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     stats.errors.append(str(result)[:500])
                     repo_name = "unknown"
                     commit_sha = None
