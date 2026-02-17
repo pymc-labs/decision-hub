@@ -61,9 +61,12 @@ secrets = [
 ]
 
 
+custom_domains = ["hub.decision.ai"] if env == "prod" else ["hub-dev.decision.ai"]
+
+
 @app.function(image=image, secrets=secrets, scaledown_window=300, cpu=0.5, memory=256)
 @modal.concurrent(max_inputs=100)
-@modal.asgi_app(label=f"api{suffix}")
+@modal.asgi_app(label=f"api{suffix}", custom_domains=custom_domains)
 def web():
     """Serve the Decision Hub FastAPI application."""
     from decision_hub.api.app import create_app

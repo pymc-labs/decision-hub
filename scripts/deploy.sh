@@ -49,9 +49,9 @@ DHUB_ENV="$DHUB_ENV" modal deploy modal_app.py
 echo ""
 echo "=== Deploy complete ==="
 if [ "$DHUB_ENV" = "prod" ]; then
-  echo "    URL: https://lfiaschi--api.modal.run"
+  echo "    URL: https://pymc-labs--api.modal.run"
 else
-  echo "    URL: https://lfiaschi--api-$DHUB_ENV.modal.run"
+  echo "    URL: https://pymc-labs--api-$DHUB_ENV.modal.run"
 fi
 
 # --- 4. Tag prod deploys for tracking ---
