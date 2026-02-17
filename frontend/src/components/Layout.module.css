@@ -124,17 +124,11 @@
   letter-spacing: 1px;
 }
 
-.githubButtons {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-left: 8px;
-}
-
-.githubBtn {
+.starBtn {
   display: flex;
   align-items: center;
   gap: 5px;
+  margin-left: 8px;
   padding: 6px 12px;
   border-radius: 6px;
   font-family: 'Rajdhani', sans-serif;
@@ -149,13 +143,6 @@
   transition: all 0.2s ease;
   cursor: pointer;
   text-decoration: none;
-}
-
-.githubBtn:hover {
-  color: var(--neon-cyan) !important;
-  border-color: rgba(0, 240, 255, 0.4);
-  background: rgba(0, 240, 255, 0.05);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
 }
 
 .starBtn:hover {
@@ -216,11 +203,11 @@
     position: relative;
   }
 
-  .githubButtons span {
+  .starBtn span {
     display: none;
   }
 
-  .githubBtn {
+  .starBtn {
     padding: 6px;
   }
 

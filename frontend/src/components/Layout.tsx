@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Zap, Package, Building2, Home, BookOpen, Menu, X, Github, Star } from "lucide-react";
+import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star } from "lucide-react";
 import styles from "./Layout.module.css";
 
 const NAV_ITEMS = [
@@ -62,28 +62,16 @@ export default function Layout() {
             ))}
           </nav>
 
-          <div className={styles.githubButtons}>
-            <a
-              href="https://github.com/pymc-labs/decision-hub"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.githubBtn}
-              aria-label="View on GitHub"
-            >
-              <Github size={16} />
-              <span>GitHub</span>
-            </a>
-            <a
-              href="https://github.com/pymc-labs/decision-hub/stargazers"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`${styles.githubBtn} ${styles.starBtn}`}
-              aria-label="Star on GitHub"
-            >
-              <Star size={16} />
-              <span>Star</span>
-            </a>
-          </div>
+          <a
+            href="https://github.com/pymc-labs/decision-hub"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.starBtn}
+            aria-label="Star on GitHub"
+          >
+            <Star size={16} />
+            <span>Star on GitHub</span>
+          </a>
         </div>
       </header>
 
