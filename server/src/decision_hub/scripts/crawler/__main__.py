@@ -76,6 +76,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--repos",
+        nargs="+",
+        metavar="REPO",
+        help=(
+            "Process specific repos instead of running discovery. "
+            "Accepts owner/repo, https://github.com/owner/repo, "
+            "or git@github.com:owner/repo.git"
+        ),
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Run discovery only, print stats, do not process",
@@ -388,6 +399,59 @@ def run_crawler(args: argparse.Namespace) -> None:
             stats=stats,
         )
         _print_summary(stats)
+        return
+
+    # --repos: skip discovery, resolve specific repos and process them
+    if args.repos:
+        from decision_hub.scripts.crawler.discovery import GitHubClient, resolve_repos, tag_trusted_repos
+
+        gh = GitHubClient(args.github_token)
+        try:
+            resolve_stats = CrawlStats()
+            resolved = resolve_repos(gh, args.repos, resolve_stats)
+        finally:
+            gh.close()
+
+        if not resolved:
+            logger.error("No repos could be resolved. Nothing to process.")
+            sys.exit(1)
+
+        tag_trusted_repos(resolved)
+
+        if args.dry_run:
+            print(f"\nResolved {len(resolved)} repos:")
+            for r in resolved.values():
+                trusted = " [trusted]" if r.is_trusted else ""
+                print(f"  {r.full_name} ({r.stars}★){trusted}")
+            return
+
+        checkpoint = Checkpoint.load(checkpoint_path) if checkpoint_path.exists() else Checkpoint()
+        for full_name, repo in resolved.items():
+            checkpoint.discovered_repos[full_name] = repo_to_dict(repo)
+        checkpoint.save(checkpoint_path)
+
+        pending = list(resolved.values())
+
+        from decision_hub.infra.database import create_engine, upsert_user
+        from decision_hub.scripts.crawler.processing import BOT_GITHUB_ID, BOT_USERNAME
+
+        engine = create_engine(settings.database_url)
+        with engine.connect() as conn:
+            bot_user = upsert_user(conn, github_id=BOT_GITHUB_ID, username=BOT_USERNAME)
+            conn.commit()
+
+        proc_stats = CrawlStats()
+        run_processing_phase(
+            pending_repos=pending,
+            bot_user_id=str(bot_user.id),
+            github_token=args.github_token,
+            checkpoint=checkpoint,
+            checkpoint_path=checkpoint_path,
+            max_skills=args.max_skills,
+            modal_app_name=settings.modal_app_name,
+            stats=proc_stats,
+        )
+        _print_summary(proc_stats)
         return
 
     # Streaming mode: discover a batch → process it → discover next batch

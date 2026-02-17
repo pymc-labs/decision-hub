@@ -15,6 +15,8 @@ from decision_hub.scripts.crawler.discovery import (
     GitHubClient,
     _run_code_search,
     parse_curated_lists,
+    parse_repo_url,
+    resolve_repos,
     scan_forks,
     search_by_file_size,
     search_by_path,
@@ -803,6 +805,143 @@ class TestCloneRepo:
 
 
 # ---------------------------------------------------------------------------
+# Repo URL parsing tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseRepoUrl:
+    def test_ssh_url(self):
+        assert parse_repo_url("git@github.com:machina-sports/sports-skills.git") == "machina-sports/sports-skills"
+
+    def test_ssh_url_no_dot_git(self):
+        assert parse_repo_url("git@github.com:owner/repo") == "owner/repo"
+
+    def test_https_url(self):
+        assert parse_repo_url("https://github.com/owner/repo") == "owner/repo"
+
+    def test_https_url_with_dot_git(self):
+        assert parse_repo_url("https://github.com/owner/repo.git") == "owner/repo"
+
+    def test_https_url_trailing_slash(self):
+        assert parse_repo_url("https://github.com/owner/repo/") == "owner/repo"
+
+    def test_http_url(self):
+        assert parse_repo_url("http://github.com/owner/repo") == "owner/repo"
+
+    def test_bare_owner_repo(self):
+        assert parse_repo_url("owner/repo") == "owner/repo"
+
+    def test_bare_with_dashes_and_dots(self):
+        assert parse_repo_url("my-org/my.repo") == "my-org/my.repo"
+
+    def test_invalid_url_raises(self):
+        with pytest.raises(ValueError, match="Cannot parse"):
+            parse_repo_url("not-a-repo-url")
+
+    def test_invalid_three_segment_path(self):
+        with pytest.raises(ValueError, match="Cannot parse"):
+            parse_repo_url("a/b/c")
+
+
+# ---------------------------------------------------------------------------
+# Repo resolution tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRepos:
+    def test_resolves_valid_repos(self):
+        gh = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "owner": {"login": "machina-sports", "type": "Organization"},
+            "clone_url": "https://github.com/machina-sports/sports-skills.git",
+            "stargazers_count": 42,
+            "description": "Sports skills",
+        }
+        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+        gh.get.return_value = resp
+
+        stats = CrawlStats()
+        result = resolve_repos(gh, ["git@github.com:machina-sports/sports-skills.git"], stats)
+
+        assert "machina-sports/sports-skills" in result
+        repo = result["machina-sports/sports-skills"]
+        assert repo.stars == 42
+        assert repo.clone_url == "https://github.com/machina-sports/sports-skills.git"
+        assert stats.queries_made == 1
+
+    def test_skips_invalid_identifier(self):
+        gh = MagicMock()
+        stats = CrawlStats()
+        result = resolve_repos(gh, ["not-a-valid-url"], stats)
+
+        assert len(result) == 0
+        assert len(stats.errors) == 1
+        gh.get.assert_not_called()
+
+    def test_skips_404_repos(self):
+        gh = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 404
+        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+        gh.get.return_value = resp
+
+        stats = CrawlStats()
+        result = resolve_repos(gh, ["owner/nonexistent"], stats)
+
+        assert len(result) == 0
+        assert len(stats.errors) == 1
+
+    def test_mixed_valid_and_invalid(self):
+        gh = MagicMock()
+        ok_resp = MagicMock()
+        ok_resp.status_code = 200
+        ok_resp.json.return_value = {
+            "owner": {"login": "owner", "type": "User"},
+            "clone_url": "https://github.com/owner/repo.git",
+            "stargazers_count": 10,
+            "description": "A repo",
+        }
+        ok_resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+
+        fail_resp = MagicMock()
+        fail_resp.status_code = 404
+        fail_resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+
+        gh.get.side_effect = [ok_resp, fail_resp]
+
+        stats = CrawlStats()
+        result = resolve_repos(
+            gh,
+            ["owner/repo", "owner/missing"],
+            stats,
+        )
+
+        assert len(result) == 1
+        assert "owner/repo" in result
+        assert stats.queries_made == 2
+
+    def test_tags_trusted_repos(self):
+        gh = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "owner": {"login": "anthropics", "type": "Organization"},
+            "clone_url": "https://github.com/anthropics/skills.git",
+            "stargazers_count": 100,
+            "description": "Official",
+        }
+        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+        gh.get.return_value = resp
+
+        stats = CrawlStats()
+        result = resolve_repos(gh, ["anthropics/skills"], stats)
+
+        assert result["anthropics/skills"].is_trusted is True
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator tests
 # ---------------------------------------------------------------------------
 
@@ -835,6 +974,18 @@ class TestOrchestrator:
 
         args = parse_args(["--max-skills", "50"])
         assert args.max_skills == 50
+
+    def test_parse_args_repos(self):
+        from decision_hub.scripts.crawler.__main__ import parse_args
+
+        args = parse_args(["--repos", "owner/repo", "git@github.com:org/skill.git"])
+        assert args.repos == ["owner/repo", "git@github.com:org/skill.git"]
+
+    def test_parse_args_repos_default_none(self):
+        from decision_hub.scripts.crawler.__main__ import parse_args
+
+        args = parse_args([])
+        assert args.repos is None
 
 
 # ---------------------------------------------------------------------------
