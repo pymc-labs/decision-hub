@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Zap, Package, Building2, Home, BookOpen, Menu, X } from "lucide-react";
+import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star } from "lucide-react";
 import styles from "./Layout.module.css";
 
 const NAV_ITEMS = [
@@ -28,19 +28,6 @@ export default function Layout() {
             <span className={styles.logoText}>Decision Hub</span>
           </Link>
 
-          <button
-            className={styles.menuToggle}
-            onClick={() =>
-              setMobileMenuState(() => ({
-                isOpen: !mobileMenuOpen,
-                openedOnPath: location.pathname,
-              }))
-            }
-            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-          >
-            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
-          </button>
-
           <nav className={`${styles.nav} ${mobileMenuOpen ? styles.navOpen : ""}`}>
             {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
               <Link
@@ -61,6 +48,31 @@ export default function Layout() {
               </Link>
             ))}
           </nav>
+
+          <div className={styles.headerRight}>
+            <a
+              href="https://github.com/pymc-labs/decision-hub"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.starBtn}
+              aria-label="Star on GitHub"
+            >
+              <Star size={16} />
+              <span>Star on GitHub</span>
+            </a>
+            <button
+              className={styles.menuToggle}
+              onClick={() =>
+                setMobileMenuState(() => ({
+                  isOpen: !mobileMenuOpen,
+                  openedOnPath: location.pathname,
+                }))
+              }
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            >
+              {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+            </button>
+          </div>
         </div>
       </header>
 
