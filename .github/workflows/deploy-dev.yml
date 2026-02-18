@@ -31,7 +31,7 @@ jobs:
         run: uv tool install modal
 
       - name: Build frontend
-        run: cd frontend && npm ci && VITE_API_URL="" npx vite build
+        run: cd frontend && npm ci && VITE_API_URL="" VITE_ENV=dev npx vite build
 
       - name: Run migrations
         env:

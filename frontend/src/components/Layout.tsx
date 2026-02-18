@@ -3,6 +3,8 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star } from "lucide-react";
 import styles from "./Layout.module.css";
 
+const IS_DEV = import.meta.env.VITE_ENV !== "prod";
+
 const NAV_ITEMS = [
   { path: "/", label: "Home", icon: Home },
   { path: "/skills", label: "Skills", icon: Package },
@@ -26,6 +28,7 @@ export default function Layout() {
           <Link to="/" className={styles.logo}>
             <Zap className={styles.logoIcon} />
             <span className={styles.logoText}>Decision Hub</span>
+            {IS_DEV && <span className={styles.devBadge}>DEV</span>}
           </Link>
 
           <nav className={`${styles.nav} ${mobileMenuOpen ? styles.navOpen : ""}`}>

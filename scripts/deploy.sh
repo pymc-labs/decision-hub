@@ -28,8 +28,9 @@ if [ ! -d node_modules ]; then
   npm ci --silent
 fi
 
-# Set the API base to empty string so the SPA uses relative URLs
-VITE_API_URL="" npm run build
+# Set the API base to empty string so the SPA uses relative URLs.
+# VITE_ENV controls environment-specific behavior (noindex on dev, DEV badge).
+VITE_API_URL="" VITE_ENV="$DHUB_ENV" npm run build
 
 echo "    Frontend built: $(du -sh dist | cut -f1)"
 

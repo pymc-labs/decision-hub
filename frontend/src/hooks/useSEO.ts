@@ -76,6 +76,11 @@ export function useSEO({ title, description, path, jsonLd }: SEOProps) {
 
     document.title = fullTitle;
 
+    // Block indexing on non-prod environments
+    if (import.meta.env.VITE_ENV !== "prod") {
+      setMetaTag("name", "robots", "noindex, nofollow");
+    }
+
     // Standard meta
     setMetaTag("name", "description", desc);
 

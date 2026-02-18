@@ -52,6 +52,21 @@
   text-transform: uppercase;
 }
 
+.devBadge {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 45, 149, 0.15);
+  color: var(--neon-pink);
+  border: 1px solid var(--neon-pink);
+  text-shadow: var(--glow-pink);
+  box-shadow: 0 0 8px rgba(255, 45, 149, 0.3);
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
 .nav {
   display: flex;
   gap: 4px;
