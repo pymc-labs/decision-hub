@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from xml.sax.saxutils import escape
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlalchemy.engine import Connection
 
@@ -84,8 +84,14 @@ def sitemap_xml(conn: Connection = Depends(get_connection)) -> Response:
     return Response(content=xml, media_type="application/xml")
 
 
+_PROD_HOSTS = {"hub.decision.ai", "decisionhub.dev"}
+
+
 @router.get("/robots.txt", include_in_schema=False)
-def robots_txt() -> Response:
-    """Serve robots.txt with sitemap reference."""
-    content = f"User-agent: *\nAllow: /\n\nSitemap: {_BASE_URL}/sitemap.xml\n"
+def robots_txt(request: Request) -> Response:
+    """Serve robots.txt — disallow everything on non-prod to prevent indexing."""
+    if request.url.hostname not in _PROD_HOSTS:
+        content = "User-agent: *\nDisallow: /\n"
+    else:
+        content = f"User-agent: *\nAllow: /\n\nSitemap: {_BASE_URL}/sitemap.xml\n"
     return Response(content=content, media_type="text/plain")
