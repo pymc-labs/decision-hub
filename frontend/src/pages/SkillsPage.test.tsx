@@ -200,7 +200,7 @@ describe("SkillsPage", () => {
   it("shows skill count in header", async () => {
     renderPage();
     await waitForSkills();
-    expect(screen.getByText(/3 skills found/)).toBeInTheDocument();
+    expect(screen.getByText(/3 skills/)).toBeInTheDocument();
   });
 
   it("shows no-results message when search matches nothing", async () => {
@@ -216,7 +216,7 @@ describe("SkillsPage", () => {
       expect(screen.queryByText("llm-tool")).not.toBeInTheDocument();
     });
 
-    const searchInput = screen.getByPlaceholderText("Search skills...");
+    const searchInput = screen.getByPlaceholderText(/Search skills/);
     await user.type(searchInput, "nonexistent");
 
     // Wait for debounce + server response
