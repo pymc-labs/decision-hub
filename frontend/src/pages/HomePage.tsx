@@ -13,6 +13,7 @@ import GradeBadge from "../components/GradeBadge";
 import AnimatedTerminal from "../components/AnimatedTerminal";
 import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
+import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
 
 const DATA_CATEGORIES = "Data & Database,Data Science & Statistics";
 const HOME_PAGE_SIZE = 6;
@@ -331,16 +332,18 @@ Downloading anthropics/statistical-analysis@0.1.0...
               grading for free. Private by default — only your org can see them.
             </p>
             <div className={styles.bottomCtaActions}>
-              <a
-                href="https://github.com/pymc-labs/decision-hub"
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.btnPrimary}
-              >
-                <Package size={18} />
-                Get Started
-                <ArrowRight size={16} />
-              </a>
+              {SHOW_GITHUB_BUTTONS && (
+                <a
+                  href="https://github.com/pymc-labs/decision-hub"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.btnPrimary}
+                >
+                  <Package size={18} />
+                  Get Started
+                  <ArrowRight size={16} />
+                </a>
+              )}
               <Link to="/how-it-works" className={styles.btnSecondary}>
                 <Zap size={18} />
                 Learn More

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star } from "lucide-react";
 import styles from "./Layout.module.css";
+import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
 
 const IS_DEV = import.meta.env.VITE_ENV !== "prod";
 
@@ -53,16 +54,18 @@ export default function Layout() {
           </nav>
 
           <div className={styles.headerRight}>
-            <a
-              href="https://github.com/pymc-labs/decision-hub"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.starBtn}
-              aria-label="Star on GitHub"
-            >
-              <Star size={16} />
-              <span>Star on GitHub</span>
-            </a>
+            {SHOW_GITHUB_BUTTONS && (
+              <a
+                href="https://github.com/pymc-labs/decision-hub"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.starBtn}
+                aria-label="Star on GitHub"
+              >
+                <Star size={16} />
+                <span>Star on GitHub</span>
+              </a>
+            )}
             <button
               className={styles.menuToggle}
               onClick={() =>

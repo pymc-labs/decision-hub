@@ -3,6 +3,8 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .header {
@@ -36,6 +38,7 @@
   white-space: pre;
   overflow-x: auto;
   margin: 0;
+  flex: 1;
 }
 
 .command {
