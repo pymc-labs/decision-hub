@@ -18,7 +18,6 @@ interface Feature {
   bullets: ReactNode[];
   terminal: {
     title: string;
-    colorCommands: boolean;
     code: string;
   };
 }
@@ -50,7 +49,7 @@ const ACTS: Act[] = [
         ],
         terminal: {
           title: "dhub ask",
-          colorCommands: true,
+
           code: `$ dhub ask "I need to do Bayesian statistics with PyMC"
 
 Searching Decision Hub...
@@ -72,7 +71,7 @@ Install with:
         ],
         terminal: {
           title: "dhub publish",
-          colorCommands: true,
+
           code: `$ dhub publish git@github.com:pymc-labs/python-analytics-skills.git
 
 Cloning git@github.com:pymc-labs/python-analytics-skills.git...
@@ -114,7 +113,7 @@ Done: 3 published, 0 skipped, 0 failed`,
         ],
         terminal: {
           title: "dhub publish",
-          colorCommands: true,
+
           code: `$ dhub publish ./my-skill
 
 Packaging my-skill...
@@ -137,7 +136,7 @@ Published: pymc-labs/my-skill@0.1.0 (Grade A)`,
         ],
         terminal: {
           title: "SKILL.md evals section",
-          colorCommands: false,
+
           code: `evals:
   - name: "basic-usage"
     prompt: "Build a simple linear regression model"
@@ -171,7 +170,7 @@ Published: pymc-labs/my-skill@0.1.0 (Grade A)`,
         ],
         terminal: {
           title: "dhub install",
-          colorCommands: true,
+
           code: `$ dhub install pymc-labs/pymc-modeling --agent all
 
 Resolving pymc-labs/pymc-modeling@latest...
@@ -190,7 +189,7 @@ Linked to agents: claude, codex, cursor, gemini, opencode`,
         ],
         terminal: {
           title: "dhub org",
-          colorCommands: true,
+
           code: `$ dhub org list
 
 Your namespaces:
@@ -271,7 +270,6 @@ export default function HowItWorksPage() {
                       <div className={styles.featureTerminal}>
                         <TerminalBlock
                           title={feature.terminal.title}
-                          colorCommands={feature.terminal.colorCommands}
                         >
                           {feature.terminal.code}
                         </TerminalBlock>
