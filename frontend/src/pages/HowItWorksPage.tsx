@@ -12,6 +12,7 @@ const SECTIONS = [
     text: "Define eval cases in YAML right inside your SKILL.md. On each publish the agent executes in an isolated sandbox, and an LLM judge scores the output automatically — so you know a skill works before anyone installs it.",
     terminal: {
       title: "SKILL.md evals section",
+      colorCommands: false,
       code: `evals:
   - name: "basic-usage"
     prompt: "Build a simple linear regression model"
@@ -31,6 +32,7 @@ const SECTIONS = [
     text: "Every skill passes through static analysis and LLM review on publish. Shell injection, permission escalation, data exfiltration, and dangerous-pattern scanning produce a letter grade from A to F — visible on every skill card.",
     terminal: {
       title: "dhub publish",
+      colorCommands: true,
       code: `$ dhub publish ./my-skill
 
 Packaging my-skill...
@@ -50,6 +52,7 @@ Published: pymc-labs/my-skill@0.1.0 (Grade A)`,
     text: "Describe what you need in plain English. The index understands intent, not just keywords — your agent finds and installs the right skill without you browsing a catalog.",
     terminal: {
       title: "dhub ask",
+      colorCommands: true,
       code: `$ dhub ask "I need to do Bayesian statistics with PyMC"
 
 Searching Decision Hub...
@@ -68,6 +71,7 @@ Install with:
     text: "Point dhub publish at a GitHub repo and every skill inside is discovered, versioned, and published automatically. No need to clone manually — just pass the URL.",
     terminal: {
       title: "dhub publish",
+      colorCommands: true,
       code: `$ dhub publish git@github.com:pymc-labs/python-analytics-skills.git
 
 Cloning git@github.com:pymc-labs/python-analytics-skills.git...
@@ -95,6 +99,7 @@ Done: 3 published, 0 skipped, 0 failed`,
     text: "One install command symlinks a skill to every supported agent — Claude, Cursor, Codex, Gemini, OpenCode, and more. No per-agent configuration. Update once, and all agents pick up the change.",
     terminal: {
       title: "dhub install",
+      colorCommands: true,
       code: `$ dhub install pymc-labs/pymc-modeling --agent all
 
 Resolving pymc-labs/pymc-modeling@latest...
@@ -110,6 +115,7 @@ Linked to agents: claude, codex, cursor, gemini, opencode`,
     text: "Skills are scoped to GitHub organizations — your team's internal tools stay private with zero configuration. Publish to your org namespace and only members can discover and install them.",
     terminal: {
       title: "dhub org",
+      colorCommands: true,
       code: `$ dhub org list
 
 Your namespaces:
@@ -152,7 +158,7 @@ export default function HowItWorksPage() {
                   <h2 className={styles.sectionTitle}>{title}</h2>
                 </div>
                 <p className={styles.sectionText}>{text}</p>
-                <TerminalBlock title={terminal.title}>
+                <TerminalBlock title={terminal.title} colorCommands={terminal.colorCommands}>
                   {terminal.code}
                 </TerminalBlock>
               </div>

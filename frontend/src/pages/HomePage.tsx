@@ -289,34 +289,35 @@ export default function HomePage() {
           Quick Start
         </h2>
         <div className={styles.examplesGrid}>
-          <div>
+          <div className={styles.exampleCol}>
             <p className={styles.exampleLabel}>Search with natural language</p>
             <TerminalBlock title="~">
-{`$ dhub ask "how do I analyze time series data?"
-
-╭─ Results for: how do I analyze time series ──╮
+              {'$ dhub ask "analyze data with statistics"\n\n'}
+              <span className={styles.termOutput}>{`┌─ Results for: analyze data with statistics ──┐
 │                                               │
-│  pymc-labs/time-series — v2.1.0          [A]  │
-│  Bayesian time series modeling with PyMC      │
+│  anthropics/statistical-analysis  v0.1.0 [A]  │
+│  Apply statistical methods to datasets        │
 │                                               │
-│  datasci/forecast — v1.4.0               [A]  │
-│  Prophet-based forecasting toolkit            │
+│  anthropics/data-exploration      v0.1.0 [A]  │
+│  Profile and explore datasets                 │
 │                                               │
-╰───────────────────────────────────────────────╯`}
+│  pymc-labs/pymc-modeling          v0.1.2 [A]  │
+│  Bayesian statistical modeling with PyMC      │
+│                                               │
+└───────────────────────────────────────────────┘`}</span>
             </TerminalBlock>
           </div>
-          <div>
+          <div className={styles.exampleCol}>
             <p className={styles.exampleLabel}>Install in one command</p>
             <TerminalBlock title="~">
-{`$ dhub install pymc-labs/time-series
+              {'$ dhub install pymc-labs/dhub-cli --agent all\n\n'}
+              <span className={styles.termOutput}>{`Resolving pymc-labs/dhub-cli@latest...
+Downloading pymc-labs/dhub-cli@0.1.0...
 
-Resolving pymc-labs/time-series@latest...
-Downloading pymc-labs/time-series@2.1.0...
+✓ Installed pymc-labs/dhub-cli@0.1.0
+  to ~/.dhub/skills/dhub-cli
 
-✓ Installed pymc-labs/time-series@2.1.0
-  to ~/.dhub/skills/time-series
-
-✓ Linked to claude, cursor, codex`}
+✓ Linked to claude, cursor, codex`}</span>
             </TerminalBlock>
           </div>
         </div>

@@ -465,12 +465,25 @@
   gap: 20px;
 }
 
+.exampleCol {
+  display: flex;
+  flex-direction: column;
+}
+
+.exampleCol > *:last-child {
+  flex: 1;
+}
+
 .exampleLabel {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 8px;
   letter-spacing: 0.5px;
+}
+
+.termOutput {
+  color: var(--neon-cyan);
 }
 
 /* Bottom CTA */

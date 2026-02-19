@@ -23,7 +23,7 @@
 
 .title {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   margin-left: 8px;
 }
@@ -31,7 +31,7 @@
 .body {
   padding: 16px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1.7;
   white-space: pre;
   overflow-x: auto;
@@ -42,7 +42,7 @@
 }
 
 .prompt {
-  color: var(--neon-green);
+  color: var(--text-primary);
 }
 
 .agent {
@@ -54,7 +54,7 @@
 }
 
 .success {
-  color: var(--neon-green);
+  color: var(--neon-cyan);
 }
 
 .output {
@@ -63,7 +63,7 @@
 }
 
 .cursor {
-  color: var(--neon-green);
+  color: var(--text-primary);
   animation: blink 1s step-end infinite;
 }
 

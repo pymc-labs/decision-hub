@@ -52,7 +52,7 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.6;
-  font-size: 16px;
+  font-size: 17px;
   /* Horizontal safe area insets for iPhone notch/dynamic island.
      Top/bottom are handled on the sticky header and footer in Layout. */
   padding-left: env(safe-area-inset-left);

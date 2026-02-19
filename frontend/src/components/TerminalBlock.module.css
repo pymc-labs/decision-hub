@@ -22,7 +22,7 @@
 
 .title {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   margin-left: 8px;
 }
@@ -30,10 +30,18 @@
 .body {
   padding: 16px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
-  color: var(--neon-green);
+  font-size: 0.9rem;
+  color: var(--text-primary);
   line-height: 1.7;
   white-space: pre;
   overflow-x: auto;
   margin: 0;
+}
+
+.command {
+  color: var(--text-primary);
+}
+
+.output {
+  color: var(--neon-cyan);
 }
