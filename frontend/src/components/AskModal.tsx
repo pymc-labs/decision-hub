@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 import { Search, X, Send, Loader2, ExternalLink, Sparkles } from "lucide-react";
 import { askQuestion } from "../api/client";
 import GradeBadge from "./GradeBadge";
@@ -144,9 +145,11 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
               }`}
             >
               <div className={styles.messageContent}>
-                {msg.content.split("\n").map((line, j) => (
-                  <p key={j}>{line || "\u00A0"}</p>
-                ))}
+                {msg.role === "assistant" ? (
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                ) : (
+                  <p>{msg.content}</p>
+                )}
               </div>
               {msg.skills && msg.skills.length > 0 && (
                 <div className={styles.skillCards}>

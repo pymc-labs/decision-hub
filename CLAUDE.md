@@ -239,7 +239,7 @@ Legacy files use 3-digit numeric prefixes (`001_` through `011_`). Do not add ne
 You **may** deploy to dev when asked. Always use `make deploy-dev` — never bare `modal deploy` (it skips the frontend build).
 
 ### Forbidden file modifications
-- Never modify `.env.prod` or `.env.dev` — these contain production configuration
+- Never modify `.env.prod` or `.env.dev` — these contain production configuration. The only exception is `MIN_CLI_VERSION`, which you may bump when removing or breaking CLI-facing endpoints.
 - Never modify `.github/workflows/` without explicit instructions
 
 ### Before starting work

@@ -182,6 +182,104 @@
   color: var(--text-primary);
 }
 
+/* ===== Markdown inside assistant messages ===== */
+.assistantMessage .messageContent h1,
+.assistantMessage .messageContent h2,
+.assistantMessage .messageContent h3 {
+  font-family: 'Orbitron', sans-serif;
+  color: var(--neon-cyan);
+  margin: 12px 0 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.assistantMessage .messageContent h1 {
+  font-size: 1rem;
+}
+
+.assistantMessage .messageContent ul,
+.assistantMessage .messageContent ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.assistantMessage .messageContent li {
+  margin: 3px 0;
+}
+
+.assistantMessage .messageContent strong {
+  color: var(--neon-cyan);
+}
+
+.assistantMessage .messageContent code {
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85em;
+  color: var(--neon-cyan);
+}
+
+.assistantMessage .messageContent pre {
+  background: var(--bg-darkest);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.assistantMessage .messageContent pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.assistantMessage .messageContent a {
+  color: var(--neon-cyan);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.assistantMessage .messageContent a:hover {
+  color: var(--neon-pink);
+}
+
+.assistantMessage .messageContent table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 0.85rem;
+}
+
+.assistantMessage .messageContent th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--neon-cyan);
+  font-weight: 600;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.assistantMessage .messageContent td {
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.assistantMessage .messageContent blockquote {
+  border-left: 3px solid var(--neon-purple);
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 /* ===== Skill Cards ===== */
 .skillCards {
   display: flex;

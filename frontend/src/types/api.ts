@@ -124,4 +124,5 @@ export interface AskResponse {
   query: string;
   answer: string;
   skills: AskSkillRef[];
+  category: string | null;
 }

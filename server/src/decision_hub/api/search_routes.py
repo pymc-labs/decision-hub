@@ -1,4 +1,4 @@
-"""Skill search and ask routes -- natural language discovery via LLM."""
+"""Skill ask route -- natural language discovery via LLM."""
 
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_s3_client, get_settings
 from decision_hub.api.rate_limit import RateLimiter
-from decision_hub.domain.search import build_index_entry, format_deterministic_results, serialize_index
+from decision_hub.domain.search import build_index_entry, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import (
@@ -20,7 +20,6 @@ from decision_hub.infra.gemini import (
     check_query_topicality,
     create_gemini_client,
     parse_query_keywords,
-    search_skills_with_llm,
 )
 from decision_hub.infra.storage import upload_search_log
 from decision_hub.models import SkillIndexEntry, User
@@ -42,7 +41,7 @@ def _enforce_search_rate_limit(request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Shared retrieval pipeline (used by both /search and /ask)
+# Shared retrieval pipeline
 # ---------------------------------------------------------------------------
 
 
@@ -69,6 +68,7 @@ def _run_retrieval(
 
     Returns None when the candidate set is empty.
     """
+
     # Parse keywords + embed query in parallel
     def _do_parse() -> list[str]:
         return parse_query_keywords(gemini, query, settings.gemini_model)
@@ -128,130 +128,7 @@ def _run_retrieval(
 
 
 # ---------------------------------------------------------------------------
-# GET /v1/search -- free-form text results (used by CLI `dhub ask`)
-# ---------------------------------------------------------------------------
-
-
-class SearchResponse(BaseModel):
-    """Search results from LLM-powered skill discovery."""
-
-    query: str
-    results: str
-    category: str | None = None
-
-
-@router.get(
-    "/search",
-    response_model=SearchResponse,
-    dependencies=[Depends(_enforce_search_rate_limit)],
-)
-def search_skills(
-    q: str = Query(..., max_length=500),
-    category: str | None = Query(None, max_length=100, description="Filter results to a specific category"),
-    settings: Settings = Depends(get_settings),
-    conn=Depends(get_connection),
-    s3_client=Depends(get_s3_client),
-    current_user: User | None = Depends(get_current_user_optional),
-) -> SearchResponse:
-    """Search for skills using hybrid retrieval + LLM reranking.
-
-    Pipeline:
-    1. Topicality guard (Gemini) — reject off-topic queries
-    2-3. Shared retrieval (parse + embed + hybrid search)
-    4. Gemini reranks the small candidate set
-    5. Deterministic fallback if Gemini rerank fails
-    """
-    if not settings.google_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Search is not configured (missing GOOGLE_API_KEY)",
-        )
-
-    gemini = create_gemini_client(settings.google_api_key)
-
-    guard = check_query_topicality(gemini, q, settings.gemini_model)
-    if not guard["is_skill_query"]:
-        return SearchResponse(
-            query=q,
-            results=(
-                "This doesn't look like a skill search query. "
-                "`dhub ask` searches the skill registry for AI skills and capabilities.\n\n"
-                "**Try something like:**\n"
-                "- `dhub ask 'help me build a Bayesian model'`\n"
-                "- `dhub ask 'I need to create presentation slides'`\n"
-                "- `dhub ask 'tool for writing LinkedIn posts'`\n"
-                "- `dhub ask 'analyze my A/B test results'`"
-            ),
-        )
-
-    start_time = time.monotonic()
-
-    result = _run_retrieval(
-        gemini, q, conn, settings,
-        user_id=current_user.id if current_user else None,
-        category=category,
-    )
-
-    if result is None:
-        msg = f"No skills found in category '{category}'." if category else "No skills matched your query."
-        return SearchResponse(query=q, results=msg, category=category)
-
-    # Gemini rerank (fail-open to deterministic fallback)
-    fallback_used = False
-    try:
-        llm_start = time.monotonic()
-        result_text = search_skills_with_llm(
-            gemini, q, result.index_content, settings.gemini_model,
-        )
-        llm_ms = int((time.monotonic() - llm_start) * 1000)
-    except Exception:
-        logger.opt(exception=True).warning("Gemini rerank failed, using deterministic fallback")
-        result_text = format_deterministic_results(list(result.entries))
-        llm_ms = 0
-        fallback_used = True
-
-    latency_ms = int((time.monotonic() - start_time) * 1000)
-
-    logger.info(
-        "Search q='{}' candidates={} embed_ms={} db_ms={} llm_ms={} fallback={}",
-        q[:80],
-        len(result.candidates),
-        result.embed_ms,
-        result.db_ms,
-        llm_ms,
-        fallback_used,
-    )
-
-    # Log the search query to S3 + DB
-    log_id = uuid4()
-    log_metadata = {
-        "results_count": len(result.entries),
-        "model": settings.gemini_model,
-        "latency_ms": latency_ms,
-        "user_id": str(current_user.id) if current_user else None,
-        "username": current_user.username if current_user else None,
-    }
-
-    s3_key = upload_search_log(
-        s3_client, settings.s3_bucket, log_id, q, result_text, log_metadata,
-    )
-
-    insert_search_log(
-        conn,
-        log_id=log_id,
-        query=q,
-        s3_key=s3_key,
-        results_count=len(result.entries),
-        model=settings.gemini_model,
-        latency_ms=latency_ms,
-        user_id=current_user.id if current_user else None,
-    )
-
-    return SearchResponse(query=q, results=result_text, category=category)
-
-
-# ---------------------------------------------------------------------------
-# GET /v1/ask -- structured conversational answer with skill links (frontend)
+# GET /v1/ask -- structured conversational answer with skill links
 # ---------------------------------------------------------------------------
 
 _OFF_TOPIC_ANSWER = (
@@ -281,6 +158,7 @@ class AskResponse(BaseModel):
     query: str
     answer: str
     skills: list[AskSkillRef]
+    category: str | None = None
 
 
 @router.get(
@@ -290,15 +168,17 @@ class AskResponse(BaseModel):
 )
 def ask_skills(
     q: str = Query(..., max_length=500),
+    category: str | None = Query(None, max_length=100, description="Filter results to a specific category"),
     settings: Settings = Depends(get_settings),
     conn=Depends(get_connection),
+    s3_client=Depends(get_s3_client),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> AskResponse:
     """Answer a natural language question with conversational response and skill links.
 
-    Reuses the same retrieval pipeline as /search, but generates a structured
-    conversational answer with explicit skill references for the frontend to
-    render as clickable links.
+    Uses hybrid retrieval (FTS + embedding) and Gemini to generate a structured
+    conversational answer with explicit skill references that both the CLI and
+    the frontend can render.
     """
     if not settings.google_api_key:
         raise HTTPException(
@@ -315,16 +195,21 @@ def ask_skills(
     start_time = time.monotonic()
 
     result = _run_retrieval(
-        gemini, q, conn, settings,
+        gemini,
+        q,
+        conn,
+        settings,
         user_id=current_user.id if current_user else None,
+        category=category,
     )
 
     if result is None:
-        return AskResponse(
-            query=q,
-            answer="I couldn't find any skills matching your question. Try rephrasing or broadening your search.",
-            skills=[],
+        msg = (
+            f"No skills found in category '{category}'."
+            if category
+            else "I couldn't find any skills matching your question. Try rephrasing or broadening your search."
         )
+        return AskResponse(query=q, answer=msg, skills=[], category=category)
 
     # Build lookup map for enriching LLM skill refs with DB metadata
     candidate_map: dict[tuple[str, str], dict] = {
@@ -335,7 +220,10 @@ def ask_skills(
     try:
         llm_start = time.monotonic()
         llm_result = ask_conversational(
-            gemini, q, result.index_content, settings.gemini_model,
+            gemini,
+            q,
+            result.index_content,
+            settings.gemini_model,
         )
         llm_ms = int((time.monotonic() - llm_start) * 1000)
     except Exception:
@@ -354,6 +242,7 @@ def ask_skills(
             query=q,
             answer="Here are the most relevant skills I found:",
             skills=skill_refs,
+            category=category,
         )
 
     latency_ms = int((time.monotonic() - start_time) * 1000)
@@ -366,6 +255,39 @@ def ask_skills(
         llm_ms,
         latency_ms,
     )
+
+    # Log to S3 + DB (non-critical, must not block the response)
+    try:
+        log_id = uuid4()
+        log_metadata = {
+            "results_count": len(result.entries),
+            "model": settings.gemini_model,
+            "latency_ms": latency_ms,
+            "user_id": str(current_user.id) if current_user else None,
+            "username": current_user.username if current_user else None,
+        }
+
+        s3_key = upload_search_log(
+            s3_client,
+            settings.s3_bucket,
+            log_id,
+            q,
+            llm_result.get("answer", ""),
+            log_metadata,
+        )
+
+        insert_search_log(
+            conn,
+            log_id=log_id,
+            query=q,
+            s3_key=s3_key,
+            results_count=len(result.entries),
+            model=settings.gemini_model,
+            latency_ms=latency_ms,
+            user_id=current_user.id if current_user else None,
+        )
+    except Exception:
+        logger.opt(exception=True).warning("Analytics logging failed for ask q='{}'", q[:80])
 
     # Enrich LLM skill references with metadata from DB candidates
     skill_refs = []
@@ -387,4 +309,5 @@ def ask_skills(
         query=q,
         answer=llm_result.get("answer", ""),
         skills=skill_refs,
+        category=category,
     )

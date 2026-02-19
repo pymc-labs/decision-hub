@@ -1,10 +1,8 @@
-"""Tests for decision_hub.api.search_routes -- search endpoint."""
+"""Tests for decision_hub.api.search_routes -- ask endpoint."""
 
 from unittest.mock import MagicMock, patch
 
-import httpx
 import pytest
-import respx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -50,6 +48,14 @@ _SAMPLE_CANDIDATES = [
 
 _FIXED_EMBEDDING = [0.1] * 768
 
+_LLM_RESULT = {
+    "answer": "Here are the matching skills: acme/weather for forecasting and acme/translate for translation.",
+    "referenced_skills": [
+        {"org_slug": "acme", "skill_name": "weather", "reason": "Weather forecasting skill"},
+        {"org_slug": "acme", "skill_name": "translate", "reason": "Translation skill"},
+    ],
+}
+
 
 @pytest.fixture
 def search_settings() -> MagicMock:
@@ -82,69 +88,59 @@ def search_client(search_app: FastAPI) -> TestClient:
 
 
 # ---------------------------------------------------------------------------
-# GET /v1/search
+# GET /v1/ask
 # ---------------------------------------------------------------------------
 
 
-class TestSearchSkills:
-    """GET /v1/search?q=... -- LLM-powered skill discovery."""
+class TestAskSkills:
+    """GET /v1/ask?q=... -- conversational skill discovery."""
 
-    def test_search_no_api_key(self, search_app: FastAPI) -> None:
+    def test_ask_no_api_key(self, search_app: FastAPI) -> None:
         """Should return 503 when google_api_key is not configured."""
         search_app.state.settings.google_api_key = ""
 
         client = TestClient(search_app)
-        resp = client.get("/v1/search", params={"q": "find me a tool"})
+        resp = client.get("/v1/ask", params={"q": "find me a tool"})
 
         assert resp.status_code == 503
         assert "GOOGLE_API_KEY" in resp.json()["detail"]
 
-    @respx.mock
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
-    def test_search_success(
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_ask_success(
         self,
+        mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
         _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
-        """End-to-end: hybrid retrieval returns candidates, Gemini reranks them."""
+        """End-to-end: hybrid retrieval returns candidates, Gemini generates structured response."""
         mock_hybrid.return_value = _SAMPLE_CANDIDATES
+        mock_llm.return_value = _LLM_RESULT
 
-        gemini_answer = "1. acme/weather v1.0.0 [A] - Weather forecasting\n2. acme/translate v2.1.0 [C] - Translation"
-        gemini_route = respx.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-        ).mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "candidates": [{"content": {"parts": [{"text": gemini_answer}]}}],
-                },
-            )
-        )
-
-        resp = search_client.get("/v1/search", params={"q": "weather forecast"})
+        resp = search_client.get("/v1/ask", params={"q": "weather forecast"})
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["query"] == "weather forecast"
-        assert "acme/weather" in data["results"]
-        assert "acme/translate" in data["results"]
-
-        # Verify the candidate index was sent to Gemini
-        sent_payload = gemini_route.calls[0].request.content.decode()
-        assert "weather" in sent_payload
-        assert "translate" in sent_payload
+        assert "acme/weather" in data["answer"]
+        assert len(data["skills"]) == 2
+        assert data["skills"][0]["org_slug"] == "acme"
+        assert data["skills"][0]["skill_name"] == "weather"
+        # Verify enrichment from DB (description comes from candidates, not LLM)
+        assert data["skills"][0]["description"] == "Weather forecasting"
+        assert data["skills"][0]["safety_rating"] == "passed"
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
-    def test_search_empty_database(
+    def test_ask_empty_database(
         self,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
@@ -155,78 +151,54 @@ class TestSearchSkills:
         """When hybrid retrieval returns no candidates, should return a message without calling the LLM."""
         mock_hybrid.return_value = []
 
-        resp = search_client.get("/v1/search", params={"q": "anything"})
+        resp = search_client.get("/v1/ask", params={"q": "anything"})
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["query"] == "anything"
-        assert "No skills matched" in data["results"]
+        assert "couldn't find any skills" in data["answer"]
+        assert data["skills"] == []
 
     @patch(
         "decision_hub.api.search_routes.check_query_topicality",
         return_value={"is_skill_query": False, "reason": "cooking recipe"},
     )
-    def test_search_off_topic_rejected(
+    def test_ask_off_topic_rejected(
         self,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
-        """Off-topic queries get a friendly rejection without hitting the DB."""
-        resp = search_client.get("/v1/search", params={"q": "chocolate cake recipe"})
+        """Off-topic queries get a friendly rejection with empty skills."""
+        resp = search_client.get("/v1/ask", params={"q": "chocolate cake recipe"})
 
         assert resp.status_code == 200
         data = resp.json()
-        assert "doesn't look like a skill search" in data["results"]
-        assert "help me build a Bayesian model" in data["results"]
+        assert "doesn't look like a skill" in data["answer"]
+        assert data["skills"] == []
 
     @patch(
         "decision_hub.api.search_routes.check_query_topicality",
         return_value={"is_skill_query": False, "reason": "cooking recipe"},
     )
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
-    def test_search_off_topic_skips_db(
+    def test_ask_off_topic_skips_db(
         self,
         mock_hybrid: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
         """Off-topic queries short-circuit before the DB query."""
-        resp = search_client.get("/v1/search", params={"q": "chocolate cake recipe"})
+        resp = search_client.get("/v1/ask", params={"q": "chocolate cake recipe"})
 
         assert resp.status_code == 200
         mock_hybrid.assert_not_called()
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
-    @patch("decision_hub.api.search_routes.embed_query", side_effect=Exception("API down"))
-    @patch("decision_hub.api.search_routes.search_skills_hybrid")
-    @patch("decision_hub.api.search_routes.search_skills_with_llm", return_value="Gemini result")
-    def test_search_embedding_failure_degrades_to_fts(
-        self,
-        _mock_llm: MagicMock,
-        mock_hybrid: MagicMock,
-        _mock_embed: MagicMock,
-        _mock_parse: MagicMock,
-        _mock_guard: MagicMock,
-        search_client: TestClient,
-    ) -> None:
-        """When embedding fails, search still works with FTS-only (query_embedding=None)."""
-        mock_hybrid.return_value = _SAMPLE_CANDIDATES
-
-        resp = search_client.get("/v1/search", params={"q": "weather forecast"})
-
-        assert resp.status_code == 200
-        # Verify hybrid was called with query_embedding=None
-        call_kwargs = mock_hybrid.call_args
-        assert isinstance(call_kwargs[0][1], list)  # second positional arg is fts_queries
-        assert call_kwargs[0][2] is None  # third positional arg is query_embedding
-
-    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
-    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
-    @patch("decision_hub.api.search_routes.search_skills_with_llm", side_effect=Exception("Gemini down"))
-    def test_search_gemini_failure_returns_deterministic(
+    @patch("decision_hub.api.search_routes.ask_conversational", side_effect=Exception("Gemini down"))
+    def test_ask_gemini_failure_returns_fallback(
         self,
         _mock_llm: MagicMock,
         mock_hybrid: MagicMock,
@@ -235,44 +207,46 @@ class TestSearchSkills:
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
-        """When Gemini rerank fails, returns deterministic markdown results."""
+        """When Gemini fails, returns fallback with top-5 skills from retrieval."""
         mock_hybrid.return_value = _SAMPLE_CANDIDATES
 
-        resp = search_client.get("/v1/search", params={"q": "weather forecast"})
+        resp = search_client.get("/v1/ask", params={"q": "weather forecast"})
 
         assert resp.status_code == 200
         data = resp.json()
-        # Deterministic fallback uses numbered markdown
-        assert "1." in data["results"]
-        assert "acme/weather" in data["results"]
-        assert "acme/translate" in data["results"]
+        assert "most relevant skills" in data["answer"]
+        assert len(data["skills"]) == 2
+        assert data["skills"][0]["org_slug"] == "acme"
+        assert data["skills"][0]["skill_name"] == "weather"
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
-    @patch("decision_hub.api.search_routes.search_skills_with_llm", return_value="result")
-    def test_search_candidate_limit_passed(
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_ask_category_param_forwarded(
         self,
-        _mock_llm: MagicMock,
+        mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
         _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
-        search_settings: MagicMock,
     ) -> None:
-        """Verify search_candidate_limit from settings is forwarded to hybrid search."""
+        """Category parameter is forwarded to hybrid search and included in response."""
         mock_hybrid.return_value = _SAMPLE_CANDIDATES
-        search_settings.search_candidate_limit = 15
+        mock_llm.return_value = _LLM_RESULT
 
-        resp = search_client.get("/v1/search", params={"q": "weather"})
+        resp = search_client.get("/v1/ask", params={"q": "weather", "category": "Data Science"})
 
         assert resp.status_code == 200
+        data = resp.json()
+        assert data["category"] == "Data Science"
+        # Verify category was forwarded to hybrid search
         call_kwargs = mock_hybrid.call_args
-        assert call_kwargs[1]["limit"] == 15
+        assert call_kwargs[1]["category"] == "Data Science"
 
-    def test_search_rate_limited(self, search_app: FastAPI) -> None:
+    def test_ask_rate_limited(self, search_app: FastAPI) -> None:
         """Exceeding the rate limit returns HTTP 429."""
         search_app.state.settings.search_rate_limit = 2
         search_app.state.settings.search_rate_window = 60
@@ -284,47 +258,10 @@ class TestSearchSkills:
         ):
             # First two requests should succeed (off-topic but allowed by rate limiter)
             for _ in range(2):
-                resp = client.get("/v1/search", params={"q": "cake"})
+                resp = client.get("/v1/ask", params={"q": "cake"})
                 assert resp.status_code == 200
 
             # Third request should be rate limited
-            resp = client.get("/v1/search", params={"q": "cake"})
+            resp = client.get("/v1/ask", params={"q": "cake"})
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
-
-    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
-    @patch(
-        "decision_hub.api.search_routes.parse_query_keywords",
-        return_value=["bayesian statistics", "bayesian inference", "probabilistic modeling", "PyMC"],
-    )
-    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
-    @patch("decision_hub.api.search_routes.search_skills_hybrid")
-    @patch("decision_hub.api.search_routes.search_skills_with_llm", return_value="result")
-    def test_search_conversational_query_parsed(
-        self,
-        _mock_llm: MagicMock,
-        mock_hybrid: MagicMock,
-        _mock_embed: MagicMock,
-        _mock_parse: MagicMock,
-        _mock_guard: MagicMock,
-        search_client: TestClient,
-    ) -> None:
-        """Conversational query is parsed into multiple FTS keyword phrases."""
-        mock_hybrid.return_value = _SAMPLE_CANDIDATES
-
-        resp = search_client.get(
-            "/v1/search",
-            params={"q": "learn how to do bayesian statistics"},
-        )
-
-        assert resp.status_code == 200
-        # Verify fts_queries list (not raw query) was passed to hybrid search
-        call_args = mock_hybrid.call_args
-        fts_queries = call_args[0][1]
-        assert isinstance(fts_queries, list)
-        assert fts_queries == [
-            "bayesian statistics",
-            "bayesian inference",
-            "probabilistic modeling",
-            "PyMC",
-        ]

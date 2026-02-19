@@ -63,6 +63,22 @@ def _sanitize_for_markdown_fence(text: str) -> str:
     return text.replace("```", "\u2018\u2018\u2018")
 
 
+def _extract_text(data: dict) -> str:
+    """Safely extract text from a Gemini response, handling empty parts.
+
+    The Gemini API may return ``"parts": []`` in certain edge cases
+    (e.g. safety filters, empty responses), which causes an IndexError
+    with the naive ``[{}])[0]`` pattern.
+    """
+    candidates = data.get("candidates", [])
+    if not candidates:
+        return ""
+    parts = candidates[0].get("content", {}).get("parts", [])
+    if not parts:
+        return ""
+    return parts[0].get("text", "")
+
+
 _TOPICALITY_PROMPT = """\
 You are a classifier for Decision Hub, a skill registry for AI agents.
 Your ONLY job: decide whether the user's query could plausibly be someone
@@ -147,7 +163,7 @@ def parse_query_keywords(
             resp.raise_for_status()
             data = resp.json()
 
-        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        text = _extract_text(data)
 
         result = json.loads(text)
         if isinstance(result, dict) and "fts_queries" in result:
@@ -191,7 +207,7 @@ def check_query_topicality(
             resp.raise_for_status()
             data = resp.json()
 
-        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        text = _extract_text(data)
 
         text = _strip_markdown_fences(text)
 
@@ -206,65 +222,6 @@ def check_query_topicality(
 
     # Fail-open: if the guard itself breaks, let the query through
     return {"is_skill_query": True, "reason": "guard_error"}
-
-
-def search_skills_with_llm(
-    client: dict,
-    query: str,
-    index: str,
-    model: str = "gemini-2.0-flash",
-) -> str:
-    """Search for skills using Gemini to match a query against the index.
-
-    Sends the full skill index and user query to Gemini, asking it to
-    rank and recommend the most relevant skills.
-
-    Args:
-        client: Gemini client config dict with api_key and base_url.
-        query: User's natural language search query.
-        index: JSONL string of the skill index.
-        model: Gemini model to use.
-
-    Returns:
-        Gemini's response text with ranked skill recommendations.
-    """
-    system_prompt = (
-        "You are a skill recommendation engine for Decision Hub, "
-        "an AI skill manager for data science agents. Given a user query and "
-        "a set of candidate skills (pre-filtered by relevance, JSONL format), "
-        "recommend the most relevant skills. "
-        "For each recommendation, include the skill reference (org/skill), "
-        "version, trust grade, and a brief reason why it matches. "
-        "Order by relevance. If no skills match, say so clearly."
-    )
-
-    user_message = f"User query: {query}\n\nSkill index:\n{index}"
-
-    url = f"{client['base_url']}/{model}:generateContent"
-    payload = {
-        "contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}],
-    }
-
-    logger.debug("Gemini search query: '{}' model={}", query[:100], model)
-    with httpx.Client(timeout=30) as http_client:
-        resp = http_client.post(
-            url,
-            params={"key": client["api_key"]},
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    # Extract text from the first candidate
-    candidates = data.get("candidates", [])
-    if not candidates:
-        return "No recommendations found."
-
-    parts = candidates[0].get("content", {}).get("parts", [])
-    if not parts:
-        return "No recommendations found."
-
-    return parts[0].get("text", "No recommendations found.")
 
 
 _ASK_CONVERSATIONAL_SCHEMA = {
@@ -303,10 +260,9 @@ def ask_conversational(
 ) -> dict:
     """Generate a conversational answer with structured skill references.
 
-    Unlike search_skills_with_llm which returns free-form markdown,
-    this function uses Gemini's structured output (responseSchema) to
-    guarantee a JSON response with both a conversational answer and
-    an array of referenced skills with org_slug/skill_name for linking.
+    Uses Gemini's structured output (responseSchema) to guarantee a JSON
+    response with both a conversational answer and an array of referenced
+    skills with org_slug/skill_name for linking.
 
     Args:
         client: Gemini client config dict with api_key and base_url.
@@ -322,10 +278,15 @@ def ask_conversational(
         "You are a helpful assistant for Decision Hub, an AI skill registry. "
         "Given a user's question and a set of candidate skills (JSONL format), "
         "provide a conversational answer that helps the user find the right "
-        "skill(s) for their needs. "
-        "Be concise and helpful. Mention skills by name (org/skill format) in "
-        "your answer. For each skill you mention, include it in the "
-        "referenced_skills array so the UI can render clickable links. "
+        "skill(s) for their needs.\n\n"
+        "Adapt your response depth to the query:\n"
+        '- For simple lookups ("find a tool for X"), give a concise 2-3 sentence answer.\n'
+        '- For analytical queries ("compare", "what are the best", "differences between"), '
+        "provide a detailed analysis with markdown tables, bullet-point comparisons, "
+        "pros/cons, and clear recommendations.\n\n"
+        "Always mention skills by name (org/skill format) in your answer. "
+        "For each skill you mention, include it in the referenced_skills array "
+        "so the UI can render clickable links. "
         "Order referenced_skills by relevance. If no skills match, say so "
         "clearly and leave referenced_skills empty."
     )
@@ -352,11 +313,9 @@ def ask_conversational(
         resp.raise_for_status()
         data = resp.json()
 
-    candidates = data.get("candidates", [])
-    if not candidates:
+    text = _extract_text(data)
+    if not text:
         return {"answer": "No recommendations found.", "referenced_skills": []}
-
-    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
     try:
         result = json.loads(text)
         if isinstance(result, dict) and "answer" in result:
@@ -364,11 +323,13 @@ def ask_conversational(
             valid_skills = []
             for skill in result.get("referenced_skills", []):
                 if isinstance(skill, dict) and "org_slug" in skill and "skill_name" in skill:
-                    valid_skills.append({
-                        "org_slug": skill["org_slug"],
-                        "skill_name": skill["skill_name"],
-                        "reason": skill.get("reason", ""),
-                    })
+                    valid_skills.append(
+                        {
+                            "org_slug": skill["org_slug"],
+                            "skill_name": skill["skill_name"],
+                            "reason": skill.get("reason", ""),
+                        }
+                    )
             return {"answer": result["answer"], "referenced_skills": valid_skills}
     except (json.JSONDecodeError, KeyError):
         logger.opt(exception=True).warning("Failed to parse conversational ask response")
@@ -437,11 +398,7 @@ def classify_skill(
         resp.raise_for_status()
         data = resp.json()
 
-    candidates = data.get("candidates", [])
-    if not candidates:
-        return '{"category": "Other & Utilities", "confidence": 0.0}'
-
-    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    text = _extract_text(data)
     return text or '{"category": "Other & Utilities", "confidence": 0.0}'
 
 
@@ -525,14 +482,13 @@ def analyze_code_safety(
         resp.raise_for_status()
         data = resp.json()
 
-    candidates = data.get("candidates", [])
-    if not candidates:
+    text = _extract_text(data)
+    if not text:
         return [
             {"file": s["file"], "label": s["label"], "dangerous": True, "reason": "LLM returned no response"}
             for s in source_snippets
         ]
 
-    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
     text = _strip_markdown_fences(text)
 
     try:
@@ -641,11 +597,10 @@ def analyze_credential_entropy(
         resp.raise_for_status()
         data = resp.json()
 
-    candidates = data.get("candidates", [])
-    if not candidates:
+    text = _extract_text(data)
+    if not text:
         return [{**h, "dangerous": True, "reason": "LLM returned no response"} for h in entropy_hits]
 
-    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
     text = _strip_markdown_fences(text)
 
     try:
@@ -748,14 +703,13 @@ def analyze_prompt_safety(
         resp.raise_for_status()
         data = resp.json()
 
-    candidates = data.get("candidates", [])
-    if not candidates:
+    text = _extract_text(data)
+    if not text:
         return [
             {"label": h["label"], "dangerous": True, "ambiguous": False, "reason": "LLM returned no response"}
             for h in prompt_hits
         ]
 
-    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
     text = _strip_markdown_fences(text)
 
     try:
@@ -851,11 +805,10 @@ def review_prompt_body_safety(
             resp.raise_for_status()
             data = resp.json()
 
-        candidates = data.get("candidates", [])
-        if not candidates:
+        text = _extract_text(data)
+        if not text:
             return {"dangerous": True, "reason": "LLM returned no response (fail-closed)"}
 
-        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
         text = _strip_markdown_fences(text)
 
         result = json.loads(text)
