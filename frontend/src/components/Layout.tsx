@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star, MessageCircle } from "lucide-react";
 import AskModal from "./AskModal";
@@ -24,6 +24,12 @@ export default function Layout() {
     mobileMenuState.isOpen && mobileMenuState.openedOnPath === location.pathname;
   const [askOpen, setAskOpen] = useState(false);
   const closeAsk = useCallback(() => setAskOpen(false), []);
+
+  useEffect(() => {
+    const openAsk = () => setAskOpen(true);
+    window.addEventListener("open-ask-modal", openAsk);
+    return () => window.removeEventListener("open-ask-modal", openAsk);
+  }, []);
 
   return (
     <div className={styles.layout}>
@@ -54,17 +60,19 @@ export default function Layout() {
                 <span>{label}</span>
               </Link>
             ))}
-          </nav>
-
-          <div className={styles.headerRight}>
             <button
-              className={styles.askBtn}
-              onClick={() => setAskOpen(true)}
-              aria-label="Ask Decision Hub"
+              className={styles.navLink}
+              onClick={() => {
+                setAskOpen(true);
+                setMobileMenuState({ isOpen: false, openedOnPath: location.pathname });
+              }}
             >
               <MessageCircle size={16} />
               <span>Ask</span>
             </button>
+          </nav>
+
+          <div className={styles.headerRight}>
             {SHOW_GITHUB_BUTTONS && (
               <a
                 href="https://github.com/pymc-labs/decision-hub"

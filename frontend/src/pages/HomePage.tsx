@@ -1,8 +1,8 @@
 import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-  Package, Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search, Copy, Check
+  Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
+  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -93,11 +93,14 @@ export default function HomePage() {
           in natural language.
         </p>
         <div className={styles.heroCta}>
-          <Link to="/skills" className={styles.btnPrimary}>
-            <Package size={18} />
-            Browse Skills
+          <button
+            className={styles.btnPrimary}
+            onClick={() => window.dispatchEvent(new CustomEvent("open-ask-modal"))}
+          >
+            <MessageCircle size={18} />
+            Ask the Registry
             <ArrowRight size={16} />
-          </Link>
+          </button>
           <Link to="/how-it-works" className={styles.btnSecondary}>
             <Zap size={18} />
             How It Works
