@@ -282,6 +282,46 @@ export default function HomePage() {
         </p>
       </section>
 
+      {/* Quick Start Examples */}
+      <section className={styles.quickStart}>
+        <h2 className={styles.sectionTitle}>
+          <Zap size={20} />
+          Quick Start
+        </h2>
+        <div className={styles.examplesGrid}>
+          <div>
+            <p className={styles.exampleLabel}>Search with natural language</p>
+            <TerminalBlock title="~">
+{`$ dhub ask "how do I analyze time series data?"
+
+╭─ Results for: how do I analyze time series ──╮
+│                                               │
+│  pymc-labs/time-series — v2.1.0          [A]  │
+│  Bayesian time series modeling with PyMC      │
+│                                               │
+│  datasci/forecast — v1.4.0               [A]  │
+│  Prophet-based forecasting toolkit            │
+│                                               │
+╰───────────────────────────────────────────────╯`}
+            </TerminalBlock>
+          </div>
+          <div>
+            <p className={styles.exampleLabel}>Install in one command</p>
+            <TerminalBlock title="~">
+{`$ dhub install pymc-labs/time-series
+
+Resolving pymc-labs/time-series@latest...
+Downloading pymc-labs/time-series@2.1.0...
+
+✓ Installed pymc-labs/time-series@2.1.0
+  to ~/.dhub/skills/time-series
+
+✓ Linked to claude, cursor, codex`}
+            </TerminalBlock>
+          </div>
+        </div>
+      </section>
+
       {/* Bottom CTA */}
       <section className={styles.bottomCta}>
         <NeonCard glow="pink">

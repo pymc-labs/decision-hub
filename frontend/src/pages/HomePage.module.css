@@ -448,6 +448,31 @@
   font-size: 0.85rem;
 }
 
+/* Quick Start Examples */
+.quickStart {
+  margin: 60px auto;
+  max-width: 900px;
+}
+
+.quickStart .sectionTitle {
+  margin-bottom: 20px;
+  justify-content: center;
+}
+
+.examplesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.exampleLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
 /* Bottom CTA */
 .bottomCta {
   margin: 60px 0 20px;
@@ -495,7 +520,8 @@
 
   .skillGrid,
   .stepsGrid,
-  .valuePropGrid {
+  .valuePropGrid,
+  .examplesGrid {
     grid-template-columns: 1fr;
   }
 
@@ -541,7 +567,8 @@
 
   .featured,
   .howItWorks,
-  .installCta {
+  .installCta,
+  .quickStart {
     margin: 32px 0;
   }
 
