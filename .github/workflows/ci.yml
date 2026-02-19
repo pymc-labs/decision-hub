@@ -45,6 +45,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Copy example security prompts config
+        run: cp server/src/decision_hub/infra/security_prompts.example.yaml server/src/decision_hub/infra/security_prompts.yaml
       - name: Run server tests
         run: uv run --package decision-hub-server --extra dev pytest server/tests/ -v
 

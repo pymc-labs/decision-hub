@@ -28,3 +28,6 @@ node_modules/
 
 # Crawler runtime artifacts
 crawl_checkpoint.json
+
+# Security-sensitive LLM prompts (production config)
+server/src/decision_hub/infra/security_prompts.yaml

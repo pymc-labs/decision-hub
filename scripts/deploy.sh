@@ -7,8 +7,9 @@
 #
 # Steps:
 #   1. Build the React frontend (npm run build)
-#   2. Apply database migrations
-#   3. Deploy the Modal app (which bakes in frontend/dist/)
+#   2. Pre-flight checks (security_prompts.yaml exists)
+#   3. Apply database migrations
+#   4. Deploy the Modal app (which bakes in frontend/dist/)
 
 set -euo pipefail
 
@@ -34,14 +35,21 @@ VITE_API_URL="" VITE_ENV="$DHUB_ENV" npm run build
 
 echo "    Frontend built: $(du -sh dist | cut -f1)"
 
-# --- 2. Apply database migrations ---
+# --- 2. Pre-flight checks ---
+cd "$REPO_ROOT/server"
+if [ ! -f "src/decision_hub/infra/security_prompts.yaml" ]; then
+  echo "ERROR: security_prompts.yaml not found."
+  echo "Get it from 1Password or ask a project admin."
+  exit 1
+fi
+
+# --- 3. Apply database migrations ---
 echo ""
 echo ">>> Applying database migrations (env=$DHUB_ENV)..."
-cd "$REPO_ROOT/server"
 
 DHUB_ENV="$DHUB_ENV" uv run --package decision-hub-server python ../scripts/run_migrations.py
 
-# --- 3. Deploy Modal app ---
+# --- 4. Deploy Modal app ---
 echo ""
 echo ">>> Deploying Modal app (env=$DHUB_ENV)..."
 
@@ -55,7 +63,7 @@ else
   echo "    URL: https://pymc-labs--api-$DHUB_ENV.modal.run"
 fi
 
-# --- 4. Tag prod deploys for tracking ---
+# --- 5. Tag prod deploys for tracking ---
 if [ "$DHUB_ENV" = "prod" ]; then
   TAG="prod/$(date -u +%Y%m%d-%H%M%S)"
   echo ""
