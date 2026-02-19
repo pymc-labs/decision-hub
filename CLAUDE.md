@@ -61,39 +61,16 @@ Client-package commands (`uv run --package dhub-cli ...`) can run from anywhere.
 
 ### Security Prompts Config
 
-Security-sensitive LLM prompts (gauntlet judges, topicality guard) live outside of source code so they won't be exposed when the repo is open-sourced. Three files are involved:
+Security-sensitive LLM prompts (gauntlet judges, topicality guard) live outside of source code so they won't be exposed when the repo is open-sourced. Two files in `server/src/decision_hub/infra/`:
 
 | File | Committed? | Purpose |
 |------|-----------|---------|
 | `security_prompts.yaml` | No (`.gitignore`d) | Plaintext config loaded at runtime by `load_security_prompts()` |
-| `security_prompts.yaml.enc` | Yes | AES-256-CBC encrypted copy — CI decrypts this during deploy |
 | `security_prompts.example.yaml` | Yes | Simplified example so contributors can run tests without the real prompts |
 
-All three live in `server/src/decision_hub/infra/`.
-
-**How encryption works:** The `.enc` file is encrypted with `openssl enc -aes-256-cbc -pbkdf2` using a static passphrase stored as the `SECURITY_PROMPTS_KEY` GitHub secret (in the `dev` environment). The key never changes — only the `.enc` file is updated when prompts change.
-
-**Getting started (pymc-labs devs):**
-```bash
-# Get the key from 1Password ("Decision Hub Security Prompts Key"), then:
-SECURITY_PROMPTS_KEY=... make decrypt-prompts
-```
-
-**Open-source contributors:** `make test-server` auto-copies the example config. No key needed.
-
-**Editing prompts:**
-```bash
-# 1. Edit the plaintext file
-vim server/src/decision_hub/infra/security_prompts.yaml
-
-# 2. Re-encrypt (updates the .enc file that CI uses)
-SECURITY_PROMPTS_KEY=... make encrypt-prompts
-
-# 3. Commit the encrypted file — CI picks it up automatically
-git add server/src/decision_hub/infra/security_prompts.yaml.enc
-```
-
-**Deploys:** CI (`deploy-dev.yml`) decrypts `.enc` → `.yaml` using the `SECURITY_PROMPTS_KEY` secret, then `modal deploy` packages it into the container. Local deploys (`make deploy-dev/prod`) require the plaintext `.yaml` — the deploy script checks and fails with a clear error if missing.
+- **pymc-labs devs**: Get the production config from 1Password ("Decision Hub Security Prompts") and place it at the path above.
+- **Open-source contributors**: `make test-server` auto-copies the example config. No production file needed.
+- **Deploys**: `make deploy-dev/prod` requires the plaintext `.yaml` — the deploy script checks and fails with a clear error if missing.
 
 ### Quick Reference
 

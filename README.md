@@ -253,14 +253,14 @@ cd server && DHUB_ENV=dev uv run --package decision-hub-server \
 
 Copy `server/.env.example` to `server/.env.dev` and fill in your values. Schema changes are managed through SQL migration files in `server/migrations/` — see CLAUDE.md for details.
 
-**Security prompts** — The gauntlet and search guard use LLM prompts loaded from `server/src/decision_hub/infra/security_prompts.yaml`. This file is `.gitignore`d; an encrypted copy (`.yaml.enc`) is committed. For development and testing, copy the example file:
+**Security prompts** — The gauntlet and search guard use LLM prompts loaded from `server/src/decision_hub/infra/security_prompts.yaml`. This file is `.gitignore`d. For development and testing, copy the example file:
 
 ```bash
 cp server/src/decision_hub/infra/security_prompts.example.yaml \
    server/src/decision_hub/infra/security_prompts.yaml
 ```
 
-`make test-server` does this automatically. For production prompts: `SECURITY_PROMPTS_KEY=... make decrypt-prompts`.
+`make test-server` does this automatically. For production prompts, ask a project admin.
 
 ### Environments
 

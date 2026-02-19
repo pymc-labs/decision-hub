@@ -38,15 +38,6 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: uv run --package decision-hub-server python scripts/run_migrations.py
 
-      - name: Decrypt security prompts config
-        run: >
-          openssl enc -aes-256-cbc -pbkdf2 -d
-          -in server/src/decision_hub/infra/security_prompts.yaml.enc
-          -out server/src/decision_hub/infra/security_prompts.yaml
-          -pass pass:"$SECURITY_PROMPTS_KEY"
-        env:
-          SECURITY_PROMPTS_KEY: ${{ secrets.SECURITY_PROMPTS_KEY }}
-
       - name: Deploy to Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}

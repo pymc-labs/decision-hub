@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill encrypt-prompts
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -83,26 +83,6 @@ backfill: ## Run all backfills: categories, embeddings, org metadata (needs DHUB
 		python -m decision_hub.scripts.backfill_embeddings
 	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python -m decision_hub.scripts.backfill_org_metadata --github-token "$$(gh auth token)"
-
-# ---------------------------------------------------------------------------
-# Security prompts
-# ---------------------------------------------------------------------------
-
-PROMPTS_DIR := server/src/decision_hub/infra
-PROMPTS_YAML := $(PROMPTS_DIR)/security_prompts.yaml
-PROMPTS_ENC := $(PROMPTS_DIR)/security_prompts.yaml.enc
-
-encrypt-prompts: ## Re-encrypt security_prompts.yaml after editing (requires SECURITY_PROMPTS_KEY)
-	@test -f $(PROMPTS_YAML) || { echo "ERROR: $(PROMPTS_YAML) not found"; exit 1; }
-	@test -n "$$SECURITY_PROMPTS_KEY" || { echo "ERROR: SECURITY_PROMPTS_KEY not set"; exit 1; }
-	openssl enc -aes-256-cbc -pbkdf2 -salt -in $(PROMPTS_YAML) -out $(PROMPTS_ENC) -pass pass:"$$SECURITY_PROMPTS_KEY"
-	@echo "Encrypted → $(PROMPTS_ENC) (commit this file)"
-
-decrypt-prompts: ## Decrypt security_prompts.yaml.enc (requires SECURITY_PROMPTS_KEY)
-	@test -f $(PROMPTS_ENC) || { echo "ERROR: $(PROMPTS_ENC) not found"; exit 1; }
-	@test -n "$$SECURITY_PROMPTS_KEY" || { echo "ERROR: SECURITY_PROMPTS_KEY not set"; exit 1; }
-	openssl enc -aes-256-cbc -pbkdf2 -d -in $(PROMPTS_ENC) -out $(PROMPTS_YAML) -pass pass:"$$SECURITY_PROMPTS_KEY"
-	@echo "Decrypted → $(PROMPTS_YAML)"
 
 # ---------------------------------------------------------------------------
 # Setup
