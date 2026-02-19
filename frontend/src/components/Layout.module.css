@@ -87,6 +87,8 @@
   text-shadow: none !important;
   transition: all 0.2s ease;
   border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
 }
 
 .navLink:hover {
