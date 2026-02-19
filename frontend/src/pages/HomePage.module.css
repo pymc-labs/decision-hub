@@ -374,18 +374,66 @@
 }
 
 .installCta .sectionTitle {
-  margin-bottom: 8px;
+  margin-bottom: 16px;
   justify-content: center;
 }
 
-.installSubtitle {
-  font-size: 0.95rem;
-  color: var(--text-secondary);
+.osToggle {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
   margin-bottom: 20px;
 }
 
-.installCommand {
+.osTab {
+  padding: 6px 20px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.osTab:not(:last-child) {
+  border-right: 1px solid var(--border-color);
+}
+
+.osTabActive {
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.08);
+}
+
+.commandWrapper {
+  position: relative;
   text-align: left;
+}
+
+.copyBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-darkest);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 1;
+}
+
+.copyBtn:hover {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
 }
 
 .installAlt {

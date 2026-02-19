@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Package, Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search
+  ShieldCheck, FlaskConical, Search, Copy, Check
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -16,6 +16,11 @@ import styles from "./HomePage.module.css";
 
 const DATA_CATEGORIES = "Data & Database,Data Science & Statistics";
 const HOME_PAGE_SIZE = 6;
+
+const INSTALL_COMMANDS = {
+  unix: 'curl -LsSf https://astral.sh/uv/install.sh | sh && PATH="$HOME/.local/bin:$PATH" uv tool install dhub-cli',
+  windows: 'irm https://astral.sh/uv/install.ps1 | iex; & "$HOME\\.local\\bin\\uv" tool install dhub-cli',
+} as const;
 
 export default function HomePage() {
   const { data: stats } = useApi(() => getRegistryStats(), []);
@@ -56,6 +61,15 @@ export default function HomePage() {
   const [animatedOrgs, orgsRef] = useCountUp(totalOrgs);
   const [animatedPublishers, publishersRef] = useCountUp(totalPublishers);
   const [animatedDownloads, downloadsRef] = useCountUp(totalDownloads);
+
+  const [osTab, setOsTab] = useState<"unix" | "windows">("unix");
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(INSTALL_COMMANDS[osTab]);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [osTab]);
 
   return (
     <div className="container">
@@ -232,13 +246,31 @@ export default function HomePage() {
           <Terminal size={20} />
           Install the CLI
         </h2>
-        <p className={styles.installSubtitle}>
-          One command. Works on macOS and Linux.
-        </p>
-        <div className={styles.installCommand}>
-          <TerminalBlock title="~">
-            {`curl -LsSf https://astral.sh/uv/install.sh | sh && PATH="$HOME/.local/bin:$PATH" uv tool install dhub-cli`}
+        <div className={styles.osToggle}>
+          <button
+            className={`${styles.osTab} ${osTab === "unix" ? styles.osTabActive : ""}`}
+            onClick={() => setOsTab("unix")}
+          >
+            macOS / Linux
+          </button>
+          <button
+            className={`${styles.osTab} ${osTab === "windows" ? styles.osTabActive : ""}`}
+            onClick={() => setOsTab("windows")}
+          >
+            Windows
+          </button>
+        </div>
+        <div className={styles.commandWrapper}>
+          <TerminalBlock title={osTab === "unix" ? "~" : "PowerShell"}>
+            {INSTALL_COMMANDS[osTab]}
           </TerminalBlock>
+          <button
+            className={styles.copyBtn}
+            onClick={handleCopy}
+            aria-label="Copy to clipboard"
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+          </button>
         </div>
         <p className={styles.installAlt}>
           Already have <code>uv</code>? Just run <code>uv tool install dhub-cli</code>
