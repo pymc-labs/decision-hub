@@ -59,19 +59,6 @@ DHUB_ENV=dev uv run --package decision-hub-server python -c "..."
 
 Client-package commands (`uv run --package dhub-cli ...`) can run from anywhere.
 
-### Security Prompts Config
-
-Security-sensitive LLM prompts (gauntlet judges, topicality guard) live outside of source code so they won't be exposed when the repo is open-sourced. Two files in `server/src/decision_hub/infra/`:
-
-| File | Committed? | Purpose |
-|------|-----------|---------|
-| `security_prompts.yaml` | No (`.gitignore`d) | Plaintext config loaded at runtime by `load_security_prompts()` |
-| `security_prompts.example.yaml` | Yes | Simplified example so contributors can run tests without the real prompts |
-
-- **pymc-labs devs**: Get the production config from 1Password ("Decision Hub Security Prompts") and place it at the path above.
-- **Open-source contributors**: `make test-server` auto-copies the example config. No production file needed.
-- **Deploys**: `make deploy-dev/prod` requires the plaintext `.yaml` — the deploy script checks and fails with a clear error if missing.
-
 ### Quick Reference
 
 Common commands are available via `make`. Run `make help` to see all targets.
@@ -136,7 +123,6 @@ cd server && DHUB_ENV=dev uv run --package decision-hub-server \
 - **Clean up after refactors**: After every refactor, search for all references to the old function/argument and remove dead code — no orphaned functions, unused imports, or selected-but-unmapped fields
 - **Mobile-first frontend**: Design and test all UI changes for mobile viewports first (target ~400px, e.g. iPhone 17 Pro). Use CSS Modules media queries at `480px` and `768px` breakpoints. Every new page/component must include responsive styles — never ship desktop-only layouts
 - **Consistent font scale**: The site uses a fixed typographic scale (base 17px). When creating or editing pages, match the established sizes from HomePage: page titles `2rem` (detail) / `1.6rem` (listing), section headings `1.3rem`, body/descriptions `1.05rem`, secondary labels `0.9rem`, small metadata `0.8rem`. Mobile (480px) reduces by ~15–20%. Never eyeball new sizes — always reference existing pages for consistency
-- **Security-sensitive LLM prompts** must be defined in `security_prompts.yaml` (`server/src/decision_hub/infra/`), never inline in source code. This includes any prompt that serves as a security guardrail, safety judge, or abuse filter (gauntlet checks, topicality guard, future defenses). Use `load_security_prompts()` from `security_prompts.py` to load them. When adding new LLM calls with a security/defense purpose, always add their prompts to this config.
 
 ### Logging
 

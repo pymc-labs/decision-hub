@@ -32,9 +32,6 @@ test-client: ## Run client tests
 	uv run --package dhub-cli --extra dev pytest client/tests/ -v
 
 test-server: ## Run server tests
-	@test -f server/src/decision_hub/infra/security_prompts.yaml || \
-		cp server/src/decision_hub/infra/security_prompts.example.yaml \
-		   server/src/decision_hub/infra/security_prompts.yaml
 	uv run --package decision-hub-server --extra dev pytest server/tests/ -v
 
 test-frontend: ## Run frontend tests
