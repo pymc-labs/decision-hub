@@ -308,12 +308,12 @@ export default function HomePage() {
           <div className={styles.exampleCol}>
             <p className={styles.exampleLabel}>Install in one command</p>
             <TerminalBlock title="~">
-              {'$ dhub install pymc-labs/dhub-cli --agent all\n\n'}
-              <span className={styles.termOutput}>{`Resolving pymc-labs/dhub-cli@latest...
-Downloading pymc-labs/dhub-cli@0.1.0...
+              {'$ dhub install anthropics/statistical-analysis --agent all\n\n'}
+              <span className={styles.termOutput}>{`Resolving anthropics/statistical-analysis@latest...
+Downloading anthropics/statistical-analysis@0.1.0...
 
-✓ Installed pymc-labs/dhub-cli@0.1.0
-  to ~/.dhub/skills/dhub-cli
+✓ Installed anthropics/statistical-analysis@0.1.0
+  to ~/.dhub/skills/statistical-analysis
 
 ✓ Linked to claude, cursor, codex`}</span>
             </TerminalBlock>
