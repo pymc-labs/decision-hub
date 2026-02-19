@@ -5,6 +5,7 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.table import Table
 
 console = Console()
 
@@ -31,7 +32,7 @@ def ask_command(
 
     with console.status("Searching registry..."), httpx.Client(timeout=60) as client:
         resp = client.get(
-            f"{get_api_url()}/v1/search",
+            f"{get_api_url()}/v1/ask",
             params=params,
             headers=build_headers(get_optional_token()),
         )
@@ -47,8 +48,26 @@ def ask_command(
 
     console.print(
         Panel(
-            Markdown(data["results"]),
+            Markdown(data["answer"]),
             title=title,
             border_style="blue",
         )
     )
+
+    skills = data.get("skills", [])
+    if skills:
+        table = Table(title="Referenced Skills", show_lines=True)
+        table.add_column("Skill", style="cyan")
+        table.add_column("Grade", style="green")
+        table.add_column("Description")
+        table.add_column("Reason", style="dim")
+
+        for skill in skills:
+            table.add_row(
+                f"{skill['org_slug']}/{skill['skill_name']}",
+                skill.get("safety_rating", "?"),
+                skill.get("description", ""),
+                skill.get("reason", ""),
+            )
+
+        console.print(table)

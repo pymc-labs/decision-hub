@@ -8,6 +8,7 @@ import type {
   TaxonomyResponse,
   RegistryStats,
   OrgStatsResponse,
+  AskResponse,
 } from "../types/api";
 
 // When served from Modal (same origin), use "" so fetches are relative.
@@ -117,6 +118,12 @@ export async function getAuditLog(
   const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
   return fetchJSON<AuditLogEntry[]>(
     `/v1/skills/${orgSlug}/${skillName}/audit-log${qs}`
+  );
+}
+
+export async function askQuestion(query: string): Promise<AskResponse> {
+  return fetchJSON<AskResponse>(
+    `/v1/ask?q=${encodeURIComponent(query)}`
   );
 }
 

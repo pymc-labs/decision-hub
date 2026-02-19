@@ -165,8 +165,8 @@ def create_app() -> FastAPI:
     app.include_router(registry_router, dependencies=write_deps)
     app.include_router(keys_router, dependencies=write_deps)
     app.include_router(tracker_router, dependencies=write_deps)
-    # Search is read-only and should be accessible without auth, like the
-    # public registry endpoints.
+    # Search and ask are read-only and should be accessible without auth,
+    # like the public registry endpoints.
     app.include_router(search_router)
 
     # SEO routes (sitemap.xml, robots.txt) — must be registered before the

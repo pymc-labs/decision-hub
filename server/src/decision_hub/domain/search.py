@@ -57,22 +57,6 @@ def format_trust_score(eval_status: str) -> str:
     return scores.get(eval_status, "?")
 
 
-def format_deterministic_results(entries: list[SkillIndexEntry]) -> str:
-    """Format pre-ranked entries as markdown when Gemini is unavailable.
-
-    Used as a deterministic fallback when the LLM reranker fails.
-    Returns a numbered markdown list with skill details.
-    """
-    if not entries:
-        return "No skills matched your query."
-
-    lines: list[str] = []
-    for i, e in enumerate(entries, 1):
-        trust = e.trust_score
-        lines.append(f"{i}. **{e.org_slug}/{e.skill_name}** v{e.latest_version} [{trust}] — {e.description}")
-    return "\n".join(lines)
-
-
 def serialize_index(entries: list[SkillIndexEntry]) -> str:
     """Serialize index entries to a JSONL string.
 

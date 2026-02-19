@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star } from "lucide-react";
+import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star, MessageCircle } from "lucide-react";
+import AskModal from "./AskModal";
 import styles from "./Layout.module.css";
 import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
 
@@ -21,6 +22,14 @@ export default function Layout() {
   });
   const mobileMenuOpen =
     mobileMenuState.isOpen && mobileMenuState.openedOnPath === location.pathname;
+  const [askOpen, setAskOpen] = useState(false);
+  const closeAsk = useCallback(() => setAskOpen(false), []);
+
+  useEffect(() => {
+    const openAsk = () => setAskOpen(true);
+    window.addEventListener("open-ask-modal", openAsk);
+    return () => window.removeEventListener("open-ask-modal", openAsk);
+  }, []);
 
   return (
     <div className={styles.layout}>
@@ -51,6 +60,16 @@ export default function Layout() {
                 <span>{label}</span>
               </Link>
             ))}
+            <button
+              className={styles.navLink}
+              onClick={() => {
+                setAskOpen(true);
+                setMobileMenuState({ isOpen: false, openedOnPath: location.pathname });
+              }}
+            >
+              <MessageCircle size={16} />
+              <span>Ask</span>
+            </button>
           </nav>
 
           <div className={styles.headerRight}>
@@ -98,6 +117,8 @@ export default function Layout() {
           </div>
         </div>
       </footer>
+
+      <AskModal isOpen={askOpen} onClose={closeAsk} />
     </div>
   );
 }
