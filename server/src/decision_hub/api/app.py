@@ -169,10 +169,6 @@ def create_app() -> FastAPI:
     # like the public registry endpoints.
     app.include_router(search_router)
 
-    from decision_hub.api.ask_routes import router as ask_router
-
-    app.include_router(ask_router)
-
     # SEO routes (sitemap.xml, robots.txt) — must be registered before the
     # SPA catch-all so these paths are handled by the API, not served as
     # index.html.
