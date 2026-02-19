@@ -43,9 +43,9 @@ export default function HomePage() {
       "@context": "https://schema.org",
       "@type": "WebSite",
       name: "Decision Hub",
-      url: "https://decisionhub.dev",
+      url: "https://hub.decision.ai",
       description:
-        "The skill registry for data science agents. Discover, install, and share executable skills with built-in safety grading and automated evaluations.",
+        "The skill registry for AI coding agents. Every skill is automatically evaluated, security-graded, and searchable in natural language.",
     }),
     [],
   );
@@ -246,6 +246,35 @@ export default function HomePage() {
             </TerminalBlock>
           </div>
         </div>
+      </section>
+
+      {/* Bottom CTA */}
+      <section className={styles.bottomCta}>
+        <NeonCard glow="pink">
+          <div className={styles.bottomCtaInner}>
+            <h2 className={styles.bottomCtaTitle}>Publish Your Skills</h2>
+            <p className={styles.bottomCtaDesc}>
+              Package your team's agent skills and get automated evals + security
+              grading for free. Private by default — only your org can see them.
+            </p>
+            <div className={styles.bottomCtaActions}>
+              <a
+                href="https://github.com/pymc-labs/decision-hub"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.btnPrimary}
+              >
+                <Package size={18} />
+                Get Started
+                <ArrowRight size={16} />
+              </a>
+              <Link to="/how-it-works" className={styles.btnSecondary}>
+                <Zap size={18} />
+                Learn More
+              </Link>
+            </div>
+          </div>
+        </NeonCard>
       </section>
     </div>
   );
