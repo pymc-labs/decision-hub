@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_s3_client, get_settings
 from decision_hub.api.rate_limit import RateLimiter
-from decision_hub.domain.search import build_index_entry, serialize_index
+from decision_hub.domain.search import build_index_entry, format_trust_score, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import (
@@ -233,7 +233,9 @@ def ask_skills(
                 org_slug=e.org_slug,
                 skill_name=e.skill_name,
                 description=e.description,
-                safety_rating=candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", ""),
+                safety_rating=format_trust_score(
+                    candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
+                ),
                 reason="Matched your search query.",
             )
             for e in result.entries[:5]
@@ -300,7 +302,7 @@ def ask_skills(
                     org_slug=ref["org_slug"],
                     skill_name=ref["skill_name"],
                     description=row.get("description", ""),
-                    safety_rating=row.get("eval_status", ""),
+                    safety_rating=format_trust_score(row.get("eval_status", "")),
                     reason=ref.get("reason", ""),
                 )
             )

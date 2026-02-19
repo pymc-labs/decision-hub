@@ -134,7 +134,7 @@ class TestAskSkills:
         assert data["skills"][0]["skill_name"] == "weather"
         # Verify enrichment from DB (description comes from candidates, not LLM)
         assert data["skills"][0]["description"] == "Weather forecasting"
-        assert data["skills"][0]["safety_rating"] == "passed"
+        assert data["skills"][0]["safety_rating"] == "A"
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
