@@ -59,6 +59,14 @@ DHUB_ENV=dev uv run --package decision-hub-server python -c "..."
 
 Client-package commands (`uv run --package dhub-cli ...`) can run from anywhere.
 
+### Security Prompts Config
+
+Security-sensitive LLM prompts (gauntlet judges, topicality guard) are loaded from `server/src/decision_hub/infra/security_prompts.yaml`. This file is `.gitignore`d — it is never committed.
+
+- **pymc-labs devs**: Get the production config from 1Password ("Decision Hub Security Prompts"). Place it at the path above.
+- **Open-source contributors**: Run `make test-server` which auto-copies the example config if the real one is missing. For local server development, manually copy `security_prompts.example.yaml` → `security_prompts.yaml`.
+- **Deploys**: CI writes the config from the `SECURITY_PROMPTS_YAML` GitHub secret. Local deploys (`make deploy-dev/prod`) require the file — the deploy script checks.
+
 ### Quick Reference
 
 Common commands are available via `make`. Run `make help` to see all targets.
@@ -122,6 +130,7 @@ cd server && DHUB_ENV=dev uv run --package decision-hub-server \
 - **Don't advance state on failure**: For every state-advancing side effect (advancing cursors, clearing errors, updating timestamps), explicitly handle the failure case — do not advance state when the operation it represents has failed
 - **Clean up after refactors**: After every refactor, search for all references to the old function/argument and remove dead code — no orphaned functions, unused imports, or selected-but-unmapped fields
 - **Mobile-first frontend**: Design and test all UI changes for mobile viewports first (target ~400px, e.g. iPhone 17 Pro). Use CSS Modules media queries at `480px` and `768px` breakpoints. Every new page/component must include responsive styles — never ship desktop-only layouts
+- **Security-sensitive LLM prompts** must be defined in `security_prompts.yaml` (`server/src/decision_hub/infra/`), never inline in source code. This includes any prompt that serves as a security guardrail, safety judge, or abuse filter (gauntlet checks, topicality guard, future defenses). Use `load_security_prompts()` from `security_prompts.py` to load them. When adding new LLM calls with a security/defense purpose, always add their prompts to this config.
 
 ### Logging
 

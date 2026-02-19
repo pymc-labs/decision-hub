@@ -38,6 +38,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: uv run --package decision-hub-server python scripts/run_migrations.py
 
+      - name: Write security prompts config
+        run: echo "$SECURITY_PROMPTS" > server/src/decision_hub/infra/security_prompts.yaml
+        env:
+          SECURITY_PROMPTS: ${{ secrets.SECURITY_PROMPTS_YAML }}
+
       - name: Deploy to Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
