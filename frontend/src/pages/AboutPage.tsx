@@ -6,7 +6,7 @@ import { useEffect } from "react";
  */
 export default function AboutPage() {
   useEffect(() => {
-    window.location.href = "https://www.pymc-labs.com";
+    window.location.replace("https://www.pymc-labs.com");
   }, []);
 
   return (
