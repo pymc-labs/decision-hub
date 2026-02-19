@@ -111,3 +111,17 @@ export interface OrgStatsEntry {
 export interface OrgStatsResponse {
   items: OrgStatsEntry[];
 }
+
+export interface AskSkillRef {
+  org_slug: string;
+  skill_name: string;
+  description: string;
+  safety_rating: string;
+  reason: string;
+}
+
+export interface AskResponse {
+  query: string;
+  answer: string;
+  skills: AskSkillRef[];
+}

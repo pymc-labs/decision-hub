@@ -145,6 +145,32 @@
   gap: 8px;
 }
 
+.askBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--neon-cyan) !important;
+  text-shadow: none !important;
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  background: rgba(0, 240, 255, 0.06);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.askBtn:hover {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.2);
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.4) !important;
+}
+
 .starBtn {
   display: flex;
   align-items: center;
@@ -221,6 +247,14 @@
 
   .headerInner {
     position: relative;
+  }
+
+  .askBtn span {
+    display: none;
+  }
+
+  .askBtn {
+    padding: 6px;
   }
 
   .starBtn span {

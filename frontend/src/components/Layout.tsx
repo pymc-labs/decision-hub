@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star } from "lucide-react";
+import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star, MessageCircle } from "lucide-react";
+import AskModal from "./AskModal";
 import styles from "./Layout.module.css";
 import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
 
@@ -21,6 +22,8 @@ export default function Layout() {
   });
   const mobileMenuOpen =
     mobileMenuState.isOpen && mobileMenuState.openedOnPath === location.pathname;
+  const [askOpen, setAskOpen] = useState(false);
+  const closeAsk = useCallback(() => setAskOpen(false), []);
 
   return (
     <div className={styles.layout}>
@@ -54,6 +57,14 @@ export default function Layout() {
           </nav>
 
           <div className={styles.headerRight}>
+            <button
+              className={styles.askBtn}
+              onClick={() => setAskOpen(true)}
+              aria-label="Ask Decision Hub"
+            >
+              <MessageCircle size={16} />
+              <span>Ask</span>
+            </button>
             {SHOW_GITHUB_BUTTONS && (
               <a
                 href="https://github.com/pymc-labs/decision-hub"
@@ -94,6 +105,8 @@ export default function Layout() {
           </span>
         </div>
       </footer>
+
+      <AskModal isOpen={askOpen} onClose={closeAsk} />
     </div>
   );
 }
