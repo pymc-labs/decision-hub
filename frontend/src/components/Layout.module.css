@@ -139,6 +139,24 @@
   letter-spacing: 1px;
 }
 
+.footerLinks {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.footerLinks a {
+  font-size: 0.8rem;
+  color: var(--text-muted) !important;
+  text-shadow: none !important;
+  letter-spacing: 0.5px;
+  transition: color 0.2s ease;
+}
+
+.footerLinks a:hover {
+  color: var(--neon-cyan) !important;
+}
+
 .headerRight {
   display: flex;
   align-items: center;
