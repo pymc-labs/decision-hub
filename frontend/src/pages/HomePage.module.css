@@ -117,6 +117,43 @@
   color: var(--neon-pink) !important;
 }
 
+/* Value Props */
+.valueProps {
+  margin: 56px 0 0;
+}
+
+.valuePropGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.valueProp {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.valuePropIcon {
+  color: var(--neon-cyan);
+  display: flex;
+  align-items: center;
+}
+
+.valuePropTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0;
+}
+
+.valuePropDesc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
 /* Stats */
 .stats {
   display: grid;
@@ -159,7 +196,16 @@
 }
 
 .cliSection .sectionTitle {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
+}
+
+.sectionSubtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 520px;
+  margin: 0 auto 20px;
+  text-align: center;
 }
 
 /* Featured */
@@ -366,7 +412,8 @@
 
   .skillGrid,
   .stepsGrid,
-  .installGrid {
+  .installGrid,
+  .valuePropGrid {
     grid-template-columns: 1fr;
   }
 

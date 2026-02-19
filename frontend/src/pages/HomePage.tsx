@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Package, Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag } from "lucide-react";
+import {
+  Package, Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
+  ShieldCheck, FlaskConical, Search
+} from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useCountUp } from "../hooks/useCountUp";
@@ -25,7 +28,6 @@ export default function HomePage() {
     []
   );
 
-  // Prefer data/data-science skills; fall back to all skills if not enough
   const topSkills = useMemo(() => {
     const catItems = categorySkills?.items ?? [];
     if (catItems.length >= HOME_PAGE_SIZE) return catItems;
@@ -66,9 +68,9 @@ export default function HomePage() {
           <span className={styles.heroMain}>HUB</span>
         </h1>
         <p className={styles.heroSub}>
-          The skill registry for data science agents. Discover, install, and share
-          executable skills with built-in safety grading and automated
-          evaluations.
+          The skill registry for AI coding agents.
+          Every skill is automatically evaluated, security-graded, and searchable
+          in natural language.
         </p>
         <div className={styles.heroCta}>
           <Link to="/skills" className={styles.btnPrimary}>
@@ -76,10 +78,55 @@ export default function HomePage() {
             Browse Skills
             <ArrowRight size={16} />
           </Link>
-          <Link to="/orgs" className={styles.btnSecondary}>
-            <Building2 size={18} />
-            Organizations
+          <Link to="/how-it-works" className={styles.btnSecondary}>
+            <Zap size={18} />
+            How It Works
           </Link>
+        </div>
+      </section>
+
+      {/* Value Props — the three pillars */}
+      <section className={styles.valueProps}>
+        <div className={styles.valuePropGrid}>
+          <NeonCard glow="cyan">
+            <div className={styles.valueProp}>
+              <div className={styles.valuePropIcon}>
+                <FlaskConical size={32} />
+              </div>
+              <h3 className={styles.valuePropTitle}>Automated Evals</h3>
+              <p className={styles.valuePropDesc}>
+                Every skill ships with eval cases. An agent runs each skill in a
+                sandbox, and an LLM judge scores the output — so you know a skill
+                actually works before you install it.
+              </p>
+            </div>
+          </NeonCard>
+          <NeonCard glow="pink">
+            <div className={styles.valueProp}>
+              <div className={styles.valuePropIcon}>
+                <ShieldCheck size={32} />
+              </div>
+              <h3 className={styles.valuePropTitle}>Security Grading</h3>
+              <p className={styles.valuePropDesc}>
+                Every submission is automatically analyzed for unsafe patterns —
+                arbitrary code execution, data exfiltration, prompt injection — and
+                graded A through F. No surprises in your agent's toolchain.
+              </p>
+            </div>
+          </NeonCard>
+          <NeonCard glow="purple">
+            <div className={styles.valueProp}>
+              <div className={styles.valuePropIcon}>
+                <Search size={32} />
+              </div>
+              <h3 className={styles.valuePropTitle}>Conversational Search</h3>
+              <p className={styles.valuePropDesc}>
+                Describe what you need in plain English. The index understands
+                intent, not just keywords — so your agent can find and install the
+                right skill in one command.
+              </p>
+            </div>
+          </NeonCard>
         </div>
       </section>
 
@@ -119,8 +166,12 @@ export default function HomePage() {
       <section className={styles.cliSection}>
         <h2 className={styles.sectionTitle}>
           <Bot size={20} />
-          Agentic First
+          Built for Agents
         </h2>
+        <p className={styles.sectionSubtitle}>
+          Your agent searches the registry, picks a skill, and installs it — all
+          inside the conversation. No context switching.
+        </p>
         <AnimatedTerminal />
       </section>
 
@@ -175,51 +226,11 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* How it works */}
-      <section className={styles.howItWorks}>
-        <h2 className={styles.sectionTitle}>
-          <Zap size={20} />
-          How It Works
-        </h2>
-        <div className={styles.stepsGrid}>
-          <NeonCard glow="pink">
-            <div className={styles.step}>
-              <span className={styles.stepNumber}>01</span>
-              <h3 className={styles.stepTitle}>Publish</h3>
-              <p className={styles.stepDesc}>
-                Package your SKILL.md and source code. Automated safety analysis
-                grades every submission A through F.
-              </p>
-            </div>
-          </NeonCard>
-          <NeonCard glow="cyan">
-            <div className={styles.step}>
-              <span className={styles.stepNumber}>02</span>
-              <h3 className={styles.stepTitle}>Evaluate</h3>
-              <p className={styles.stepDesc}>
-                Define eval cases in YAML. Agent executes in a sandbox, LLM
-                judge scores the output automatically.
-              </p>
-            </div>
-          </NeonCard>
-          <NeonCard glow="purple">
-            <div className={styles.step}>
-              <span className={styles.stepNumber}>03</span>
-              <h3 className={styles.stepTitle}>Install</h3>
-              <p className={styles.stepDesc}>
-                One command installs to Claude, Cursor, Codex, Gemini, and more.
-                Skills are symlinked across all agents.
-              </p>
-            </div>
-          </NeonCard>
-        </div>
-      </section>
-
       {/* How to Install */}
       <section className={styles.installSection}>
         <h2 className={styles.sectionTitle}>
           <Terminal size={20} />
-          How to Install
+          Get Started in 60 Seconds
         </h2>
         <div className={styles.installGrid}>
           <div className={styles.installStep}>
@@ -229,9 +240,9 @@ export default function HomePage() {
             </TerminalBlock>
           </div>
           <div className={styles.installStep}>
-            <span className={styles.installLabel}>2. Install a skill to your agents</span>
+            <span className={styles.installLabel}>2. Search and install</span>
             <TerminalBlock title="~">
-              {`# Search for skills\ndhub ask "I need to do Bayesian statistics with PyMC"\n\n# Install to Claude, Cursor, Codex...\ndhub install pymc-labs/pymc-modeling --agent all`}
+              {`# Ask in plain English\ndhub ask "I need to do Bayesian statistics with PyMC"\n\n# Install to Claude, Cursor, Codex...\ndhub install pymc-labs/pymc-modeling --agent all`}
             </TerminalBlock>
           </div>
         </div>
