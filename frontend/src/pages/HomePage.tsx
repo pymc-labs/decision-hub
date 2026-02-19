@@ -237,7 +237,7 @@ export default function HomePage() {
         </p>
         <div className={styles.installCommand}>
           <TerminalBlock title="~">
-            {`curl -LsSf https://astral.sh/uv/install.sh | sh && . $HOME/.local/bin/env && uv tool install dhub-cli`}
+            {`curl -LsSf https://astral.sh/uv/install.sh | sh && PATH="$HOME/.local/bin:$PATH" uv tool install dhub-cli`}
           </TerminalBlock>
         </div>
         <p className={styles.installAlt}>

@@ -7,7 +7,7 @@
 ## Installation
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh && . $HOME/.local/bin/env && uv tool install dhub-cli
+curl -LsSf https://astral.sh/uv/install.sh | sh && PATH="$HOME/.local/bin:$PATH" uv tool install dhub-cli
 ```
 
 This installs [uv](https://docs.astral.sh/uv/) (if not already present), updates your `PATH`, and installs the CLI. If you already have `uv` or `pipx`:
