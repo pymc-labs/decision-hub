@@ -366,34 +366,38 @@
   line-height: 1.6;
 }
 
-/* How to Install */
-.installSection {
-  margin: 60px 0;
+/* Install CTA */
+.installCta {
+  margin: 60px auto;
+  max-width: 720px;
+  text-align: center;
 }
 
-.installSection .sectionTitle {
-  margin-bottom: 24px;
+.installCta .sectionTitle {
+  margin-bottom: 8px;
+  justify-content: center;
 }
 
-.installGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
+.installSubtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
 }
 
-.installStep {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.installCommand {
+  text-align: left;
 }
 
-.installLabel {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--neon-pink);
-  letter-spacing: 1px;
-  text-transform: uppercase;
+.installAlt {
+  margin-top: 14px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.installAlt code {
+  font-family: 'Share Tech Mono', monospace;
+  color: var(--neon-cyan);
+  font-size: 0.85rem;
 }
 
 /* Bottom CTA */
@@ -443,7 +447,6 @@
 
   .skillGrid,
   .stepsGrid,
-  .installGrid,
   .valuePropGrid {
     grid-template-columns: 1fr;
   }
@@ -490,7 +493,7 @@
 
   .featured,
   .howItWorks,
-  .installSection {
+  .installCta {
     margin: 32px 0;
   }
 

@@ -7,30 +7,28 @@
 ## Installation
 
 ```bash
-# Via uv (recommended)
-uv tool install dhub-cli
+curl -LsSf https://astral.sh/uv/install.sh | sh && . $HOME/.local/bin/env && uv tool install dhub-cli
+```
 
-# Via pipx
-pipx install dhub-cli
+This installs [uv](https://docs.astral.sh/uv/) (if not already present), updates your `PATH`, and installs the CLI. If you already have `uv` or `pipx`:
+
+```bash
+uv tool install dhub-cli    # via uv
+pipx install dhub-cli       # via pipx
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Authenticate via GitHub
-dhub login
+# Search for skills in plain English
+dhub ask "I need to do Bayesian statistics with PyMC"
 
-# 2. Scaffold a new skill
+# Install to Claude, Cursor, Codex, Gemini, OpenCode...
+dhub install pymc-labs/pymc-modeling
+
+# Scaffold and publish your own skill
 dhub init my-skill
-
-# 3. Publish it (org auto-detected from your GitHub login)
 dhub publish ./my-skill
-
-# 4. Install it for your agents
-dhub install myuser/my-skill
-
-# 5. Run it (if it has a runtime block)
-dhub run myuser/my-skill
 ```
 
 ## Why Decision Hub

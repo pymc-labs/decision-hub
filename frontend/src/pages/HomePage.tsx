@@ -226,26 +226,23 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* How to Install */}
-      <section className={styles.installSection}>
+      {/* Install CTA */}
+      <section className={styles.installCta}>
         <h2 className={styles.sectionTitle}>
           <Terminal size={20} />
-          Get Started in 60 Seconds
+          Install the CLI
         </h2>
-        <div className={styles.installGrid}>
-          <div className={styles.installStep}>
-            <span className={styles.installLabel}>1. Install the CLI</span>
-            <TerminalBlock title="~">
-              {`# Install the CLI\nuv tool install dhub-cli\n\n# Login via GitHub\ndhub login`}
-            </TerminalBlock>
-          </div>
-          <div className={styles.installStep}>
-            <span className={styles.installLabel}>2. Search and install</span>
-            <TerminalBlock title="~">
-              {`# Ask in plain English\ndhub ask "I need to do Bayesian statistics with PyMC"\n\n# Install to Claude, Cursor, Codex...\ndhub install pymc-labs/pymc-modeling --agent all`}
-            </TerminalBlock>
-          </div>
+        <p className={styles.installSubtitle}>
+          One command. Works on macOS and Linux.
+        </p>
+        <div className={styles.installCommand}>
+          <TerminalBlock title="~">
+            {`curl -LsSf https://astral.sh/uv/install.sh | sh && . $HOME/.local/bin/env && uv tool install dhub-cli`}
+          </TerminalBlock>
         </div>
+        <p className={styles.installAlt}>
+          Already have <code>uv</code>? Just run <code>uv tool install dhub-cli</code>
+        </p>
       </section>
 
       {/* Bottom CTA */}
