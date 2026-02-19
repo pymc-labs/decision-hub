@@ -6,10 +6,48 @@ import styles from "./HowItWorksPage.module.css";
 
 const SECTIONS = [
   {
-    title: "Agents That Extend Themselves",
+    title: "Automated Evals",
+    glow: "purple" as const,
+    icon: FlaskConical,
+    text: "Define eval cases in YAML right inside your SKILL.md. On each publish the agent executes in an isolated sandbox, and an LLM judge scores the output automatically — so you know a skill works before anyone installs it.",
+    terminal: {
+      title: "SKILL.md evals section",
+      code: `evals:
+  - name: "basic-usage"
+    prompt: "Build a simple linear regression model"
+    expected: "Creates a PyMC model with priors and runs MCMC"
+    agent: claude
+
+  - name: "diagnostics"
+    prompt: "Check convergence of the model"
+    expected: "Uses ArviZ to check r_hat and trace plots"
+    agent: claude`,
+    },
+  },
+  {
+    title: "The Security Gauntlet",
+    glow: "pink" as const,
+    icon: Shield,
+    text: "Every skill passes through static analysis and LLM review on publish. Shell injection, permission escalation, data exfiltration, and dangerous-pattern scanning produce a letter grade from A to F — visible on every skill card.",
+    terminal: {
+      title: "dhub publish",
+      code: `$ dhub publish ./my-skill
+
+Packaging my-skill...
+Running security gauntlet...
+  ✓ No shell injection patterns
+  ✓ No permission escalation
+  ✓ No data exfiltration risks
+  ✓ No prompt injection vectors
+
+Published: pymc-labs/my-skill@0.1.0 (Grade A)`,
+    },
+  },
+  {
+    title: "Conversational Search",
     glow: "cyan" as const,
     icon: Search,
-    text: "Agents discover and install the skills they need mid-conversation. A natural language query searches the registry and returns matching skills with safety grades — ready to install.",
+    text: "Describe what you need in plain English. The index understands intent, not just keywords — your agent finds and installs the right skill without you browsing a catalog.",
     terminal: {
       title: "dhub ask",
       code: `$ dhub ask "I need to do Bayesian statistics with PyMC"
@@ -48,48 +86,6 @@ Publishing time-series (from time-series)...
 Published: pymc-labs/time-series@0.2.0 (Grade B)
 
 Done: 3 published, 0 skipped, 0 failed`,
-    },
-  },
-  {
-    title: "The Security Gauntlet",
-    glow: "pink" as const,
-    icon: Shield,
-    text: "Every skill published to the registry passes through static analysis and LLM review. Shell injection detection, permission escalation checks, and dangerous-pattern scanning produce a letter grade from A to F — visible on every skill card.",
-    terminal: {
-      title: "dhub publish",
-      code: `$ dhub publish ./my-skill
-
-Packaging my-skill...
-Publishing pymc-labs/my-skill@0.1.0...
-Published: pymc-labs/my-skill@0.1.0 (Grade A)
-Agent assessment started (run: a1b2c3d4...)
-Tailing logs... (Ctrl-C to detach)
-
-[1/2] basic-usage
-  PASS (12.3s)
-[2/2] edge-cases
-  PASS (8.1s)
-
-Assessment complete: 2/2 passed in 20.4s`,
-    },
-  },
-  {
-    title: "Automated Evals",
-    glow: "purple" as const,
-    icon: FlaskConical,
-    text: "Define eval cases in YAML right inside your SKILL.md. On each publish the agent executes in an isolated sandbox, and an LLM judge scores the output automatically — giving you a confidence signal before users ever see the skill.",
-    terminal: {
-      title: "SKILL.md evals section",
-      code: `evals:
-  - name: "basic-usage"
-    prompt: "Build a simple linear regression model"
-    expected: "Creates a PyMC model with priors and runs MCMC"
-    agent: claude
-
-  - name: "diagnostics"
-    prompt: "Check convergence of the model"
-    expected: "Uses ArviZ to check r_hat and trace plots"
-    agent: claude`,
     },
   },
   {
@@ -141,9 +137,9 @@ export default function HowItWorksPage() {
         <header className={styles.intro}>
           <h1 className={styles.pageTitle}>How It Works</h1>
           <p className={styles.pageSubtitle}>
-            Decision Hub is a package manager for AI agent skills — publish,
-            evaluate, and install executable capabilities across every agent you
-            use.
+            Decision Hub is a skill registry where every skill is automatically
+            evaluated in a sandbox, security-graded A through F, and searchable
+            in plain English. Publish once, install everywhere.
           </p>
         </header>
 

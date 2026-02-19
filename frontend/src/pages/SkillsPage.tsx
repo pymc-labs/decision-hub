@@ -99,7 +99,7 @@ export default function SkillsPage() {
           Skill Registry
         </h1>
         <p className={styles.subtitle}>
-          {total} skills found
+          {total} skills — each automatically evaluated and security-graded
         </p>
       </div>
 
@@ -109,7 +109,7 @@ export default function SkillsPage() {
           <Search size={16} className={styles.searchIcon} />
           <input
             type="text"
-            placeholder="Search skills..."
+            placeholder="Search skills, e.g. 'Bayesian modeling' or 'time series forecasting'..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className={styles.searchInput}

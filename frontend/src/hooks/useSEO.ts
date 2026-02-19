@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 
 const SITE_NAME = "Decision Hub";
-const BASE_URL = "https://decisionhub.dev";
+const BASE_URL = "https://hub.decision.ai";
 const DEFAULT_DESCRIPTION =
-  "Decision Hub is the skill registry for data science agents. Discover, install, and share executable skills with built-in safety grading and automated evaluations.";
+  "Decision Hub is the skill registry for AI coding agents. Every skill is automatically evaluated in a sandbox, security-graded A through F, and searchable in natural language.";
 
 interface SEOProps {
   title?: string;
