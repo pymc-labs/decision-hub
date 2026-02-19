@@ -25,12 +25,14 @@ def git_url_to_https(url: str) -> str | None:
     if m:
         return f"https://{m.group(1)}/{m.group(2)}"
 
-    # HTTPS/git:// format: strip .git suffix
+    # HTTPS/git:// format: strip .git suffix and userinfo
     for prefix in ("https://", "http://", "git://", "ssh://"):
         if url.startswith(prefix):
             clean = url.removesuffix(".git")
             if prefix in ("git://", "ssh://"):
-                return clean.replace(prefix, "https://", 1)
+                clean = clean.replace(prefix, "https://", 1)
+            # Strip userinfo (e.g. git@ in ssh://git@github.com/...)
+            clean = re.sub(r"^(https?://)([^@]+@)", r"\1", clean)
             return clean
 
     return None
