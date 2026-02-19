@@ -65,6 +65,11 @@ export default function HomePage() {
   const [osTab, setOsTab] = useState<"unix" | "windows">("unix");
   const [copied, setCopied] = useState(false);
 
+  const switchOs = useCallback((tab: "unix" | "windows") => {
+    setOsTab(tab);
+    setCopied(false);
+  }, []);
+
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(INSTALL_COMMANDS[osTab]);
     setCopied(true);
@@ -249,13 +254,13 @@ export default function HomePage() {
         <div className={styles.osToggle}>
           <button
             className={`${styles.osTab} ${osTab === "unix" ? styles.osTabActive : ""}`}
-            onClick={() => setOsTab("unix")}
+            onClick={() => switchOs("unix")}
           >
             macOS / Linux
           </button>
           <button
             className={`${styles.osTab} ${osTab === "windows" ? styles.osTabActive : ""}`}
-            onClick={() => setOsTab("windows")}
+            onClick={() => switchOs("windows")}
           >
             Windows
           </button>
