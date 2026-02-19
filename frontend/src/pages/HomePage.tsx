@@ -293,18 +293,16 @@ export default function HomePage() {
             <p className={styles.exampleLabel}>Search with natural language</p>
             <TerminalBlock title="~">
               {'$ dhub ask "analyze data with statistics"\n\n'}
-              <span className={styles.termOutput}>{`┌─ Results for: analyze data with statistics ──┐
-│                                               │
-│  anthropics/statistical-analysis  v0.1.0 [A]  │
-│  Apply statistical methods to datasets        │
-│                                               │
-│  anthropics/data-exploration      v0.1.0 [A]  │
-│  Profile and explore datasets                 │
-│                                               │
-│  pymc-labs/pymc-modeling          v0.1.2 [A]  │
-│  Bayesian statistical modeling with PyMC      │
-│                                               │
-└───────────────────────────────────────────────┘`}</span>
+              <span className={styles.termOutput}>{`Results for: analyze data with statistics
+
+  anthropics/statistical-analysis  v0.1.0  [A]
+  Apply statistical methods to datasets
+
+  anthropics/data-exploration      v0.1.0  [A]
+  Profile and explore datasets
+
+  pymc-labs/pymc-modeling          v0.1.2  [A]
+  Bayesian statistical modeling with PyMC`}</span>
             </TerminalBlock>
           </div>
           <div className={styles.exampleCol}>
