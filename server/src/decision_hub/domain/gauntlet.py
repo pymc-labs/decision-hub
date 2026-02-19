@@ -105,6 +105,15 @@ _ENTROPY_ALLOWLIST_RE = re.compile(
     re.IGNORECASE,
 )
 
+
+# Type alias for the credential LLM judge callback.
+# Accepts (hits, skill_name, skill_description) -> list[dict]
+# Each returned dict has 'source', 'label', 'line', 'dangerous' (bool), 'reason'.
+AnalyzeCredentialFn = Callable[
+    [list[dict], str, str],
+    list[dict],
+]
+
 # Permission categories that elevate a skill from A to B
 _ELEVATED_PERMISSION_PATTERNS: dict[str, list[str]] = {
     "shell": [
@@ -267,19 +276,22 @@ def _shannon_entropy(s: str) -> float:
 def _find_credential_hits(
     content: str,
     source_label: str,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     """Scan content for embedded credentials (known patterns + entropy).
 
-    Returns a list of dicts with keys 'source', 'label', 'line'.
+    Returns (known_hits, entropy_hits). Each hit is a dict with keys
+    'source', 'label', 'line'. Known-pattern hits always fail; entropy
+    hits are candidates for LLM review.
     """
-    hits: list[dict] = []
-    seen_lines: set[int] = set()  # track line numbers already flagged
+    known_hits: list[dict] = []
+    entropy_hits: list[dict] = []
+    seen_lines: set[int] = set()
 
     for lineno, line in enumerate(content.splitlines()):
         # Layer 1: known-format patterns (high confidence, specific label)
         for pattern, label in _CREDENTIAL_PATTERNS:
             if re.search(pattern, line):
-                hits.append(
+                known_hits.append(
                     {
                         "source": source_label,
                         "label": label,
@@ -299,7 +311,7 @@ def _find_credential_hits(
                 # Charset-aware threshold: hex has lower max entropy
                 threshold = _ENTROPY_THRESHOLD_HEX if _HEX_RE.match(value) else _ENTROPY_THRESHOLD_DEFAULT
                 if _shannon_entropy(value) >= threshold:
-                    hits.append(
+                    entropy_hits.append(
                         {
                             "source": source_label,
                             "label": "high-entropy secret",
@@ -309,42 +321,105 @@ def _find_credential_hits(
                     seen_lines.add(lineno)
                     break  # one hit per line is enough
 
-    return hits
+    return known_hits, entropy_hits
 
 
 def check_embedded_credentials(
     skill_md_content: str,
     source_files: list[tuple[str, str]],
+    skill_name: str = "",
+    skill_description: str = "",
+    analyze_credential_fn: AnalyzeCredentialFn | None = None,
 ) -> EvalResult:
     """Scan all skill content for embedded credentials.
 
     Two detection layers:
     1. Known-format patterns (AWS keys, GitHub tokens, private keys, etc.)
+       — always fail, no LLM override.
     2. Shannon entropy analysis on string literals (catches unknown formats)
-
-    This check always fails when credentials are found — there is no LLM
-    override because embedding real secrets in a skill is never legitimate.
+       — if an LLM judge is available, entropy hits are sent for review.
+         Without LLM, entropy hits fail automatically (strict mode).
     """
-    all_hits: list[dict] = []
+    all_known: list[dict] = []
+    all_entropy: list[dict] = []
 
-    all_hits.extend(_find_credential_hits(skill_md_content, "SKILL.md"))
+    known, entropy = _find_credential_hits(skill_md_content, "SKILL.md")
+    all_known.extend(known)
+    all_entropy.extend(entropy)
 
     for filename, content in source_files:
-        all_hits.extend(_find_credential_hits(content, filename))
+        known, entropy = _find_credential_hits(content, filename)
+        all_known.extend(known)
+        all_entropy.extend(entropy)
 
-    if not all_hits:
+    # Known-pattern hits always fail — no LLM override
+    if all_known:
+        findings = [f"{h['source']}: {h['label']}" for h in all_known]
+        return EvalResult(
+            check_name="embedded_credentials",
+            severity="fail",
+            message=f"Embedded credentials detected: {'; '.join(findings)}",
+            details={"hits": all_known},
+        )
+
+    if not all_entropy:
         return EvalResult(
             check_name="embedded_credentials",
             severity="pass",
             message="No embedded credentials detected",
         )
 
-    findings = [f"{h['source']}: {h['label']}" for h in all_hits]
+    # --- LLM judge available: let it review entropy hits ---
+    if analyze_credential_fn is not None:
+        judgments = analyze_credential_fn(all_entropy, skill_name, skill_description)
+
+        # Fail-closed: any source file not covered by the LLM is marked dangerous
+        covered_sources = {j.get("source") for j in judgments}
+        for h in all_entropy:
+            if h["source"] not in covered_sources:
+                judgments.append(
+                    {
+                        "source": h["source"],
+                        "label": h["label"],
+                        "line": h["line"],
+                        "dangerous": True,
+                        "reason": "LLM did not return judgment for this finding",
+                    }
+                )
+
+        dangerous = [j for j in judgments if j.get("dangerous", True)]
+        cleared = [j for j in judgments if not j.get("dangerous", True)]
+
+        if dangerous:
+            findings = [
+                f"{d.get('source', '?')}: {d.get('label', 'high-entropy secret')} ({d.get('reason', 'flagged')})"
+                for d in dangerous
+            ]
+            return EvalResult(
+                check_name="embedded_credentials",
+                severity="fail",
+                message=f"Embedded credentials confirmed: {'; '.join(findings)}",
+                details={"judgments": judgments},
+            )
+
+        cleared_summary = "; ".join(
+            f"{c.get('source', '?')}: {c.get('label', 'high-entropy secret')} (ok: {c.get('reason', 'not a secret')})"
+            for c in cleared
+        )
+        return EvalResult(
+            check_name="embedded_credentials",
+            severity="pass",
+            message=f"Entropy hits reviewed and cleared: {cleared_summary}",
+            details={"judgments": judgments},
+        )
+
+    # --- No LLM: strict mode, entropy hits fail automatically ---
+    findings = [f"{h['source']}: {h['label']}" for h in all_entropy]
     return EvalResult(
         check_name="embedded_credentials",
         severity="fail",
         message=f"Embedded credentials detected: {'; '.join(findings)}",
-        details={"hits": all_hits},
+        details={"hits": all_entropy},
     )
 
 
@@ -707,6 +782,7 @@ def run_static_checks(
     allowed_tools: str | None = None,
     analyze_prompt_fn: AnalyzePromptFn | None = None,
     review_body_fn: ReviewBodyFn | None = None,
+    analyze_credential_fn: AnalyzeCredentialFn | None = None,
 ) -> GauntletReport:
     """Run all static analysis checks and return a GauntletReport.
 
@@ -720,13 +796,22 @@ def run_static_checks(
         skill_md_body: The body (system prompt) section of SKILL.md.
         allowed_tools: The allowed_tools field from the manifest.
         analyze_prompt_fn: Optional LLM callback for prompt safety scan.
+        analyze_credential_fn: Optional LLM callback for entropy credential review.
     """
     results = [check_manifest_schema(skill_md_content)]
 
     if lockfile_content is not None:
         results.append(check_dependency_audit(lockfile_content))
 
-    results.append(check_embedded_credentials(skill_md_content, source_files))
+    results.append(
+        check_embedded_credentials(
+            skill_md_content,
+            source_files,
+            skill_name=skill_name,
+            skill_description=skill_description,
+            analyze_credential_fn=analyze_credential_fn,
+        )
+    )
 
     results.append(
         check_safety_scan(
