@@ -99,7 +99,7 @@ export default function SkillsPage() {
           Skill Registry
         </h1>
         <p className={styles.subtitle}>
-          {total} skills found
+          {total} skills — each automatically evaluated and security-graded
         </p>
       </div>
 

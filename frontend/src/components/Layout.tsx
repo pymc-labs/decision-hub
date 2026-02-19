@@ -87,7 +87,7 @@ export default function Layout() {
         <div className={styles.footerInner}>
           <span className={styles.footerGlow}>DECISION HUB</span>
           <span className={styles.footerText}>
-            Skill Registry for Data Science Agents
+            Auto-evaluated · Security-graded · Searchable in plain English
           </span>
         </div>
       </footer>
