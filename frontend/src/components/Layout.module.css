@@ -133,10 +133,22 @@
   animation: pulseGlow 3s ease-in-out infinite;
 }
 
-.footerText {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  letter-spacing: 1px;
+.footerLinks {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.footerLinks a {
+  font-size: 0.8rem;
+  color: var(--text-muted) !important;
+  text-shadow: none !important;
+  letter-spacing: 0.5px;
+  transition: color 0.2s ease;
+}
+
+.footerLinks a:hover {
+  color: var(--neon-cyan) !important;
 }
 
 .headerRight {

@@ -89,9 +89,13 @@ export default function Layout() {
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
           <span className={styles.footerGlow}>DECISION HUB</span>
-          <span className={styles.footerText}>
-            Auto-evaluated · Security-graded · Searchable in plain English
-          </span>
+          <div className={styles.footerLinks}>
+            <a href="https://www.pymc-labs.com" target="_blank" rel="noopener noreferrer">
+              PyMC Labs
+            </a>
+            <Link to="/terms">Terms</Link>
+            <Link to="/privacy">Privacy</Link>
+          </div>
         </div>
       </footer>
     </div>
