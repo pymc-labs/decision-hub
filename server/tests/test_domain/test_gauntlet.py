@@ -278,6 +278,93 @@ class TestCheckEmbeddedCredentials:
         assert "SKILL.md" in result.message
 
 
+class TestCredentialLlmReview:
+    """Tests for LLM-based entropy hit review."""
+
+    def _make_entropy_hit_files(self):
+        """Create source files with high-entropy strings (false positives)."""
+        return [("ui.py", 'msg = "{Colors.YELLOW}Reddit{Colors.RESET} Found {count} threads"\n')]
+
+    def test_llm_clears_false_positives(self):
+        """LLM judge can clear entropy hits that are not real secrets."""
+        files = self._make_entropy_hit_files()
+
+        def approve_all(hits, name, desc):
+            return [{"source": h["source"], "dangerous": False, "reason": "template string"} for h in hits]
+
+        result = check_embedded_credentials(
+            "---\nname: x\ndescription: y\n---\n",
+            files,
+            skill_name="test",
+            skill_description="test skill",
+            analyze_credential_fn=approve_all,
+        )
+        assert result.passed is True
+        assert "reviewed and cleared" in result.message
+
+    def test_llm_confirms_real_secret(self):
+        """LLM judge can confirm an entropy hit is a real secret."""
+        secret = "aB3xK9mP2qR7wL5nJ8vT4cY6uF0"
+        files = [("config.py", f'key = "{secret}"\n')]
+
+        def flag_all(hits, name, desc):
+            return [{"source": h["source"], "dangerous": True, "reason": "looks like an API key"} for h in hits]
+
+        result = check_embedded_credentials(
+            "---\nname: x\ndescription: y\n---\n",
+            files,
+            skill_name="test",
+            skill_description="test skill",
+            analyze_credential_fn=flag_all,
+        )
+        assert result.passed is False
+        assert "confirmed" in result.message
+
+    def test_no_llm_strict_mode(self):
+        """Without LLM judge, entropy hits fail automatically."""
+        secret = "aB3xK9mP2qR7wL5nJ8vT4cY6uF0"
+        files = [("config.py", f'key = "{secret}"\n')]
+        result = check_embedded_credentials(
+            "---\nname: x\ndescription: y\n---\n",
+            files,
+        )
+        assert result.passed is False
+
+    def test_known_patterns_bypass_llm(self):
+        """Known credential patterns (AWS keys etc.) always fail, even with LLM."""
+        files = [("config.py", 'key = "AKIAIOSFODNN7EXAMPLE1"\n')]
+
+        def approve_all(hits, name, desc):
+            return [{"source": h["source"], "dangerous": False, "reason": "not a secret"} for h in hits]
+
+        result = check_embedded_credentials(
+            "---\nname: x\ndescription: y\n---\n",
+            files,
+            skill_name="test",
+            skill_description="test skill",
+            analyze_credential_fn=approve_all,
+        )
+        assert result.passed is False
+        assert "AWS" in result.message
+
+    def test_llm_fail_closed_on_missing_judgments(self):
+        """Entropy hits not covered by LLM response are marked dangerous."""
+        secret = "aB3xK9mP2qR7wL5nJ8vT4cY6uF0"
+        files = [("config.py", f'key = "{secret}"\n')]
+
+        def return_empty(hits, name, desc):
+            return []
+
+        result = check_embedded_credentials(
+            "---\nname: x\ndescription: y\n---\n",
+            files,
+            skill_name="test",
+            skill_description="test skill",
+            analyze_credential_fn=return_empty,
+        )
+        assert result.passed is False
+
+
 class TestCheckPromptSafety:
     """Tests for prompt injection scanning."""
 

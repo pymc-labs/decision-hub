@@ -28,6 +28,14 @@ class PromptSafetyJudgment(BaseModel):
     reason: str
 
 
+class CredentialJudgment(BaseModel):
+    """Schema for a single credential entropy judgment from the LLM."""
+
+    source: str
+    dangerous: bool
+    reason: str
+
+
 def create_gemini_client(api_key: str) -> dict:
     """Create a Gemini client configuration.
 
@@ -449,6 +457,121 @@ def analyze_code_safety(
         {"file": s["file"], "label": s["label"], "dangerous": True, "reason": "Could not parse LLM response"}
         for s in source_snippets
     ]
+
+
+def analyze_credential_entropy(
+    client: dict,
+    entropy_hits: list[dict],
+    skill_name: str,
+    skill_description: str,
+    model: str = "gemini-2.0-flash",
+) -> list[dict]:
+    """Ask Gemini to judge whether high-entropy strings are real secrets.
+
+    The entropy scanner flags string literals with high Shannon entropy as
+    potential embedded credentials. Many are false positives: SQL queries,
+    f-string templates, emoji-rich text, ANSI color codes, etc. This function
+    sends the flagged strings to an LLM to distinguish real secrets from
+    legitimate code.
+
+    Args:
+        client: Gemini client config dict.
+        entropy_hits: List of dicts with keys 'source', 'label', 'line'.
+        skill_name: Name of the skill being scanned.
+        skill_description: What the skill says it does.
+        model: Gemini model to use.
+
+    Returns:
+        List of dicts with keys 'source', 'label', 'line',
+        'dangerous' (bool), 'reason' (str).
+    """
+    prompt = (
+        "You are a security reviewer for Decision Hub, a package registry for "
+        "AI agent skills. An entropy scanner flagged the following string "
+        "literals as potential embedded secrets/credentials. Your job is to "
+        "decide whether each flagged string is a REAL secret (API key, token, "
+        "password, private key material) or a FALSE POSITIVE.\n\n"
+        "Common false positives (mark dangerous=false):\n"
+        "- Template/f-strings with {variable} placeholders\n"
+        "- SQL queries (SELECT, INSERT, etc.)\n"
+        "- Formatted text with emoji, ANSI color codes, or Unicode box-drawing\n"
+        "- Shell commands or bash variables (${VAR})\n"
+        "- Human-readable sentences or documentation\n"
+        "- File paths, XML namespaces, or structured data formats\n\n"
+        "Real secrets (mark dangerous=true):\n"
+        "- API keys, tokens, passwords hardcoded as string literals\n"
+        "- Base64-encoded keys or hex secrets\n"
+        "- Private key material\n\n"
+        f"Skill name: {skill_name}\n"
+        f"Skill description: {skill_description}\n\n"
+        "Flagged strings:\n"
+    )
+
+    for i, h in enumerate(entropy_hits):
+        prompt += f"{i + 1}. Source: {h['source']}, Line: {h['line']}\n"
+
+    prompt += (
+        "\nFor each finding, respond with a JSON array. Each element must have:\n"
+        '  {"source": "<source file>", "dangerous": true/false, '
+        '"reason": "<brief explanation>"}\n\n'
+        "Respond ONLY with the JSON array, no other text."
+    )
+
+    url = f"{client['base_url']}/{model}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.0},
+    }
+
+    with httpx.Client(timeout=30) as http_client:
+        resp = http_client.post(
+            url,
+            params={"key": client["api_key"]},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    candidates = data.get("candidates", [])
+    if not candidates:
+        return [{**h, "dangerous": True, "reason": "LLM returned no response"} for h in entropy_hits]
+
+    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    text = _strip_markdown_fences(text)
+
+    try:
+        results = json.loads(text)
+        if isinstance(results, list):
+            validated: list[dict] = []
+            for item in results:
+                try:
+                    judgment = CredentialJudgment.model_validate(item)
+                    validated.append(judgment.model_dump())
+                except (ValidationError, AttributeError):
+                    source_val = item.get("source", "unknown") if isinstance(item, dict) else "unknown"
+                    validated.append(
+                        {
+                            "source": source_val,
+                            "dangerous": True,
+                            "reason": "LLM response item failed schema validation",
+                        }
+                    )
+            # Merge original hit data (label, line) into judgments
+            source_to_hits: dict[str, list[dict]] = {}
+            for h in entropy_hits:
+                source_to_hits.setdefault(h["source"], []).append(h)
+            for j in validated:
+                j.setdefault("label", "high-entropy secret")
+                if "line" not in j:
+                    hits_for_source = source_to_hits.get(j["source"], [])
+                    if hits_for_source:
+                        j["line"] = hits_for_source[0]["line"]
+            return validated
+    except json.JSONDecodeError:
+        pass
+
+    logger.warning("Could not parse Gemini credential entropy response for '{}'", skill_name)
+    return [{**h, "dangerous": True, "reason": "Could not parse LLM response"} for h in entropy_hits]
 
 
 def analyze_prompt_safety(

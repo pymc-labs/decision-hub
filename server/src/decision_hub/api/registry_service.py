@@ -117,6 +117,7 @@ def run_gauntlet_pipeline(
         allowed_tools=allowed_tools,
         analyze_prompt_fn=_build_analyze_prompt_fn(settings),
         review_body_fn=_build_review_body_fn(settings),
+        analyze_credential_fn=_build_analyze_credential_fn(settings),
     )
 
     check_results_dicts = [
@@ -260,6 +261,31 @@ def _build_review_body_fn(settings: Settings):
         )
 
     return review_body_fn
+
+
+def _build_analyze_credential_fn(settings: Settings):
+    """Build a Gemini credential entropy review callback if google_api_key is configured.
+
+    Returns None if no API key is set, which causes the credential check
+    to run in strict mode (entropy hits fail automatically).
+    """
+    if not settings.google_api_key:
+        return None
+
+    from decision_hub.infra.gemini import analyze_credential_entropy, create_gemini_client
+
+    gemini_client = create_gemini_client(settings.google_api_key)
+
+    def analyze_credential_fn(entropy_hits, skill_name, skill_description):
+        return analyze_credential_entropy(
+            gemini_client,
+            entropy_hits,
+            skill_name,
+            skill_description,
+            model=settings.gemini_model,
+        )
+
+    return analyze_credential_fn
 
 
 def classify_skill_category(
