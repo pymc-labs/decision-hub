@@ -61,11 +61,12 @@ Client-package commands (`uv run --package dhub-cli ...`) can run from anywhere.
 
 ### Security Prompts Config
 
-Security-sensitive LLM prompts (gauntlet judges, topicality guard) are loaded from `server/src/decision_hub/infra/security_prompts.yaml`. This file is `.gitignore`d — it is never committed.
+Security-sensitive LLM prompts (gauntlet judges, topicality guard) are loaded from `server/src/decision_hub/infra/security_prompts.yaml`. This file is `.gitignore`d — it is never committed. An encrypted copy (`security_prompts.yaml.enc`) is committed so CI can decrypt it.
 
-- **pymc-labs devs**: Get the production config from 1Password ("Decision Hub Security Prompts"). Place it at the path above.
+- **pymc-labs devs**: Decrypt the production config with `SECURITY_PROMPTS_KEY=... make decrypt-prompts`. Get the key from 1Password ("Decision Hub Security Prompts Key").
 - **Open-source contributors**: Run `make test-server` which auto-copies the example config if the real one is missing. For local server development, manually copy `security_prompts.example.yaml` → `security_prompts.yaml`.
-- **Deploys**: CI writes the config from the `SECURITY_PROMPTS_YAML` GitHub secret. Local deploys (`make deploy-dev/prod`) require the file — the deploy script checks.
+- **After editing prompts**: Run `SECURITY_PROMPTS_KEY=... make encrypt-prompts` and commit the updated `.enc` file. CI auto-decrypts from it.
+- **Deploys**: CI decrypts the `.enc` file using the `SECURITY_PROMPTS_KEY` GitHub secret. Local deploys (`make deploy-dev/prod`) require the plaintext file — the deploy script checks.
 
 ### Quick Reference
 
