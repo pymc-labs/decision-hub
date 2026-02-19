@@ -1,14 +1,16 @@
+/* ── Page layout ───────────────────────────────────────── */
+
 .page {
   padding: 40px 0 60px;
 }
 
 .intro {
   text-align: center;
-  margin-bottom: 48px;
+  margin-bottom: 56px;
 }
 
 .pageTitle {
-  font-size: 1.8rem;
+  font-size: 2rem;
   color: var(--neon-cyan);
   text-shadow: var(--glow-text-strong);
   margin-bottom: 12px;
@@ -17,43 +19,267 @@
 .pageSubtitle {
   max-width: 600px;
   margin: 0 auto;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   color: var(--text-secondary);
   line-height: 1.7;
 }
 
-.sections {
+/* ── Acts container ───────────────────────────────────── */
+
+.acts {
   display: flex;
   flex-direction: column;
-  gap: 40px;
-  max-width: 720px;
+  gap: 0;
+  max-width: 1280px;
   margin: 0 auto;
 }
 
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+/* ── Single act ───────────────────────────────────────── */
+
+.act {
+  --act-color: var(--neon-cyan);
 }
 
-.sectionHeader {
+.act[data-act-color="cyan"] {
+  --act-color: var(--neon-cyan);
+}
+
+.act[data-act-color="pink"] {
+  --act-color: var(--neon-pink);
+}
+
+.act[data-act-color="green"] {
+  --act-color: var(--neon-green);
+}
+
+/* ── Act divider between acts ─────────────────────────── */
+
+.actDivider {
+  position: relative;
+  border-top: 1px solid var(--border-color);
+  margin: 56px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.actDivider::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 3px;
+  background: var(--act-color);
+  box-shadow: 0 0 12px var(--act-color);
+  border-radius: 2px;
+}
+
+/* ── Act header ───────────────────────────────────────── */
+
+.actHeader {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.actLabel {
+  display: inline-block;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 3px;
+  color: var(--act-color);
+  text-shadow: 0 0 10px var(--act-color);
+  margin-bottom: 8px;
+}
+
+.actTagline {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ── Features within an act ───────────────────────────── */
+
+.features {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+/* ── Feature row: two-column grid ─────────────────────── */
+
+.featureRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: center;
+}
+
+/* Alternated: terminal on left, text on right */
+.featureRowAlt .featureText {
+  order: 2;
+}
+
+.featureRowAlt .featureTerminal {
+  order: 1;
+}
+
+/* ── Text column ──────────────────────────────────────── */
+
+.featureText {
+  border-left: 3px solid var(--act-color);
+  padding-left: 24px;
+}
+
+.featureHeader {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 16px;
 }
 
-.sectionIcon {
-  color: var(--neon-cyan);
+.featureIcon {
+  color: var(--act-color);
+  flex-shrink: 0;
 }
 
-.sectionTitle {
-  font-size: 1.1rem;
-  color: var(--neon-cyan);
+.featureTitle {
+  font-size: 1.3rem;
+  color: var(--act-color);
   text-shadow: var(--glow-text-subtle);
 }
 
-.sectionText {
-  font-size: 0.95rem;
+.featureBullets {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.featureBullet {
+  font-size: 1.05rem;
   color: var(--text-secondary);
   line-height: 1.7;
+  padding-left: 16px;
+  position: relative;
+}
+
+.featureBullet::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: var(--act-color);
+  font-weight: 700;
+}
+
+/* ── Emphasis within text ─────────────────────────────── */
+
+.pageSubtitle strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.actTagline strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.featureBullet strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── Terminal column ──────────────────────────────────── */
+
+.featureTerminal {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── Responsive: tablet ───────────────────────────────── */
+
+@media (max-width: 768px) {
+  .featureRow {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  /* Reset alternating order — text always on top */
+  .featureRowAlt .featureText {
+    order: unset;
+  }
+
+  .featureRowAlt .featureTerminal {
+    order: unset;
+  }
+
+  .actDivider {
+    margin: 40px 0;
+  }
+
+  .features {
+    gap: 40px;
+  }
+}
+
+/* ── Responsive: mobile ───────────────────────────────── */
+
+@media (max-width: 480px) {
+  .page {
+    padding: 24px 0 40px;
+  }
+
+  .intro {
+    margin-bottom: 36px;
+  }
+
+  .pageTitle {
+    font-size: 1.6rem;
+  }
+
+  .pageSubtitle {
+    font-size: 1rem;
+  }
+
+  .actLabel {
+    font-size: 0.8rem;
+    letter-spacing: 2px;
+  }
+
+  .actTagline {
+    font-size: 1rem;
+  }
+
+  .actHeader {
+    margin-bottom: 28px;
+  }
+
+  .actDivider {
+    margin: 32px 0;
+  }
+
+  .features {
+    gap: 32px;
+  }
+
+  .featureRow {
+    gap: 20px;
+  }
+
+  .featureText {
+    padding-left: 16px;
+  }
+
+  .featureTitle {
+    font-size: 1.15rem;
+  }
+
+  .featureBullet {
+    font-size: 0.95rem;
+  }
 }
