@@ -316,6 +316,7 @@ class TestPublishSkill:
             "A test skill",  # description extracted from SKILL.md
             category="Other & Utilities",
             visibility="public",
+            source_repo_url=None,  # no source_repo_url in metadata
         )
         assert resp.json()["skill_id"] == str(new_skill.id)
 

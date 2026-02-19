@@ -14,6 +14,28 @@ _GIT_URL_PREFIXES = ("https://", "http://", "git@", "ssh://", "git://")
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 
 
+def git_url_to_https(url: str) -> str | None:
+    """Convert a git-cloneable URL to an HTTPS browse URL.
+
+    Handles SSH (git@github.com:owner/repo.git), HTTPS, and git:// formats.
+    Returns None if the URL can't be converted.
+    """
+    # SSH format: git@github.com:owner/repo.git
+    m = re.match(r"^git@([^:]+):(.+?)(?:\.git)?$", url)
+    if m:
+        return f"https://{m.group(1)}/{m.group(2)}"
+
+    # HTTPS/git:// format: strip .git suffix
+    for prefix in ("https://", "http://", "git://", "ssh://"):
+        if url.startswith(prefix):
+            clean = url.removesuffix(".git")
+            if prefix in ("git://", "ssh://"):
+                return clean.replace(prefix, "https://", 1)
+            return clean
+
+    return None
+
+
 def looks_like_git_url(value: str) -> bool:
     """Return True if *value* looks like a git-cloneable URL rather than a local path or org/skill ref."""
     if any(value.startswith(prefix) for prefix in _GIT_URL_PREFIXES):

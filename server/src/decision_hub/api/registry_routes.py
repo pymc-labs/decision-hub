@@ -65,6 +65,7 @@ from decision_hub.infra.database import (
     update_eval_run_status,
     update_skill_category,
     update_skill_description,
+    update_skill_source_repo_url,
     update_skill_visibility,
     users_table,
 )
@@ -354,6 +355,7 @@ def publish_skill(
         raise HTTPException(status_code=422, detail=f"Missing required metadata keys: {', '.join(missing)}")
     org_slug, skill_name, version = meta["org_slug"], meta["skill_name"], meta["version"]
     visibility = meta.get("visibility")
+    source_repo_url = meta.get("source_repo_url")
     if visibility is not None and visibility not in _VALID_VISIBILITIES:
         raise HTTPException(
             status_code=422,
@@ -432,11 +434,19 @@ def publish_skill(
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
         skill = insert_skill(
-            conn, org.id, skill_name, description, category=category, visibility=visibility or "public"
+            conn,
+            org.id,
+            skill_name,
+            description,
+            category=category,
+            visibility=visibility or "public",
+            source_repo_url=source_repo_url,
         )
     else:
         update_skill_description(conn, skill.id, description)
         update_skill_category(conn, skill.id, category)
+        if source_repo_url and skill.source_repo_url != source_repo_url:
+            update_skill_source_repo_url(conn, skill.id, source_repo_url)
         if visibility is not None:
             update_skill_visibility(conn, skill.id, visibility)
 

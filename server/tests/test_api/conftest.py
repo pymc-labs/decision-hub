@@ -1,6 +1,6 @@
 """Shared fixtures for API route tests."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import pytest
@@ -113,3 +113,15 @@ def auth_headers(test_settings: MagicMock) -> dict[str, str]:
 def sample_user_id() -> UUID:
     """The UUID that matches the auth_headers JWT 'sub' claim."""
     return UUID("12345678-1234-5678-1234-567812345678")
+
+
+@pytest.fixture(autouse=True)
+def _disable_credential_llm_judge():
+    """Disable the credential entropy LLM judge in all API tests.
+
+    The builder returns None when no google_api_key is set, which causes
+    strict (regex-only) mode. Patching it globally avoids adding the mock
+    parameter to every publish test.
+    """
+    with patch("decision_hub.api.registry_service._build_analyze_credential_fn", return_value=None):
+        yield

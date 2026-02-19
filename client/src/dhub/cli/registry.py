@@ -25,6 +25,7 @@ def _publish_skill_directory(
     token: str,
     *,
     private: bool = False,
+    source_repo_url: str | None = None,
 ) -> bool:
     """Publish a single skill directory to the registry.
 
@@ -67,6 +68,8 @@ def _publish_skill_directory(
     meta: dict[str, str] = {"org_slug": org, "skill_name": name, "version": version}
     if private:
         meta["visibility"] = "org"
+    if source_repo_url:
+        meta["source_repo_url"] = source_repo_url
     metadata = json.dumps(meta)
 
     with console.status(f"Publishing {org}/{name}@{version}..."):
@@ -162,7 +165,14 @@ def publish_command(
     # Detect git URL in the first positional arg
     if looks_like_git_url(source):
         _publish_from_git_repo(
-            source, ref, version, bump_level, private=private, no_track=no_track, track=track, org_override=org
+            source,
+            ref,
+            version,
+            bump_level,
+            private=private,
+            no_track=no_track,
+            track=track,
+            org_override=org,
         )
         return
 
@@ -186,6 +196,7 @@ def _publish_discovered_skills(
     token: str,
     *,
     private: bool = False,
+    source_repo_url: str | None = None,
 ) -> None:
     """Publish a list of discovered skill directories."""
     from dhub.core.manifest import parse_skill_md
@@ -215,6 +226,7 @@ def _publish_discovered_skills(
                 api_url,
                 token,
                 private=private,
+                source_repo_url=source_repo_url,
             )
             if result:
                 published += 1
@@ -279,7 +291,7 @@ def _publish_from_git_repo(
 ) -> None:
     """Clone a git repo, discover skills, and publish each one."""
     from dhub.cli.config import build_headers, get_api_url, get_token
-    from dhub.core.git_repo import clone_repo, discover_skills
+    from dhub.core.git_repo import clone_repo, discover_skills, git_url_to_https
 
     api_url = get_api_url()
     token = get_token()
@@ -305,6 +317,8 @@ def _publish_from_git_repo(
             console.print("[yellow]No skills found in the repository.[/]")
             raise typer.Exit(1)
 
+        source_repo_url = git_url_to_https(repo_url)
+
         try:
             _publish_discovered_skills(
                 skill_dirs,
@@ -315,6 +329,7 @@ def _publish_from_git_repo(
                 api_url,
                 token,
                 private=private,
+                source_repo_url=source_repo_url,
             )
         except typer.Exit as e:
             # Capture partial-failure exit so auto-tracking still runs
