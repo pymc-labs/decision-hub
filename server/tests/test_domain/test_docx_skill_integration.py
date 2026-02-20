@@ -1,13 +1,9 @@
-"""Server-side integration tests using the real docx skill at ~/.claude/skills/docx/.
+"""Server-side integration tests for the Gauntlet pipeline, search indexing, and
+S3 key building using inline fixtures that mimic a docx-like skill.
 
-These tests validate the server domain layer against a real-world
-skill directory, ensuring that static analysis, search indexing, and
-S3 key building work correctly with production-like content.
+These tests used to require a real skill directory at ~/.claude/skills/docx/.
+They are now self-contained so they run in CI without external dependencies.
 """
-
-from pathlib import Path
-
-import pytest
 
 from decision_hub.domain.gauntlet import (
     check_manifest_schema,
@@ -16,46 +12,76 @@ from decision_hub.domain.gauntlet import (
 )
 from decision_hub.domain.publish import build_s3_key
 from decision_hub.domain.search import build_index_entry
-from decision_hub.domain.skill_manifest import parse_skill_md
 
-DOCX_SKILL_PATH = Path.home() / ".claude" / "skills" / "docx"
+# ---------------------------------------------------------------------------
+# Inline fixtures — mimic a docx-like skill with subprocess usage
+# ---------------------------------------------------------------------------
 
-# Guard: skip all tests if the docx skill is not installed locally
-pytestmark = pytest.mark.skipif(
-    not (DOCX_SKILL_PATH / "SKILL.md").exists(),
-    reason="docx skill not found at ~/.claude/skills/docx",
-)
+SKILL_MD_CONTENT = """\
+---
+name: docx
+description: Create, edit, and analyze Word documents
+---
 
+You are a document processing assistant that helps users create, edit, and
+analyze Microsoft Word (.docx) files.
+"""
 
-def _collect_python_sources() -> list[tuple[str, str]]:
-    """Collect all Python source files from the docx skill directory."""
-    sources = []
-    for py_file in sorted(DOCX_SKILL_PATH.rglob("*.py")):
-        relative = py_file.relative_to(DOCX_SKILL_PATH)
-        sources.append((str(relative), py_file.read_text()))
-    return sources
+# Simulated Python source files with subprocess usage (like a real docx skill)
+SOURCE_FILES: list[tuple[str, str]] = [
+    (
+        "pack.py",
+        """\
+import subprocess
+
+def pack_document(source_dir: str, output_path: str) -> None:
+    subprocess.run(["zip", "-r", output_path, source_dir], check=True)
+""",
+    ),
+    (
+        "redlining.py",
+        """\
+import subprocess
+
+def compare_documents(old_path: str, new_path: str) -> str:
+    result = subprocess.run(
+        ["diff", old_path, new_path],
+        capture_output=True, text=True,
+    )
+    return result.stdout
+""",
+    ),
+    (
+        "utils.py",
+        """\
+from pathlib import Path
+
+def ensure_docx_extension(filename: str) -> str:
+    if not filename.endswith(".docx"):
+        return filename + ".docx"
+    return filename
+""",
+    ),
+]
 
 
 class TestStaticAnalysis:
-    """Run evals.py checks against real docx content."""
+    """Run gauntlet checks against inline docx-like skill content."""
 
     def test_check_manifest_schema_passes(self) -> None:
-        content = (DOCX_SKILL_PATH / "SKILL.md").read_text()
-        result = check_manifest_schema(content)
+        result = check_manifest_schema(SKILL_MD_CONTENT)
         assert result.passed is True
         assert result.check_name == "manifest_schema"
 
     def test_regex_prefilter_finds_subprocess(self) -> None:
         """Regex pre-filter should flag subprocess in pack.py and redlining.py
         when no LLM judge is provided (strict mode)."""
-        source_files = _collect_python_sources()
-        result = check_safety_scan(source_files)
+        result = check_safety_scan(SOURCE_FILES)
         assert result.passed is False
         assert "subprocess" in result.message
 
     def test_regex_prefilter_identifies_correct_files(self) -> None:
-        source_files = _collect_python_sources()
-        result = check_safety_scan(source_files)
+        result = check_safety_scan(SOURCE_FILES)
         assert "pack.py" in result.message
         assert "redlining.py" in result.message
 
@@ -66,9 +92,8 @@ class TestStaticAnalysis:
         def approve_all(snippets, source_files, name, desc):
             return [{**s, "dangerous": False, "reason": f"Legitimate for {name}: {desc[:40]}"} for s in snippets]
 
-        source_files = _collect_python_sources()
         result = check_safety_scan(
-            source_files,
+            SOURCE_FILES,
             skill_name="docx",
             skill_description="Document creation, editing, and analysis",
             analyze_fn=approve_all,
@@ -82,12 +107,10 @@ class TestStaticAnalysis:
         def approve_all(snippets, source_files, name, desc):
             return [{**s, "dangerous": False, "reason": "legitimate"} for s in snippets]
 
-        skill_md_content = (DOCX_SKILL_PATH / "SKILL.md").read_text()
-        source_files = _collect_python_sources()
         report = run_static_checks(
-            skill_md_content,
+            SKILL_MD_CONTENT,
             None,
-            source_files,
+            SOURCE_FILES,
             skill_name="docx",
             skill_description="Document creation and editing",
             analyze_fn=approve_all,
@@ -97,9 +120,7 @@ class TestStaticAnalysis:
     def test_run_static_checks_no_lockfile(self) -> None:
         """run_static_checks with no lockfile should produce a report
         with manifest_schema and safety_scan results."""
-        skill_md_content = (DOCX_SKILL_PATH / "SKILL.md").read_text()
-        source_files = _collect_python_sources()
-        report = run_static_checks(skill_md_content, None, source_files)
+        report = run_static_checks(SKILL_MD_CONTENT, None, SOURCE_FILES)
         check_names = [r.check_name for r in report.results]
         assert "manifest_schema" in check_names
         assert "safety_scan" in check_names
@@ -107,9 +128,7 @@ class TestStaticAnalysis:
 
     def test_run_static_checks_strict_mode_fails(self) -> None:
         """Without an LLM judge, the docx skill fails due to subprocess."""
-        skill_md_content = (DOCX_SKILL_PATH / "SKILL.md").read_text()
-        source_files = _collect_python_sources()
-        report = run_static_checks(skill_md_content, None, source_files)
+        report = run_static_checks(SKILL_MD_CONTENT, None, SOURCE_FILES)
         assert report.passed is False
 
 
@@ -129,17 +148,17 @@ class TestSearchIndexEntry:
     """Build index entries for docx skill."""
 
     def test_build_index_entry_fields(self) -> None:
-        manifest = parse_skill_md(DOCX_SKILL_PATH / "SKILL.md")
+        description = "Create, edit, and analyze Word documents"
         entry = build_index_entry(
             org_slug="example-org",
             skill_name="docx",
-            description=manifest.description,
+            description=description,
             latest_version="1.0.0",
             eval_status="passed",
         )
         assert entry.org_slug == "example-org"
         assert entry.skill_name == "docx"
-        assert entry.description == manifest.description
+        assert entry.description == description
         assert entry.latest_version == "1.0.0"
         assert entry.eval_status == "passed"
         assert entry.trust_score == "A"
