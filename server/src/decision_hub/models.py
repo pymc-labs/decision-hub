@@ -68,6 +68,10 @@ class Skill:
     source_repo_url: str | None = None
     source_repo_removed: bool = False
     github_stars: int | None = None
+    github_forks: int | None = None
+    github_watchers: int | None = None
+    github_is_archived: bool | None = None
+    github_license: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

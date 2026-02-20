@@ -133,15 +133,17 @@ class GitHubClient:
 def batch_fetch_commit_shas(
     client: GitHubClient,
     repos: list[tuple[str, str, str]],
-) -> tuple[dict[str, str], set[str], dict[str, int]]:
-    """Fetch latest commit SHAs and star counts for multiple repos via batched GraphQL.
+) -> tuple[dict[str, str], set[str], dict[str, int], dict[str, dict]]:
+    """Fetch latest commit SHAs, star counts, and repo metadata for multiple repos via batched GraphQL.
 
     Each element of *repos* is ``(owner, repo_name, branch)``.
 
-    Returns ``(sha_map, failed_keys, stars_map)`` where:
+    Returns ``(sha_map, failed_keys, stars_map, repo_metadata)`` where:
     - *sha_map* maps ``"owner/repo_name:branch"`` to the HEAD commit SHA
     - *failed_keys* contains keys whose entire GraphQL chunk failed
     - *stars_map* maps ``"owner/repo_name"`` to the stargazer count
+    - *repo_metadata* maps ``"owner/repo_name"`` to a dict with keys
+      ``forks``, ``watchers``, ``is_archived``, ``license``
 
     Repos that resolve successfully but have no data (private, deleted, empty)
     are silently omitted from *sha_map* — they are **not** in *failed_keys*.
@@ -149,6 +151,7 @@ def batch_fetch_commit_shas(
     result: dict[str, str] = {}
     failed_keys: set[str] = set()
     stars: dict[str, int] = {}
+    repo_metadata: dict[str, dict] = {}
     for chunk_start in range(0, len(repos), _GRAPHQL_BATCH_CHUNK):
         chunk = repos[chunk_start : chunk_start + _GRAPHQL_BATCH_CHUNK]
         aliases: list[str] = []
@@ -167,6 +170,10 @@ def batch_fetch_commit_shas(
                 aliases.append(
                     f'{alias}: repository(owner: "{owner}", name: "{repo_name}") {{'
                     f"  stargazerCount"
+                    f"  forkCount"
+                    f"  watchers {{ totalCount }}"
+                    f"  isArchived"
+                    f"  licenseInfo {{ spdxId }}"
                     f'  ref(qualifiedName: "refs/heads/{branch}") {{'
                     f"    target {{ oid }}"
                     f"  }}"
@@ -191,5 +198,12 @@ def batch_fetch_commit_shas(
                     result[full_name] = repo_data["ref"]["target"]["oid"]
                 if "stargazerCount" in repo_data:
                     stars[alias_owner_repo[alias]] = repo_data["stargazerCount"]
+                owner_repo = alias_owner_repo[alias]
+                repo_metadata[owner_repo] = {
+                    "forks": repo_data.get("forkCount"),
+                    "watchers": repo_data["watchers"]["totalCount"] if repo_data.get("watchers") else None,
+                    "is_archived": repo_data.get("isArchived"),
+                    "license": repo_data["licenseInfo"]["spdxId"] if repo_data.get("licenseInfo") else None,
+                }
 
-    return result, failed_keys, stars
+    return result, failed_keys, stars, repo_metadata

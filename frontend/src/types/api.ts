@@ -14,6 +14,10 @@ export interface SkillSummary {
   source_repo_url: string | null;
   source_repo_removed: boolean;
   github_stars: number | null;
+  github_forks: number | null;
+  github_watchers: number | null;
+  github_is_archived: boolean | null;
+  github_license: string | null;
   is_auto_synced: boolean;
 }
 
