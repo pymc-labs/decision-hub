@@ -611,6 +611,14 @@ class TestRateLimitGuardrail:
         assert result == 0
         mock_dispatch.assert_not_called()
 
+        # Rate-limited trackers should be marked with error and cleared for next tick
+        mock_update_tracker.assert_any_call(
+            mock_conn,
+            tracker.id,
+            last_error="rate_limit: deferred to next tick",
+            next_check_at=None,
+        )
+
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(1, 0))
     @patch("decision_hub.infra.database.update_skill_tracker")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")

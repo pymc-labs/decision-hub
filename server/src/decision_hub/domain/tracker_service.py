@@ -140,6 +140,18 @@ def check_all_due_trackers(settings: Settings) -> int:
             settings.tracker_rate_limit_floor,
             len(changed_trackers),
         )
+        # Mark skipped trackers so they don't appear stuck (no SHA, no error).
+        # Clear next_check_at so they're immediately due on the next tick
+        # rather than waiting the full poll interval.
+        for tracker, _ in changed_trackers:
+            with engine.connect() as conn:
+                update_skill_tracker(
+                    conn,
+                    tracker.id,
+                    last_error="rate_limit: deferred to next tick",
+                    next_check_at=None,
+                )
+                conn.commit()
         logger.info(
             "tracker_batch due={} unchanged={} changed={} errored={} processed=0 failed=0 skipped_rate_limit={}",
             len(trackers),
