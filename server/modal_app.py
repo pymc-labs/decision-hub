@@ -180,7 +180,7 @@ def crawl_process_repo(
     return process_repo_on_modal(repo_dict, bot_user_id, github_token)
 
 
-@app.function(image=image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=300))
+@app.function(image=crawler_image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=300))
 def check_trackers():
     """Poll GitHub repos for skill updates every 5 minutes.
 

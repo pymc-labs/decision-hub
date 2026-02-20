@@ -27,6 +27,7 @@ def _make_tracker_row(
     user_id: UUID | None = None,
     enabled: bool = True,
     last_error: str | None = None,
+    next_check_at: datetime | None = None,
 ) -> MagicMock:
     """Create a mock row that simulates a skill_trackers row."""
     row = MagicMock()
@@ -41,6 +42,7 @@ def _make_tracker_row(
     row.last_checked_at = None
     row.last_published_at = None
     row.last_error = last_error
+    row.next_check_at = next_check_at
     row.created_at = datetime.now(UTC)
     return row
 
@@ -56,6 +58,13 @@ class TestRowToSkillTracker:
         assert tracker.repo_url == "https://github.com/owner/repo"
         assert tracker.branch == "main"
         assert tracker.enabled is True
+        assert tracker.next_check_at is None
+
+    def test_maps_next_check_at(self):
+        now = datetime.now(UTC)
+        row = _make_tracker_row(next_check_at=now)
+        tracker = _row_to_skill_tracker(row)
+        assert tracker.next_check_at == now
 
 
 class TestInsertSkillTracker:

@@ -13,6 +13,7 @@ import {
   Copy,
   Check,
   Github,
+  RefreshCw,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -229,6 +230,11 @@ export default function SkillDetailPage() {
               >
                 <Github size={14} /> Source
               </a>
+            )}
+            {skill.is_auto_synced && (
+              <span className={styles.metaItem}>
+                <RefreshCw size={14} /> Auto-synced
+              </span>
             )}
           </div>
         </div>

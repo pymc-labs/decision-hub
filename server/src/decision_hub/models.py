@@ -259,7 +259,8 @@ class SkillTracker:
     last_checked_at: datetime | None
     last_published_at: datetime | None
     last_error: str | None
-    created_at: datetime | None
+    next_check_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)

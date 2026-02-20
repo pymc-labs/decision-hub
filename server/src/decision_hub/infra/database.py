@@ -500,6 +500,7 @@ skill_trackers_table = Table(
     Column("last_checked_at", DateTime(timezone=True), nullable=True),
     Column("last_published_at", DateTime(timezone=True), nullable=True),
     Column("last_error", Text, nullable=True),
+    Column("next_check_at", DateTime(timezone=True), nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -2350,6 +2351,7 @@ def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
         last_checked_at=row.last_checked_at,
         last_published_at=row.last_published_at,
         last_error=row.last_error,
+        next_check_at=row.next_check_at,
         created_at=row.created_at,
     )
 
@@ -2418,33 +2420,32 @@ def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[Skill
     due_filter = sa.and_(
         skill_trackers_table.c.enabled.is_(True),
         sa.or_(
-            skill_trackers_table.c.last_checked_at.is_(None),
-            now
-            > (
-                skill_trackers_table.c.last_checked_at
-                + skill_trackers_table.c.poll_interval_minutes * sa.text("INTERVAL '1 minute'")
-            ),
+            skill_trackers_table.c.next_check_at.is_(None),
+            skill_trackers_table.c.next_check_at <= now,
         ),
     )
 
     # Select due tracker IDs with row-level locking, skipping already-locked rows.
     # ORDER BY prioritises never-checked (NULLS FIRST) then most-overdue,
-    # which matches the ix_skill_trackers_due index.
+    # which matches the ix_skill_trackers_next_check index.
     # LIMIT prevents unbounded lock acquisition at scale.
     locked_ids_cte = (
         sa.select(skill_trackers_table.c.id)
         .where(due_filter)
-        .order_by(skill_trackers_table.c.last_checked_at.asc().nulls_first())
+        .order_by(skill_trackers_table.c.next_check_at.asc().nulls_first())
         .limit(batch_size)
         .with_for_update(skip_locked=True)
         .cte("locked_ids")
     )
 
-    # Claim by bumping last_checked_at, returning full rows
+    # Claim by bumping last_checked_at and scheduling next check, returning full rows
     update_stmt = (
         sa.update(skill_trackers_table)
         .where(skill_trackers_table.c.id.in_(sa.select(locked_ids_cte.c.id)))
-        .values(last_checked_at=now)
+        .values(
+            last_checked_at=now,
+            next_check_at=now + skill_trackers_table.c.poll_interval_minutes * sa.text("INTERVAL '1 minute'"),
+        )
         .returning(*skill_trackers_table.c)
     )
     rows = conn.execute(update_stmt).all()
@@ -2462,11 +2463,12 @@ def update_skill_tracker(
     enabled: bool | None = None,
     branch: str | None = None,
     poll_interval_minutes: int | None = None,
+    next_check_at: datetime | None = ...,  # type: ignore[assignment]
 ) -> None:
     """Update tracker fields. Only non-None values are updated.
 
-    last_error uses a sentinel default (...) so that passing
-    last_error=None explicitly clears the error.
+    last_error and next_check_at use a sentinel default (...) so that
+    passing ``=None`` explicitly clears the value.
     """
     values: dict = {}
     if last_commit_sha is not None:
@@ -2483,6 +2485,8 @@ def update_skill_tracker(
         values["branch"] = branch
     if poll_interval_minutes is not None:
         values["poll_interval_minutes"] = poll_interval_minutes
+    if next_check_at is not ...:
+        values["next_check_at"] = next_check_at
 
     if not values:
         return

@@ -25,24 +25,82 @@ from decision_hub.settings import Settings
 
 
 def check_all_due_trackers(settings: Settings) -> int:
-    """Find all due trackers and process them. Returns count of trackers processed."""
-    from decision_hub.infra.database import claim_due_trackers, create_engine
+    """Find all due trackers and process them. Returns count of trackers processed.
+
+    Uses batch GraphQL to check all claimed trackers for new commits in a
+    single API call (per 250 repos), then only clones + republishes those
+    that actually changed.
+    """
+    from decision_hub.infra.database import claim_due_trackers, create_engine, update_skill_tracker
+    from decision_hub.infra.github_client import GitHubClient, batch_fetch_commit_shas
 
     engine = create_engine(settings.database_url)
     with engine.connect() as conn:
         trackers = claim_due_trackers(conn, batch_size=settings.tracker_batch_size)
         conn.commit()
 
-    logger.info("Found {} due tracker(s)", len(trackers))
+    if not trackers:
+        logger.info("tracker_batch due=0 checked=0 changed=0 failed=0")
+        return 0
 
-    processed = 0
+    # Batch-fetch latest commit SHAs via GraphQL
+    github_token = _resolve_github_token(settings)
+    repos_to_check: list[tuple[str, str, str]] = []
+    tracker_by_key: dict[str, SkillTracker] = {}
     for tracker in trackers:
+        owner, repo = parse_github_repo_url(tracker.repo_url)
+        key = f"{owner}/{repo}"
+        repos_to_check.append((owner, repo, tracker.branch))
+        tracker_by_key[key] = tracker
+
+    with GitHubClient(token=github_token) as gh:
+        sha_map = batch_fetch_commit_shas(gh, repos_to_check)
+
+    # Partition: unchanged vs changed
+    changed_trackers: list[SkillTracker] = []
+    for tracker in trackers:
+        owner, repo = parse_github_repo_url(tracker.repo_url)
+        key = f"{owner}/{repo}"
+        current_sha = sha_map.get(key)
+
+        if current_sha is None:
+            # GraphQL failed for this repo — mark error, don't process
+            with engine.connect() as conn:
+                update_skill_tracker(conn, tracker.id, last_error="GraphQL: repo not found or inaccessible")
+                conn.commit()
+            continue
+
+        if current_sha == tracker.last_commit_sha:
+            # No changes — just clear any previous error
+            with engine.connect() as conn:
+                update_skill_tracker(conn, tracker.id, last_error=None)
+                conn.commit()
+            continue
+
+        changed_trackers.append(tracker)
+
+    # Process changed trackers sequentially
+    processed = 0
+    failed = 0
+    for tracker in changed_trackers:
         try:
             process_tracker(tracker, settings, engine)
             processed += 1
-        except Exception as e:
-            logger.error("Tracker {} failed: {}", tracker.id, e)
+        except Exception:
+            logger.opt(exception=True).error(
+                "tracker_id={} repo={} status=failed",
+                tracker.id,
+                tracker.repo_url,
+            )
+            failed += 1
 
+    logger.info(
+        "tracker_batch due={} checked={} changed={} failed={}",
+        len(trackers),
+        len(trackers) - len(changed_trackers),
+        len(changed_trackers),
+        failed,
+    )
     return processed
 
 
@@ -58,7 +116,7 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
     now = datetime.now(UTC)
 
     try:
-        github_token = _resolve_github_token(engine, tracker, settings)
+        github_token = _resolve_github_token(settings)
         owner, repo = parse_github_repo_url(tracker.repo_url)
         changed, current_sha = has_new_commits(
             owner,
@@ -78,11 +136,10 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
                 )
                 conn.commit()
             logger.info(
-                "Tracker {}: no changes on {}/{}@{}",
+                "tracker_id={} repo={}/{} status=checked",
                 tracker.id,
                 owner,
                 repo,
-                tracker.branch,
             )
             return
 
@@ -126,9 +183,10 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
                 except Exception as e:
                     errors.append(f"{skill_dir.name}: {e}")
                     logger.warning(
-                        "Tracker {}: failed to publish skill from {}: {}",
+                        "tracker_id={} repo={} skill={} status=publish_failed error={}",
                         tracker.id,
-                        skill_dir,
+                        tracker.repo_url,
+                        skill_dir.name,
                         e,
                     )
 
@@ -147,12 +205,11 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
                 conn.commit()
 
             logger.info(
-                "Tracker {}: published {} skill(s) from {}/{}@{} (sha={})",
+                "tracker_id={} repo={}/{} status=changed published={} sha={}",
                 tracker.id,
-                published_count,
                 owner,
                 repo,
-                tracker.branch,
+                published_count,
                 current_sha[:8],
             )
 
@@ -160,7 +217,11 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
             shutil.rmtree(repo_root.parent, ignore_errors=True)
 
     except Exception as e:
-        logger.error("Tracker {} failed: {}", tracker.id, e)
+        logger.opt(exception=True).error(
+            "tracker_id={} repo={} status=failed",
+            tracker.id,
+            tracker.repo_url,
+        )
         try:
             with engine.connect() as conn:
                 update_skill_tracker(
@@ -170,8 +231,12 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
                     last_error=str(e)[:500],
                 )
                 conn.commit()
-        except Exception as inner:
-            logger.error("Failed to update tracker {} error state: {}", tracker.id, inner)
+        except Exception:
+            logger.opt(exception=True).error(
+                "tracker_id={} repo={} status=error_update_failed",
+                tracker.id,
+                tracker.repo_url,
+            )
 
 
 def _publish_skill_from_tracker(
@@ -226,7 +291,9 @@ def _publish_skill_from_tracker(
         # Check if latest version already has the same checksum (no changes)
         latest = resolve_latest_version(conn, org_slug, skill_name)
         if latest is not None and latest.checksum == checksum:
-            logger.info("Tracker: no content changes for {}/{}, skipping", org_slug, skill_name)
+            logger.info(
+                "tracker_id={} repo={} skill={}/{} status=unchanged", tracker.id, tracker.repo_url, org_slug, skill_name
+            )
             return False
 
         # Determine version: prefer manifest version_hint if present and higher
@@ -261,7 +328,9 @@ def _publish_skill_from_tracker(
 
         if not report.passed:
             logger.warning(
-                "Tracker: gauntlet rejected {}/{}@{} (grade {})",
+                "tracker_id={} repo={} skill={}/{}@{} status=rejected grade={}",
+                tracker.id,
+                tracker.repo_url,
                 org_slug,
                 skill_name,
                 version,
@@ -340,10 +409,19 @@ def _publish_skill_from_tracker(
         )
     except Exception as e:
         # Don't fail the whole publish if eval trigger fails
-        logger.warning("Tracker: eval trigger failed for {}/{}: {}", org_slug, skill_name, e)
+        logger.warning(
+            "tracker_id={} repo={} skill={}/{} status=eval_trigger_failed error={}",
+            tracker.id,
+            tracker.repo_url,
+            org_slug,
+            skill_name,
+            e,
+        )
 
     logger.info(
-        "Tracker: published {}/{}@{} (grade {})",
+        "tracker_id={} repo={} skill={}/{}@{} status=published grade={}",
+        tracker.id,
+        tracker.repo_url,
         org_slug,
         skill_name,
         version,
@@ -352,24 +430,11 @@ def _publish_skill_from_tracker(
     return True
 
 
-def _resolve_github_token(engine, tracker: SkillTracker, settings: Settings) -> str | None:
-    """Resolve the best available GitHub token for a tracker.
+def _resolve_github_token(settings: Settings) -> str | None:
+    """Return the system-wide GitHub token for tracker polling.
 
-    Priority:
-    1. User's stored GITHUB_TOKEN from user_api_keys (decrypted)
-    2. System-wide settings.github_token fallback
-    3. None if neither exists
+    All tracker polling uses the shared system token — per-user tokens
+    added unnecessary complexity with no benefit since trackers are
+    admin-owned background processes.
     """
-    from decision_hub.domain.crypto import decrypt_value
-    from decision_hub.infra.database import get_api_keys_for_eval
-
-    with engine.connect() as conn:
-        keys = get_api_keys_for_eval(conn, tracker.user_id, ["GITHUB_TOKEN"])
-
-    if "GITHUB_TOKEN" in keys:
-        return decrypt_value(keys["GITHUB_TOKEN"], settings.fernet_key)
-
-    if settings.github_token:
-        return settings.github_token
-
-    return None
+    return settings.github_token or None

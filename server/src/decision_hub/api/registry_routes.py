@@ -130,6 +130,16 @@ def _enforce_download_rate_limit(request: Request) -> None:
 _VALID_VISIBILITIES = {"public", "org"}
 
 
+def _resolve_author_display(published_by: str) -> str:
+    """Return a human-friendly author label.
+
+    Tracker-published versions store ``tracker:<uuid>`` — display as "auto-sync".
+    """
+    if published_by.startswith("tracker:"):
+        return "auto-sync"
+    return published_by
+
+
 def _parse_uuid(value: str, name: str) -> UUID:
     """Parse a UUID string, raising 422 with a clear message on invalid input."""
     try:
@@ -202,6 +212,7 @@ class SkillSummary(BaseModel):
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    is_auto_synced: bool = False
 
 
 class PaginatedSkillsResponse(BaseModel):
@@ -583,12 +594,13 @@ def list_skills(
             latest_version=row["latest_version"],
             updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
             safety_rating=format_trust_score(row["eval_status"]),
-            author=row.get("published_by", ""),
+            author=_resolve_author_display(row.get("published_by", "")),
             download_count=row.get("download_count", 0),
             is_personal_org=row.get("is_personal_org", False),
             category=row.get("category", ""),
             visibility=row.get("visibility", "public"),
             source_repo_url=row.get("source_repo_url"),
+            is_auto_synced=row.get("published_by", "").startswith("tracker:"),
         )
         for row in rows
     ]
@@ -628,12 +640,13 @@ def get_skill_summary(
         latest_version=version.semver,
         updated_at=version.created_at.strftime("%Y-%m-%d %H:%M:%S") if version.created_at else "",
         safety_rating=format_trust_score(version.eval_status),
-        author=version.published_by,
+        author=_resolve_author_display(version.published_by),
         download_count=skill.download_count,
         is_personal_org=org.is_personal if org else False,
         category=skill.category,
         visibility=skill.visibility,
         source_repo_url=skill.source_repo_url,
+        is_auto_synced=version.published_by.startswith("tracker:"),
     )
 
 

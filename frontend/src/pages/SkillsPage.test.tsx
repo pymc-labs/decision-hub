@@ -20,6 +20,7 @@ function makeSkill(overrides: Partial<SkillSummary> = {}): SkillSummary {
     is_personal_org: false,
     category: "",
     source_repo_url: null,
+    is_auto_synced: false,
     ...overrides,
   };
 }

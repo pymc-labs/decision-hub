@@ -331,7 +331,7 @@ class TestProcessTrackerTokenResolution:
     @patch("decision_hub.domain.tracker_service._resolve_github_token")
     def test_token_resolution_failure_records_error(self, mock_token):
         """When _resolve_github_token raises, last_error must be set on the tracker."""
-        mock_token.side_effect = RuntimeError("decrypt failed: corrupt token")
+        mock_token.side_effect = RuntimeError("token lookup failed")
 
         tracker = SkillTracker(
             id=uuid4(),
@@ -361,4 +361,4 @@ class TestProcessTrackerTokenResolution:
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
             assert kwargs["last_error"] is not None
-            assert "decrypt failed" in kwargs["last_error"]
+            assert "token lookup failed" in kwargs["last_error"]
