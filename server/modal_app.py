@@ -156,7 +156,8 @@ def run_eval_task(
     logger.info("Eval task completed for {}/{}", org_slug, skill_name)
 
 
-# Extended image for the crawler — adds git for cloning repos
+# Extended image for the crawler — adds git for cloning repos and
+# ensures skill-scanner native deps (yara-x, magika) are available
 crawler_image = image.apt_install("git")
 
 
