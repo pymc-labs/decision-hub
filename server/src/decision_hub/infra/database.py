@@ -531,7 +531,7 @@ tracker_metrics_table = Table(
     Column("trackers_failed", sa.Integer, nullable=False, server_default="0"),
     Column("skipped_rate_limit", sa.Integer, nullable=False, server_default="0"),
     Column("github_rate_remaining", sa.Integer, nullable=True),
-    Column("batch_duration_seconds", sa.Float, nullable=False),
+    Column("batch_duration_seconds", sa.REAL, nullable=False),
 )
 
 
