@@ -133,6 +133,11 @@ export interface AskSkillRef {
   description: string;
   safety_rating: string;
   reason: string;
+  author: string;
+  category: string;
+  download_count: number;
+  latest_version: string;
+  source_repo_url: string | null;
 }
 
 export interface AskResponse {

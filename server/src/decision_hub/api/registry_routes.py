@@ -33,7 +33,7 @@ from decision_hub.domain.publish import (
     validate_semver,
     validate_skill_name,
 )
-from decision_hub.domain.search import format_trust_score
+from decision_hub.domain.search import format_trust_score, resolve_author_display
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
     delete_all_versions,
@@ -138,16 +138,6 @@ def _enforce_audit_log_rate_limit(request: Request) -> None:
 
 
 _VALID_VISIBILITIES = {"public", "org"}
-
-
-def _resolve_author_display(published_by: str) -> str:
-    """Return a human-friendly author label.
-
-    Tracker-published versions store ``tracker:<uuid>`` — display as "auto-sync".
-    """
-    if published_by.startswith("tracker:"):
-        return "auto-sync"
-    return published_by
 
 
 def _parse_uuid(value: str, name: str) -> UUID:
@@ -620,7 +610,7 @@ def list_skills(
             latest_version=row["latest_version"],
             updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
             safety_rating=format_trust_score(row["eval_status"]),
-            author=_resolve_author_display(row.get("published_by", "")),
+            author=resolve_author_display(row.get("published_by", "")),
             download_count=row.get("download_count", 0),
             is_personal_org=row.get("is_personal_org", False),
             category=row.get("category", ""),
@@ -672,7 +662,7 @@ def get_skill_summary(
         latest_version=version.semver,
         updated_at=version.created_at.strftime("%Y-%m-%d %H:%M:%S") if version.created_at else "",
         safety_rating=format_trust_score(version.eval_status),
-        author=_resolve_author_display(version.published_by),
+        author=resolve_author_display(version.published_by),
         download_count=skill.download_count,
         is_personal_org=org.is_personal if org else False,
         category=skill.category,
