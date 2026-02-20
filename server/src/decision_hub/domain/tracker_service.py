@@ -95,19 +95,17 @@ def check_all_due_trackers(settings: Settings) -> int:
     # Batch-fetch latest commit SHAs via GraphQL
     github_token = _resolve_github_token(settings)
     repos_to_check: list[tuple[str, str, str]] = []
-    tracker_by_key: dict[str, SkillTracker] = {}
     for tracker in trackers:
         owner, repo = parse_github_repo_url(tracker.repo_url)
-        key = f"{owner}/{repo}:{tracker.branch}"
         repos_to_check.append((owner, repo, tracker.branch))
-        tracker_by_key[key] = tracker
 
     with GitHubClient(token=github_token) as gh:
         sha_map = batch_fetch_commit_shas(gh, repos_to_check)
         rate_remaining = gh.rate_limit_remaining
 
-    # Partition: unchanged vs changed
+    # Partition: unchanged vs changed vs errored
     changed_trackers: list[tuple[SkillTracker, str]] = []  # (tracker, current_sha)
+    errored = 0
     for tracker in trackers:
         owner, repo = parse_github_repo_url(tracker.repo_url)
         key = f"{owner}/{repo}:{tracker.branch}"
@@ -115,6 +113,7 @@ def check_all_due_trackers(settings: Settings) -> int:
 
         if current_sha is None:
             # GraphQL failed for this repo — mark error, don't process
+            errored += 1
             with engine.connect() as conn:
                 update_skill_tracker(conn, tracker.id, last_error="GraphQL: repo not found or inaccessible")
                 conn.commit()
@@ -129,6 +128,8 @@ def check_all_due_trackers(settings: Settings) -> int:
 
         changed_trackers.append((tracker, current_sha))
 
+    unchanged = len(trackers) - len(changed_trackers) - errored
+
     # Rate-limit budget guardrail: skip clone+publish if GitHub budget is low.
     # Changed trackers that aren't processed will be picked up next tick
     # (their next_check_at was already bumped by claim_due_trackers).
@@ -140,10 +141,11 @@ def check_all_due_trackers(settings: Settings) -> int:
             len(changed_trackers),
         )
         logger.info(
-            "tracker_batch due={} checked={} changed={} processed=0 failed=0 skipped_rate_limit={}",
+            "tracker_batch due={} unchanged={} changed={} errored={} processed=0 failed=0 skipped_rate_limit={}",
             len(trackers),
-            len(trackers) - len(changed_trackers),
+            unchanged,
             len(changed_trackers),
+            errored,
             len(changed_trackers),
         )
         return 0
@@ -152,10 +154,11 @@ def check_all_due_trackers(settings: Settings) -> int:
     processed, failed = _dispatch_changed_trackers(changed_trackers, github_token, settings, engine)
 
     logger.info(
-        "tracker_batch due={} checked={} changed={} processed={} failed={}",
+        "tracker_batch due={} unchanged={} changed={} errored={} processed={} failed={}",
         len(trackers),
-        len(trackers) - len(changed_trackers),
+        unchanged,
         len(changed_trackers),
+        errored,
         processed,
         failed,
     )
