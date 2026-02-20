@@ -1022,13 +1022,19 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     """Batch-update github_stars on the skills table by source_repo_url.
 
     *repo_stars* maps ``"https://github.com/owner/repo"`` to the star count.
-    Updates all skills whose ``source_repo_url`` starts with the repo URL
-    (a repo may contain multiple skills in subdirectories).
+    Updates all skills whose ``source_repo_url`` is either an exact match for
+    the repo URL or starts with the repo URL followed by ``/`` (for skills in
+    subdirectories of the same repo).
     """
     for repo_url, stars in repo_stars.items():
         stmt = (
             sa.update(skills_table)
-            .where(skills_table.c.source_repo_url.like(f"{repo_url}%"))
+            .where(
+                sa.or_(
+                    skills_table.c.source_repo_url == repo_url,
+                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                )
+            )
             .values(github_stars=stars)
         )
         conn.execute(stmt)
