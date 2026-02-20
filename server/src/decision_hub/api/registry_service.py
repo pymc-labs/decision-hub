@@ -1,6 +1,6 @@
 """Registry business logic — extracted from registry_routes.py.
 
-Pure functions that handle publishing, validation, gauntlet pipeline,
+Pure functions that handle publishing, validation, scanner pipeline,
 and eval triggering. Route handlers call these instead of inlining
 the logic, making the business rules testable without HTTP mocking.
 """
@@ -14,7 +14,6 @@ from fastapi import HTTPException
 from loguru import logger
 from sqlalchemy.engine import Connection
 
-from decision_hub.domain.gauntlet import run_static_checks
 from decision_hub.domain.publish import build_quarantine_s3_key
 from decision_hub.domain.skill_manifest import parse_skill_md
 from decision_hub.domain.skill_scanner_bridge import BridgeScanResult, scan_skill_dir, scan_skill_zip
@@ -26,7 +25,7 @@ from decision_hub.infra.database import (
     insert_scan_report,
 )
 from decision_hub.infra.storage import upload_skill_zip
-from decision_hub.models import GauntletReport, Organization
+from decision_hub.models import Organization
 from decision_hub.settings import Settings
 
 
@@ -94,47 +93,9 @@ def parse_manifest_from_content(
         tmp_path.unlink()
 
 
-def run_gauntlet_pipeline(
-    skill_md_content: str,
-    lockfile_content: str | None,
-    source_files: list[tuple[str, str]],
-    skill_name: str,
-    description: str,
-    skill_md_body: str,
-    settings: Settings,
-    *,
-    allowed_tools: str | None = None,
-) -> tuple[GauntletReport, list[dict], dict | None]:
-    """Run Gauntlet static checks and serialize results for audit logging.
-
-    Returns (report, check_results_dicts, llm_reasoning).
-    """
-    report = run_static_checks(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        skill_name=skill_name,
-        skill_description=description,
-        analyze_fn=_build_analyze_fn(settings),
-        skill_md_body=skill_md_body,
-        allowed_tools=allowed_tools,
-        analyze_prompt_fn=_build_analyze_prompt_fn(settings),
-        review_body_fn=_build_review_body_fn(settings),
-        analyze_credential_fn=_build_analyze_credential_fn(settings),
-    )
-
-    check_results_dicts = [
-        {
-            "check_name": r.check_name,
-            "severity": r.severity,
-            "message": r.message,
-        }
-        for r in report.results
-    ]
-
-    llm_reasoning = {r.check_name: r.details for r in report.results if r.details is not None} or None
-
-    return report, check_results_dicts, llm_reasoning
+# ---------------------------------------------------------------------------
+# Scan pipeline (replaces the old gauntlet pipeline)
+# ---------------------------------------------------------------------------
 
 
 def run_scan_pipeline(
@@ -143,7 +104,7 @@ def run_scan_pipeline(
 ) -> BridgeScanResult:
     """Run the skill-scanner pipeline on a zip archive.
 
-    Replaces run_gauntlet_pipeline for the publish endpoint.
+    Used by the publish endpoint.
     Returns a BridgeScanResult with grade, findings, and full report.
     """
     return scan_skill_zip(zip_bytes, settings)
@@ -157,9 +118,35 @@ def run_scan_pipeline_dir(
 
     Used by crawler and tracker where the skill is already on disk.
     """
-    from pathlib import Path
-
     return scan_skill_dir(Path(skill_dir), settings)
+
+
+def _scan_result_to_audit_fields(scan_result: BridgeScanResult) -> tuple[list[dict], dict | None]:
+    """Convert a BridgeScanResult to legacy audit log fields.
+
+    Returns (check_results, llm_reasoning) in the same format the old
+    gauntlet pipeline produced, for backward-compatible audit log writes.
+    """
+    check_results = [
+        {
+            "check_name": "skill_scanner",
+            "severity": "pass" if scan_result.grade != "F" else "fail",
+            "message": (
+                f"grade={scan_result.grade} max_severity={scan_result.max_severity} "
+                f"findings={scan_result.findings_count} analyzers={scan_result.analyzers_used}"
+            ),
+        }
+    ]
+
+    llm_reasoning = None
+    if scan_result.meta_analysis or scan_result.findings:
+        llm_reasoning = {
+            "scanner_findings": scan_result.findings[:20],
+        }
+        if scan_result.meta_analysis:
+            llm_reasoning["meta_analysis"] = scan_result.meta_analysis
+
+    return check_results, llm_reasoning
 
 
 def store_scan_result(
@@ -201,194 +188,103 @@ def store_scan_result(
     insert_scan_findings(conn, report.id, scan_result.findings)
 
 
-def quarantine_rejected_skill(
+def quarantine_rejected_scan(
     conn: Connection,
     s3_client,
     bucket: str,
     file_bytes: bytes,
+    scan_result: BridgeScanResult,
     *,
     org_slug: str,
     skill_name: str,
     version: str,
-    report: GauntletReport,
-    check_results: list[dict],
-    llm_reasoning: dict | None,
     publisher: str,
 ) -> None:
-    """Upload rejected zip to quarantine, log the rejection, and raise 422.
+    """Store scan result, upload rejected zip to quarantine, log, and raise 422.
 
-    Thin wrapper around ``quarantine_and_log_rejection`` that raises an
-    HTTPException afterwards.  Used by the HTTP publish endpoint.
+    Used by the HTTP publish endpoint for scanner-rejected skills.
     """
-    quarantine_and_log_rejection(
+    q_key = build_quarantine_s3_key(org_slug, skill_name, version)
+
+    store_scan_result(
         conn,
-        s3_client,
-        bucket,
-        file_bytes,
+        scan_result,
         org_slug=org_slug,
         skill_name=skill_name,
-        version=version,
-        report=report,
-        check_results=check_results,
-        llm_reasoning=llm_reasoning,
+        semver=version,
         publisher=publisher,
-    )
-    raise HTTPException(
-        status_code=422,
-        detail=f"Gauntlet checks failed: {report.summary}",
+        quarantine_s3_key=q_key,
     )
 
-
-def quarantine_and_log_rejection(
-    conn: Connection,
-    s3_client,
-    bucket: str,
-    file_bytes: bytes,
-    *,
-    org_slug: str,
-    skill_name: str,
-    version: str,
-    report: GauntletReport,
-    check_results: list[dict],
-    llm_reasoning: dict | None,
-    publisher: str,
-) -> None:
-    """Upload rejected zip to quarantine and log the rejection.
-
-    Inserts and commits the audit log before uploading to quarantine S3,
-    so the rejection record is durable even if the S3 upload fails.
-
-    Does NOT raise an exception — callers decide how to handle the rejection
-    (HTTP endpoint raises 422, tracker returns False).
-    """
-    logger.warning(
-        "Quarantining {}/{} v{} — grade={} summary={}",
-        org_slug,
-        skill_name,
-        version,
-        report.grade,
-        report.summary,
-    )
-    q_key = build_quarantine_s3_key(org_slug, skill_name, version)
+    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
 
     insert_audit_log(
         conn,
         org_slug=org_slug,
         skill_name=skill_name,
         semver=version,
-        grade=report.grade,
+        grade=scan_result.grade,
         check_results=check_results,
         publisher=publisher,
         version_id=None,
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=q_key,
     )
-    # Commit the audit record before uploading to S3 so it survives
-    # any subsequent failure. This ensures rejection forensics are
-    # always preserved.
     conn.commit()
 
     upload_skill_zip(s3_client, bucket, q_key, file_bytes)
 
+    raise HTTPException(
+        status_code=422,
+        detail=f"Safety scan failed: grade={scan_result.grade}, {scan_result.findings_count} finding(s)",
+    )
 
-def _build_analyze_fn(settings: Settings):
-    """Build a Gemini analyze callback if google_api_key is configured.
 
-    Returns None if no API key is set, which causes the safety scan
-    to run in strict regex-only mode.
+def quarantine_scan_rejection(
+    conn: Connection,
+    s3_client,
+    bucket: str,
+    file_bytes: bytes,
+    scan_result: BridgeScanResult,
+    *,
+    org_slug: str,
+    skill_name: str,
+    version: str,
+    publisher: str,
+) -> None:
+    """Store scan result, upload rejected zip, and log — without raising.
+
+    Used by crawler and tracker where the caller handles the rejection.
     """
-    if not settings.google_api_key:
-        return None
+    q_key = build_quarantine_s3_key(org_slug, skill_name, version)
 
-    from decision_hub.infra.gemini import analyze_code_safety, create_gemini_client
+    store_scan_result(
+        conn,
+        scan_result,
+        org_slug=org_slug,
+        skill_name=skill_name,
+        semver=version,
+        publisher=publisher,
+        quarantine_s3_key=q_key,
+    )
 
-    gemini_client = create_gemini_client(settings.google_api_key)
+    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
 
-    def analyze_fn(snippets, source_files, skill_name, skill_description):
-        return analyze_code_safety(
-            gemini_client,
-            snippets,
-            source_files,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+    insert_audit_log(
+        conn,
+        org_slug=org_slug,
+        skill_name=skill_name,
+        semver=version,
+        grade=scan_result.grade,
+        check_results=check_results,
+        publisher=publisher,
+        version_id=None,
+        llm_reasoning=llm_reasoning,
+        quarantine_s3_key=q_key,
+    )
+    conn.commit()
 
-    return analyze_fn
-
-
-def _build_analyze_prompt_fn(settings: Settings):
-    """Build a Gemini prompt analyze callback if google_api_key is configured.
-
-    Returns None if no API key is set, which causes the prompt safety scan
-    to run in strict regex-only mode.
-    """
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_prompt_safety, create_gemini_client
-
-    gemini_client = create_gemini_client(settings.google_api_key)
-
-    def analyze_prompt_fn(prompt_hits, skill_name, skill_description):
-        return analyze_prompt_safety(
-            gemini_client,
-            prompt_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_prompt_fn
-
-
-def _build_review_body_fn(settings: Settings):
-    """Build a Gemini holistic body review callback if google_api_key is configured.
-
-    Returns None if no API key is set, disabling the holistic body review.
-    """
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import create_gemini_client, review_prompt_body_safety
-
-    gemini_client = create_gemini_client(settings.google_api_key)
-
-    def review_body_fn(body, skill_name, skill_description):
-        return review_prompt_body_safety(
-            gemini_client,
-            body,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return review_body_fn
-
-
-def _build_analyze_credential_fn(settings: Settings):
-    """Build a Gemini credential entropy review callback if google_api_key is configured.
-
-    Returns None if no API key is set, which causes the credential check
-    to run in strict mode (entropy hits fail automatically).
-    """
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_credential_entropy, create_gemini_client
-
-    gemini_client = create_gemini_client(settings.google_api_key)
-
-    def analyze_credential_fn(entropy_hits, skill_name, skill_description):
-        return analyze_credential_entropy(
-            gemini_client,
-            entropy_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_credential_fn
+    upload_skill_zip(s3_client, bucket, q_key, file_bytes)
 
 
 def classify_skill_category(
@@ -512,9 +408,6 @@ def maybe_trigger_agent_assessment(
             detail="Assessment config declared in manifest but no case files found in evals/",
         )
     if eval_config and eval_cases:
-        # Use a fresh connection — the caller's transaction is already closed
-        # after the explicit conn.commit() that makes the version row visible.
-        # Generate the run ID client-side so the S3 prefix is known before insert.
         from uuid import uuid4
 
         import modal
@@ -547,7 +440,6 @@ def maybe_trigger_agent_assessment(
             skill_name,
         )
 
-        # Serialize EvalCase dataclasses to dicts for Modal transport
         cases_dicts = [
             {
                 "name": c.name,
@@ -604,11 +496,6 @@ def run_assessment_background(
         logger.info("Assessment phase 1: loading API keys for {}/{}", org_slug, skill_name)
         engine = create_engine(settings.database_url)
 
-        # --- Phase 1: read API keys then release the connection ---
-        # Retrieve the publishing user's own API keys for the assessment
-        # sandbox.  Keys are stored per-user in user_api_keys (encrypted with
-        # the server Fernet key) and belong to the user who triggered the
-        # assessment — no platform keys are involved.
         agent_config = get_agent_config(assessment_config.agent)
         required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
         judge_key_name = "ANTHROPIC_API_KEY"
@@ -629,9 +516,7 @@ def run_assessment_background(
 
         judge_api_key = agent_env_vars.get(judge_key_name, "")
 
-        # --- Phase 2: run pipeline ---
         if run_id is not None:
-            # Streaming pipeline with S3 persistence
             from decision_hub.domain.evals import run_streaming_eval
             from decision_hub.infra.storage import create_s3_client
 
@@ -668,7 +553,6 @@ def run_assessment_background(
             )
             logger.info("Streaming pipeline completed for {}/{}", org_slug, skill_name)
         else:
-            # Original batch pipeline (backward compat)
             from decision_hub.domain.evals import run_eval_pipeline
 
             logger.info(
@@ -720,7 +604,6 @@ def run_assessment_background(
     except Exception as e:
         logger.error("Agent assessment failed for version {}: {}", version_id, e)
 
-        # Update run row if using streaming pipeline
         if run_id is not None:
             try:
                 from datetime import datetime
@@ -741,7 +624,6 @@ def run_assessment_background(
             except Exception as inner:
                 logger.error("Failed to update run {}: {}", run_id, inner)
 
-        # INSERT an error report
         try:
             from decision_hub.infra.database import create_engine as _create_engine
             from decision_hub.infra.database import insert_eval_report

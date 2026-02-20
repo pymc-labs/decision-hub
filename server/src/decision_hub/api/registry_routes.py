@@ -20,12 +20,12 @@ from decision_hub.api.deps import (
 )
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.api.registry_service import (
+    _scan_result_to_audit_fields,
     classify_skill_category,
     maybe_trigger_agent_assessment,
     parse_manifest_from_content,
-    quarantine_rejected_skill,
+    quarantine_rejected_scan,
     require_org_membership,
-    run_gauntlet_pipeline,
     run_scan_pipeline,
     store_scan_result,
 )
@@ -452,12 +452,12 @@ def publish_skill(
     checksum = compute_checksum(file_bytes)
 
     try:
-        skill_md_content, source_files, lockfile_content = extract_for_evaluation(file_bytes)
+        skill_md_content, _source_files, _lockfile_content = extract_for_evaluation(file_bytes)
     except ValueError as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
+    runtime_config_dict, eval_config, eval_cases, _allowed_tools = parse_manifest_from_content(
         skill_md_content,
         file_bytes,
     )
@@ -475,42 +475,16 @@ def publish_skill(
         scan_result.is_safe,
     )
 
-    # Build legacy report/check_results for backward-compat audit log
-    report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        skill_name,
-        description,
-        skill_md_body,
-        settings,
-        allowed_tools=allowed_tools,
-    )
-
-    # Use the scanner grade as the authoritative grade
-    eval_status_grade = scan_result.grade
-
     if scan_result.grade == "F":
-        store_scan_result(
-            conn,
-            scan_result,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            semver=version,
-            publisher=current_user.username,
-            quarantine_s3_key=f"quarantine/{org_slug}/{skill_name}/{version}.zip",
-        )
-        quarantine_rejected_skill(
+        quarantine_rejected_scan(
             conn,
             s3_client,
             settings.s3_bucket,
             file_bytes,
+            scan_result,
             org_slug=org_slug,
             skill_name=skill_name,
             version=version,
-            report=report,
-            check_results=check_results_dicts,
-            llm_reasoning=llm_reasoning,
             publisher=current_user.username,
         )
 
@@ -518,7 +492,7 @@ def publish_skill(
     category = classify_skill_category(skill_name, description, skill_md_body, settings)
 
     # Upsert skill record (find or create), then check for duplicate version
-    eval_status = eval_status_grade
+    eval_status = scan_result.grade
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
         skill = insert_skill(
@@ -568,13 +542,14 @@ def publish_skill(
             detail=f"Version {version} already exists for {org_slug}/{skill_name}",
         ) from None
 
+    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
     insert_audit_log(
         conn,
         org_slug=org_slug,
         skill_name=skill_name,
         semver=version,
-        grade=report.grade,
-        check_results=check_results_dicts,
+        grade=scan_result.grade,
+        check_results=check_results,
         publisher=current_user.username,
         version_id=version_record.id,
         llm_reasoning=llm_reasoning,

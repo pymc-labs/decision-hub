@@ -15,9 +15,7 @@ from loguru import logger
 
 from decision_hub.domain.orgs import METADATA_CACHE_TTL
 from decision_hub.domain.publish import (
-    build_quarantine_s3_key,
     build_s3_key,
-    extract_for_evaluation,
     validate_skill_name,
 )
 from decision_hub.domain.repo_utils import (
@@ -26,7 +24,7 @@ from decision_hub.domain.repo_utils import (
     create_zip,
     discover_skills,
 )
-from decision_hub.domain.skill_manifest import extract_body, extract_description
+from decision_hub.domain.skill_manifest import extract_body
 
 CLONE_TIMEOUT_SECONDS = 120
 BOT_GITHUB_ID = "0"
@@ -244,8 +242,14 @@ def _publish_one_skill(
     bot_user_id: UUID | None = None,
     set_tracker: bool = False,
 ) -> None:
-    """Parse, gauntlet-check, and publish a single skill. Mutates result counts."""
-    from decision_hub.api.registry_service import classify_skill_category, run_gauntlet_pipeline
+    """Scan, classify, and publish a single skill. Mutates result counts."""
+    from decision_hub.api.registry_service import (
+        _scan_result_to_audit_fields,
+        classify_skill_category,
+        quarantine_scan_rejection,
+        run_scan_pipeline_dir,
+        store_scan_result,
+    )
     from decision_hub.infra.database import (
         find_skill,
         find_version,
@@ -265,11 +269,9 @@ def _publish_one_skill(
     description = manifest.description
     validate_skill_name(name)
 
-    # Create zip
     zip_data = create_zip(skill_dir)
     checksum = compute_checksum(zip_data)
 
-    # Upsert skill record
     skill = find_skill(conn, org.id, name)
     if skill is None:
         skill = insert_skill(conn, org.id, name, description, source_repo_url=source_repo_url)
@@ -278,12 +280,11 @@ def _publish_one_skill(
         if source_repo_url and skill.source_repo_url != source_repo_url:
             update_skill_source_repo_url(conn, skill.id, source_repo_url)
 
-    # Determine version (auto-bump patch or start at 0.1.0)
     latest = resolve_latest_version(conn, org.slug, name)
     if latest is not None:
         if latest.checksum == checksum:
             result["skills_skipped"] += 1
-            return  # identical content — skip
+            return
         version = bump_version(latest.semver)
     else:
         version = "0.1.0"
@@ -292,67 +293,27 @@ def _publish_one_skill(
         result["skills_skipped"] += 1
         return
 
-    # Run skill-scanner on the directory (avoids zip round-trip)
-    from decision_hub.api.registry_service import run_scan_pipeline_dir, store_scan_result
-
     scan_result = run_scan_pipeline_dir(skill_dir, settings)
 
-    # Also run legacy gauntlet for backward-compat audit log
-    skill_md_content = (skill_dir / "SKILL.md").read_text()
-    skill_md_body = extract_body(skill_md_content)
-    desc = extract_description(skill_md_content)
-    try:
-        _, source_files, lockfile_content = extract_for_evaluation(zip_data)
-    except ValueError as exc:
-        logger.warning("Skipping {}/{}: extraction failed: {}", org.slug, name, exc)
-        result["skills_failed"] += 1
-        return
-
-    _report, check_results, llm_reasoning = run_gauntlet_pipeline(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        name,
-        desc,
-        skill_md_body,
-        settings,
-        allowed_tools=manifest.allowed_tools,
-    )
-
     if scan_result.grade == "F":
-        q_key = build_quarantine_s3_key(org.slug, name, version)
-        store_scan_result(
+        quarantine_scan_rejection(
             conn,
+            s3_client,
+            settings.s3_bucket,
+            zip_data,
             scan_result,
             org_slug=org.slug,
             skill_name=name,
-            semver=version,
+            version=version,
             publisher=BOT_USERNAME,
-            quarantine_s3_key=q_key,
         )
-        insert_audit_log(
-            conn,
-            org_slug=org.slug,
-            skill_name=name,
-            semver=version,
-            grade=scan_result.grade,
-            check_results=check_results,
-            publisher=BOT_USERNAME,
-            version_id=None,
-            llm_reasoning=llm_reasoning,
-            quarantine_s3_key=q_key,
-        )
-        conn.commit()
-        upload_skill_zip(s3_client, settings.s3_bucket, q_key, zip_data)
         result["skills_quarantined"] += 1
         return
 
-    # Grade A/B/C — publish
-    # Classify category (non-critical, graceful fallback to empty string)
-    category = classify_skill_category(name, desc, skill_md_body, settings)
+    skill_md_body = extract_body((skill_dir / "SKILL.md").read_text())
+    category = classify_skill_category(name, description, skill_md_body, settings)
     update_skill_category(conn, skill.id, category)
 
-    # Generate embedding only for approved skills (fail-open: never blocks publish)
     from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 
     generate_and_store_skill_embedding(conn, skill.id, name, org.slug, category, description, settings)
@@ -369,6 +330,8 @@ def _publish_one_skill(
         published_by=BOT_USERNAME,
         eval_status=scan_result.grade,
     )
+
+    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
     insert_audit_log(
         conn,
         org_slug=org.slug,
@@ -379,7 +342,6 @@ def _publish_one_skill(
         publisher=BOT_USERNAME,
         version_id=version_record.id,
         llm_reasoning=llm_reasoning,
-        quarantine_s3_key=None,
     )
     store_scan_result(
         conn,
