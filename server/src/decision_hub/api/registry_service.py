@@ -17,10 +17,13 @@ from sqlalchemy.engine import Connection
 from decision_hub.domain.gauntlet import run_static_checks
 from decision_hub.domain.publish import build_quarantine_s3_key
 from decision_hub.domain.skill_manifest import parse_skill_md
+from decision_hub.domain.skill_scanner_bridge import BridgeScanResult, scan_skill_dir, scan_skill_zip
 from decision_hub.infra.database import (
     find_org_by_slug,
     find_org_member,
     insert_audit_log,
+    insert_scan_findings,
+    insert_scan_report,
 )
 from decision_hub.infra.storage import upload_skill_zip
 from decision_hub.models import GauntletReport, Organization
@@ -132,6 +135,70 @@ def run_gauntlet_pipeline(
     llm_reasoning = {r.check_name: r.details for r in report.results if r.details is not None} or None
 
     return report, check_results_dicts, llm_reasoning
+
+
+def run_scan_pipeline(
+    zip_bytes: bytes,
+    settings: Settings,
+) -> BridgeScanResult:
+    """Run the skill-scanner pipeline on a zip archive.
+
+    Replaces run_gauntlet_pipeline for the publish endpoint.
+    Returns a BridgeScanResult with grade, findings, and full report.
+    """
+    return scan_skill_zip(zip_bytes, settings)
+
+
+def run_scan_pipeline_dir(
+    skill_dir,
+    settings: Settings,
+) -> BridgeScanResult:
+    """Run the skill-scanner pipeline on a directory.
+
+    Used by crawler and tracker where the skill is already on disk.
+    """
+    from pathlib import Path
+
+    return scan_skill_dir(Path(skill_dir), settings)
+
+
+def store_scan_result(
+    conn,
+    scan_result: BridgeScanResult,
+    *,
+    org_slug: str,
+    skill_name: str,
+    semver: str,
+    publisher: str,
+    version_id=None,
+    quarantine_s3_key: str | None = None,
+) -> None:
+    """Persist a scan result to scan_reports + scan_findings tables."""
+    from uuid import UUID as _UUID
+
+    vid = _UUID(str(version_id)) if version_id is not None else None
+
+    report = insert_scan_report(
+        conn,
+        org_slug=org_slug,
+        skill_name=skill_name,
+        semver=semver,
+        is_safe=scan_result.is_safe,
+        max_severity=scan_result.max_severity,
+        grade=scan_result.grade,
+        findings_count=scan_result.findings_count,
+        analyzers_used=scan_result.analyzers_used,
+        publisher=publisher,
+        version_id=vid,
+        analyzability_score=scan_result.analyzability_score,
+        scan_duration_ms=scan_result.scan_duration_ms,
+        policy_name=scan_result.policy_name,
+        policy_fingerprint=scan_result.policy_fingerprint,
+        full_report=scan_result.full_report,
+        meta_analysis=scan_result.meta_analysis,
+        quarantine_s3_key=quarantine_s3_key,
+    )
+    insert_scan_findings(conn, report.id, scan_result.findings)
 
 
 def quarantine_rejected_skill(
