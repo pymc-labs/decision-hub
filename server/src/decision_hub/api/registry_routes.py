@@ -50,6 +50,7 @@ from decision_hub.infra.database import (
     find_skill,
     find_skill_by_slug,
     find_version,
+    has_active_tracker_for_repo,
     increment_skill_downloads,
     insert_audit_log,
     insert_skill,
@@ -619,7 +620,7 @@ def list_skills(
             category=row.get("category", ""),
             visibility=row.get("visibility", "public"),
             source_repo_url=row.get("source_repo_url"),
-            is_auto_synced=row.get("published_by", "").startswith("tracker:"),
+            is_auto_synced=row.get("has_tracker", False),
         )
         for row in rows
     ]
@@ -665,7 +666,7 @@ def get_skill_summary(
         category=skill.category,
         visibility=skill.visibility,
         source_repo_url=skill.source_repo_url,
-        is_auto_synced=version.published_by.startswith("tracker:"),
+        is_auto_synced=bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url)),
     )
 
 
