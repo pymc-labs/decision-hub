@@ -454,6 +454,7 @@ def _publish_skill_from_tracker(
     from decision_hub.api.registry_service import (
         maybe_trigger_agent_assessment,
         parse_manifest_from_content,
+        quarantine_and_log_rejection,
         run_gauntlet_pipeline,
     )
     from decision_hub.infra.database import (
@@ -532,17 +533,19 @@ def _publish_skill_from_tracker(
                 version,
                 report.grade,
             )
-            insert_audit_log(
+            quarantine_and_log_rejection(
                 conn,
+                s3_client,
+                settings.s3_bucket,
+                zip_data,
                 org_slug=org_slug,
                 skill_name=skill_name,
-                semver=version,
-                grade=report.grade,
+                version=version,
+                report=report,
                 check_results=check_results_dicts,
-                publisher=f"tracker:{tracker.id}",
                 llm_reasoning=llm_reasoning,
+                publisher=f"tracker:{tracker.id}",
             )
-            conn.commit()
             return False
 
         # Upsert skill record

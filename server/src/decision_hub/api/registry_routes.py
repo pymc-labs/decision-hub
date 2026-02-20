@@ -124,6 +124,18 @@ def _enforce_download_rate_limit(request: Request) -> None:
     state._download_rate_limiter(request)
 
 
+def _enforce_audit_log_rate_limit(request: Request) -> None:
+    """Rate-limit the audit log endpoint."""
+    state = request.app.state
+    if not hasattr(state, "_audit_log_rate_limiter"):
+        settings: Settings = state.settings
+        state._audit_log_rate_limiter = RateLimiter(
+            max_requests=settings.audit_log_rate_limit,
+            window_seconds=settings.audit_log_rate_window,
+        )
+    state._audit_log_rate_limiter(request)
+
+
 _VALID_VISIBILITIES = {"public", "org"}
 
 
@@ -762,6 +774,7 @@ def download_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/audit-log",
     response_model=PaginatedAuditLogResponse,
+    dependencies=[Depends(_enforce_audit_log_rate_limit)],
 )
 def get_audit_log(
     org_slug: str,

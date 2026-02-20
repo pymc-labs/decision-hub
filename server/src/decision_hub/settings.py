@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     resolve_rate_window: int = 60  # window in seconds
     download_rate_limit: int = 20  # max requests per window
     download_rate_window: int = 60  # window in seconds
+    audit_log_rate_limit: int = 30  # max requests per window
+    audit_log_rate_window: int = 60  # window in seconds
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

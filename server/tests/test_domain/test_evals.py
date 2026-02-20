@@ -2,7 +2,9 @@
 
 from unittest.mock import MagicMock, patch
 
-from decision_hub.domain.evals import run_eval_pipeline
+import pytest
+
+from decision_hub.domain.evals import _redact_secrets, run_eval_pipeline
 from decision_hub.models import EvalCase, EvalConfig
 
 
@@ -212,3 +214,66 @@ class TestRunEvalPipeline:
 
         assert case_results[0]["duration_ms"] == 10000
         assert case_results[1]["duration_ms"] == 20000
+
+
+class TestRedactSecrets:
+    """Tests for _redact_secrets — security-critical secret filtering."""
+
+    def test_anthropic_key_redacted(self) -> None:
+        """Anthropic API keys (sk-ant-...) are redacted."""
+        text = "Using key sk-ant-api03-abcdefghijklmnopqrstu"
+        assert _redact_secrets(text) == "Using key [REDACTED]"
+
+    def test_openai_key_redacted(self) -> None:
+        """OpenAI API keys (sk-...) are redacted."""
+        text = "export OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwx"
+        assert _redact_secrets(text) == "export OPENAI_API_KEY=[REDACTED]"
+
+    def test_google_api_key_redacted(self) -> None:
+        """Google API keys (AIza...) are redacted."""
+        text = "key=AIzaSyB1234567890abcdefghijklmnopqrstuv"
+        assert _redact_secrets(text) == "key=[REDACTED]"
+
+    def test_no_secrets_unchanged(self) -> None:
+        """Text without secrets passes through unchanged."""
+        text = "This is normal output with no API keys."
+        assert _redact_secrets(text) == text
+
+    def test_multiple_secrets_all_redacted(self) -> None:
+        """Multiple secrets in the same string are all redacted."""
+        text = (
+            "anthropic=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA "
+            "openai=sk-BBBBBBBBBBBBBBBBBBBBBBBBBB "
+            "google=AIzaSyC1234567890abcdefghijklmnopqrstuv"
+        )
+        result = _redact_secrets(text)
+        assert "sk-ant" not in result
+        assert "sk-B" not in result
+        assert "AIza" not in result
+        assert result.count("[REDACTED]") == 3
+
+    def test_short_sk_prefix_not_redacted(self) -> None:
+        """Short strings starting with sk- that are under 20 chars are NOT redacted."""
+        text = "sk-short"
+        assert _redact_secrets(text) == "sk-short"
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "sk-ant-api03-" + "a" * 40,
+            "sk-" + "A" * 48,
+            "sk-proj-" + "x" * 30,
+            "AIzaSy" + "B" * 35,
+        ],
+        ids=["anthropic-long", "openai-long", "openai-proj", "google-long"],
+    )
+    def test_various_key_lengths(self, key: str) -> None:
+        """Keys of various realistic lengths are redacted."""
+        assert _redact_secrets(f"key={key}") == "key=[REDACTED]"
+
+    def test_key_embedded_in_json(self) -> None:
+        """Keys inside JSON strings are redacted."""
+        text = '{"api_key": "sk-ant-api03-TestKeyValue1234567890abcdef"}'
+        result = _redact_secrets(text)
+        assert "sk-ant" not in result
+        assert "[REDACTED]" in result

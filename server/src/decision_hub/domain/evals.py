@@ -21,11 +21,13 @@ from decision_hub.infra.anthropic_client import judge_eval_output
 from decision_hub.infra.modal_client import get_agent_config, run_eval_case_in_sandbox, stream_eval_case_in_sandbox
 from decision_hub.models import EvalCase, EvalConfig
 
-# Patterns to redact from event content (API key fragments)
+# Patterns to redact from event content (API key fragments).
+# Order matters: more-specific prefixes first so they match before the
+# generic sk- pattern (which would leave the prefix behind).
 _SECRET_PATTERNS = [
-    re.compile(r"sk-ant-[a-zA-Z0-9\-_]{20,}"),
-    re.compile(r"sk-[a-zA-Z0-9]{20,}"),
-    re.compile(r"AIza[a-zA-Z0-9\-_]{30,}"),
+    re.compile(r"sk-ant-[a-zA-Z0-9\-_]{20,}"),  # Anthropic
+    re.compile(r"sk-[a-zA-Z0-9\-_]{20,}"),  # OpenAI (incl. sk-proj-*, sk-svcacct-*)
+    re.compile(r"AIza[a-zA-Z0-9\-_]{30,}"),  # Google API keys
 ]
 
 # Maximum size for individual event content (10 KB)
