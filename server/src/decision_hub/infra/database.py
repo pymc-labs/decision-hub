@@ -1665,10 +1665,12 @@ def fetch_all_skills_for_index(
             "download_count": row.download_count,
             "category": row.category,
             "visibility": row.visibility,
+            "source_repo_url": row.source_repo_url,
             "latest_version": row.latest_version,
             "eval_status": row.eval_status,
             "created_at": row.created_at,
             "published_by": row.published_by,
+            "has_tracker": row.has_tracker,
         }
         for row in rows
     ]
