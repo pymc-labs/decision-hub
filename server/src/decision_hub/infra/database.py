@@ -1578,6 +1578,20 @@ def fetch_all_skills_for_index(
     Supports server-side filtering by search term, org, category, grade,
     and sorting by updated/name/downloads.
     """
+    # Subquery: does an enabled tracker exist for this skill's source repo?
+    tracker_exists = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+        .correlate(skills_table)
+        .exists()
+        .label("has_tracker")
+    )
+
     base = (
         sa.select(
             organizations_table.c.slug.label("org_slug"),
@@ -1592,6 +1606,7 @@ def fetch_all_skills_for_index(
             skills_table.c.latest_eval_status.label("eval_status"),
             skills_table.c.latest_published_at.label("created_at"),
             skills_table.c.latest_published_by.label("published_by"),
+            tracker_exists,
         )
         .select_from(
             skills_table.join(
@@ -2480,6 +2495,17 @@ def insert_skill_tracker(
     tracker = _row_to_skill_tracker(row)
     logger.debug("Created tracker repo={} branch={} id={}", repo_url, branch, tracker.id)
     return tracker
+
+
+def has_active_tracker_for_repo(conn: Connection, repo_url: str) -> bool:
+    """Return True if at least one enabled tracker exists for the given repo URL."""
+    stmt = sa.select(sa.literal(True)).where(
+        sa.and_(
+            skill_trackers_table.c.repo_url == repo_url,
+            skill_trackers_table.c.enabled.is_(True),
+        )
+    )
+    return conn.execute(stmt).first() is not None
 
 
 def find_skill_tracker(conn: Connection, tracker_id: UUID) -> SkillTracker | None:
