@@ -138,13 +138,14 @@ def _scan_result_to_audit_fields(scan_result: BridgeScanResult) -> tuple[list[di
         }
     ]
 
-    llm_reasoning = None
+    llm_reasoning: dict | None = None
     if scan_result.meta_analysis or scan_result.findings:
-        llm_reasoning = {
+        reasoning: dict = {
             "scanner_findings": scan_result.findings[:20],
         }
         if scan_result.meta_analysis:
-            llm_reasoning["meta_analysis"] = scan_result.meta_analysis
+            reasoning["meta_analysis"] = scan_result.meta_analysis
+        llm_reasoning = reasoning
 
     return check_results, llm_reasoning
 
