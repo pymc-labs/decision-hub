@@ -63,7 +63,8 @@ export default function OrgsPage() {
     });
   }, [data]);
 
-  // Reset visible count when data changes (render-time adjustment)
+  // Reset visible count when data changes (render-time adjustment per React docs:
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
   const [prevData, setPrevData] = useState(data);
   if (data !== prevData) {
     setPrevData(data);

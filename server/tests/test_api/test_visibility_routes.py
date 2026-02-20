@@ -381,7 +381,7 @@ class TestRevokeAccess:
 class TestListAccess:
     """GET /v1/skills/{org_slug}/{skill_name}/access"""
 
-    @patch("decision_hub.api.registry_routes.list_skill_access_grants")
+    @patch("decision_hub.api.registry_routes.list_skill_access_grants_with_names")
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")

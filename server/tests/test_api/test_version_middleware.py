@@ -16,13 +16,14 @@ class TestVersionMiddleware:
         assert "0.1.3" in detail
         assert "0.2.0" in detail
 
-    def test_missing_version_header_returns_426(self, test_app, client):
-        """Requests without a version header get a 426 when enforcement is on."""
+    def test_missing_version_header_passes_through(self, test_app, client):
+        """Requests without a version header pass through (browsers, frontend)."""
         test_app.state.settings.min_cli_version = "0.2.0"
 
         resp = client.get("/v1/orgs")
 
-        assert resp.status_code == 426
+        # Missing header = not a CLI request; middleware should not block it.
+        assert resp.status_code != 426
 
     def test_valid_version_passes_through(self, test_app, client, auth_headers):
         """A current CLI version should pass the middleware."""

@@ -709,10 +709,42 @@ def find_org_by_slug(conn: Connection, slug: str) -> Organization | None:
 
 
 def list_all_org_profiles(conn: Connection) -> list[Organization]:
-    """Return all organizations (public listing)."""
-    stmt = sa.select(organizations_table).order_by(organizations_table.c.slug)
+    """Return organizations that have at least one published public skill."""
+    stmt = (
+        sa.select(organizations_table)
+        .where(
+            organizations_table.c.id.in_(
+                sa.select(skills_table.c.org_id)
+                .where(
+                    sa.and_(
+                        skills_table.c.visibility == "public",
+                        skills_table.c.latest_semver.isnot(None),
+                    )
+                )
+                .distinct()
+            )
+        )
+        .order_by(organizations_table.c.slug)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_organization(row) for row in rows]
+
+
+def org_has_public_skills(conn: Connection, org_id: UUID) -> bool:
+    """Check whether an org has at least one published public skill."""
+    stmt = (
+        sa.select(sa.literal(1))
+        .select_from(skills_table)
+        .where(
+            sa.and_(
+                skills_table.c.org_id == org_id,
+                skills_table.c.visibility == "public",
+                skills_table.c.latest_semver.isnot(None),
+            )
+        )
+        .limit(1)
+    )
+    return conn.execute(stmt).first() is not None
 
 
 def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
@@ -998,6 +1030,34 @@ def list_skill_access_grants(conn: Connection, skill_id: UUID) -> list[SkillAcce
     )
     rows = conn.execute(stmt).all()
     return [_row_to_skill_access_grant(row) for row in rows]
+
+
+def list_skill_access_grants_with_names(conn: Connection, skill_id: UUID) -> list[tuple[str, str, datetime | None]]:
+    """List access grants with resolved org slug and username in a single query.
+
+    Returns (grantee_org_slug, granted_by_username, created_at) tuples,
+    avoiding per-row lookups (N+1).
+    """
+    stmt = (
+        sa.select(
+            organizations_table.c.slug.label("grantee_org_slug"),
+            users_table.c.username.label("granted_by_username"),
+            skill_access_grants_table.c.created_at,
+        )
+        .select_from(
+            skill_access_grants_table.join(
+                organizations_table,
+                skill_access_grants_table.c.grantee_org_id == organizations_table.c.id,
+            ).join(
+                users_table,
+                skill_access_grants_table.c.granted_by == users_table.c.id,
+            )
+        )
+        .where(skill_access_grants_table.c.skill_id == skill_id)
+        .order_by(skill_access_grants_table.c.created_at)
+    )
+    rows = conn.execute(stmt).all()
+    return [(row.grantee_org_slug, row.granted_by_username, row.created_at) for row in rows]
 
 
 def list_granted_skill_ids(conn: Connection, org_ids: list[UUID]) -> list[UUID]:
@@ -1974,7 +2034,10 @@ def find_audit_logs(
     org_slug: str,
     skill_name: str,
     semver: str | None = None,
-) -> list[AuditLogEntry]:
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[AuditLogEntry], int]:
     """Find audit log entries for a skill, optionally filtered by version.
 
     Args:
@@ -1982,9 +2045,11 @@ def find_audit_logs(
         org_slug: Organization slug.
         skill_name: Skill name.
         semver: Optional version to filter by.
+        limit: Maximum number of rows to return (None = all).
+        offset: Number of rows to skip.
 
     Returns:
-        List of AuditLogEntry records, newest first.
+        Tuple of (entries, total_count) where entries are newest-first.
     """
     conditions = [
         eval_audit_logs_table.c.org_slug == org_slug,
@@ -1993,11 +2058,22 @@ def find_audit_logs(
     if semver is not None:
         conditions.append(eval_audit_logs_table.c.semver == semver)
 
+    where = sa.and_(*conditions)
+
+    count_stmt = sa.select(sa.func.count()).select_from(eval_audit_logs_table).where(where)
+    total = conn.execute(count_stmt).scalar() or 0
+
     stmt = (
-        sa.select(eval_audit_logs_table).where(sa.and_(*conditions)).order_by(eval_audit_logs_table.c.created_at.desc())
+        sa.select(eval_audit_logs_table)
+        .where(where)
+        .order_by(eval_audit_logs_table.c.created_at.desc(), eval_audit_logs_table.c.id.desc())
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
     rows = conn.execute(stmt).all()
-    return [_row_to_audit_log_entry(row) for row in rows]
+    return [_row_to_audit_log_entry(row) for row in rows], total
 
 
 # ---------------------------------------------------------------------------

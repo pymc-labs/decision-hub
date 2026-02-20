@@ -18,6 +18,7 @@ from decision_hub.infra.database import (
     insert_organization,
     list_all_org_profiles,
     list_user_orgs,
+    org_has_public_skills,
 )
 from decision_hub.models import User
 
@@ -196,6 +197,8 @@ def get_org_profile(
     """Public profile for an organisation."""
     org = find_org_by_slug(conn, slug)
     if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    if not org_has_public_skills(conn, org.id):
         raise HTTPException(status_code=404, detail="Organisation not found")
     return OrgProfile(
         slug=org.slug,

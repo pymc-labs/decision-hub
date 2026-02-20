@@ -82,6 +82,14 @@ export interface AuditLogEntry {
   created_at: string | null;
 }
 
+export interface PaginatedAuditLogResponse {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export interface SkillFile {
   path: string;
   content: string;
