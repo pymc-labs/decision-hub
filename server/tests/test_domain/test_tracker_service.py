@@ -610,6 +610,7 @@ class TestCheckAllDueTrackersLoopSignal:
             {f"myorg/repo-{i}:main": f"same_sha_{i}" for i in range(5)},
             set(),
             {},
+            {},
         )
 
         mock_gh_instance = MagicMock()
@@ -684,7 +685,7 @@ class TestRateLimitGuardrail:
         mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
         mock_claim.return_value = [tracker]
-        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set(), {"myorg/myrepo": 42})
+        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set(), {"myorg/myrepo": 42}, {})
 
         # Set rate limit below floor
         mock_gh_instance = MagicMock()
@@ -756,7 +757,7 @@ class TestRateLimitGuardrail:
         mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
         mock_claim.return_value = [tracker]
-        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set(), {"myorg/myrepo": 42})
+        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set(), {"myorg/myrepo": 42}, {})
 
         # Set rate limit above floor
         mock_gh_instance = MagicMock()
@@ -859,6 +860,7 @@ class TestTransientFailureClassification:
             {"myorg/repo-ok:main": "same_sha"},
             {"myorg/repo-transient:main"},  # failed chunk keys
             {"myorg/repo-ok": 15},
+            {},
         )
 
         mock_gh_instance = MagicMock()
@@ -945,7 +947,7 @@ class TestAutoDisablePermanentErrors:
         mock_claim.return_value = [tracker_gone]
 
         # Repo resolves but returns no data → permanent error
-        mock_batch_fetch.return_value = ({}, set(), {})
+        mock_batch_fetch.return_value = ({}, set(), {}, {})
 
         mock_gh_instance = MagicMock()
         mock_gh_instance.rate_limit_remaining = 4000
@@ -969,7 +971,7 @@ class TestAutoDisablePermanentErrors:
 
 
 class TestProcessTrackerNoSkillsDisables:
-    """Verify process_tracker disables tracker and marks skills when no skills found."""
+    """Verify process_tracker disables tracker when no skills found."""
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
@@ -982,8 +984,10 @@ class TestProcessTrackerNoSkillsDisables:
         _mock_commits,
         _mock_token,
     ):
-        """When discover_skills returns empty, tracker should be disabled
-        and skills marked as removed."""
+        """When discover_skills returns empty, tracker should be disabled.
+        The repo still exists on GitHub (it was successfully cloned), so
+        source_repo_removed must NOT be set — that flag is reserved for
+        repos that have been deleted/made private (GraphQL permanent error)."""
         tracker = SkillTracker(
             id=uuid4(),
             user_id=uuid4(),
@@ -1019,10 +1023,8 @@ class TestProcessTrackerNoSkillsDisables:
             assert kwargs["enabled"] is False
             assert kwargs["last_error"] == "No skills found in repository"
 
-            mock_mark.assert_called_once_with(
-                mock_conn,
-                ["https://github.com/myorg/empty-repo"],
-            )
+            # The repo still exists — do NOT mark skills as source_removed
+            mock_mark.assert_not_called()
 
 
 class TestRepoDeduplication:
@@ -1072,7 +1074,7 @@ class TestRepoDeduplication:
         mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
         mock_claim.return_value = trackers
-        mock_batch_fetch.return_value = ({"myorg/shared-repo:main": "same_sha"}, set(), {"myorg/shared-repo": 99})
+        mock_batch_fetch.return_value = ({"myorg/shared-repo:main": "same_sha"}, set(), {"myorg/shared-repo": 99}, {})
 
         mock_gh_instance = MagicMock()
         mock_gh_instance.rate_limit_remaining = 4000

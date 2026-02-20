@@ -121,7 +121,7 @@ class TestBatchFetchCommitShas:
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {"r0": {"stargazerCount": 42, "ref": {"target": {"oid": "abc123def456"}}}}
 
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
 
         assert sha_map == {"owner/repo:main": "abc123def456"}
         assert failed_keys == set()
@@ -132,7 +132,7 @@ class TestBatchFetchCommitShas:
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {"r0": None, "r1": {"stargazerCount": 10, "ref": {"target": {"oid": "sha456"}}}}
 
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(
             client,
             [("owner", "missing", "main"), ("owner", "repo", "main")],
         )
@@ -146,7 +146,7 @@ class TestBatchFetchCommitShas:
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {"r0": {"stargazerCount": 5, "ref": None}}
 
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "empty", "main")])
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, [("owner", "empty", "main")])
         assert sha_map == {}
         assert failed_keys == set()
         # Stars should still be captured even when ref is missing
@@ -157,7 +157,7 @@ class TestBatchFetchCommitShas:
         client = MagicMock(spec=GitHubClient)
         client.graphql.side_effect = httpx.HTTPStatusError("forbidden", request=MagicMock(), response=MagicMock())
 
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
         assert sha_map == {}
         assert failed_keys == {"owner/repo:main"}
         assert stars == {}
@@ -167,7 +167,7 @@ class TestBatchFetchCommitShas:
         client = MagicMock(spec=GitHubClient)
         client.graphql.side_effect = httpx.ConnectError("connection refused")
 
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
         assert sha_map == {}
         assert failed_keys == {"owner/repo:main"}
         assert stars == {}
@@ -185,7 +185,7 @@ class TestBatchFetchCommitShas:
             ("org", "repo-b", "develop"),
             ("other", "repo-c", "main"),
         ]
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, repos)
 
         assert sha_map == {
             "org/repo-a:main": "sha1",
@@ -207,7 +207,7 @@ class TestBatchFetchCommitShas:
             ("org", "repo", "main"),
             ("org", "repo", "develop"),
         ]
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, repos)
 
         assert sha_map == {
             "org/repo:main": "sha_main",
@@ -228,7 +228,7 @@ class TestBatchFetchCommitShas:
             ("org", "repo", "main"),
             ("org", "repo", 'feat") { ref(qualifiedName: "refs/heads/main'),
         ]
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, repos)
 
         # Only the safe repo should appear; the malicious branch is skipped
         assert sha_map == {"org/repo:main": "sha_safe"}
@@ -254,7 +254,7 @@ class TestBatchFetchTransientFailures:
             {"r0": {"stargazerCount": 1, "ref": {"target": {"oid": "sha_last"}}}},
         ]
 
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, repos)
 
         # Last repo succeeds
         assert sha_map == {"org250/repo250:main": "sha_last"}
@@ -275,7 +275,7 @@ class TestBatchFetchTransientFailures:
         }
 
         repos = [("org", "missing", "main"), ("org", "found", "main")]
-        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars, repo_meta = batch_fetch_commit_shas(client, repos)
 
         assert sha_map == {"org/found:main": "sha_ok"}
         assert stars == {"org/found": 5}
