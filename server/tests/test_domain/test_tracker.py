@@ -67,13 +67,16 @@ class TestValidateBranchName:
     def test_valid_branches_pass(self, branch):
         validate_branch_name(branch)  # should not raise
 
-    @pytest.mark.parametrize("branch", [
-        "",
-        'main"',
-        "branch with spaces",
-        "branch\nnewline",
-        'feat") { ref(qualifiedName: "refs/heads/main',
-    ])
+    @pytest.mark.parametrize(
+        "branch",
+        [
+            "",
+            'main"',
+            "branch with spaces",
+            "branch\nnewline",
+            'feat") { ref(qualifiedName: "refs/heads/main',
+        ],
+    )
     def test_invalid_branches_raise(self, branch):
         with pytest.raises(ValueError, match="Invalid branch name"):
             validate_branch_name(branch)
