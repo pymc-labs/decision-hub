@@ -1,4 +1,4 @@
-"""Database function tests for skill trackers.
+"""Database function tests for skill trackers and tracker metrics.
 
 These tests use mocked connections since real DB tests require
 the migrate-check CI pipeline.
@@ -12,14 +12,17 @@ import pytest
 
 from decision_hub.infra.database import (
     _row_to_skill_tracker,
+    _row_to_tracker_metrics,
     claim_due_trackers,
     delete_skill_tracker,
     find_skill_tracker,
     insert_skill_tracker,
+    insert_tracker_metrics,
     list_skill_trackers_for_user,
+    list_tracker_metrics,
     update_skill_tracker,
 )
-from decision_hub.models import SkillTracker
+from decision_hub.models import SkillTracker, TrackerMetrics
 
 
 def _make_tracker_row(
@@ -223,3 +226,91 @@ class TestDeleteSkillTracker:
 
         result = delete_skill_tracker(conn, uuid4())
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Tracker metrics tests
+# ---------------------------------------------------------------------------
+
+
+def _make_metrics_row(
+    recorded_at: datetime | None = None,
+    total_checked: int = 42,
+    github_rate_remaining: int | None = 4800,
+) -> MagicMock:
+    """Create a mock row that simulates a tracker_metrics row."""
+    row = MagicMock()
+    row.id = uuid4()
+    row.recorded_at = recorded_at or datetime.now(UTC)
+    row.iterations = 2
+    row.total_checked = total_checked
+    row.trackers_due = 10
+    row.trackers_unchanged = 8
+    row.trackers_changed = 2
+    row.trackers_errored = 0
+    row.trackers_processed = 2
+    row.trackers_failed = 0
+    row.skipped_rate_limit = 0
+    row.github_rate_remaining = github_rate_remaining
+    row.batch_duration_seconds = 3.2
+    return row
+
+
+class TestRowToTrackerMetrics:
+    def test_maps_all_fields(self):
+        row = _make_metrics_row()
+        metrics = _row_to_tracker_metrics(row)
+        assert isinstance(metrics, TrackerMetrics)
+        assert metrics.id == row.id
+        assert metrics.total_checked == 42
+        assert metrics.trackers_changed == 2
+        assert metrics.github_rate_remaining == 4800
+        assert metrics.batch_duration_seconds == 3.2
+
+    def test_maps_none_rate(self):
+        row = _make_metrics_row(github_rate_remaining=None)
+        metrics = _row_to_tracker_metrics(row)
+        assert metrics.github_rate_remaining is None
+
+
+class TestInsertTrackerMetrics:
+    def test_insert_returns_metrics(self):
+        conn = MagicMock()
+        row = _make_metrics_row()
+        conn.execute.return_value.one.return_value = row
+
+        result = insert_tracker_metrics(
+            conn,
+            iterations=2,
+            total_checked=42,
+            trackers_due=10,
+            trackers_unchanged=8,
+            trackers_changed=2,
+            trackers_errored=0,
+            trackers_processed=2,
+            trackers_failed=0,
+            skipped_rate_limit=0,
+            github_rate_remaining=4800,
+            batch_duration_seconds=3.2,
+        )
+        assert isinstance(result, TrackerMetrics)
+        assert result.total_checked == 42
+        conn.execute.assert_called_once()
+
+
+class TestListTrackerMetrics:
+    def test_list_returns_metrics(self):
+        conn = MagicMock()
+        rows = [_make_metrics_row() for _ in range(3)]
+        conn.execute.return_value.all.return_value = rows
+
+        result = list_tracker_metrics(conn, limit=10)
+        assert len(result) == 3
+        assert all(isinstance(m, TrackerMetrics) for m in result)
+
+    def test_list_empty(self):
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        result = list_tracker_metrics(conn)
+        assert result == []

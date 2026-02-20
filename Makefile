@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -80,6 +80,14 @@ backfill: ## Run all backfills: categories, embeddings, org metadata (needs DHUB
 		python -m decision_hub.scripts.backfill_embeddings
 	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python -m decision_hub.scripts.backfill_org_metadata --github-token "$$(gh auth token)"
+
+# ---------------------------------------------------------------------------
+# Monitoring
+# ---------------------------------------------------------------------------
+
+tracker-health: ## Show tracker health summary (dev by default, override with DHUB_ENV=prod)
+	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+		python -m decision_hub.scripts.tracker_health
 
 # ---------------------------------------------------------------------------
 # Setup

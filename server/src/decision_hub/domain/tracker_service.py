@@ -24,7 +24,7 @@ from decision_hub.domain.repo_utils import (
 )
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.domain.tracker import has_new_commits, parse_github_repo_url
-from decision_hub.models import SkillTracker
+from decision_hub.models import SkillTracker, TrackerBatchResult
 from decision_hub.settings import Settings
 
 # ---------------------------------------------------------------------------
@@ -68,14 +68,13 @@ def dict_to_tracker(d: dict[str, Any]) -> SkillTracker:
 # ---------------------------------------------------------------------------
 
 
-def check_all_due_trackers(settings: Settings) -> int:
-    """Find all due trackers and process them. Returns count of trackers checked.
+def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
+    """Find all due trackers and process them. Returns structured metrics.
 
-    Returns the number of trackers *claimed* (checked) in this batch —
-    **not** the number that had changes.  The caller loop in ``check_trackers``
-    breaks when this returns 0, meaning no more trackers are due.  Returning
-    ``len(trackers)`` instead of the changed count ensures the loop keeps
-    going through subsequent batches even when one batch has zero changes.
+    The caller loop in ``check_trackers`` breaks when ``result.checked == 0``,
+    meaning no more trackers are due. Returning ``checked=len(trackers)``
+    instead of the changed count ensures the loop keeps going through
+    subsequent batches even when one batch has zero changes.
 
     Uses batch GraphQL to check all claimed trackers for new commits in a
     single API call (per 250 repos), then only clones + republishes those
@@ -96,7 +95,17 @@ def check_all_due_trackers(settings: Settings) -> int:
 
     if not trackers:
         logger.info("tracker_batch due=0 checked=0 changed=0 failed=0")
-        return 0
+        return TrackerBatchResult(
+            checked=0,
+            due=0,
+            unchanged=0,
+            changed=0,
+            errored=0,
+            processed=0,
+            failed=0,
+            skipped_rate_limit=0,
+            github_rate_remaining=None,
+        )
 
     # Batch-fetch latest commit SHAs via GraphQL
     github_token = _resolve_github_token(settings)
@@ -166,7 +175,17 @@ def check_all_due_trackers(settings: Settings) -> int:
             errored,
             len(changed_trackers),
         )
-        return 0
+        return TrackerBatchResult(
+            checked=len(trackers),
+            due=len(trackers),
+            unchanged=unchanged,
+            changed=len(changed_trackers),
+            errored=errored,
+            processed=0,
+            failed=0,
+            skipped_rate_limit=len(changed_trackers),
+            github_rate_remaining=rate_remaining,
+        )
 
     # Dispatch changed trackers (Modal fan-out with sequential fallback)
     processed, failed = _dispatch_changed_trackers(changed_trackers, github_token, settings, engine)
@@ -180,7 +199,17 @@ def check_all_due_trackers(settings: Settings) -> int:
         processed,
         failed,
     )
-    return len(trackers)
+    return TrackerBatchResult(
+        checked=len(trackers),
+        due=len(trackers),
+        unchanged=unchanged,
+        changed=len(changed_trackers),
+        errored=errored,
+        processed=processed,
+        failed=failed,
+        skipped_rate_limit=0,
+        github_rate_remaining=rate_remaining,
+    )
 
 
 def _dispatch_changed_trackers(

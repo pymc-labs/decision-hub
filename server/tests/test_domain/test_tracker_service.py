@@ -21,7 +21,7 @@ from decision_hub.domain.tracker_service import (
     process_tracker,
     tracker_to_dict,
 )
-from decision_hub.models import SkillTracker
+from decision_hub.models import SkillTracker, TrackerBatchResult
 
 # Backward-compat aliases used in test names
 _bump_version = bump_version
@@ -376,9 +376,11 @@ class TestCheckAllDueTrackersBatchSize:
         mock_settings.tracker_batch_size = 42
         mock_settings.tracker_jitter_seconds = 120
 
-        check_all_due_trackers(mock_settings)
+        result = check_all_due_trackers(mock_settings)
 
         mock_claim.assert_called_once_with(mock_conn, batch_size=42, jitter_seconds=120)
+        assert isinstance(result, TrackerBatchResult)
+        assert result.checked == 0
 
 
 class TestProcessTrackerTokenResolution:
@@ -615,8 +617,14 @@ class TestCheckAllDueTrackersLoopSignal:
 
         result = check_all_due_trackers(mock_settings)
 
-        # Must return 5 (number of trackers claimed) so the loop continues
-        assert result == 5
+        # Must return checked=5 (number of trackers claimed) so the loop continues
+        assert isinstance(result, TrackerBatchResult)
+        assert result.checked == 5
+        assert result.unchanged == 5
+        assert result.changed == 0
+        assert result.processed == 0
+        assert result.failed == 0
+        assert result.github_rate_remaining == 4000
         # _dispatch_changed_trackers should be called with an empty list
         mock_dispatch.assert_called_once()
         changed_arg = mock_dispatch.call_args[0][0]
@@ -677,8 +685,13 @@ class TestRateLimitGuardrail:
 
         result = check_all_due_trackers(mock_settings)
 
-        # Should return 0 processed and NOT call _dispatch_changed_trackers
-        assert result == 0
+        # Should return checked>0 but skipped_rate_limit>0, and NOT call _dispatch
+        assert isinstance(result, TrackerBatchResult)
+        assert result.checked == 1
+        assert result.skipped_rate_limit == 1
+        assert result.processed == 0
+        assert result.failed == 0
+        assert result.github_rate_remaining == 100
         mock_dispatch.assert_not_called()
 
         # Rate-limited trackers should be marked with error and cleared for next tick
@@ -740,5 +753,9 @@ class TestRateLimitGuardrail:
 
         result = check_all_due_trackers(mock_settings)
 
-        assert result == 1
+        assert isinstance(result, TrackerBatchResult)
+        assert result.checked == 1
+        assert result.changed == 1
+        assert result.processed == 1
+        assert result.skipped_rate_limit == 0
         mock_dispatch.assert_called_once()

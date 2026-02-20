@@ -38,6 +38,7 @@ from decision_hub.models import (
     Skill,
     SkillAccessGrant,
     SkillTracker,
+    TrackerMetrics,
     User,
     UserApiKey,
     Version,
@@ -508,6 +509,29 @@ skill_trackers_table = Table(
         server_default=sa.func.now(),
     ),
     sa.UniqueConstraint("user_id", "repo_url", "branch"),
+)
+
+tracker_metrics_table = Table(
+    "tracker_metrics",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column("recorded_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("iterations", sa.Integer, nullable=False),
+    Column("total_checked", sa.Integer, nullable=False),
+    Column("trackers_due", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_unchanged", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_changed", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_errored", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_processed", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_failed", sa.Integer, nullable=False, server_default="0"),
+    Column("skipped_rate_limit", sa.Integer, nullable=False, server_default="0"),
+    Column("github_rate_remaining", sa.Integer, nullable=True),
+    Column("batch_duration_seconds", sa.Float, nullable=False),
 )
 
 
@@ -2593,3 +2617,71 @@ def delete_skill_tracker(conn: Connection, tracker_id: UUID) -> bool:
     stmt = sa.delete(skill_trackers_table).where(skill_trackers_table.c.id == tracker_id)
     result = conn.execute(stmt)
     return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Tracker metrics
+# ---------------------------------------------------------------------------
+
+
+def _row_to_tracker_metrics(row: sa.Row) -> TrackerMetrics:
+    """Map a database row to a TrackerMetrics model."""
+    return TrackerMetrics(
+        id=row.id,
+        recorded_at=row.recorded_at,
+        iterations=row.iterations,
+        total_checked=row.total_checked,
+        trackers_due=row.trackers_due,
+        trackers_unchanged=row.trackers_unchanged,
+        trackers_changed=row.trackers_changed,
+        trackers_errored=row.trackers_errored,
+        trackers_processed=row.trackers_processed,
+        trackers_failed=row.trackers_failed,
+        skipped_rate_limit=row.skipped_rate_limit,
+        github_rate_remaining=row.github_rate_remaining,
+        batch_duration_seconds=row.batch_duration_seconds,
+    )
+
+
+def insert_tracker_metrics(
+    conn: Connection,
+    *,
+    iterations: int,
+    total_checked: int,
+    trackers_due: int,
+    trackers_unchanged: int,
+    trackers_changed: int,
+    trackers_errored: int,
+    trackers_processed: int,
+    trackers_failed: int,
+    skipped_rate_limit: int,
+    github_rate_remaining: int | None,
+    batch_duration_seconds: float,
+) -> TrackerMetrics:
+    """Record one row of cron-tick metrics."""
+    stmt = (
+        sa.insert(tracker_metrics_table)
+        .values(
+            iterations=iterations,
+            total_checked=total_checked,
+            trackers_due=trackers_due,
+            trackers_unchanged=trackers_unchanged,
+            trackers_changed=trackers_changed,
+            trackers_errored=trackers_errored,
+            trackers_processed=trackers_processed,
+            trackers_failed=trackers_failed,
+            skipped_rate_limit=skipped_rate_limit,
+            github_rate_remaining=github_rate_remaining,
+            batch_duration_seconds=batch_duration_seconds,
+        )
+        .returning(*tracker_metrics_table.c)
+    )
+    row = conn.execute(stmt).one()
+    return _row_to_tracker_metrics(row)
+
+
+def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
+    """Return recent tracker metrics rows, newest first."""
+    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    rows = conn.execute(stmt).all()
+    return [_row_to_tracker_metrics(row) for row in rows]

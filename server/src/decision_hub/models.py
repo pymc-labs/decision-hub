@@ -264,6 +264,40 @@ class SkillTracker:
 
 
 @dataclass(frozen=True)
+class TrackerBatchResult:
+    """Metrics from a single check_all_due_trackers iteration."""
+
+    checked: int
+    due: int
+    unchanged: int
+    changed: int
+    errored: int
+    processed: int
+    failed: int
+    skipped_rate_limit: int
+    github_rate_remaining: int | None
+
+
+@dataclass(frozen=True)
+class TrackerMetrics:
+    """One row from the tracker_metrics table."""
+
+    id: UUID
+    recorded_at: datetime
+    iterations: int
+    total_checked: int
+    trackers_due: int
+    trackers_unchanged: int
+    trackers_changed: int
+    trackers_errored: int
+    trackers_processed: int
+    trackers_failed: int
+    skipped_rate_limit: int
+    github_rate_remaining: int | None
+    batch_duration_seconds: float
+
+
+@dataclass(frozen=True)
 class SkillIndexEntry:
     """Entry in the search index."""
 

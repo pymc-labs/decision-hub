@@ -347,7 +347,13 @@ Individual backfill scripts can also be run directly from `server/` — see `ser
 
 ## Monitoring Trackers
 
-Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. The `check_trackers` Modal cron runs every 5 minutes. Crawled skills are **not** auto-tracked — trackers are opt-in via `dhub track add`.
+Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. The `check_trackers` Modal cron runs every 10 minutes. Crawled skills are **not** auto-tracked — trackers are opt-in via `dhub track add`.
+
+**Quick health check:**
+```bash
+make tracker-health                    # dev (default)
+DHUB_ENV=prod make tracker-health      # prod
+```
 
 **Check Modal logs for failures:**
 ```bash
@@ -360,6 +366,29 @@ modal app logs decision-hub-dev 2>&1 | grep -i "tracker\|check_trackers"  # dev
 -- Failed trackers
 SELECT repo_url, last_checked_at, last_error
 FROM skill_trackers WHERE last_error IS NOT NULL AND enabled = true;
+```
+
+### Tracker Metrics
+
+The `tracker_metrics` table records one row per `check_trackers` cron tick with key counters for historical observability. Metrics are written at the end of each cron invocation.
+
+**Useful queries:**
+```sql
+-- Recent cron ticks (last 24h)
+SELECT recorded_at, total_checked, trackers_changed, trackers_failed,
+       github_rate_remaining, batch_duration_seconds
+FROM tracker_metrics
+WHERE recorded_at > now() - interval '24 hours'
+ORDER BY recorded_at DESC;
+
+-- Average duration and failure rate over last 7 days
+SELECT date_trunc('day', recorded_at) AS day,
+       count(*) AS ticks,
+       avg(batch_duration_seconds)::numeric(5,1) AS avg_dur_s,
+       sum(trackers_failed) AS total_failed
+FROM tracker_metrics
+WHERE recorded_at > now() - interval '7 days'
+GROUP BY 1 ORDER BY 1 DESC;
 ```
 
 ## Troubleshooting

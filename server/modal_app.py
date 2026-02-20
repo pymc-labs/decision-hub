@@ -208,6 +208,8 @@ def check_trackers():
     and fans out changed repos to tracker_process_repo containers.
     Unchanged trackers are near-instant (~1s per 250 repos), so the loop
     can churn through tens of thousands of trackers per tick.
+
+    After the loop, persists one tracker_metrics row with accumulated counters.
     """
     import time
 
@@ -222,19 +224,62 @@ def check_trackers():
 
     start = time.monotonic()
     total_checked = 0
+    total_due = 0
+    total_unchanged = 0
+    total_changed = 0
+    total_errored = 0
+    total_processed = 0
+    total_failed = 0
+    total_skipped_rate_limit = 0
+    last_github_rate: int | None = None
     iterations = 0
 
     while time.monotonic() - start < _TRACKER_LOOP_BUDGET_SECONDS:
-        checked = check_all_due_trackers(settings)
-        total_checked += checked
+        result = check_all_due_trackers(settings)
+        total_checked += result.checked
+        total_due += result.due
+        total_unchanged += result.unchanged
+        total_changed += result.changed
+        total_errored += result.errored
+        total_processed += result.processed
+        total_failed += result.failed
+        total_skipped_rate_limit += result.skipped_rate_limit
+        if result.github_rate_remaining is not None:
+            last_github_rate = result.github_rate_remaining
         iterations += 1
-        if checked == 0:
+        if result.checked == 0:
             break
+
+    elapsed = time.monotonic() - start
+
+    # Persist metrics row
+    try:
+        from decision_hub.infra.database import create_engine, insert_tracker_metrics
+
+        engine = create_engine(settings.database_url)
+        with engine.connect() as conn:
+            insert_tracker_metrics(
+                conn,
+                iterations=iterations,
+                total_checked=total_checked,
+                trackers_due=total_due,
+                trackers_unchanged=total_unchanged,
+                trackers_changed=total_changed,
+                trackers_errored=total_errored,
+                trackers_processed=total_processed,
+                trackers_failed=total_failed,
+                skipped_rate_limit=total_skipped_rate_limit,
+                github_rate_remaining=last_github_rate,
+                batch_duration_seconds=elapsed,
+            )
+            conn.commit()
+    except Exception:
+        logger.opt(exception=True).warning("Failed to persist tracker_metrics row")
 
     logger.info(
         "check_trackers done iterations={} total_checked={} elapsed={:.1f}s",
         iterations,
         total_checked,
-        time.monotonic() - start,
+        elapsed,
     )
     print(f"[check_trackers] Checked {total_checked} tracker(s) in {iterations} iteration(s)", flush=True)

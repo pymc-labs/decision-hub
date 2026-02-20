@@ -1,7 +1,8 @@
 """Admin script to inspect tracker health.
 
 Prints a summary table to stdout showing total/enabled/disabled counts,
-due-now trackers, recent activity, and the most common errors.
+due-now trackers, recent activity, the most common errors, and recent
+cron-tick metrics from the tracker_metrics table.
 
 Usage:
     cd server && DHUB_ENV=dev uv run --package decision-hub-server \
@@ -14,7 +15,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from decision_hub.infra.database import create_engine, skill_trackers_table
+from decision_hub.infra.database import create_engine, list_tracker_metrics, skill_trackers_table
 from decision_hub.settings import create_settings
 
 
@@ -27,8 +28,14 @@ def _run() -> None:
 
     if not rows:
         print("No trackers found.")
-        return
+    else:
+        _print_tracker_summary(rows)
 
+    _print_cron_metrics(engine)
+
+
+def _print_tracker_summary(rows: list) -> None:
+    """Print the tracker health summary section."""
     now = datetime.now(UTC)
     total = len(rows)
     enabled = sum(1 for r in rows if r.enabled)
@@ -65,6 +72,28 @@ def _run() -> None:
         for msg, count in error_counter.most_common(5):
             print(f"  [{count}x] {msg}")
 
+    print()
+
+
+def _print_cron_metrics(engine: sa.engine.Engine) -> None:
+    """Print recent cron-tick metrics from the tracker_metrics table."""
+    with engine.connect() as conn:
+        metrics = list_tracker_metrics(conn, limit=24)
+
+    if not metrics:
+        print("=== Recent Cron Ticks ===")
+        print("  No metrics recorded yet.")
+        print()
+        return
+
+    print("=== Recent Cron Ticks ===")
+    for m in metrics:
+        ts = m.recorded_at.strftime("%Y-%m-%d %H:%M:%S")
+        rate_str = str(m.github_rate_remaining) if m.github_rate_remaining is not None else "n/a"
+        print(
+            f"  {ts}  checked={m.total_checked}  changed={m.trackers_changed}"
+            f"  failed={m.trackers_failed}  rate={rate_str}  dur={m.batch_duration_seconds:.1f}s"
+        )
     print()
 
 
