@@ -349,6 +349,33 @@ Individual backfill scripts can also be run directly from `server/` — see `ser
 
 Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. The `check_trackers` Modal cron runs every 10 minutes. Crawled skills are **not** auto-tracked — trackers are opt-in via `dhub track add`.
 
+### GitHub App Authentication
+
+Trackers authenticate to GitHub using **GitHub App installation tokens** instead of a personal access token (PAT). Each cron tick / Modal container mints its own short-lived token (~1 hr) from the App's private key. This gives dev and prod independent 12,500 req/hr rate-limit budgets.
+
+**Apps:**
+- **Dev:** App ID `2887189`, Installation ID `111380021` — secret: `decision-hub-github-app-dev`
+- **Prod:** App ID `2887208`, Installation ID `111379955` — secret: `decision-hub-github-app`
+
+**Modal secrets** store the credentials (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`). PEM files are at `server/decision-hub-dev.*.pem` / `server/decision-hub.*.pem` (git-ignored).
+
+**Recreating secrets:**
+```bash
+# Dev
+modal secret create decision-hub-github-app-dev --force \
+  GITHUB_APP_ID="2887189" \
+  GITHUB_APP_INSTALLATION_ID="111380021" \
+  GITHUB_APP_PRIVATE_KEY="$(cat server/decision-hub-dev.2026-02-17.private-key.pem)"
+
+# Prod
+modal secret create decision-hub-github-app --force \
+  GITHUB_APP_ID="2887208" \
+  GITHUB_APP_INSTALLATION_ID="111379955" \
+  GITHUB_APP_PRIVATE_KEY="$(cat server/decision-hub.2026-02-17.private-key.pem)"
+```
+
+**Note:** The crawler and backfill scripts still use a PAT passed via `--github-token`. Only the tracker cron uses App tokens.
+
 **Quick health check:**
 ```bash
 make tracker-health                    # dev (default)

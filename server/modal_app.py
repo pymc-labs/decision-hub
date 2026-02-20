@@ -49,6 +49,7 @@ secrets = [
     modal.Secret.from_name(f"decision-hub-db{suffix}"),
     modal.Secret.from_name(f"decision-hub-secrets{suffix}"),
     modal.Secret.from_name(f"decision-hub-aws{suffix}"),
+    modal.Secret.from_name(f"decision-hub-github-app{suffix}"),
     # Inject values from the local .env file that aren't in Modal secrets.
     # These are read at deploy time so server redeploys pick up changes
     # without needing to update Modal secrets manually.
@@ -184,16 +185,16 @@ def crawl_process_repo(
 def tracker_process_repo(
     tracker_dict: dict,
     known_sha: str,
-    github_token: str | None = None,
 ) -> dict:
     """Process a single tracked repo: clone, discover skills, gauntlet, publish.
 
-    Runs on Modal with ephemeral disk and access to DB/S3/Gemini secrets.
+    Runs on Modal with ephemeral disk and access to DB/S3/Gemini/GitHub App secrets.
+    Each container mints its own GitHub App installation token.
     Returns a result dict with status, repo_url, and optional error.
     """
     from decision_hub.domain.tracker_service import process_tracker_remote
 
-    return process_tracker_remote(tracker_dict, known_sha, github_token)
+    return process_tracker_remote(tracker_dict, known_sha)
 
 
 _TRACKER_LOOP_BUDGET_SECONDS = 480  # 8 min, leaving 2-min buffer before 600s timeout

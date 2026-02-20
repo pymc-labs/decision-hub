@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     # GitHub token for tracker API calls (private repos / rate limits)
     github_token: str = ""
 
+    # GitHub App credentials for tracker polling (mints installation tokens)
+    github_app_id: str = ""
+    github_app_private_key: str = ""
+    github_app_installation_id: str = ""
+
     # Rate limiting (per IP, sliding window)
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds

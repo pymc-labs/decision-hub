@@ -189,7 +189,7 @@ class TestProcessTrackerAllFailed:
             created_at=datetime.now(UTC),
         )
 
-    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
     @patch("decision_hub.domain.tracker_service.clone_repo")
     @patch("decision_hub.domain.tracker_service.discover_skills")
@@ -229,7 +229,7 @@ class TestProcessTrackerAllFailed:
             assert kwargs["last_error"] is not None
             assert "S3 outage" in kwargs["last_error"]
 
-    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
     @patch("decision_hub.domain.tracker_service.clone_repo")
     @patch("decision_hub.domain.tracker_service.discover_skills")
@@ -271,7 +271,7 @@ class TestProcessTrackerAllFailed:
             assert kwargs["last_commit_sha"] == "new_sha_xyz"
             assert kwargs["last_error"] is None
 
-    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
     @patch("decision_hub.domain.tracker_service.clone_repo")
     @patch("decision_hub.domain.tracker_service.discover_skills")
@@ -315,7 +315,7 @@ class TestProcessTrackerAllFailed:
 class TestProcessTrackerKnownSha:
     """Verify process_tracker skips REST check when known_sha is provided."""
 
-    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.clone_repo")
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
@@ -532,7 +532,7 @@ class TestDispatchChangedTrackers:
         mock_settings.modal_app_name = "nonexistent-app"
         mock_engine = MagicMock()
 
-        processed, failed = _dispatch_changed_trackers(changed, None, mock_settings, mock_engine)
+        processed, failed = _dispatch_changed_trackers(changed, mock_settings, mock_engine)
 
         assert processed == 1
         assert failed == 0
@@ -549,7 +549,7 @@ class TestDispatchChangedTrackers:
         mock_settings.modal_app_name = "nonexistent-app"
         mock_engine = MagicMock()
 
-        processed, failed = _dispatch_changed_trackers(changed, None, mock_settings, mock_engine)
+        processed, failed = _dispatch_changed_trackers(changed, mock_settings, mock_engine)
 
         assert processed == 0
         assert failed == 1
@@ -558,6 +558,7 @@ class TestDispatchChangedTrackers:
 class TestCheckAllDueTrackersLoopSignal:
     """Verify check_all_due_trackers returns len(trackers) so the caller loop continues."""
 
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
     @patch("decision_hub.infra.database.update_skill_tracker")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
@@ -572,6 +573,7 @@ class TestCheckAllDueTrackersLoopSignal:
         mock_batch_fetch,
         mock_update_tracker,
         mock_dispatch,
+        _mock_token,
     ):
         """When trackers are due but none changed, should return len(trackers) (not 0).
 
@@ -613,7 +615,6 @@ class TestCheckAllDueTrackersLoopSignal:
         mock_settings.tracker_batch_size = 100
         mock_settings.tracker_jitter_seconds = 0
         mock_settings.tracker_rate_limit_floor = 500
-        mock_settings.github_token = "ghp_test"
 
         result = check_all_due_trackers(mock_settings)
 
@@ -634,6 +635,7 @@ class TestCheckAllDueTrackersLoopSignal:
 class TestRateLimitGuardrail:
     """Verify check_all_due_trackers skips processing when GitHub rate limit is low."""
 
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers")
     @patch("decision_hub.infra.database.update_skill_tracker")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
@@ -648,6 +650,7 @@ class TestRateLimitGuardrail:
         mock_batch_fetch,
         mock_update_tracker,
         mock_dispatch,
+        _mock_token,
     ):
         """When rate_limit_remaining < tracker_rate_limit_floor, dispatch should be skipped."""
         tracker = SkillTracker(
@@ -681,7 +684,6 @@ class TestRateLimitGuardrail:
         mock_settings.tracker_batch_size = 100
         mock_settings.tracker_jitter_seconds = 0
         mock_settings.tracker_rate_limit_floor = 500
-        mock_settings.github_token = "ghp_test"
 
         result = check_all_due_trackers(mock_settings)
 
@@ -702,6 +704,7 @@ class TestRateLimitGuardrail:
             next_check_at=None,
         )
 
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(1, 0))
     @patch("decision_hub.infra.database.update_skill_tracker")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
@@ -716,6 +719,7 @@ class TestRateLimitGuardrail:
         mock_batch_fetch,
         mock_update_tracker,
         mock_dispatch,
+        _mock_token,
     ):
         """When rate_limit_remaining >= tracker_rate_limit_floor, dispatch should proceed."""
         tracker = SkillTracker(
@@ -749,7 +753,6 @@ class TestRateLimitGuardrail:
         mock_settings.tracker_batch_size = 100
         mock_settings.tracker_jitter_seconds = 0
         mock_settings.tracker_rate_limit_floor = 500
-        mock_settings.github_token = "ghp_test"
 
         result = check_all_due_trackers(mock_settings)
 

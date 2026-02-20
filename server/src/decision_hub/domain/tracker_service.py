@@ -188,7 +188,7 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
         )
 
     # Dispatch changed trackers (Modal fan-out with sequential fallback)
-    processed, failed = _dispatch_changed_trackers(changed_trackers, github_token, settings, engine)
+    processed, failed = _dispatch_changed_trackers(changed_trackers, settings, engine)
 
     logger.info(
         "tracker_batch due={} unchanged={} changed={} errored={} processed={} failed={}",
@@ -214,13 +214,14 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
 
 def _dispatch_changed_trackers(
     changed_trackers: list[tuple[SkillTracker, str]],
-    github_token: str | None,
     settings: Settings,
     engine: Any,
 ) -> tuple[int, int]:
     """Fan out processing of changed trackers via Modal, with sequential fallback.
 
     Returns (processed_count, failed_count).
+    Each Modal container mints its own GitHub App token from environment
+    credentials, so no token passthrough is needed.
     """
     processed = 0
     failed = 0
@@ -235,7 +236,6 @@ def _dispatch_changed_trackers(
         for batch_result in fn.map(
             tracker_dicts,
             known_shas,
-            kwargs={"github_token": github_token},
             return_exceptions=True,
         ):
             if isinstance(batch_result, Exception):
@@ -277,9 +277,11 @@ def _dispatch_changed_trackers(
 def process_tracker_remote(
     tracker_dict: dict[str, Any],
     known_sha: str,
-    github_token: str | None = None,
 ) -> dict[str, Any]:
     """Entry point for Modal containers — creates own settings+engine and processes one tracker.
+
+    Each container has GitHub App credentials in its environment and mints
+    its own installation token via ``_resolve_github_token()``.
 
     Returns a result dict with status, repo_url, and optional error.
     """
@@ -289,10 +291,6 @@ def process_tracker_remote(
 
     settings = create_settings()
     setup_logging(settings.log_level)
-
-    # Override github_token if provided (the system token from the orchestrator)
-    if github_token:
-        object.__setattr__(settings, "github_token", github_token)
 
     tracker = dict_to_tracker(tracker_dict)
     engine = create_engine(settings.database_url)
@@ -658,11 +656,24 @@ def _publish_skill_from_tracker(
     return True
 
 
-def _resolve_github_token(settings: Settings) -> str | None:
-    """Return the system-wide GitHub token for tracker polling.
+def _resolve_github_token(settings: Settings) -> str:
+    """Mint a GitHub App installation token for tracker polling.
 
-    All tracker polling uses the shared system token — per-user tokens
-    added unnecessary complexity with no benefit since trackers are
-    admin-owned background processes.
+    Uses the GitHub App credentials from settings to mint a short-lived
+    installation token (~1 hr). Each cron tick / Modal container mints
+    its own token, so there's no token-sharing across containers.
+
+    Raises if App credentials are not configured.
     """
-    return settings.github_token or None
+    from decision_hub.infra.github_app_token import mint_installation_token
+
+    if not (settings.github_app_id and settings.github_app_private_key and settings.github_app_installation_id):
+        raise RuntimeError(
+            "GitHub App credentials not configured. "
+            "Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, and GITHUB_APP_INSTALLATION_ID."
+        )
+    return mint_installation_token(
+        settings.github_app_id,
+        settings.github_app_private_key,
+        settings.github_app_installation_id,
+    )
