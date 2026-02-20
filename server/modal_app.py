@@ -250,6 +250,10 @@ def check_trackers():
         iterations += 1
         if result.checked == 0:
             break
+        if result.skipped_rate_limit > 0:
+            # Rate limit is low — stop looping to avoid re-claiming the same
+            # deferred trackers and burning more API budget.
+            break
 
     elapsed = time.monotonic() - start
 
