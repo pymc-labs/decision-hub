@@ -350,6 +350,8 @@ CREATE TABLE IF NOT EXISTS scan_reports (
     policy_fingerprint  TEXT,
     -- Full ScanResult.to_dict() for forensic archival
     full_report     JSONB,
+    -- MetaAnalysisResult: false positives, correlations, risk narrative (see Part 5a)
+    meta_analysis   JSONB,
     -- Who triggered this scan
     publisher       TEXT NOT NULL DEFAULT '',
     quarantine_s3_key TEXT,              -- non-NULL = rejected skill
@@ -396,8 +398,9 @@ CREATE TRIGGER set_scan_reports_updated_at
 
 ### What this enables
 
-- **API**: `GET /v1/skills/{org}/{skill}/scan-report` returns the latest scan report with paginated findings
-- **Frontend**: Skill detail page shows severity badge, per-finding cards with file/line/snippet/remediation
+- **API**: `GET /v1/skills/{org}/{skill}/scan-report` returns the latest scan report with paginated findings summary
+- **Download**: `GET /v1/skills/{org}/{skill}/scan-report/download` returns the full JSON report (including meta-analysis) as a downloadable file (see Part 5a)
+- **Frontend**: Skill detail page shows severity badge + finding count + top findings; full report downloadable via button
 - **Analytics**: "Most common threat categories across all skills", "Skills with CRITICAL findings", "Average analyzability score"
 - **Backward compatibility**: `eval_audit_logs` continues to work for historical data. New publishes write to both (audit log with grade + scan_reports/findings with full detail) during migration period, then audit log can be deprecated
 
@@ -411,6 +414,130 @@ versions (1) ←──── (0..1) scan_reports (1) ────→ (N) scan_fi
 ```
 
 The `eval_audit_logs` table remains untouched. Over time, the `grade` column on `versions.eval_status` can be populated from `scan_reports.grade` instead of the old gauntlet.
+
+---
+
+## Part 5a: LLM Results Storage & Downloadable Reports
+
+### Value proposition
+
+The LLM analyzer and meta-analyzer produce rich, structured assessments that go far beyond pass/fail verdicts. Publishing the full scan reports on dhub is a major differentiator — users and skill authors get transparent, actionable security analysis for every published skill. This section ensures we capture, store, and expose these results properly.
+
+### What the LLM analyzer produces
+
+The LLM analyzer (`LLMAnalyzer`) returns findings with:
+- **Structured AITech taxonomy codes** (e.g., `AITech-9.1` for command injection)
+- **Semantic threat descriptions** with context-aware reasoning
+- **Severity assessments** calibrated to actual exploitability
+- **Remediation suggestions** for each finding
+
+Each finding is a `Finding` object that feeds into `ScanResult.findings[]` and is captured by `ScanResult.to_dict()`.
+
+### What the meta-analyzer produces
+
+The meta-analyzer (`MetaAnalyzer`) returns a `MetaAnalysisResult` containing:
+- **`validated_findings`** — findings confirmed as genuine threats after cross-analyzer correlation
+- **`false_positives`** — findings reclassified with reasoning (explains *why* a static hit is benign in context)
+- **`missed_threats`** — new threats the meta-analyzer identified that other analyzers missed
+- **`correlations`** — cross-finding relationships (e.g., "the data exfiltration finding in `utils.py` is the sink for the command injection source in `main.py`")
+- **`overall_risk_assessment`** — narrative summary of the skill's security posture
+
+This is the highest-value output of the pipeline. The false-positive explanations alone save hours of manual triage per batch scan.
+
+### Current storage plan: compatible, needs one addition
+
+The `scan_reports.full_report` JSONB column (Part 5) stores `ScanResult.to_dict()`, which captures all findings including those produced by the LLM and meta analyzers. Individual findings are also normalized into `scan_findings` for querying.
+
+However, `ScanResult.to_dict()` captures the **distilled findings** after meta-analysis — it does not separately preserve the meta-analyzer's raw `MetaAnalysisResult` (the false-positive explanations, correlations, missed-threat reasoning, and overall risk narrative). This raw output is the most valuable part for transparency.
+
+**Addition**: Store the `MetaAnalysisResult` separately in `scan_reports`:
+
+```sql
+ALTER TABLE scan_reports
+    ADD COLUMN IF NOT EXISTS meta_analysis JSONB;
+```
+
+The bridge module captures it:
+
+```python
+meta_result = meta_analyzer.analyze(all_findings, skill_context)
+scan_result = scanner.scan_skill(skill_dir)
+
+report_data = scan_result.to_dict()
+report_data["meta_analysis"] = {
+    "validated_findings": [f.to_dict() for f in meta_result.validated_findings],
+    "false_positives": [f.to_dict() for f in meta_result.false_positives],
+    "missed_threats": [f.to_dict() for f in meta_result.missed_threats],
+    "correlations": meta_result.correlations,
+    "overall_risk_assessment": meta_result.overall_risk_assessment,
+}
+```
+
+If skill-scanner's `ScanResult.to_dict()` already nests the full `MetaAnalysisResult` inside `scan_metadata`, we use that directly and the extra column becomes redundant. Either way, the full meta output must be preserved — verify during implementation by inspecting the actual dict structure.
+
+### Display vs download strategy
+
+The full reports are **not** displayed inline on skill detail pages — they can be large (50-200 KB of JSON per skill) and most users only care about the summary. Instead:
+
+| Surface | What's shown | Source |
+|---------|-------------|--------|
+| **Skill listing page** | Safety grade badge (A/B/C/F) | `skills.latest_eval_status` (denormalized) |
+| **Skill detail page** | Grade + finding count + top findings summary | `scan_reports` summary fields + first N `scan_findings` |
+| **Full report download** | Complete JSON with all findings, LLM reasoning, meta-analysis, correlations | `scan_reports.full_report` + `scan_reports.meta_analysis` |
+
+### Download endpoint
+
+```
+GET /v1/skills/{org}/{skill}/scan-report/download?semver=latest
+```
+
+Returns the full scan report as a downloadable JSON file. Response:
+
+```json
+{
+  "org_slug": "pymc-labs",
+  "skill_name": "bayesian-modeling",
+  "semver": "1.2.3",
+  "scanned_at": "2026-02-20T12:34:56Z",
+  "grade": "A",
+  "is_safe": true,
+  "max_severity": "LOW",
+  "findings_count": 3,
+  "analyzers_used": ["static", "bytecode", "behavioral", "llm", "meta"],
+  "analyzability_score": 95.2,
+  "findings": [ ... ],
+  "meta_analysis": {
+    "validated_findings": [ ... ],
+    "false_positives": [
+      {
+        "original_finding": { "rule_id": "SS-CMD-001", "title": "subprocess usage" },
+        "reason": "subprocess.run is used with shell=False and a fixed command list for git operations, which is standard practice for skill installers"
+      }
+    ],
+    "missed_threats": [],
+    "correlations": [],
+    "overall_risk_assessment": "Low risk. The skill uses subprocess for git operations with proper input sanitization..."
+  },
+  "scan_metadata": { ... }
+}
+```
+
+The endpoint:
+- Is **public** (no auth required) — scan reports are transparency data, not secrets
+- Returns `Content-Type: application/json` with `Content-Disposition: attachment; filename="{org}_{skill}_{semver}_scan_report.json"`
+- Resolves `semver=latest` the same way the resolve endpoint does (highest passing semver)
+- Falls back to the latest scan report for the skill if `semver` is omitted
+- Rate-limited like other public endpoints
+
+### CLI integration
+
+The CLI can offer a `dhub scan-report` command that fetches and displays/saves the report:
+
+```bash
+dhub scan-report pymc-labs/bayesian-modeling           # print summary
+dhub scan-report pymc-labs/bayesian-modeling --full     # download full JSON
+dhub scan-report pymc-labs/bayesian-modeling -o report.json  # save to file
+```
 
 ---
 
@@ -486,16 +613,16 @@ for result in fn.map(skills, return_exceptions=True):
     ...
 ```
 
-With `max_containers=100`, Modal will run up to 100 scans in parallel. Each scan takes ~5-12 seconds (with LLM), so throughput is ~500-700 skills/minute.
+With `max_containers=100`, Modal will run up to 100 scans in parallel. Each scan takes ~5-12 seconds (full Scenario C pipeline), so throughput is ~500-700 skills/minute.
 
-### Two-tier scanning (optional optimization)
+### Two-tier scanning (future optimization, not needed now)
 
-If LLM latency becomes a bottleneck for the publish endpoint (blocking the user for 10+ seconds):
+With Scenario C selected, the full pipeline (5-12s) runs synchronously on every publish. This is comparable to the current gauntlet's 3-10s and acceptable. If latency ever becomes a problem:
 
-- **Tier 1 (synchronous)**: core + behavioral analyzers only (~1-2s). Produces grade. Publish returns immediately.
-- **Tier 2 (async background)**: LLM + meta-analyzer (~5-10s). Updates `scan_reports` when complete.
+- **Tier 1 (synchronous)**: core + behavioral analyzers only (~1-2s). Produces preliminary grade. Publish returns immediately.
+- **Tier 2 (async background)**: LLM + meta-analyzer (~5-10s). Updates `scan_reports` and `meta_analysis` when complete.
 
-This mirrors how dhub already handles agent evals (publish returns, eval runs in background). But honestly, 5-12s total scan time is acceptable for a publish endpoint — the current gauntlet with Gemini already takes 3-10s. Start synchronous, optimize later if needed.
+This mirrors how dhub already handles agent evals. But we start synchronous — the full report being immediately available at publish time is better UX and simpler code.
 
 ### Rate limit considerations for batch scanning
 
@@ -503,9 +630,7 @@ Gemini 2.0 Flash rate limits:
 - **Free tier**: 15 RPM, 1M tokens/min, 1500 req/day
 - **Pay-as-you-go**: 2000 RPM, 4M tokens/min
 
-With LLM + meta-analyzer enabled, each skill makes 2 Gemini calls. At 2000 RPM, that's 1000 skills/min — 10,000 skills in 10 minutes. Well within the capacity of Modal's parallelism.
-
-For backfills without LLM (core + behavioral only): no rate limit concern at all. Pure compute, limited only by Modal container count.
+With Scenario C (LLM + meta-analyzer), each skill makes 2 Gemini calls. At 2000 RPM, that's 1000 skills/min — 10,000 skills in 10 minutes. Well within the capacity of Modal's parallelism. For a full backfill of the existing corpus, Gemini rate limits are not a bottleneck.
 
 ---
 
@@ -569,11 +694,11 @@ Wall time at 100 parallel containers: ~25-30 minutes.
 | **B: + LLM** | ~$21 | 15-20 min | + Semantic threat analysis |
 | **C: + LLM + meta** | ~$42 | 25-30 min | + False positive filtering |
 
-**Recommendation**: Use Scenario A for backfills (cheap, fast, catches most threats). Use Scenario B or C for publish-time scanning (deeper analysis, acceptable latency). The cost is dominated by Gemini API calls, not Modal compute.
+**Decision: Scenario C (full pipeline) for all paths.** At ~$42 per 10K skills this is well within budget. Use the full pipeline — core + behavioral + LLM + meta-analyzer — for publish-time scanning, crawler, tracker, and backfills alike. The meta-analyzer's false-positive filtering pays for itself in reduced manual triage, and the full report data is a publishable asset (see Part 5a). No need to tier down to Scenario A for backfills; the 25-30 minute wall time at 100 containers is acceptable for batch runs.
 
 ### Comparison to current gauntlet cost
 
-The current gauntlet makes 4 Gemini calls per skill (code safety, prompt safety, body review, credential entropy) with comparable token budgets. So the current cost per skill is already ~$0.004-0.006 in Gemini API usage. Scenario B ($0.002/skill) is actually *cheaper* because skill-scanner's LLM analyzer makes a single consolidated call instead of four separate ones. Scenario C ($0.004/skill) is roughly equivalent to today's cost.
+The current gauntlet makes 4 Gemini calls per skill (code safety, prompt safety, body review, credential entropy) with comparable token budgets. So the current cost per skill is already ~$0.004-0.006 in Gemini API usage. Scenario C ($0.004/skill) is roughly equivalent to today's cost — but with vastly richer output: structured AITech taxonomy, false-positive filtering, cross-finding correlations, and downloadable reports. We get more depth for the same money.
 
 ---
 
@@ -633,7 +758,7 @@ Start with `ScanPolicy.from_preset("balanced")`. Over time, create a custom `dhu
 
 ### DB schema
 
-The `audit_log` table already stores `check_results` (JSONB) and `llm_reasoning` (JSONB). The full `ScanResult.to_dict()` can go into `llm_reasoning` initially (it's already a catch-all JSON field). For a cleaner separation, add a `scanner_report JSONB` column via migration.
+The new `scan_reports` + `scan_findings` tables (Part 5) replace the old `eval_audit_logs` for scan results. `full_report` (JSONB) stores the complete `ScanResult.to_dict()`, and `meta_analysis` (JSONB) preserves the meta-analyzer's full output separately for downloadable reports (Part 5a). The old `eval_audit_logs` table remains for historical data and backward compatibility during the migration period.
 
 ### Performance
 
@@ -659,7 +784,7 @@ Apache 2.0. Fully compatible — it's a permissive license. No copyleft concerns
 | File | Change |
 |------|--------|
 | `server/pyproject.toml` | Add `cisco-ai-skill-scanner` dependency |
-| `server/src/decision_hub/domain/skill_scanner_bridge.py` | **New**: adapter module (extract zip / scan directory, configure scanner, run, map results, store to DB) |
+| `server/src/decision_hub/domain/skill_scanner_bridge.py` | **New**: adapter module (extract zip / scan directory, configure scanner with Scenario C full pipeline, run, capture `ScanResult` + `MetaAnalysisResult`, map results, store to DB) |
 | `server/src/decision_hub/api/registry_service.py` | Replace `run_gauntlet_pipeline()` with new function that calls bridge. Remove `_build_analyze_fn` and siblings. |
 | `server/src/decision_hub/domain/gauntlet.py` | Gut most of file: remove `_SUSPICIOUS_PATTERNS`, `_CREDENTIAL_PATTERNS`, `_PROMPT_INJECTION_PATTERNS`, `check_safety_scan`, `check_embedded_credentials`, `check_prompt_safety`, `detect_elevated_permissions`. Keep `check_manifest_schema`, `check_dependency_audit`, test case logic. |
 | `server/src/decision_hub/models.py` | Adopt skill-scanner's severity/category types or add mapping types |
@@ -667,7 +792,7 @@ Apache 2.0. Fully compatible — it's a permissive license. No copyleft concerns
 | `server/src/decision_hub/infra/gemini.py` | Remove `analyze_code_safety`, `analyze_prompt_safety`, `review_prompt_body_safety`, `analyze_credential_entropy` (replaced by skill-scanner LLM analyzer) |
 | `server/modal_app.py` | Add skill-scanner to Modal image deps, add `backfill_scan_skill` function |
 | `server/migrations/YYYYMMDD_HHMMSS_create_scan_tables.sql` | **New**: `scan_reports` + `scan_findings` tables, indexes, RLS, trigger |
-| `server/src/decision_hub/api/registry_routes.py` | Add `GET /v1/skills/{org}/{skill}/scan-report` endpoint |
+| `server/src/decision_hub/api/registry_routes.py` | Add `GET /v1/skills/{org}/{skill}/scan-report` endpoint (paginated findings summary) and `GET /v1/skills/{org}/{skill}/scan-report/download` endpoint (full JSON report download) |
 | `server/src/decision_hub/scripts/backfill_scans.py` | **New**: backfill script to re-scan existing published skills |
 | `server/tests/test_skill_scanner_bridge.py` | **New**: unit tests for bridge |
 | `server/tests/test_gauntlet.py` | Update tests for removed checks |
@@ -686,14 +811,14 @@ Apache 2.0. Fully compatible — it's a permissive license. No copyleft concerns
 ## Part 10: Implementation Steps
 
 1. **Add dependency** — `cisco-ai-skill-scanner` in `server/pyproject.toml`, verify Modal image builds
-2. **DB migration** — create `scan_reports` + `scan_findings` tables
-3. **Create bridge module** — `skill_scanner_bridge.py` with `scan_skill_zip()` and `scan_skill_dir()` functions
+2. **DB migration** — create `scan_reports` (with `meta_analysis` JSONB column) + `scan_findings` tables
+3. **Create bridge module** — `skill_scanner_bridge.py` with `scan_skill_zip()` and `scan_skill_dir()` functions; ensure `MetaAnalysisResult` is captured separately alongside `ScanResult.to_dict()`
 4. **Add DB functions** — insert/query for scan_reports and scan_findings
 5. **Rewrite `run_gauntlet_pipeline()`** — call bridge instead of old checks, map results to grade, write to new tables
 6. **Wire into crawler** — replace gauntlet call in `_publish_one_skill()` with direct directory scan
 7. **Remove dead code** — pattern definitions, LLM callback factories, Gemini analysis functions
 8. **Update tests** — bridge unit tests, update gauntlet tests
-9. **Add scan-report API endpoint** — `GET /v1/skills/{org}/{skill}/scan-report`
+9. **Add scan-report API endpoints** — `GET /v1/skills/{org}/{skill}/scan-report` (paginated findings summary) + `GET /v1/skills/{org}/{skill}/scan-report/download` (full JSON report download)
 10. **Update Modal image** — add dependency, add backfill function, verify cold start
-11. **Backfill** — re-scan existing published skills with core + behavioral (Scenario A)
-12. **Frontend** — expose scanner findings in skill detail page (separate PR)
+11. **Backfill** — re-scan all existing published skills with full Scenario C pipeline
+12. **Frontend** — expose scanner findings summary in skill detail page + download button for full report (separate PR)
