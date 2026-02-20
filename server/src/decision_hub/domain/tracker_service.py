@@ -80,8 +80,18 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
     single API call (per 250 repos), then only clones + republishes those
     that actually changed. Changed trackers are processed via Modal fan-out
     when available, falling back to sequential processing for local dev.
+
+    Deduplicates repos so that N trackers pointing at the same
+    ``(owner, repo, branch)`` produce only 1 GraphQL alias. DB writes
+    are batched (one UPDATE per category) instead of N+1 per-tracker commits.
     """
-    from decision_hub.infra.database import claim_due_trackers, create_engine, update_skill_tracker
+    from decision_hub.infra.database import (
+        batch_clear_tracker_errors,
+        batch_defer_trackers,
+        batch_set_tracker_errors,
+        claim_due_trackers,
+        create_engine,
+    )
     from decision_hub.infra.github_client import GitHubClient, batch_fetch_commit_shas
 
     engine = create_engine(settings.database_url)
@@ -107,43 +117,59 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
             github_rate_remaining=None,
         )
 
-    # Batch-fetch latest commit SHAs via GraphQL
-    github_token = _resolve_github_token(settings)
-    repos_to_check: list[tuple[str, str, str]] = []
-    for tracker in trackers:
-        owner, repo = parse_github_repo_url(tracker.repo_url)
-        repos_to_check.append((owner, repo, tracker.branch))
-
-    with GitHubClient(token=github_token) as gh:
-        sha_map = batch_fetch_commit_shas(gh, repos_to_check)
-        rate_remaining = gh.rate_limit_remaining
-
-    # Partition: unchanged vs changed vs errored
-    changed_trackers: list[tuple[SkillTracker, str]] = []  # (tracker, current_sha)
-    errored = 0
+    # Build reverse index for deduplication: repo_key -> [tracker, ...]
+    repo_key_to_trackers: dict[str, list[SkillTracker]] = {}
     for tracker in trackers:
         owner, repo = parse_github_repo_url(tracker.repo_url)
         key = f"{owner}/{repo}:{tracker.branch}"
+        repo_key_to_trackers.setdefault(key, []).append(tracker)
+
+    # Deduplicated repo list for GraphQL
+    unique_repos: list[tuple[str, str, str]] = []
+    for key in repo_key_to_trackers:
+        owner_repo, branch = key.rsplit(":", 1)
+        owner, repo = owner_repo.split("/", 1)
+        unique_repos.append((owner, repo, branch))
+
+    # Batch-fetch latest commit SHAs via GraphQL
+    github_token = _resolve_github_token(settings)
+    with GitHubClient(token=github_token) as gh:
+        sha_map, failed_chunk_keys = batch_fetch_commit_shas(gh, unique_repos)
+        rate_remaining = gh.rate_limit_remaining
+
+    # Classify trackers with transient awareness
+    unchanged_ids: list = []
+    errored_ids_transient: list = []
+    errored_ids_permanent: list = []
+    changed_trackers: list[tuple[SkillTracker, str]] = []
+
+    for key, key_trackers in repo_key_to_trackers.items():
+        if key in failed_chunk_keys:
+            # Entire GraphQL chunk failed — transient error, will retry
+            errored_ids_transient.extend(t.id for t in key_trackers)
+            continue
+
         current_sha = sha_map.get(key)
-
         if current_sha is None:
-            # GraphQL failed for this repo — mark error, don't process
-            errored += 1
-            with engine.connect() as conn:
-                update_skill_tracker(conn, tracker.id, last_error="GraphQL: repo not found or inaccessible")
-                conn.commit()
+            # Repo resolved but returned no data — permanent error
+            errored_ids_permanent.extend(t.id for t in key_trackers)
             continue
 
-        if current_sha == tracker.last_commit_sha:
-            # No changes — just clear any previous error
-            with engine.connect() as conn:
-                update_skill_tracker(conn, tracker.id, last_error=None)
-                conn.commit()
-            continue
+        for t in key_trackers:
+            if current_sha == t.last_commit_sha:
+                unchanged_ids.append(t.id)
+            else:
+                changed_trackers.append((t, current_sha))
 
-        changed_trackers.append((tracker, current_sha))
+    errored = len(errored_ids_transient) + len(errored_ids_permanent)
+    unchanged = len(unchanged_ids)
 
-    unchanged = len(trackers) - len(changed_trackers) - errored
+    # Batch DB writes — one UPDATE per category, single commit
+    with engine.connect() as conn:
+        batch_clear_tracker_errors(conn, unchanged_ids)
+        batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
+        batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
+        conn.commit()
 
     # Rate-limit budget guardrail: skip clone+publish if GitHub budget is low.
     # Changed trackers that aren't processed will be picked up next tick
@@ -158,15 +184,10 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
         # Mark skipped trackers so they don't appear stuck (no SHA, no error).
         # Clear next_check_at so they're immediately due on the next tick
         # rather than waiting the full poll interval.
-        for tracker, _ in changed_trackers:
-            with engine.connect() as conn:
-                update_skill_tracker(
-                    conn,
-                    tracker.id,
-                    last_error="rate_limit: deferred to next tick",
-                    next_check_at=None,
-                )
-                conn.commit()
+        deferred_ids = [t.id for t, _ in changed_trackers]
+        with engine.connect() as conn:
+            batch_defer_trackers(conn, deferred_ids, "rate_limit: deferred to next tick")
+            conn.commit()
         logger.info(
             "tracker_batch due={} unchanged={} changed={} errored={} processed=0 failed=0 skipped_rate_limit={}",
             len(trackers),

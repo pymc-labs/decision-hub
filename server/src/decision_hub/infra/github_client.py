@@ -133,15 +133,24 @@ class GitHubClient:
 def batch_fetch_commit_shas(
     client: GitHubClient,
     repos: list[tuple[str, str, str]],
-) -> dict[str, str]:
+) -> tuple[dict[str, str], set[str]]:
     """Fetch latest commit SHAs for multiple repos via batched GraphQL queries.
 
     Each element of *repos* is ``(owner, repo_name, branch)``.
 
-    Returns a dict mapping ``"owner/repo_name:branch"`` to the HEAD commit SHA.
-    Repos that fail (private, deleted, empty) are silently omitted.
+    Returns ``(sha_map, failed_keys)`` where *sha_map* maps
+    ``"owner/repo_name:branch"`` to the HEAD commit SHA, and *failed_keys*
+    contains keys whose entire GraphQL chunk failed (transient errors).
+
+    Repos that resolve successfully but have no data (private, deleted, empty)
+    are silently omitted from *sha_map* — they are **not** in *failed_keys*.
+
+    Note: partial GraphQL errors (errors + data coexist) can still yield
+    missing keys indistinguishable from "repo not found". This is a residual
+    risk documented but not addressed here.
     """
     result: dict[str, str] = {}
+    failed_keys: set[str] = set()
     for chunk_start in range(0, len(repos), _GRAPHQL_BATCH_CHUNK):
         chunk = repos[chunk_start : chunk_start + _GRAPHQL_BATCH_CHUNK]
         aliases: list[str] = []
@@ -171,6 +180,7 @@ def batch_fetch_commit_shas(
             data = client.graphql(query)
         except (httpx.HTTPError, ValueError) as exc:
             logger.warning("GraphQL batch failed (chunk {}-{}): {}", chunk_start, chunk_start + len(chunk), exc)
+            failed_keys.update(alias_map.values())
             continue
 
         for alias, full_name in alias_map.items():
@@ -178,4 +188,4 @@ def batch_fetch_commit_shas(
             if repo_data and repo_data.get("ref") and repo_data["ref"].get("target"):
                 result[full_name] = repo_data["ref"]["target"]["oid"]
 
-    return result
+    return result, failed_keys

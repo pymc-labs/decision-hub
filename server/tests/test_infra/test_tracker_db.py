@@ -13,6 +13,9 @@ import pytest
 from decision_hub.infra.database import (
     _row_to_skill_tracker,
     _row_to_tracker_metrics,
+    batch_clear_tracker_errors,
+    batch_defer_trackers,
+    batch_set_tracker_errors,
     claim_due_trackers,
     delete_skill_tracker,
     find_skill_tracker,
@@ -226,6 +229,62 @@ class TestDeleteSkillTracker:
 
         result = delete_skill_tracker(conn, uuid4())
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Batch tracker update tests
+# ---------------------------------------------------------------------------
+
+
+class TestBatchClearTrackerErrors:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_clear_tracker_errors(conn, [])
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 3
+        ids = [uuid4() for _ in range(3)]
+
+        result = batch_clear_tracker_errors(conn, ids)
+        assert result == 3
+        conn.execute.assert_called_once()
+
+
+class TestBatchSetTrackerErrors:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_set_tracker_errors(conn, [], "some error")
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 2
+        ids = [uuid4() for _ in range(2)]
+
+        result = batch_set_tracker_errors(conn, ids, "GraphQL: repo not found")
+        assert result == 2
+        conn.execute.assert_called_once()
+
+
+class TestBatchDeferTrackers:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_defer_trackers(conn, [], "deferred")
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 4
+        ids = [uuid4() for _ in range(4)]
+
+        result = batch_defer_trackers(conn, ids, "rate_limit: deferred")
+        assert result == 4
+        conn.execute.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

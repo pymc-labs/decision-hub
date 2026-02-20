@@ -121,45 +121,50 @@ class TestBatchFetchCommitShas:
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {"r0": {"ref": {"target": {"oid": "abc123def456"}}}}
 
-        result = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
 
-        assert result == {"owner/repo:main": "abc123def456"}
+        assert sha_map == {"owner/repo:main": "abc123def456"}
+        assert failed_keys == set()
         client.graphql.assert_called_once()
 
     def test_missing_repo_omitted(self):
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {"r0": None, "r1": {"ref": {"target": {"oid": "sha456"}}}}
 
-        result = batch_fetch_commit_shas(
+        sha_map, failed_keys = batch_fetch_commit_shas(
             client,
             [("owner", "missing", "main"), ("owner", "repo", "main")],
         )
 
-        assert result == {"owner/repo:main": "sha456"}
+        assert sha_map == {"owner/repo:main": "sha456"}
+        assert failed_keys == set()
 
     def test_empty_ref_omitted(self):
         """Repos with no ref (empty repo, bad branch) are skipped."""
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {"r0": {"ref": None}}
 
-        result = batch_fetch_commit_shas(client, [("owner", "empty", "main")])
-        assert result == {}
+        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "empty", "main")])
+        assert sha_map == {}
+        assert failed_keys == set()
 
     def test_graphql_failure_skips_chunk(self):
-        """When GraphQL raises, that chunk is skipped rather than failing."""
+        """When GraphQL raises, that chunk is skipped and keys go to failed_keys."""
         client = MagicMock(spec=GitHubClient)
         client.graphql.side_effect = httpx.HTTPStatusError("forbidden", request=MagicMock(), response=MagicMock())
 
-        result = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
-        assert result == {}
+        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        assert sha_map == {}
+        assert failed_keys == {"owner/repo:main"}
 
     def test_network_error_skips_chunk(self):
         """Transient network errors (ConnectError, Timeout) are caught per-chunk."""
         client = MagicMock(spec=GitHubClient)
         client.graphql.side_effect = httpx.ConnectError("connection refused")
 
-        result = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
-        assert result == {}
+        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        assert sha_map == {}
+        assert failed_keys == {"owner/repo:main"}
 
     def test_multiple_repos(self):
         client = MagicMock(spec=GitHubClient)
@@ -174,13 +179,14 @@ class TestBatchFetchCommitShas:
             ("org", "repo-b", "develop"),
             ("other", "repo-c", "main"),
         ]
-        result = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
 
-        assert result == {
+        assert sha_map == {
             "org/repo-a:main": "sha1",
             "org/repo-b:develop": "sha2",
             "other/repo-c:main": "sha3",
         }
+        assert failed_keys == set()
 
     def test_same_repo_different_branches(self):
         """Two trackers on different branches of the same repo get distinct keys."""
@@ -194,12 +200,13 @@ class TestBatchFetchCommitShas:
             ("org", "repo", "main"),
             ("org", "repo", "develop"),
         ]
-        result = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
 
-        assert result == {
+        assert sha_map == {
             "org/repo:main": "sha_main",
             "org/repo:develop": "sha_dev",
         }
+        assert failed_keys == set()
 
     def test_unsafe_branch_name_skipped(self):
         """Branch names with injection characters are silently skipped."""
@@ -212,9 +219,53 @@ class TestBatchFetchCommitShas:
             ("org", "repo", "main"),
             ("org", "repo", 'feat") { ref(qualifiedName: "refs/heads/main'),
         ]
-        result = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
 
         # Only the safe repo should appear; the malicious branch is skipped
-        assert result == {"org/repo:main": "sha_safe"}
+        assert sha_map == {"org/repo:main": "sha_safe"}
+        assert failed_keys == set()
         # GraphQL should still be called (with just 1 alias for the safe repo)
         client.graphql.assert_called_once()
+
+
+class TestBatchFetchTransientFailures:
+    """Verify transient failure tracking across chunks."""
+
+    def test_first_chunk_fails_second_succeeds(self):
+        """When the first chunk fails, its keys are in failed_keys; second chunk succeeds."""
+        client = MagicMock(spec=GitHubClient)
+
+        # Build 251 repos: first 250 in chunk 0, last 1 in chunk 1
+        repos = [(f"org{i}", f"repo{i}", "main") for i in range(251)]
+
+        # First call (chunk 0) fails, second call (chunk 1) succeeds
+        client.graphql.side_effect = [
+            httpx.ConnectError("timeout"),
+            {"r0": {"ref": {"target": {"oid": "sha_last"}}}},
+        ]
+
+        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
+
+        # Last repo succeeds
+        assert sha_map == {"org250/repo250:main": "sha_last"}
+        # First 250 repos are in failed_keys
+        assert len(failed_keys) == 250
+        assert "org0/repo0:main" in failed_keys
+        assert "org249/repo249:main" in failed_keys
+        # Last repo is NOT in failed_keys
+        assert "org250/repo250:main" not in failed_keys
+
+    def test_missing_repo_not_in_failed_keys(self):
+        """A repo that returns null data (not found) is NOT in failed_keys."""
+        client = MagicMock(spec=GitHubClient)
+        client.graphql.return_value = {
+            "r0": None,  # repo not found — null data
+            "r1": {"ref": {"target": {"oid": "sha_ok"}}},
+        }
+
+        repos = [("org", "missing", "main"), ("org", "found", "main")]
+        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
+
+        assert sha_map == {"org/found:main": "sha_ok"}
+        # missing repo is NOT in failed_keys — it's distinguishable from transient
+        assert failed_keys == set()

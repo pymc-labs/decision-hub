@@ -2620,6 +2620,43 @@ def delete_skill_tracker(conn: Connection, tracker_id: UUID) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Batch tracker updates (used by check_all_due_trackers for 10k+ scale)
+# ---------------------------------------------------------------------------
+
+
+def batch_clear_tracker_errors(conn: Connection, tracker_ids: list[UUID]) -> int:
+    """Clear last_error for multiple trackers in one UPDATE. Returns rowcount."""
+    if not tracker_ids:
+        return 0
+    stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id.in_(tracker_ids)).values(last_error=None)
+    return conn.execute(stmt).rowcount
+
+
+def batch_set_tracker_errors(conn: Connection, tracker_ids: list[UUID], error_message: str) -> int:
+    """Set same last_error on multiple trackers in one UPDATE. Returns rowcount."""
+    if not tracker_ids:
+        return 0
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(last_error=error_message)
+    )
+    return conn.execute(stmt).rowcount
+
+
+def batch_defer_trackers(conn: Connection, tracker_ids: list[UUID], error_message: str) -> int:
+    """Set last_error and clear next_check_at for multiple trackers. Returns rowcount."""
+    if not tracker_ids:
+        return 0
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(last_error=error_message, next_check_at=None)
+    )
+    return conn.execute(stmt).rowcount
+
+
+# ---------------------------------------------------------------------------
 # Tracker metrics
 # ---------------------------------------------------------------------------
 

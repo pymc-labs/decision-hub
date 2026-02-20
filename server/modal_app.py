@@ -181,7 +181,7 @@ def crawl_process_repo(
     return process_repo_on_modal(repo_dict, bot_user_id, github_token)
 
 
-@app.function(image=crawler_image, secrets=secrets, timeout=300, max_containers=20)
+@app.function(image=crawler_image, secrets=secrets, timeout=300, max_containers=50)
 def tracker_process_repo(
     tracker_dict: dict,
     known_sha: str,
