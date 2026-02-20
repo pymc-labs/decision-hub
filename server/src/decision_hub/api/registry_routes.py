@@ -1173,11 +1173,11 @@ def list_access(
     grants = list_skill_access_grants_with_names(conn, skill.id)
     return [
         AccessGrantListEntry(
-            grantee_org_slug=org_slug,
+            grantee_org_slug=grantee_slug,
             granted_by=username,
             created_at=created_at.isoformat() if created_at else None,
         )
-        for org_slug, username, created_at in grants
+        for grantee_slug, username, created_at in grants
     ]
 
 
