@@ -89,6 +89,10 @@ data science, writing, design, DevOps, finance, legal, education, and more.
 If a reasonable person could be looking for an AI skill to help with the
 query, mark it on-topic. When in doubt, mark it on-topic.
 
+Also ON-TOPIC: questions about Decision Hub itself — safety grades, trust
+scores, how the registry works, what A/B/C/F ratings mean, etc. These are
+legitimate user questions about the platform.
+
 OFF-TOPIC (is_skill_query = false) — only reject queries that are clearly
 NOT searches for a skill:
 - General knowledge trivia ("what is the capital of France", "how old is the universe")
@@ -285,6 +289,21 @@ def ask_conversational(
         "answer the user's question thoroughly — for example, if they ask about "
         "popularity use download counts, if they ask about the source use "
         "source_repo_url, etc.\n\n"
+        "SAFETY GRADES: Every skill is assigned a safety grade by an automated "
+        "gauntlet pipeline that runs static analysis, credential scanning, and "
+        "prompt-injection detection on the skill's source code and SKILL.md:\n"
+        "- **A** — All checks passed, no elevated permissions. The skill is fully vetted.\n"
+        "- **B** — All checks passed, but the skill uses elevated permissions "
+        "(e.g. shell commands, network access, filesystem writes, or environment "
+        "variables). Safe, but review the permissions before use.\n"
+        "- **C** — One or more checks returned ambiguous results that could not "
+        "be automatically resolved. The skill may be fine, but warrants manual review.\n"
+        "- **F** — One or more checks failed. The skill was quarantined and is not "
+        "published (users will not see F-graded skills).\n"
+        "- **?** — Not yet graded (legacy skill imported before the grading system).\n\n"
+        "If the user asks about safety grades, trust scores, or how the grading "
+        "system works, explain using the definitions above. You can answer these "
+        "questions even when no candidate skills are provided.\n\n"
         "Adapt your response depth to the query:\n"
         '- For simple lookups ("find a tool for X"), give a concise 2-3 sentence answer.\n'
         '- For analytical queries ("compare", "what are the best", "differences between"), '
