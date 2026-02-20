@@ -35,6 +35,8 @@ from decision_hub.models import (
     EvalRun,
     Organization,
     OrgMember,
+    ScanFinding,
+    ScanReport,
     Skill,
     SkillAccessGrant,
     SkillTracker,
@@ -538,6 +540,93 @@ tracker_metrics_table = Table(
     Column("skipped_rate_limit", sa.Integer, nullable=False, server_default="0"),
     Column("github_rate_remaining", sa.Integer, nullable=True),
     Column("batch_duration_seconds", sa.REAL, nullable=False),
+)
+
+scan_reports_table = Table(
+    "scan_reports",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column(
+        "version_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("versions.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column("org_slug", Text, nullable=False),
+    Column("skill_name", Text, nullable=False),
+    Column("semver", Text, nullable=False),
+    Column("is_safe", Boolean, nullable=False),
+    Column("max_severity", Text, nullable=False),
+    Column("grade", String(1), nullable=False),
+    Column("findings_count", sa.Integer, nullable=False, server_default="0"),
+    Column("analyzers_used", sa.ARRAY(Text), nullable=False, server_default="{}"),
+    Column("analyzability_score", sa.Float, nullable=True),
+    Column("scan_duration_ms", sa.Integer, nullable=True),
+    Column("policy_name", Text, nullable=True),
+    Column("policy_fingerprint", Text, nullable=True),
+    Column("full_report", JSONB, nullable=True),
+    Column("meta_analysis", JSONB, nullable=True),
+    Column("publisher", Text, nullable=False, server_default=""),
+    Column("quarantine_s3_key", Text, nullable=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    sa.Index("idx_scan_reports_version", "version_id"),
+    sa.Index("idx_scan_reports_org_skill", "org_slug", "skill_name"),
+    sa.Index("idx_scan_reports_grade", "grade"),
+)
+
+scan_findings_table = Table(
+    "scan_findings",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column(
+        "report_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("scan_reports.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("rule_id", Text, nullable=False),
+    Column("category", Text, nullable=False),
+    Column("severity", Text, nullable=False),
+    Column("title", Text, nullable=False),
+    Column("description", Text, nullable=True),
+    Column("file_path", Text, nullable=True),
+    Column("line_number", sa.Integer, nullable=True),
+    Column("snippet", Text, nullable=True),
+    Column("remediation", Text, nullable=True),
+    Column("analyzer", Text, nullable=True),
+    Column("aitech_code", Text, nullable=True),
+    Column("metadata", JSONB, nullable=False, server_default="{}", key="metadata_"),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    sa.Index("idx_scan_findings_report", "report_id"),
+    sa.Index("idx_scan_findings_severity", "severity"),
+    sa.Index("idx_scan_findings_category", "category"),
+    sa.Index("idx_scan_findings_rule", "rule_id"),
 )
 
 
@@ -2864,3 +2953,228 @@ def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMe
     stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Scan report queries
+# ---------------------------------------------------------------------------
+
+
+def _row_to_scan_report(row: sa.Row) -> ScanReport:
+    """Map a database row to a ScanReport model."""
+    return ScanReport(
+        id=row.id,
+        version_id=row.version_id,
+        org_slug=row.org_slug,
+        skill_name=row.skill_name,
+        semver=row.semver,
+        is_safe=row.is_safe,
+        max_severity=row.max_severity,
+        grade=row.grade,
+        findings_count=row.findings_count,
+        analyzers_used=list(row.analyzers_used) if row.analyzers_used else [],
+        analyzability_score=row.analyzability_score,
+        scan_duration_ms=row.scan_duration_ms,
+        policy_name=row.policy_name,
+        policy_fingerprint=row.policy_fingerprint,
+        full_report=row.full_report,
+        meta_analysis=row.meta_analysis,
+        publisher=row.publisher,
+        quarantine_s3_key=row.quarantine_s3_key,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _row_to_scan_finding(row: sa.Row) -> ScanFinding:
+    """Map a database row to a ScanFinding model."""
+    return ScanFinding(
+        id=row.id,
+        report_id=row.report_id,
+        rule_id=row.rule_id,
+        category=row.category,
+        severity=row.severity,
+        title=row.title,
+        description=row.description,
+        file_path=row.file_path,
+        line_number=row.line_number,
+        snippet=row.snippet,
+        remediation=row.remediation,
+        analyzer=row.analyzer,
+        aitech_code=row.aitech_code,
+        metadata=row.metadata_,
+        created_at=row.created_at,
+    )
+
+
+def insert_scan_report(
+    conn: Connection,
+    *,
+    org_slug: str,
+    skill_name: str,
+    semver: str,
+    is_safe: bool,
+    max_severity: str,
+    grade: str,
+    findings_count: int,
+    analyzers_used: list[str],
+    publisher: str,
+    version_id: UUID | None = None,
+    analyzability_score: float | None = None,
+    scan_duration_ms: int | None = None,
+    policy_name: str | None = None,
+    policy_fingerprint: str | None = None,
+    full_report: dict | None = None,
+    meta_analysis: dict | None = None,
+    quarantine_s3_key: str | None = None,
+) -> ScanReport:
+    """Insert a scan report and return the created row."""
+    values: dict[str, Any] = {
+        "org_slug": org_slug,
+        "skill_name": skill_name,
+        "semver": semver,
+        "is_safe": is_safe,
+        "max_severity": max_severity,
+        "grade": grade,
+        "findings_count": findings_count,
+        "analyzers_used": analyzers_used,
+        "publisher": publisher,
+    }
+    if version_id is not None:
+        values["version_id"] = version_id
+    if analyzability_score is not None:
+        values["analyzability_score"] = analyzability_score
+    if scan_duration_ms is not None:
+        values["scan_duration_ms"] = scan_duration_ms
+    if policy_name is not None:
+        values["policy_name"] = policy_name
+    if policy_fingerprint is not None:
+        values["policy_fingerprint"] = policy_fingerprint
+    if full_report is not None:
+        values["full_report"] = full_report
+    if meta_analysis is not None:
+        values["meta_analysis"] = meta_analysis
+    if quarantine_s3_key is not None:
+        values["quarantine_s3_key"] = quarantine_s3_key
+
+    stmt = sa.insert(scan_reports_table).values(**values).returning(*scan_reports_table.c)
+    row = conn.execute(stmt).one()
+    report = _row_to_scan_report(row)
+    logger.debug(
+        "Scan report: {}/{} v{} grade={} safe={} findings={}",
+        org_slug,
+        skill_name,
+        semver,
+        grade,
+        is_safe,
+        findings_count,
+    )
+    return report
+
+
+def insert_scan_findings(
+    conn: Connection,
+    report_id: UUID,
+    findings: list[dict],
+) -> int:
+    """Bulk-insert scan findings for a report. Returns count inserted."""
+    if not findings:
+        return 0
+    rows = [
+        {
+            "report_id": report_id,
+            "rule_id": f.get("rule_id", ""),
+            "category": f.get("category", ""),
+            "severity": f.get("severity", "INFO"),
+            "title": f.get("title", ""),
+            "description": f.get("description"),
+            "file_path": f.get("file_path"),
+            "line_number": f.get("line_number"),
+            "snippet": f.get("snippet"),
+            "remediation": f.get("remediation"),
+            "analyzer": f.get("analyzer"),
+            "aitech_code": f.get("aitech_code"),
+            "metadata_": f.get("metadata", {}),
+        }
+        for f in findings
+    ]
+    conn.execute(sa.insert(scan_findings_table), rows)
+    return len(rows)
+
+
+def find_scan_report_for_version(conn: Connection, version_id: UUID) -> ScanReport | None:
+    """Find the most recent scan report for a version."""
+    stmt = (
+        sa.select(scan_reports_table)
+        .where(scan_reports_table.c.version_id == version_id)
+        .order_by(scan_reports_table.c.created_at.desc())
+        .limit(1)
+    )
+    row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return _row_to_scan_report(row)
+
+
+def find_latest_scan_report(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    semver: str | None = None,
+) -> ScanReport | None:
+    """Find the latest scan report for an org/skill, optionally filtered by semver."""
+    conditions = [
+        scan_reports_table.c.org_slug == org_slug,
+        scan_reports_table.c.skill_name == skill_name,
+    ]
+    if semver is not None:
+        conditions.append(scan_reports_table.c.semver == semver)
+
+    stmt = (
+        sa.select(scan_reports_table)
+        .where(sa.and_(*conditions))
+        .order_by(scan_reports_table.c.created_at.desc(), scan_reports_table.c.id.desc())
+        .limit(1)
+    )
+    row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return _row_to_scan_report(row)
+
+
+def find_scan_findings_for_report(
+    conn: Connection,
+    report_id: UUID,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[ScanFinding], int]:
+    """Return findings for a report with pagination. Returns (findings, total)."""
+    count_stmt = (
+        sa.select(sa.func.count())
+        .select_from(scan_findings_table)
+        .where(scan_findings_table.c.report_id == report_id)
+    )
+    total = conn.execute(count_stmt).scalar() or 0
+
+    stmt = (
+        sa.select(scan_findings_table)
+        .where(scan_findings_table.c.report_id == report_id)
+        .order_by(
+            sa.case(
+                (scan_findings_table.c.severity == "CRITICAL", 0),
+                (scan_findings_table.c.severity == "HIGH", 1),
+                (scan_findings_table.c.severity == "MEDIUM", 2),
+                (scan_findings_table.c.severity == "LOW", 3),
+                (scan_findings_table.c.severity == "INFO", 4),
+                else_=5,
+            ),
+            scan_findings_table.c.id,
+        )
+        .offset(offset)
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    rows = conn.execute(stmt).all()
+    return [_row_to_scan_finding(row) for row in rows], total
