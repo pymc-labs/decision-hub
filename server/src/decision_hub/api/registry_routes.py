@@ -879,8 +879,8 @@ def _enforce_scan_report_rate_limit(request: Request) -> None:
     if not hasattr(state, "_scan_report_rate_limiter"):
         settings: Settings = state.settings
         state._scan_report_rate_limiter = RateLimiter(
-            max_requests=getattr(settings, "audit_log_rate_limit", 60),
-            window_seconds=getattr(settings, "audit_log_rate_window", 60),
+            max_requests=settings.scan_report_rate_limit,
+            window_seconds=settings.scan_report_rate_window,
         )
     state._scan_report_rate_limiter(request)
 
