@@ -2522,7 +2522,7 @@ def upsert_skill_tracker(
             branch=branch,
             poll_interval_minutes=poll_interval_minutes,
         )
-        .on_conflict_do_nothing()
+        .on_conflict_do_nothing(constraint="skill_trackers_user_id_repo_url_branch_key")
         .returning(skill_trackers_table.c.id)
     )
     row = conn.execute(stmt).first()
