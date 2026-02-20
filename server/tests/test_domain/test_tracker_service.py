@@ -600,9 +600,7 @@ class TestCheckAllDueTrackersLoopSignal:
         mock_claim.return_value = trackers
 
         # All trackers have the same SHA → no changes
-        mock_batch_fetch.return_value = {
-            f"myorg/repo-{i}:main": f"same_sha_{i}" for i in range(5)
-        }
+        mock_batch_fetch.return_value = {f"myorg/repo-{i}:main": f"same_sha_{i}" for i in range(5)}
 
         mock_gh_instance = MagicMock()
         mock_gh_instance.rate_limit_remaining = 4000
