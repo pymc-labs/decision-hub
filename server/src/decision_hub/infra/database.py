@@ -2502,6 +2502,33 @@ def insert_skill_tracker(
     return tracker
 
 
+def upsert_skill_tracker(
+    conn: Connection,
+    user_id: UUID,
+    org_slug: str,
+    repo_url: str,
+    branch: str = "main",
+    poll_interval_minutes: int = 60,
+) -> bool:
+    """Insert a tracker if one doesn't already exist. Returns True if created."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    stmt = (
+        pg_insert(skill_trackers_table)
+        .values(
+            user_id=user_id,
+            org_slug=org_slug,
+            repo_url=repo_url,
+            branch=branch,
+            poll_interval_minutes=poll_interval_minutes,
+        )
+        .on_conflict_do_nothing()
+        .returning(skill_trackers_table.c.id)
+    )
+    row = conn.execute(stmt).first()
+    return row is not None
+
+
 def has_active_tracker_for_repo(conn: Connection, repo_url: str) -> bool:
     """Return True if at least one enabled tracker exists for the given repo URL."""
     stmt = sa.select(sa.literal(True)).where(

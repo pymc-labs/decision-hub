@@ -91,6 +91,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run discovery only, print stats, do not process",
     )
+    parser.add_argument(
+        "--no-set-tracker",
+        dest="set_tracker",
+        action="store_false",
+        default=True,
+        help="Skip creating trackers for published skills (default: trackers are created)",
+    )
     return parser.parse_args(argv)
 
 
@@ -288,6 +295,7 @@ def run_processing_phase(
     max_skills: int | None,
     modal_app_name: str,
     stats: CrawlStats,
+    set_tracker: bool = True,
 ) -> bool:
     """Fan out repo processing to Modal containers in small chunks.
 
@@ -325,7 +333,7 @@ def run_processing_phase(
 
             for result in fn.map(
                 chunk_dicts,
-                kwargs={"bot_user_id": bot_user_id, "github_token": github_token},
+                kwargs={"bot_user_id": bot_user_id, "github_token": github_token, "set_tracker": set_tracker},
                 return_exceptions=True,
                 wrap_returned_exceptions=False,
             ):
@@ -460,6 +468,7 @@ def run_crawler(args: argparse.Namespace) -> None:
             max_skills=args.max_skills,
             modal_app_name=settings.modal_app_name,
             stats=stats,
+            set_tracker=args.set_tracker,
         )
         _print_summary(stats)
         return
@@ -511,6 +520,7 @@ def run_crawler(args: argparse.Namespace) -> None:
             max_skills=args.max_skills,
             modal_app_name=settings.modal_app_name,
             stats=proc_stats,
+            set_tracker=args.set_tracker,
         )
         _print_summary(proc_stats)
         return
@@ -558,6 +568,7 @@ def run_crawler(args: argparse.Namespace) -> None:
             max_skills=args.max_skills,
             modal_app_name=settings.modal_app_name,
             stats=proc_stats,
+            set_tracker=args.set_tracker,
         )
         if hit_cap:
             break
