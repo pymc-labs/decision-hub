@@ -18,7 +18,8 @@ This is a **uv workspace monorepo** with four components:
 - **FastAPI** for REST API (server)
 - **Typer + Rich** for CLI (client)
 - **Pydantic** for data validation and settings
-- **OpenAI** for LLM
+- **Gemini** for LLM (search, classification, gauntlet safety analysis)
+- **Anthropic** for LLM (eval judging)
 - **boto3** for S3 access
 - **loguru** for server logging
 
@@ -43,8 +44,8 @@ DHUB_ENV=dev modal deploy modal_app.py          # deploy dev Modal app (from ser
 DHUB_ENV=dev uv run --package decision-hub-server uvicorn ...  # local dev server
 ```
 
-- **Dev**: `https://pymc-labs--api-dev.modal.run`, config at `~/.dhub/config.dev.json`, env file `server/.env.dev`
-- **Prod**: `https://pymc-labs--api.modal.run`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
+- **Dev**: `https://hub-dev.decision.ai`, config at `~/.dhub/config.dev.json`, env file `server/.env.dev`
+- **Prod**: `https://hub.decision.ai`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
 
 **Working directory caveat**: Always run server-package commands from `server/`. The server's `.env.dev` / `.env.prod` files live in `server/` and `pydantic-settings` resolves them relative to the current working directory. Running from the repo root will fail with missing settings errors.
 
@@ -142,14 +143,7 @@ logger.info("Publishing {}/{} version={}", org_slug, skill_name, version_id)
 
 ### Rate Limiting & DOS Protection
 
-Public endpoints use in-memory per-IP sliding-window rate limiters (see `rate_limit.py`). Limiters are lazily initialized on `app.state` from settings. Limits are per-container (not shared across Modal replicas).
-
-| Endpoint | Setting prefix | Default |
-|---|---|---|
-| `GET /v1/search` | `search_rate_*` | 20 req/60s |
-| `GET /v1/skills` | `list_skills_rate_*` | 120 req/60s |
-| `GET /v1/resolve/{org}/{skill}` | `resolve_rate_*` | 60 req/60s |
-| `GET /v1/skills/{org}/{skill}/download` | `download_rate_*` | 20 req/60s |
+Public endpoints use in-memory per-IP sliding-window rate limiters (see `rate_limit.py`). Limiters are lazily initialized on `app.state` from settings. Limits are per-container (not shared across Modal replicas). Defaults and setting names are defined in `server/src/decision_hub/settings.py` (`*_rate_limit` / `*_rate_window` fields). Enforcement functions (`_enforce_*_rate_limit`) live alongside their routes in `server/src/decision_hub/api/registry_routes.py` and `search_routes.py`.
 
 All DB queries have a 30s `statement_timeout` (set in engine `connect_args` in `database.py`). Query parameters on public endpoints have `max_length` constraints to prevent oversized payloads reaching the DB or LLM APIs.
 
@@ -169,7 +163,7 @@ make fmt        # auto-fix + format
 
 ### Testing
 
-Use `pytest` with fixtures in `conftest.py`. Mock external services (S3, OpenAI, Database) in tests.
+Use `pytest` with fixtures in `conftest.py`. Mock external services (S3, Gemini, Anthropic, Database) in tests.
 
 ```bash
 make test              # all tests
@@ -347,7 +341,14 @@ Individual backfill scripts can also be run directly from `server/` — see `ser
 
 ## Monitoring Trackers
 
-Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. The `check_trackers` Modal cron runs every 5 minutes. Crawled skills are **not** auto-tracked — trackers are opt-in via `dhub track add`.
+Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. Trackers are created automatically when publishing from a GitHub URL (`dhub publish --track`, enabled by default) or via the API (`POST /v1/trackers`).
+
+**Key source files:**
+- Cron schedule & fan-out: `server/modal_app.py` (`check_trackers`, `tracker_process_repo`)
+- Orchestration & republish logic: `server/src/decision_hub/domain/tracker_service.py`
+- CRUD routes: `server/src/decision_hub/api/tracker_routes.py`
+- DB table & queries: `server/src/decision_hub/infra/database.py` (search `skill_trackers`)
+- Settings (batch size, jitter, rate-limit floor): `server/src/decision_hub/settings.py` (search `tracker_`)
 
 **Check Modal logs for failures:**
 ```bash
