@@ -886,6 +886,137 @@ class TestTransientFailureClassification:
         assert tracker_ok.id in mock_batch_clear_errors.call_args[0][1]
 
 
+class TestAutoDisablePermanentErrors:
+    """Verify check_all_due_trackers auto-disables permanent-error trackers and marks skills."""
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    @patch("decision_hub.infra.database.batch_disable_trackers")
+    @patch("decision_hub.infra.database.mark_skills_source_removed")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_permanent_errors_disable_trackers_and_mark_skills(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_mark_removed,
+        mock_batch_disable,
+        mock_batch_set_errors,
+        mock_batch_clear_errors,
+        mock_batch_defer,
+        mock_dispatch,
+        _mock_token,
+    ):
+        """When sha_map returns None for a repo, the tracker should be disabled
+        and its skills marked as source_repo_removed."""
+        tracker_gone = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/deleted-repo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=60,
+            last_commit_sha="old_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+        mock_conn = MagicMock()
+        mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = [tracker_gone]
+
+        # Repo resolves but returns no data → permanent error
+        mock_batch_fetch.return_value = ({}, set())
+
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.rate_limit_remaining = 4000
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 100
+        mock_settings.tracker_jitter_seconds = 0
+        mock_settings.tracker_rate_limit_floor = 500
+
+        result = check_all_due_trackers(mock_settings)
+
+        assert result.errored == 1
+        # batch_disable_trackers should have been called with the permanent-error tracker
+        mock_batch_disable.assert_called_once_with(mock_conn, [tracker_gone.id])
+        # mark_skills_source_removed should have been called with the repo URL
+        mock_mark_removed.assert_called_once()
+        removed_urls = mock_mark_removed.call_args[0][1]
+        assert "https://github.com/myorg/deleted-repo" in removed_urls
+
+
+class TestProcessTrackerNoSkillsDisables:
+    """Verify process_tracker disables tracker and marks skills when no skills found."""
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
+    def test_no_skills_found_disables_tracker(
+        self,
+        mock_discover,
+        mock_clone,
+        _mock_commits,
+        _mock_token,
+    ):
+        """When discover_skills returns empty, tracker should be disabled
+        and skills marked as removed."""
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/empty-repo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=5,
+            last_commit_sha="old_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+        mock_clone.return_value = Path("/tmp/fake/repo")
+        mock_discover.return_value = []
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+
+        with (
+            patch("decision_hub.infra.database.update_skill_tracker") as mock_update,
+            patch("decision_hub.infra.database.mark_skills_source_removed") as mock_mark,
+        ):
+            process_tracker(tracker, mock_settings, mock_engine)
+
+            mock_update.assert_called_once()
+            _, kwargs = mock_update.call_args
+            assert kwargs["enabled"] is False
+            assert kwargs["last_error"] == "No skills found in repository"
+
+            mock_mark.assert_called_once_with(
+                mock_conn,
+                ["https://github.com/myorg/empty-repo"],
+            )
+
+
 class TestRepoDeduplication:
     """Verify that duplicate repos are deduplicated in GraphQL calls."""
 

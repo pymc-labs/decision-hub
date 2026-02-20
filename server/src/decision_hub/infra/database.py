@@ -162,6 +162,7 @@ skills_table = Table(
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
     Column("source_repo_url", Text, nullable=True),
+    Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
     Column("search_vector", TSVECTOR, nullable=True),
     Column("embedding", Vector(768), nullable=True),
     # Denormalized latest-version columns (kept in sync by _refresh_skill_latest_version)
@@ -618,6 +619,7 @@ def _row_to_skill(row: sa.Row) -> Skill:
         category=row.category,
         visibility=row.visibility,
         source_repo_url=row.source_repo_url,
+        source_repo_removed=row.source_repo_removed,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -1588,6 +1590,7 @@ def fetch_all_skills_for_index(
             skills_table.c.category,
             skills_table.c.visibility,
             skills_table.c.source_repo_url,
+            skills_table.c.source_repo_removed,
             skills_table.c.latest_semver.label("latest_version"),
             skills_table.c.latest_eval_status.label("eval_status"),
             skills_table.c.latest_published_at.label("created_at"),
@@ -1650,6 +1653,7 @@ def fetch_all_skills_for_index(
             "download_count": row.download_count,
             "category": row.category,
             "visibility": row.visibility,
+            "source_repo_removed": row.source_repo_removed,
             "latest_version": row.latest_version,
             "eval_status": row.eval_status,
             "created_at": row.created_at,
@@ -2653,6 +2657,25 @@ def batch_defer_trackers(conn: Connection, tracker_ids: list[UUID], error_messag
         .where(skill_trackers_table.c.id.in_(tracker_ids))
         .values(last_error=error_message, next_check_at=None)
     )
+    return conn.execute(stmt).rowcount
+
+
+def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
+    """Disable trackers in one UPDATE. Returns rowcount.
+
+    Error message is already set by batch_set_tracker_errors before this call.
+    """
+    if not tracker_ids:
+        return 0
+    stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id.in_(tracker_ids)).values(enabled=False)
+    return conn.execute(stmt).rowcount
+
+
+def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
+    """Set source_repo_removed=True for skills matching any repo URL."""
+    if not repo_urls:
+        return 0
+    stmt = sa.update(skills_table).where(skills_table.c.source_repo_url.in_(repo_urls)).values(source_repo_removed=True)
     return conn.execute(stmt).rowcount
 
 

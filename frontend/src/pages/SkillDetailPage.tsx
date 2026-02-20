@@ -237,6 +237,11 @@ export default function SkillDetailPage() {
                 <RefreshCw size={14} /> Auto-synced
               </span>
             )}
+            {skill.source_repo_removed && (
+              <span className={styles.metaRemoved}>
+                Removed from GitHub
+              </span>
+            )}
           </div>
         </div>
 

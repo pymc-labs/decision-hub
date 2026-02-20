@@ -88,9 +88,11 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
     from decision_hub.infra.database import (
         batch_clear_tracker_errors,
         batch_defer_trackers,
+        batch_disable_trackers,
         batch_set_tracker_errors,
         claim_due_trackers,
         create_engine,
+        mark_skills_source_removed,
     )
     from decision_hub.infra.github_client import GitHubClient, batch_fetch_commit_shas
 
@@ -169,6 +171,23 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
         batch_clear_tracker_errors(conn, unchanged_ids)
         batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
         batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
+        # Auto-disable permanent errors and mark their skills as removed
+        if errored_ids_permanent:
+            batch_disable_trackers(conn, errored_ids_permanent)
+            removed_urls = list(
+                {
+                    t.repo_url
+                    for key, kts in repo_key_to_trackers.items()
+                    if key not in failed_chunk_keys and sha_map.get(key) is None
+                    for t in kts
+                }
+            )
+            mark_skills_source_removed(conn, removed_urls)
+            logger.info(
+                "auto_disabled {} permanent-error trackers, marked {} repo URLs as removed",
+                len(errored_ids_permanent),
+                len(removed_urls),
+            )
         conn.commit()
 
     # Rate-limit budget guardrail: skip clone+publish if GitHub budget is low.
@@ -349,7 +368,7 @@ def process_tracker(
     per-tracker REST commit check — the caller already determined
     that the repo has new commits.
     """
-    from decision_hub.infra.database import update_skill_tracker
+    from decision_hub.infra.database import mark_skills_source_removed, update_skill_tracker
     from decision_hub.infra.storage import create_s3_client
 
     now = datetime.now(UTC)
@@ -400,8 +419,15 @@ def process_tracker(
                         last_commit_sha=current_sha,
                         last_checked_at=now,
                         last_error="No skills found in repository",
+                        enabled=False,
                     )
+                    mark_skills_source_removed(conn, [tracker.repo_url])
                     conn.commit()
+                logger.info(
+                    "tracker_id={} repo={} status=disabled reason=no_skills_found",
+                    tracker.id,
+                    tracker.repo_url,
+                )
                 return
 
             s3_client = create_s3_client(
