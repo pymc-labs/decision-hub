@@ -1680,24 +1680,24 @@ class TestDeleteAllVersions:
 
 
 class TestResolveAuthorDisplay:
-    """Unit tests for the _resolve_author_display helper."""
+    """Unit tests for the resolve_author_display helper."""
 
     def test_tracker_prefix_becomes_auto_sync(self):
-        from decision_hub.api.registry_routes import _resolve_author_display
+        from decision_hub.domain.search import resolve_author_display
 
-        assert _resolve_author_display("tracker:abc-123-uuid") == "auto-sync"
+        assert resolve_author_display("tracker:abc-123-uuid") == "auto-sync"
 
     def test_regular_username_unchanged(self):
-        from decision_hub.api.registry_routes import _resolve_author_display
+        from decision_hub.domain.search import resolve_author_display
 
-        assert _resolve_author_display("jdoe") == "jdoe"
+        assert resolve_author_display("jdoe") == "jdoe"
 
     def test_empty_string_unchanged(self):
-        from decision_hub.api.registry_routes import _resolve_author_display
+        from decision_hub.domain.search import resolve_author_display
 
-        assert _resolve_author_display("") == ""
+        assert resolve_author_display("") == ""
 
     def test_tracker_exact_prefix(self):
-        from decision_hub.api.registry_routes import _resolve_author_display
+        from decision_hub.domain.search import resolve_author_display
 
-        assert _resolve_author_display("tracker:") == "auto-sync"
+        assert resolve_author_display("tracker:") == "auto-sync"

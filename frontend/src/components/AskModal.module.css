@@ -330,6 +330,21 @@
   overflow: hidden;
 }
 
+.skillMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 4px;
+}
+
+.skillMetaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
 .skillReason {
   font-size: 0.8rem;
   color: var(--neon-purple);

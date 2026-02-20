@@ -565,6 +565,44 @@ def create_engine(database_url: str) -> Engine:
 
 
 # ---------------------------------------------------------------------------
+# Shared skill summary columns — single source of truth for list + search
+# ---------------------------------------------------------------------------
+
+# Columns selected for all skill summary queries (list, search, ask).
+# When adding a new metadata column to the skills table, add it HERE and
+# it will automatically propagate to the list endpoint, the hybrid search,
+# the ask JSONL index, the AskSkillRef API response, and the frontend.
+_SKILL_SUMMARY_COLUMNS = [
+    organizations_table.c.slug.label("org_slug"),
+    organizations_table.c.is_personal.label("is_personal_org"),
+    skills_table.c.name.label("skill_name"),
+    skills_table.c.description,
+    skills_table.c.download_count,
+    skills_table.c.category,
+    skills_table.c.visibility,
+    skills_table.c.source_repo_url,
+    skills_table.c.github_stars,
+    skills_table.c.latest_semver.label("latest_version"),
+    skills_table.c.latest_eval_status.label("eval_status"),
+    skills_table.c.latest_published_at.label("created_at"),
+    skills_table.c.latest_published_by.label("published_by"),
+]
+
+# Keys present in every skill summary dict (used by _row_to_skill_summary).
+_SKILL_SUMMARY_KEYS = frozenset(col.key if hasattr(col, "key") else col.name for col in _SKILL_SUMMARY_COLUMNS)
+
+
+def _row_to_skill_summary(row: sa.Row) -> dict:
+    """Convert a query row to a skill summary dict.
+
+    Uses row._mapping to automatically capture all selected columns,
+    then filters to just the canonical summary keys (excluding scoring
+    columns like fts_rank or vec_dist that are query-specific).
+    """
+    return {k: v for k, v in row._mapping.items() if k in _SKILL_SUMMARY_KEYS}
+
+
+# ---------------------------------------------------------------------------
 # Row-to-model helpers
 # ---------------------------------------------------------------------------
 
@@ -1617,22 +1655,7 @@ def fetch_all_skills_for_index(
     )
 
     base = (
-        sa.select(
-            organizations_table.c.slug.label("org_slug"),
-            organizations_table.c.is_personal.label("is_personal_org"),
-            skills_table.c.name.label("skill_name"),
-            skills_table.c.description,
-            skills_table.c.download_count,
-            skills_table.c.category,
-            skills_table.c.visibility,
-            skills_table.c.source_repo_url,
-            skills_table.c.github_stars,
-            skills_table.c.latest_semver.label("latest_version"),
-            skills_table.c.latest_eval_status.label("eval_status"),
-            skills_table.c.latest_published_at.label("created_at"),
-            skills_table.c.latest_published_by.label("published_by"),
-            tracker_exists,
-        )
+        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
         .select_from(
             skills_table.join(
                 organizations_table,
@@ -1681,24 +1704,7 @@ def fetch_all_skills_for_index(
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
-    items = [
-        {
-            "org_slug": row.org_slug,
-            "is_personal_org": row.is_personal_org,
-            "skill_name": row.skill_name,
-            "description": row.description,
-            "download_count": row.download_count,
-            "category": row.category,
-            "visibility": row.visibility,
-            "source_repo_url": row.source_repo_url,
-            "latest_version": row.latest_version,
-            "eval_status": row.eval_status,
-            "created_at": row.created_at,
-            "published_by": row.published_by,
-            "has_tracker": row.has_tracker,
-        }
-        for row in rows
-    ]
+    items = [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
     return items, total
 
 
@@ -1726,20 +1732,7 @@ def search_skills_hybrid(
 
     def _base_select(extra_columns: list):
         """Build the base SELECT reading denormalized version columns."""
-        columns = [
-            organizations_table.c.slug.label("org_slug"),
-            organizations_table.c.is_personal.label("is_personal_org"),
-            skills_table.c.name.label("skill_name"),
-            skills_table.c.description,
-            skills_table.c.download_count,
-            skills_table.c.category,
-            skills_table.c.visibility,
-            skills_table.c.latest_semver.label("latest_version"),
-            skills_table.c.latest_eval_status.label("eval_status"),
-            skills_table.c.latest_published_at.label("created_at"),
-            skills_table.c.latest_published_by.label("published_by"),
-            *extra_columns,
-        ]
+        columns = [*_SKILL_SUMMARY_COLUMNS, *extra_columns]
 
         stmt = (
             sa.select(*columns)
@@ -1791,32 +1784,17 @@ def search_skills_hybrid(
     seen: set[tuple[str, str]] = set()
     results: list[dict] = []
 
-    def _row_to_dict(row) -> dict:
-        return {
-            "org_slug": row.org_slug,
-            "is_personal_org": row.is_personal_org,
-            "skill_name": row.skill_name,
-            "description": row.description,
-            "download_count": row.download_count,
-            "category": row.category,
-            "visibility": row.visibility,
-            "latest_version": row.latest_version,
-            "eval_status": row.eval_status,
-            "created_at": row.created_at,
-            "published_by": row.published_by,
-        }
-
     for row in vec_rows:
         key = (row.org_slug, row.skill_name)
         if key not in seen:
             seen.add(key)
-            results.append(_row_to_dict(row))
+            results.append(_row_to_skill_summary(row))
 
     for row in fts_rows:
         key = (row.org_slug, row.skill_name)
         if key not in seen:
             seen.add(key)
-            results.append(_row_to_dict(row))
+            results.append(_row_to_skill_summary(row))
 
     return results
 

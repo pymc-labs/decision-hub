@@ -26,6 +26,7 @@ _SAMPLE_CANDIDATES = [
         "download_count": 10,
         "category": "Data Science",
         "visibility": "public",
+        "source_repo_url": "https://github.com/acme/weather-skill",
         "latest_version": "1.0.0",
         "eval_status": "passed",
         "created_at": None,
@@ -39,6 +40,7 @@ _SAMPLE_CANDIDATES = [
         "download_count": 5,
         "category": "Content & Writing",
         "visibility": "public",
+        "source_repo_url": None,
         "latest_version": "2.1.0",
         "eval_status": "pending",
         "created_at": None,
@@ -135,6 +137,12 @@ class TestAskSkills:
         # Verify enrichment from DB (description comes from candidates, not LLM)
         assert data["skills"][0]["description"] == "Weather forecasting"
         assert data["skills"][0]["safety_rating"] == "A"
+        # Verify additional metadata fields are present
+        assert data["skills"][0]["author"] == "alice"
+        assert data["skills"][0]["category"] == "Data Science"
+        assert data["skills"][0]["download_count"] == 10
+        assert data["skills"][0]["latest_version"] == "1.0.0"
+        assert data["skills"][0]["source_repo_url"] == "https://github.com/acme/weather-skill"
 
     @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
