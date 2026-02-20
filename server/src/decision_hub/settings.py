@@ -84,8 +84,14 @@ class Settings(BaseSettings):
     sandbox_timeout_seconds: int = 900
     sandbox_cpu: float = 2.0
 
-    # Tracker batch size: max trackers claimed per scheduler tick
-    tracker_batch_size: int = 100
+    # Tracker batch size: max trackers claimed per loop iteration.
+    # The cron loops until no more are due, so this controls lock granularity
+    # rather than total throughput.
+    tracker_batch_size: int = 1000
+    # Jitter window (seconds) added to next_check_at to spread load
+    tracker_jitter_seconds: int = 120
+    # Stop processing if GitHub rate limit remaining drops below this
+    tracker_rate_limit_floor: int = 500
 
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"

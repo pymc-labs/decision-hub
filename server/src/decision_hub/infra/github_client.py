@@ -99,6 +99,11 @@ class GitHubClient:
             raise ValueError(f"GraphQL errors: {body['errors']}")
         return body["data"]
 
+    @property
+    def rate_limit_remaining(self) -> int:
+        """Current GitHub API rate limit remaining (updated after each request)."""
+        return self._rate_limit_remaining
+
     # -- rate-limit helpers ---------------------------------------------------
 
     def _wait_for_rate_limit(self) -> None:

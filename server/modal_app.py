@@ -180,14 +180,39 @@ def crawl_process_repo(
     return process_repo_on_modal(repo_dict, bot_user_id, github_token)
 
 
-@app.function(image=crawler_image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=300))
-def check_trackers():
-    """Poll GitHub repos for skill updates every 5 minutes.
+@app.function(image=crawler_image, secrets=secrets, timeout=300, max_containers=20)
+def tracker_process_repo(
+    tracker_dict: dict,
+    known_sha: str,
+    github_token: str | None = None,
+) -> dict:
+    """Process a single tracked repo: clone, discover skills, gauntlet, publish.
 
-    Finds all enabled trackers that are due for a check, fetches the
-    latest commit SHA from GitHub, and auto-republishes when changes
-    are detected.
+    Runs on Modal with ephemeral disk and access to DB/S3/Gemini secrets.
+    Returns a result dict with status, repo_url, and optional error.
     """
+    from decision_hub.domain.tracker_service import process_tracker_remote
+
+    return process_tracker_remote(tracker_dict, known_sha, github_token)
+
+
+_TRACKER_LOOP_BUDGET_SECONDS = 480  # 8 min, leaving 2-min buffer before 600s timeout
+
+
+@app.function(image=crawler_image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=600))
+def check_trackers():
+    """Poll GitHub repos for skill updates every 10 minutes.
+
+    Loops batch claims until no more trackers are due or the time budget
+    is exhausted. Each iteration claims a batch, checks SHAs via GraphQL,
+    and fans out changed repos to tracker_process_repo containers.
+    Unchanged trackers are near-instant (~1s per 250 repos), so the loop
+    can churn through tens of thousands of trackers per tick.
+    """
+    import time
+
+    from loguru import logger
+
     from decision_hub.domain.tracker_service import check_all_due_trackers
     from decision_hub.logging import setup_logging
     from decision_hub.settings import create_settings
@@ -195,5 +220,21 @@ def check_trackers():
     settings = create_settings()
     setup_logging(settings.log_level)
 
-    processed = check_all_due_trackers(settings)
-    print(f"[check_trackers] Processed {processed} tracker(s)", flush=True)
+    start = time.monotonic()
+    total_processed = 0
+    iterations = 0
+
+    while time.monotonic() - start < _TRACKER_LOOP_BUDGET_SECONDS:
+        processed = check_all_due_trackers(settings)
+        total_processed += processed
+        iterations += 1
+        if processed == 0:
+            break
+
+    logger.info(
+        "check_trackers done iterations={} total_processed={} elapsed={:.1f}s",
+        iterations,
+        total_processed,
+        time.monotonic() - start,
+    )
+    print(f"[check_trackers] Processed {total_processed} tracker(s) in {iterations} iteration(s)", flush=True)

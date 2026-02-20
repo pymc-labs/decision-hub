@@ -2402,7 +2402,12 @@ def list_skill_trackers_for_user(conn: Connection, user_id: UUID) -> list[SkillT
     return [_row_to_skill_tracker(row) for row in rows]
 
 
-def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[SkillTracker]:
+def claim_due_trackers(
+    conn: Connection,
+    *,
+    batch_size: int = 5000,
+    jitter_seconds: int = 0,
+) -> list[SkillTracker]:
     """Atomically claim a batch of due trackers for processing.
 
     Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent concurrent runs
@@ -2413,6 +2418,9 @@ def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[Skill
         batch_size: Maximum number of trackers to claim per invocation.
             Prevents unbounded row locks and keeps processing within
             the DB statement timeout.
+        jitter_seconds: Random jitter window (in seconds) added to
+            next_check_at to spread tracker expirations over time
+            instead of all landing on the same instant.
 
     Returns the claimed SkillTracker objects (with their pre-claim state).
     """
@@ -2438,13 +2446,22 @@ def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[Skill
         .cte("locked_ids")
     )
 
+    # Base next_check_at: now + poll_interval
+    base_next = now + skill_trackers_table.c.poll_interval_minutes * sa.text("INTERVAL '1 minute'")
+
+    # Add random jitter to spread expirations across the window
+    if jitter_seconds > 0:
+        next_check = base_next + sa.func.floor(sa.func.random() * jitter_seconds) * sa.text("INTERVAL '1 second'")
+    else:
+        next_check = base_next
+
     # Claim by bumping last_checked_at and scheduling next check, returning full rows
     update_stmt = (
         sa.update(skill_trackers_table)
         .where(skill_trackers_table.c.id.in_(sa.select(locked_ids_cte.c.id)))
         .values(
             last_checked_at=now,
-            next_check_at=now + skill_trackers_table.c.poll_interval_minutes * sa.text("INTERVAL '1 minute'"),
+            next_check_at=next_check,
         )
         .returning(*skill_trackers_table.c)
     )

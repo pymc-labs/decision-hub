@@ -184,6 +184,30 @@ class TestClaimDueTrackers:
         result = claim_due_trackers(conn, batch_size=100)
         assert result == []
 
+    def test_jitter_adds_random_to_query(self):
+        """When jitter_seconds > 0, the SQL should include random()."""
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        claim_due_trackers(conn, batch_size=10, jitter_seconds=120)
+
+        conn.execute.assert_called_once()
+        stmt = conn.execute.call_args[0][0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "random()" in compiled
+
+    def test_no_jitter_excludes_random(self):
+        """When jitter_seconds=0, the SQL should NOT include random()."""
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        claim_due_trackers(conn, batch_size=10, jitter_seconds=0)
+
+        conn.execute.assert_called_once()
+        stmt = conn.execute.call_args[0][0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "random()" not in compiled
+
 
 class TestDeleteSkillTracker:
     def test_delete_existing(self):

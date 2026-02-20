@@ -14,7 +14,13 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
     parse_semver,
 )
-from decision_hub.domain.tracker_service import check_all_due_trackers, process_tracker
+from decision_hub.domain.tracker_service import (
+    _dispatch_changed_trackers,
+    check_all_due_trackers,
+    dict_to_tracker,
+    process_tracker,
+    tracker_to_dict,
+)
 from decision_hub.models import SkillTracker
 
 # Backward-compat aliases used in test names
@@ -356,11 +362,11 @@ class TestProcessTrackerKnownSha:
 
 
 class TestCheckAllDueTrackersBatchSize:
-    """Verify check_all_due_trackers passes tracker_batch_size from settings."""
+    """Verify check_all_due_trackers passes tracker_batch_size and jitter from settings."""
 
     @patch("decision_hub.infra.database.create_engine")
     @patch("decision_hub.infra.database.claim_due_trackers")
-    def test_passes_batch_size_from_settings(self, mock_claim, mock_engine):
+    def test_passes_batch_size_and_jitter_from_settings(self, mock_claim, mock_engine):
         mock_conn = MagicMock()
         mock_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
@@ -368,10 +374,11 @@ class TestCheckAllDueTrackersBatchSize:
 
         mock_settings = MagicMock()
         mock_settings.tracker_batch_size = 42
+        mock_settings.tracker_jitter_seconds = 120
 
         check_all_due_trackers(mock_settings)
 
-        mock_claim.assert_called_once_with(mock_conn, batch_size=42)
+        mock_claim.assert_called_once_with(mock_conn, batch_size=42, jitter_seconds=120)
 
 
 class TestProcessTrackerTokenResolution:
@@ -411,3 +418,249 @@ class TestProcessTrackerTokenResolution:
             _, kwargs = mock_update.call_args
             assert kwargs["last_error"] is not None
             assert "token lookup failed" in kwargs["last_error"]
+
+
+class TestTrackerSerialization:
+    """Verify tracker_to_dict / dict_to_tracker round-trip."""
+
+    def test_round_trip(self):
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            last_commit_sha="abc123",
+            poll_interval_minutes=60,
+            enabled=True,
+            last_checked_at=datetime.now(UTC),
+            last_published_at=None,
+            last_error=None,
+            next_check_at=datetime.now(UTC),
+            created_at=datetime.now(UTC),
+        )
+        d = tracker_to_dict(tracker)
+        restored = dict_to_tracker(d)
+
+        assert restored.id == tracker.id
+        assert restored.user_id == tracker.user_id
+        assert restored.org_slug == tracker.org_slug
+        assert restored.repo_url == tracker.repo_url
+        assert restored.branch == tracker.branch
+        assert restored.last_commit_sha == tracker.last_commit_sha
+        assert restored.poll_interval_minutes == tracker.poll_interval_minutes
+        assert restored.enabled == tracker.enabled
+        assert restored.last_published_at is None
+        assert restored.last_error is None
+
+    def test_none_datetimes_preserved(self):
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="org",
+            repo_url="https://github.com/o/r",
+            branch="main",
+            last_commit_sha=None,
+            poll_interval_minutes=30,
+            enabled=True,
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            next_check_at=None,
+            created_at=None,
+        )
+        d = tracker_to_dict(tracker)
+        restored = dict_to_tracker(d)
+
+        assert restored.last_checked_at is None
+        assert restored.last_published_at is None
+        assert restored.next_check_at is None
+        assert restored.created_at is None
+
+    def test_dict_is_json_safe(self):
+        """All values in the dict should be JSON-serializable (str, int, bool, None)."""
+        import json
+
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="org",
+            repo_url="https://github.com/o/r",
+            branch="main",
+            last_commit_sha="sha",
+            poll_interval_minutes=60,
+            enabled=True,
+            last_checked_at=datetime.now(UTC),
+            last_published_at=datetime.now(UTC),
+            last_error="some error",
+            next_check_at=datetime.now(UTC),
+            created_at=datetime.now(UTC),
+        )
+        d = tracker_to_dict(tracker)
+        # Should not raise
+        json.dumps(d)
+
+
+class TestDispatchChangedTrackers:
+    """Verify _dispatch_changed_trackers fan-out and fallback behavior."""
+
+    def _make_tracker(self) -> SkillTracker:
+        return SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=60,
+            last_commit_sha="old",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+    @patch("decision_hub.domain.tracker_service.process_tracker")
+    @patch("modal.Function.from_name", side_effect=Exception("app not found"))
+    def test_falls_back_to_sequential_when_modal_unavailable(self, _mock_from_name, mock_process):
+        """When Modal from_name fails, should fall back to sequential processing."""
+        tracker = self._make_tracker()
+        changed = [(tracker, "new_sha")]
+        mock_settings = MagicMock()
+        mock_settings.modal_app_name = "nonexistent-app"
+        mock_engine = MagicMock()
+
+        processed, failed = _dispatch_changed_trackers(changed, None, mock_settings, mock_engine)
+
+        assert processed == 1
+        assert failed == 0
+        mock_process.assert_called_once_with(tracker, mock_settings, mock_engine, known_sha="new_sha")
+
+    @patch("decision_hub.domain.tracker_service.process_tracker")
+    @patch("modal.Function.from_name", side_effect=Exception("app not found"))
+    def test_sequential_fallback_counts_failures(self, _mock_from_name, mock_process):
+        """When sequential processing raises, failure count should increment."""
+        tracker = self._make_tracker()
+        changed = [(tracker, "new_sha")]
+        mock_process.side_effect = RuntimeError("clone failed")
+        mock_settings = MagicMock()
+        mock_settings.modal_app_name = "nonexistent-app"
+        mock_engine = MagicMock()
+
+        processed, failed = _dispatch_changed_trackers(changed, None, mock_settings, mock_engine)
+
+        assert processed == 0
+        assert failed == 1
+
+
+class TestRateLimitGuardrail:
+    """Verify check_all_due_trackers skips processing when GitHub rate limit is low."""
+
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers")
+    @patch("decision_hub.infra.database.update_skill_tracker")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_skips_processing_when_rate_limit_low(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_update_tracker,
+        mock_dispatch,
+    ):
+        """When rate_limit_remaining < tracker_rate_limit_floor, dispatch should be skipped."""
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=60,
+            last_commit_sha="old_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+        mock_conn = MagicMock()
+        mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = [tracker]
+        mock_batch_fetch.return_value = {"myorg/myrepo:main": "new_sha"}
+
+        # Set rate limit below floor
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.rate_limit_remaining = 100
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 100
+        mock_settings.tracker_jitter_seconds = 0
+        mock_settings.tracker_rate_limit_floor = 500
+        mock_settings.github_token = "ghp_test"
+
+        result = check_all_due_trackers(mock_settings)
+
+        # Should return 0 processed and NOT call _dispatch_changed_trackers
+        assert result == 0
+        mock_dispatch.assert_not_called()
+
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(1, 0))
+    @patch("decision_hub.infra.database.update_skill_tracker")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_proceeds_when_rate_limit_sufficient(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_update_tracker,
+        mock_dispatch,
+    ):
+        """When rate_limit_remaining >= tracker_rate_limit_floor, dispatch should proceed."""
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=60,
+            last_commit_sha="old_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+        mock_conn = MagicMock()
+        mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = [tracker]
+        mock_batch_fetch.return_value = {"myorg/myrepo:main": "new_sha"}
+
+        # Set rate limit above floor
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.rate_limit_remaining = 4000
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 100
+        mock_settings.tracker_jitter_seconds = 0
+        mock_settings.tracker_rate_limit_floor = 500
+        mock_settings.github_token = "ghp_test"
+
+        result = check_all_due_trackers(mock_settings)
+
+        assert result == 1
+        mock_dispatch.assert_called_once()

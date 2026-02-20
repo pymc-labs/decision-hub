@@ -35,6 +35,21 @@ class TestGitHubClientRateLimit:
             assert gh._rate_limit_remaining == 999
 
 
+class TestGitHubClientRateLimitProperty:
+    """Verify the public rate_limit_remaining property."""
+
+    def test_initial_value(self):
+        with GitHubClient() as gh:
+            assert gh.rate_limit_remaining == 999
+
+    def test_reflects_updated_value(self):
+        with GitHubClient() as gh:
+            resp = MagicMock()
+            resp.headers = {"x-ratelimit-remaining": "42", "x-ratelimit-reset": "1700000000.0"}
+            gh._update_rate_limit(resp)
+            assert gh.rate_limit_remaining == 42
+
+
 class TestGitHubClientContextManager:
     """Verify context manager protocol."""
 
