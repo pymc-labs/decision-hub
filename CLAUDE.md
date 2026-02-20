@@ -247,6 +247,25 @@ You **may** deploy to dev when asked. Always use `make deploy-dev` — never bar
 - **Check open PRs** for overlapping work: `gh pr list --state open`
 - **Link to a GitHub issue.** If no issue exists, create one first.
 
+### Modal secret validation
+Before running any Modal function that calls `create_settings()` (crawler, tracker, eval), verify that all required `Settings` fields are present in the corresponding Modal secrets. The three dev secrets (`decision-hub-db-dev`, `decision-hub-secrets-dev`, `decision-hub-aws-dev`) must collectively cover every required field in `Settings`. Quick smoke test:
+
+```bash
+# Verify settings load inside a Modal container
+modal run --detach -q -s decision-hub-secrets-dev -s decision-hub-db-dev -s decision-hub-aws-dev \
+  -- python -c "from decision_hub.settings import create_settings; print(create_settings())"
+```
+
+When adding new required fields to `Settings`, also update the corresponding Modal secret (`modal secret create <name> --force KEY=VALUE ...`).
+
+### Never block the conversation on long waits
+When monitoring long-running processes (crawlers, deploys, Modal logs), **never use `sleep` inside a tool call**. A `sleep 900` blocks the entire conversation for 15 minutes and makes the agent appear stuck. Instead:
+
+- **Run long commands in background** (`run_in_background: true`) and check output with `tail` in a separate non-blocking call
+- **Poll with short timeouts** — use quick DB count queries or `ps` checks, not embedded sleeps
+- **Let the user drive timing** — report current status and let them decide when to check again, rather than silently waiting
+- **For periodic monitoring**, write a small background script that appends status to a file, then read that file on demand
+
 ### Resolving PR review comments
 When fixing PR review comments, always complete **all three steps**:
 1. **Fix the code** and push the commit
