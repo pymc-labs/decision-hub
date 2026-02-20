@@ -26,6 +26,8 @@ from decision_hub.api.registry_service import (
     quarantine_rejected_skill,
     require_org_membership,
     run_gauntlet_pipeline,
+    run_scan_pipeline,
+    store_scan_result,
 )
 from decision_hub.domain.publish import (
     build_s3_key,
@@ -424,6 +426,12 @@ def publish_skill(
     description = extract_description(skill_md_content)
     skill_md_body = extract_body(skill_md_content)
 
+    scan_result = run_scan_pipeline(file_bytes, settings)
+    logger.info(
+        "Scan result for {}/{} v{}: grade={} safe={}", org_slug, skill_name, version, scan_result.grade, scan_result.is_safe
+    )
+
+    # Build legacy report/check_results for backward-compat audit log
     report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
         skill_md_content,
         lockfile_content,
@@ -434,11 +442,20 @@ def publish_skill(
         settings,
         allowed_tools=allowed_tools,
     )
-    logger.info(
-        "Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed
-    )
 
-    if not report.passed:
+    # Use the scanner grade as the authoritative grade
+    eval_status_grade = scan_result.grade
+
+    if scan_result.grade == "F":
+        store_scan_result(
+            conn,
+            scan_result,
+            org_slug=org_slug,
+            skill_name=skill_name,
+            semver=version,
+            publisher=current_user.username,
+            quarantine_s3_key=f"quarantine/{org_slug}/{skill_name}/{version}.zip",
+        )
         quarantine_rejected_skill(
             conn,
             s3_client,
@@ -457,7 +474,7 @@ def publish_skill(
     category = classify_skill_category(skill_name, description, skill_md_body, settings)
 
     # Upsert skill record (find or create), then check for duplicate version
-    eval_status = report.grade
+    eval_status = eval_status_grade
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
         skill = insert_skill(
@@ -517,6 +534,16 @@ def publish_skill(
         publisher=current_user.username,
         version_id=version_record.id,
         llm_reasoning=llm_reasoning,
+    )
+
+    store_scan_result(
+        conn,
+        scan_result,
+        org_slug=org_slug,
+        skill_name=skill_name,
+        semver=version,
+        publisher=current_user.username,
+        version_id=version_record.id,
     )
 
     # Commit now so the version row is visible to the background eval thread.

@@ -627,6 +627,8 @@ def _publish_skill_from_tracker(
         parse_manifest_from_content,
         quarantine_and_log_rejection,
         run_gauntlet_pipeline,
+        run_scan_pipeline_dir,
+        store_scan_result,
     )
     from decision_hub.infra.database import (
         find_org_by_slug,
@@ -673,6 +675,9 @@ def _publish_skill_from_tracker(
         else:
             version = bump_version(latest.semver)
 
+        # Run skill-scanner on the directory (avoids zip round-trip)
+        scan_result = run_scan_pipeline_dir(skill_dir, settings)
+
         # Extract evaluation files and parse manifest
         skill_md_content, source_files, lockfile_content = extract_for_evaluation(zip_data)
         runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
@@ -694,7 +699,7 @@ def _publish_skill_from_tracker(
             allowed_tools=allowed_tools,
         )
 
-        if not report.passed:
+        if scan_result.grade == "F":
             logger.warning(
                 "tracker_id={} repo={} skill={}/{}@{} status=rejected grade={}",
                 tracker.id,
@@ -702,7 +707,16 @@ def _publish_skill_from_tracker(
                 org_slug,
                 skill_name,
                 version,
-                report.grade,
+                scan_result.grade,
+            )
+            store_scan_result(
+                conn,
+                scan_result,
+                org_slug=org_slug,
+                skill_name=skill_name,
+                semver=version,
+                publisher=f"tracker:{tracker.id}",
+                quarantine_s3_key=f"quarantine/{org_slug}/{skill_name}/{version}.zip",
             )
             quarantine_and_log_rejection(
                 conn,
@@ -747,7 +761,7 @@ def _publish_skill_from_tracker(
             checksum=checksum,
             runtime_config=runtime_config_dict,
             published_by=f"tracker:{tracker.id}",
-            eval_status=report.grade,
+            eval_status=scan_result.grade,
         )
 
         insert_audit_log(
@@ -755,11 +769,21 @@ def _publish_skill_from_tracker(
             org_slug=org_slug,
             skill_name=skill_name,
             semver=version,
-            grade=report.grade,
+            grade=scan_result.grade,
             check_results=check_results_dicts,
             publisher=f"tracker:{tracker.id}",
             version_id=version_record.id,
             llm_reasoning=llm_reasoning,
+        )
+
+        store_scan_result(
+            conn,
+            scan_result,
+            org_slug=org_slug,
+            skill_name=skill_name,
+            semver=version,
+            publisher=f"tracker:{tracker.id}",
+            version_id=version_record.id,
         )
 
         conn.commit()

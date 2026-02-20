@@ -292,7 +292,12 @@ def _publish_one_skill(
         result["skills_skipped"] += 1
         return
 
-    # Extract content for gauntlet evaluation
+    # Run skill-scanner on the directory (avoids zip round-trip)
+    from decision_hub.api.registry_service import run_scan_pipeline_dir, store_scan_result
+
+    scan_result = run_scan_pipeline_dir(skill_dir, settings)
+
+    # Also run legacy gauntlet for backward-compat audit log
     skill_md_content = (skill_dir / "SKILL.md").read_text()
     skill_md_body = extract_body(skill_md_content)
     desc = extract_description(skill_md_content)
@@ -303,7 +308,6 @@ def _publish_one_skill(
         result["skills_failed"] += 1
         return
 
-    # Run Gauntlet
     report, check_results, llm_reasoning = run_gauntlet_pipeline(
         skill_md_content,
         lockfile_content,
@@ -315,15 +319,23 @@ def _publish_one_skill(
         allowed_tools=manifest.allowed_tools,
     )
 
-    if not report.passed:
-        # Grade F — quarantine
+    if scan_result.grade == "F":
         q_key = build_quarantine_s3_key(org.slug, name, version)
+        store_scan_result(
+            conn,
+            scan_result,
+            org_slug=org.slug,
+            skill_name=name,
+            semver=version,
+            publisher=BOT_USERNAME,
+            quarantine_s3_key=q_key,
+        )
         insert_audit_log(
             conn,
             org_slug=org.slug,
             skill_name=name,
             semver=version,
-            grade=report.grade,
+            grade=scan_result.grade,
             check_results=check_results,
             publisher=BOT_USERNAME,
             version_id=None,
@@ -355,19 +367,28 @@ def _publish_one_skill(
         checksum=checksum,
         runtime_config=None,
         published_by=BOT_USERNAME,
-        eval_status=report.grade,
+        eval_status=scan_result.grade,
     )
     insert_audit_log(
         conn,
         org_slug=org.slug,
         skill_name=name,
         semver=version,
-        grade=report.grade,
+        grade=scan_result.grade,
         check_results=check_results,
         publisher=BOT_USERNAME,
         version_id=version_record.id,
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=None,
+    )
+    store_scan_result(
+        conn,
+        scan_result,
+        org_slug=org.slug,
+        skill_name=name,
+        semver=version,
+        publisher=BOT_USERNAME,
+        version_id=version_record.id,
     )
     result["skills_published"] += 1
 
