@@ -3151,9 +3151,7 @@ def find_scan_findings_for_report(
 ) -> tuple[list[ScanFinding], int]:
     """Return findings for a report with pagination. Returns (findings, total)."""
     count_stmt = (
-        sa.select(sa.func.count())
-        .select_from(scan_findings_table)
-        .where(scan_findings_table.c.report_id == report_id)
+        sa.select(sa.func.count()).select_from(scan_findings_table).where(scan_findings_table.c.report_id == report_id)
     )
     total = conn.execute(count_stmt).scalar() or 0
 

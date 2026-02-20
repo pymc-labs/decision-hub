@@ -1,11 +1,8 @@
 """Tests for domain/skill_scanner_bridge.py — the adapter between skill-scanner and dhub."""
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from decision_hub.domain.skill_scanner_bridge import (
-    BridgeScanResult,
     _find_skill_root,
     _map_scan_result,
     severity_to_grade,

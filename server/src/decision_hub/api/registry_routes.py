@@ -467,7 +467,12 @@ def publish_skill(
 
     scan_result = run_scan_pipeline(file_bytes, settings)
     logger.info(
-        "Scan result for {}/{} v{}: grade={} safe={}", org_slug, skill_name, version, scan_result.grade, scan_result.is_safe
+        "Scan result for {}/{} v{}: grade={} safe={}",
+        org_slug,
+        skill_name,
+        version,
+        scan_result.grade,
+        scan_result.is_safe,
     )
 
     # Build legacy report/check_results for backward-compat audit log
@@ -930,9 +935,7 @@ def get_scan_report(
         return None
 
     offset = (page - 1) * page_size
-    findings, findings_total = find_scan_findings_for_report(
-        conn, report.id, limit=page_size, offset=offset
-    )
+    findings, findings_total = find_scan_findings_for_report(conn, report.id, limit=page_size, offset=offset)
 
     return ScanReportSummaryResponse(
         id=str(report.id),

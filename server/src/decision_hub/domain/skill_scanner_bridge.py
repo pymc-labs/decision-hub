@@ -160,20 +160,22 @@ def _map_scan_result(result: Any, policy: Any, elapsed_ms: int) -> BridgeScanRes
         if hasattr(f.severity, "name"):
             severity = f.severity.name
 
-        findings.append({
-            "rule_id": getattr(f, "rule_id", ""),
-            "category": str(getattr(f, "category", "")),
-            "severity": severity,
-            "title": getattr(f, "title", ""),
-            "description": getattr(f, "description", None),
-            "file_path": getattr(f, "file_path", None),
-            "line_number": getattr(f, "line_number", None),
-            "snippet": getattr(f, "snippet", None),
-            "remediation": getattr(f, "remediation", None),
-            "analyzer": getattr(f, "analyzer", None),
-            "aitech_code": finding_dict.get("metadata", {}).get("aitech_code"),
-            "metadata": finding_dict.get("metadata", {}),
-        })
+        findings.append(
+            {
+                "rule_id": getattr(f, "rule_id", ""),
+                "category": str(getattr(f, "category", "")),
+                "severity": severity,
+                "title": getattr(f, "title", ""),
+                "description": getattr(f, "description", None),
+                "file_path": getattr(f, "file_path", None),
+                "line_number": getattr(f, "line_number", None),
+                "snippet": getattr(f, "snippet", None),
+                "remediation": getattr(f, "remediation", None),
+                "analyzer": getattr(f, "analyzer", None),
+                "aitech_code": finding_dict.get("metadata", {}).get("aitech_code"),
+                "metadata": finding_dict.get("metadata", {}),
+            }
+        )
 
     analyzers_used = result_dict.get("analyzers_used", [])
     analyzability_score = result_dict.get("analyzability_score")
