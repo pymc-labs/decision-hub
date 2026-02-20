@@ -1,10 +1,15 @@
 """Rate-limit-aware HTTP client for the GitHub REST and GraphQL APIs."""
 
+import re
 import time
 from types import TracebackType
 
 import httpx
 from loguru import logger
+
+# Characters safe for GraphQL string interpolation: alphanumeric, dash,
+# underscore, dot, slash — covers valid GitHub owner/repo/branch names.
+_SAFE_GRAPHQL_RE = re.compile(r"^[A-Za-z0-9._/\-]+$")
 
 GITHUB_API = "https://api.github.com"
 GITHUB_GRAPHQL = "https://api.github.com/graphql"
@@ -140,17 +145,25 @@ def batch_fetch_commit_shas(
     for chunk_start in range(0, len(repos), _GRAPHQL_BATCH_CHUNK):
         chunk = repos[chunk_start : chunk_start + _GRAPHQL_BATCH_CHUNK]
         aliases: list[str] = []
-        alias_map: dict[str, str] = {}  # alias -> "owner/repo"
+        alias_map: dict[str, str] = {}  # alias -> "owner/repo:branch"
         for i, (owner, repo_name, branch) in enumerate(chunk):
-            alias = f"r{i}"
-            aliases.append(
-                f'{alias}: repository(owner: "{owner}", name: "{repo_name}") {{'
-                f'  ref(qualifiedName: "refs/heads/{branch}") {{'
-                f"    target {{ oid }}"
-                f"  }}"
-                f"}}"
-            )
-            alias_map[alias] = f"{owner}/{repo_name}:{branch}"
+            # Defense-in-depth: reject values that could break GraphQL string
+            # interpolation.  The API layer validates branch names on creation,
+            # but we guard here too since this query runs with the system token.
+            for label, value in (("owner", owner), ("repo", repo_name), ("branch", branch)):
+                if not _SAFE_GRAPHQL_RE.match(value):
+                    logger.warning("Skipping repo with unsafe {} value: {!r}", label, value)
+                    break
+            else:
+                alias = f"r{i}"
+                aliases.append(
+                    f'{alias}: repository(owner: "{owner}", name: "{repo_name}") {{'
+                    f'  ref(qualifiedName: "refs/heads/{branch}") {{'
+                    f"    target {{ oid }}"
+                    f"  }}"
+                    f"}}"
+                )
+                alias_map[alias] = f"{owner}/{repo_name}:{branch}"
 
         query = "query {\n" + "\n".join(aliases) + "\n}"
 

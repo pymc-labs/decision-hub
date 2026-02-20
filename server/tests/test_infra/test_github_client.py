@@ -192,3 +192,21 @@ class TestBatchFetchCommitShas:
             "org/repo:main": "sha_main",
             "org/repo:develop": "sha_dev",
         }
+
+    def test_unsafe_branch_name_skipped(self):
+        """Branch names with injection characters are silently skipped."""
+        client = MagicMock(spec=GitHubClient)
+        client.graphql.return_value = {
+            "r0": {"ref": {"target": {"oid": "sha_safe"}}},
+        }
+
+        repos = [
+            ("org", "repo", "main"),
+            ("org", "repo", 'feat") { ref(qualifiedName: "refs/heads/main'),
+        ]
+        result = batch_fetch_commit_shas(client, repos)
+
+        # Only the safe repo should appear; the malicious branch is skipped
+        assert result == {"org/repo:main": "sha_safe"}
+        # GraphQL should still be called (with just 1 alias for the safe repo)
+        client.graphql.assert_called_once()
