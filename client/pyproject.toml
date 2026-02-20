@@ -43,9 +43,9 @@ build-backend = "hatchling.build"
 packages = ["src/dhub"]
 
 [project.urls]
-Homepage = "https://github.com/lfiaschi/decision-hub"
-Repository = "https://github.com/lfiaschi/decision-hub"
-Issues = "https://github.com/lfiaschi/decision-hub/issues"
+Homepage = "https://github.com/pymc-labs/decision-hub"
+Repository = "https://github.com/pymc-labs/decision-hub"
+Issues = "https://github.com/pymc-labs/decision-hub/issues"
 
 [tool.uv.sources]
 dhub-core = { workspace = true }
