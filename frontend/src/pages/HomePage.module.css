@@ -1,151 +1,148 @@
 /* Hero */
 .hero {
   text-align: center;
-  padding: 60px 0 40px;
+  padding: 80px 0 48px;
   position: relative;
-}
-
-.heroGrid {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 20% 50%, rgba(180, 0, 255, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 50%, rgba(255, 45, 149, 0.05) 0%, transparent 50%);
-  pointer-events: none;
 }
 
 .heroTitle {
-  font-size: 4rem;
-  line-height: 1;
-  margin-bottom: 20px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 
-.heroAccent {
-  letter-spacing: 6px;
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
-}
-
-.heroDivider {
-  font-size: 2.5rem;
-  color: var(--neon-purple);
-  opacity: 0.5;
-  text-shadow: var(--glow-purple);
-  font-weight: 400;
-  letter-spacing: -2px;
-}
-
-.heroMain {
-  letter-spacing: 6px;
-  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 30px rgba(0, 240, 255, 0.3));
+.heroTagline {
+  font-size: 1.3rem;
+  font-weight: 500;
+  color: var(--lab-blue);
+  margin-bottom: 16px;
+  letter-spacing: -0.01em;
 }
 
 .heroSub {
-  max-width: 600px;
+  max-width: 540px;
   margin: 0 auto 32px;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   color: var(--text-secondary);
   line-height: 1.7;
-  position: relative;
 }
 
 .heroCta {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   justify-content: center;
-  position: relative;
 }
 
 .btnPrimary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 28px;
+  padding: 11px 24px;
   border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--bg-darkest) !important;
-  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-  text-shadow: none !important;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff !important;
+  background: var(--lab-blue);
   border: none;
-  transition: all 0.3s ease;
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .btnPrimary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
-  color: var(--bg-darkest) !important;
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+  color: #fff !important;
 }
 
 .btnSecondary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 28px;
+  padding: 11px 24px;
   border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--neon-pink) !important;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary) !important;
   background: transparent;
-  border: 1px solid rgba(255, 45, 149, 0.4);
-  text-shadow: none !important;
-  transition: all 0.3s ease;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
 }
 
 .btnSecondary:hover {
-  background: rgba(255, 45, 149, 0.08);
-  border-color: var(--neon-pink);
-  box-shadow: 0 0 20px rgba(255, 45, 149, 0.2);
-  transform: translateY(-2px);
-  color: var(--neon-pink) !important;
+  border-color: var(--border-hover);
+  color: var(--text-primary) !important;
+  background: var(--bg-elevated);
+  transform: translateY(-1px);
 }
 
 /* Value Props */
 .valueProps {
-  margin: 56px 0 0;
+  margin: 64px 0 0;
 }
 
 .valuePropGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  gap: 0;
+  align-items: center;
+}
+
+.pipelineArrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.arrowLine {
+  display: block;
+  width: 32px;
+  height: 0;
+  border-top: 2px dashed var(--border-hover);
 }
 
 .valueProp {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .valuePropIcon {
-  color: var(--neon-cyan);
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+}
+
+.iconBlue {
+  color: var(--lab-blue);
+  background: var(--lab-blue-dim);
+}
+
+.iconGreen {
+  color: var(--grade-pass);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.iconViolet {
+  color: var(--neural-violet);
+  background: var(--neural-dim);
 }
 
 .valuePropTitle {
-  font-size: 1.15rem;
-  font-weight: 700;
+  font-size: 1.1rem;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 
 .valuePropDesc {
@@ -154,39 +151,44 @@
   line-height: 1.65;
 }
 
-/* Stats */
+/* Stats — clean inline row */
 .stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin: 48px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  margin: 56px 0;
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .statItem {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   text-align: center;
 }
 
-.statIcon {
-  color: var(--neon-cyan);
-  margin-bottom: 4px;
-}
-
 .statNumber {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 1.8rem;
-  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.6rem;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
 .statLabel {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  letter-spacing: 1px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
   text-transform: uppercase;
+}
+
+.statDivider {
+  width: 1px;
+  height: 32px;
+  background: var(--border);
 }
 
 /* Agent Section */
@@ -225,18 +227,20 @@
   align-items: center;
   gap: 10px;
   font-size: 1.1rem;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: var(--text-primary);
 }
 
 .seeAll {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  color: var(--lab-blue) !important;
+}
+
+.seeAll:hover {
+  color: #60a5fa !important;
 }
 
 .skillGrid {
@@ -248,7 +252,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
 }
 
 .skillCard {
@@ -264,17 +267,16 @@
 }
 
 .skillOrg {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
-  color: var(--neon-purple);
-  letter-spacing: 1px;
+  color: var(--text-muted);
 }
 
 .skillName {
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 
 .skillCategory {
@@ -282,11 +284,11 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--neon-pink);
+  background: var(--bg-elevated);
   border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.65rem;
-  color: var(--neon-pink);
+  color: var(--text-muted);
   width: fit-content;
 }
 
@@ -306,64 +308,22 @@
   justify-content: space-between;
   margin-top: 4px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border);
 }
 
 .skillVersion {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
 }
 
 .skillDownloads {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   color: var(--text-muted);
-}
-
-/* How it works */
-.howItWorks {
-  margin: 60px 0;
-}
-
-.howItWorks .sectionTitle {
-  margin-bottom: 24px;
-}
-
-.stepsGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stepNumber {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 2rem;
-  font-weight: 900;
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
-  opacity: 0.6;
-}
-
-.stepTitle {
-  font-size: 1rem;
-  color: var(--text-primary);
-  letter-spacing: 0;
-}
-
-.stepDesc {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  line-height: 1.6;
 }
 
 /* Install CTA */
@@ -380,7 +340,7 @@
 
 .osToggle {
   display: inline-flex;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 20px;
@@ -388,10 +348,9 @@
 
 .osTab {
   padding: 6px 20px;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 500;
   color: var(--text-muted);
   background: transparent;
   border: none;
@@ -400,12 +359,12 @@
 }
 
 .osTab:not(:last-child) {
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border);
 }
 
 .osTabActive {
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
+  color: var(--lab-blue);
+  background: var(--lab-blue-dim);
 }
 
 .commandWrapper {
@@ -423,8 +382,8 @@
   width: 30px;
   height: 30px;
   border-radius: 4px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-darkest);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -432,8 +391,8 @@
 }
 
 .copyBtn:hover {
-  color: var(--neon-cyan);
-  border-color: var(--neon-cyan);
+  color: var(--lab-blue);
+  border-color: var(--lab-blue);
 }
 
 .installAlt {
@@ -443,8 +402,8 @@
 }
 
 .installAlt code {
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-cyan);
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--lab-blue);
   font-size: 0.85rem;
 }
 
@@ -476,31 +435,34 @@
 
 .exampleLabel {
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 8px;
-  letter-spacing: 0.5px;
 }
 
 .termOutput {
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
 }
 
 /* Bottom CTA */
 .bottomCta {
-  margin: 60px 0 20px;
+  margin: 64px 0 20px;
+  padding: 48px 32px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
 .bottomCtaInner {
   text-align: center;
-  padding: 20px 0;
 }
 
 .bottomCtaTitle {
-  font-size: 1.6rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 12px;
+  letter-spacing: -0.01em;
 }
 
 .bottomCtaDesc {
@@ -513,29 +475,40 @@
 
 .bottomCtaActions {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   justify-content: center;
 }
 
 @media (max-width: 768px) {
   .heroTitle {
-    font-size: 2.2rem;
-    gap: 10px;
+    font-size: 2.4rem;
   }
 
-  .heroDivider {
-    font-size: 1.6rem;
+  .heroTagline {
+    font-size: 1.1rem;
   }
 
   .stats {
-    grid-template-columns: repeat(2, 1fr);
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  .statDivider {
+    display: none;
   }
 
   .skillGrid,
-  .stepsGrid,
-  .valuePropGrid,
   .examplesGrid {
     grid-template-columns: 1fr;
+  }
+
+  .valuePropGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .pipelineArrow {
+    display: none;
   }
 
   .heroCta {
@@ -552,26 +525,24 @@
 
 @media (max-width: 480px) {
   .hero {
-    padding: 32px 0 24px;
+    padding: 48px 0 32px;
   }
 
   .heroTitle {
-    font-size: 1.6rem;
-    flex-direction: column;
-    gap: 4px;
+    font-size: 1.8rem;
   }
 
-  .heroDivider {
-    font-size: 1.2rem;
+  .heroTagline {
+    font-size: 1rem;
   }
 
   .heroSub {
-    font-size: 1rem;
+    font-size: 0.95rem;
     margin-bottom: 24px;
   }
 
   .statNumber {
-    font-size: 1.4rem;
+    font-size: 1.3rem;
   }
 
   .statLabel {
@@ -579,7 +550,6 @@
   }
 
   .featured,
-  .howItWorks,
   .installCta,
   .quickStart {
     margin: 32px 0;
@@ -589,7 +559,7 @@
     margin: 32px auto;
   }
 
-  .stepNumber {
-    font-size: 1.5rem;
+  .bottomCta {
+    padding: 32px 20px;
   }
 }

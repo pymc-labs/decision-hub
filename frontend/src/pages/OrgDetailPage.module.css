@@ -3,9 +3,7 @@
   align-items: center;
   gap: 6px;
   font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-weight: 500;
   margin-bottom: 24px;
 }
 
@@ -25,8 +23,7 @@
 
 .title {
   font-size: 1.8rem;
-  color: var(--neon-purple);
-  text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
+  color: var(--text-primary);
 }
 
 .featuredBadge {
@@ -34,12 +31,12 @@
   align-items: center;
   gap: 4px;
   font-size: 0.7rem;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.25);
+  letter-spacing: 0.5px;
+  color: var(--lab-blue);
+  background: var(--lab-blue-dim);
+  border: 1px solid rgba(59, 130, 246, 0.25);
   border-radius: 4px;
   padding: 3px 8px;
 }
@@ -79,20 +76,18 @@
   align-items: center;
   gap: 5px;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 500;
   padding: 4px 10px;
   border-radius: 20px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
 .link:hover {
-  color: var(--neon-cyan);
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.15);
-  text-shadow: none;
+  color: var(--lab-blue);
+  border-color: var(--lab-blue);
 }
 
 .grid {
@@ -104,7 +99,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
 }
 
 .card {
@@ -123,7 +117,7 @@
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 
 .cardDesc {
@@ -141,13 +135,13 @@
   align-items: center;
   gap: 12px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border);
   font-size: 0.75rem;
 }
 
 .cardVersion {
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-cyan);
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--lab-blue);
 }
 
 .cardAuthor {
@@ -159,7 +153,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   color: var(--text-muted);
 }
 
@@ -169,7 +163,6 @@
   color: var(--text-muted);
 }
 
-/* Infinite scroll sentinel */
 .sentinel {
   display: flex;
   justify-content: center;
@@ -179,32 +172,30 @@
 }
 
 .loadingMore {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;
   color: var(--text-muted);
-  letter-spacing: 1px;
 }
 
 .loadMoreError {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;
-  color: var(--neon-pink);
-  letter-spacing: 1px;
+  color: var(--grade-fail);
 }
 
 .retryBtn {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.8rem;
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
   background: transparent;
-  border: 1px solid var(--neon-cyan);
+  border: 1px solid var(--lab-blue);
+  border-radius: 6px;
   padding: 4px 12px;
   cursor: pointer;
-  letter-spacing: 1px;
 }
 
 .retryBtn:hover {
-  background: rgba(0, 255, 255, 0.1);
+  background: var(--lab-blue-dim);
 }
 
 @media (max-width: 768px) {
@@ -232,18 +223,5 @@
   .titleRow {
     flex-wrap: wrap;
     gap: 8px;
-  }
-
-  .pagination {
-    gap: 8px;
-  }
-
-  .pageButton {
-    padding: 8px 10px;
-    font-size: 0.75rem;
-  }
-
-  .pageInfo {
-    font-size: 0.75rem;
   }
 }

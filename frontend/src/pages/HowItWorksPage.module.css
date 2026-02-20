@@ -1,5 +1,4 @@
-/* ── Page layout ───────────────────────────────────────── */
-
+/* Page layout */
 .page {
   padding: 40px 0 60px;
 }
@@ -11,8 +10,7 @@
 
 .pageTitle {
   font-size: 2rem;
-  color: var(--neon-cyan);
-  text-shadow: var(--glow-text-strong);
+  color: var(--text-primary);
   margin-bottom: 12px;
 }
 
@@ -24,8 +22,7 @@
   line-height: 1.7;
 }
 
-/* ── Acts container ───────────────────────────────────── */
-
+/* Acts container */
 .acts {
   display: flex;
   flex-direction: column;
@@ -34,29 +31,27 @@
   margin: 0 auto;
 }
 
-/* ── Single act ───────────────────────────────────────── */
-
+/* Single act */
 .act {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--lab-blue);
 }
 
 .act[data-act-color="cyan"] {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--lab-blue);
 }
 
 .act[data-act-color="pink"] {
-  --act-color: var(--neon-pink);
+  --act-color: var(--neural-pink);
 }
 
 .act[data-act-color="green"] {
-  --act-color: var(--neon-green);
+  --act-color: var(--grade-pass);
 }
 
-/* ── Act divider between acts ─────────────────────────── */
-
+/* Act divider */
 .actDivider {
   position: relative;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border);
   margin: 56px 0;
   display: flex;
   justify-content: center;
@@ -71,12 +66,10 @@
   width: 60px;
   height: 3px;
   background: var(--act-color);
-  box-shadow: 0 0 12px var(--act-color);
   border-radius: 2px;
 }
 
-/* ── Act header ───────────────────────────────────────── */
-
+/* Act header */
 .actHeader {
   text-align: center;
   margin-bottom: 40px;
@@ -84,12 +77,12 @@
 
 .actLabel {
   display: inline-block;
-  font-family: "Orbitron", sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
-  font-size: 0.9rem;
-  letter-spacing: 3px;
+  font-size: 0.85rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
   color: var(--act-color);
-  text-shadow: 0 0 10px var(--act-color);
   margin-bottom: 8px;
 }
 
@@ -101,15 +94,12 @@
   margin: 0 auto;
 }
 
-/* ── Features within an act ───────────────────────────── */
-
+/* Features */
 .features {
   display: flex;
   flex-direction: column;
   gap: 48px;
 }
-
-/* ── Feature row: two-column grid ─────────────────────── */
 
 .featureRow {
   display: grid;
@@ -118,7 +108,6 @@
   align-items: center;
 }
 
-/* Alternated: terminal on left, text on right */
 .featureRowAlt .featureText {
   order: 2;
 }
@@ -127,8 +116,7 @@
   order: 1;
 }
 
-/* ── Text column ──────────────────────────────────────── */
-
+/* Text column */
 .featureText {
   border-left: 3px solid var(--act-color);
   padding-left: 24px;
@@ -149,7 +137,6 @@
 .featureTitle {
   font-size: 1.3rem;
   color: var(--act-color);
-  text-shadow: var(--glow-text-subtle);
 }
 
 .featureBullets {
@@ -170,15 +157,14 @@
 }
 
 .featureBullet::before {
-  content: "›";
+  content: "\203A";
   position: absolute;
   left: 0;
   color: var(--act-color);
   font-weight: 700;
 }
 
-/* ── Emphasis within text ─────────────────────────────── */
-
+/* Emphasis */
 .pageSubtitle strong {
   color: var(--text-primary);
   font-weight: 500;
@@ -194,22 +180,19 @@
   font-weight: 600;
 }
 
-/* ── Terminal column ──────────────────────────────────── */
-
+/* Terminal column */
 .featureTerminal {
   min-width: 0;
   overflow: hidden;
 }
 
-/* ── Responsive: tablet ───────────────────────────────── */
-
+/* Responsive: tablet */
 @media (max-width: 768px) {
   .featureRow {
     grid-template-columns: 1fr;
     gap: 24px;
   }
 
-  /* Reset alternating order — text always on top */
   .featureRowAlt .featureText {
     order: unset;
   }
@@ -227,8 +210,7 @@
   }
 }
 
-/* ── Responsive: mobile ───────────────────────────────── */
-
+/* Responsive: mobile */
 @media (max-width: 480px) {
   .page {
     padding: 24px 0 40px;
@@ -248,7 +230,7 @@
 
   .actLabel {
     font-size: 0.8rem;
-    letter-spacing: 2px;
+    letter-spacing: 1.5px;
   }
 
   .actTagline {

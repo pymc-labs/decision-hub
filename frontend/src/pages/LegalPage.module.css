@@ -6,8 +6,7 @@
 
 .legal h1 {
   font-size: 1.8rem;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: var(--text-primary);
   margin-bottom: 8px;
 }
 
@@ -23,12 +22,12 @@
   margin-top: 32px;
   margin-bottom: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
 }
 
 .legal h3 {
   font-size: 1rem;
-  color: var(--neon-pink);
+  color: var(--lab-blue);
   margin-top: 20px;
   margin-bottom: 8px;
 }
@@ -53,7 +52,7 @@
 }
 
 .legal a {
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
 }
 
 .legal a:hover {

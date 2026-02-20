@@ -6,16 +6,16 @@
 
 .avatar {
   object-fit: cover;
-  border: 1px solid rgba(180, 0, 255, 0.3);
+  border: 1px solid var(--border);
 }
 
 .fallback {
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.25);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--neon-purple);
+  color: var(--neural-violet);
 }
 
 /* Sizes */

@@ -21,30 +21,27 @@
 }
 
 .ring:nth-child(1) {
-  border-top-color: var(--neon-cyan);
+  border-top-color: var(--lab-blue);
   animation: spin 1.2s linear infinite;
-  filter: drop-shadow(0 0 6px var(--neon-cyan));
 }
 
 .ring:nth-child(2) {
-  border-right-color: var(--neon-pink);
+  border-right-color: var(--neural-violet);
   animation: spin 1.6s linear infinite reverse;
-  filter: drop-shadow(0 0 6px var(--neon-pink));
   inset: 6px;
 }
 
 .ring:nth-child(3) {
-  border-bottom-color: var(--neon-purple);
+  border-bottom-color: var(--neural-pink);
   animation: spin 2s linear infinite;
-  filter: drop-shadow(0 0 6px var(--neon-purple));
   inset: 12px;
 }
 
 .text {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;
   color: var(--text-secondary);
-  letter-spacing: 2px;
+  letter-spacing: 1px;
   text-transform: uppercase;
   animation: blink 1.5s ease-in-out infinite;
 }

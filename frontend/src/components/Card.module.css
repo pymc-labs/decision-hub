@@ -1,0 +1,75 @@
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transition: opacity 0.2s ease;
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+/* Accent colors — thin top-border strip, like a lab container label */
+.default::before {
+  background: var(--border-hover);
+  opacity: 0;
+}
+
+.default:hover::before {
+  opacity: 1;
+}
+
+.blue::before {
+  background: var(--lab-blue);
+  opacity: 1;
+}
+
+.blue:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.green::before {
+  background: var(--grade-pass);
+  opacity: 1;
+}
+
+.green:hover {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.violet::before {
+  background: var(--neural-violet);
+  opacity: 1;
+}
+
+.violet:hover {
+  border-color: rgba(167, 139, 250, 0.3);
+}
+
+.pink::before {
+  background: var(--neural-pink);
+  opacity: 1;
+}
+
+.pink:hover {
+  border-color: rgba(244, 114, 182, 0.3);
+}
