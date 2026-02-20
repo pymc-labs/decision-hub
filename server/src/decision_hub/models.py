@@ -66,6 +66,7 @@ class Skill:
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    github_stars: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

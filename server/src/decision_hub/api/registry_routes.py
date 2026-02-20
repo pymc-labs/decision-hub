@@ -221,6 +221,7 @@ class SkillSummary(BaseModel):
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    github_stars: int | None = None
     is_auto_synced: bool = False
 
 
@@ -619,6 +620,7 @@ def list_skills(
             category=row.get("category", ""),
             visibility=row.get("visibility", "public"),
             source_repo_url=row.get("source_repo_url"),
+            github_stars=row.get("github_stars"),
             is_auto_synced=row.get("published_by", "").startswith("tracker:"),
         )
         for row in rows
@@ -665,6 +667,7 @@ def get_skill_summary(
         category=skill.category,
         visibility=skill.visibility,
         source_repo_url=skill.source_repo_url,
+        github_stars=skill.github_stars,
         is_auto_synced=version.published_by.startswith("tracker:"),
     )
 

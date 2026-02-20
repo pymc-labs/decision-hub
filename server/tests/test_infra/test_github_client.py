@@ -119,59 +119,65 @@ class TestBatchFetchCommitShas:
 
     def test_single_repo(self):
         client = MagicMock(spec=GitHubClient)
-        client.graphql.return_value = {"r0": {"ref": {"target": {"oid": "abc123def456"}}}}
+        client.graphql.return_value = {"r0": {"stargazerCount": 42, "ref": {"target": {"oid": "abc123def456"}}}}
 
-        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
 
         assert sha_map == {"owner/repo:main": "abc123def456"}
         assert failed_keys == set()
+        assert stars == {"owner/repo": 42}
         client.graphql.assert_called_once()
 
     def test_missing_repo_omitted(self):
         client = MagicMock(spec=GitHubClient)
-        client.graphql.return_value = {"r0": None, "r1": {"ref": {"target": {"oid": "sha456"}}}}
+        client.graphql.return_value = {"r0": None, "r1": {"stargazerCount": 10, "ref": {"target": {"oid": "sha456"}}}}
 
-        sha_map, failed_keys = batch_fetch_commit_shas(
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(
             client,
             [("owner", "missing", "main"), ("owner", "repo", "main")],
         )
 
         assert sha_map == {"owner/repo:main": "sha456"}
         assert failed_keys == set()
+        assert stars == {"owner/repo": 10}
 
     def test_empty_ref_omitted(self):
         """Repos with no ref (empty repo, bad branch) are skipped."""
         client = MagicMock(spec=GitHubClient)
-        client.graphql.return_value = {"r0": {"ref": None}}
+        client.graphql.return_value = {"r0": {"stargazerCount": 5, "ref": None}}
 
-        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "empty", "main")])
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "empty", "main")])
         assert sha_map == {}
         assert failed_keys == set()
+        # Stars should still be captured even when ref is missing
+        assert stars == {"owner/empty": 5}
 
     def test_graphql_failure_skips_chunk(self):
         """When GraphQL raises, that chunk is skipped and keys go to failed_keys."""
         client = MagicMock(spec=GitHubClient)
         client.graphql.side_effect = httpx.HTTPStatusError("forbidden", request=MagicMock(), response=MagicMock())
 
-        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
         assert sha_map == {}
         assert failed_keys == {"owner/repo:main"}
+        assert stars == {}
 
     def test_network_error_skips_chunk(self):
         """Transient network errors (ConnectError, Timeout) are caught per-chunk."""
         client = MagicMock(spec=GitHubClient)
         client.graphql.side_effect = httpx.ConnectError("connection refused")
 
-        sha_map, failed_keys = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
         assert sha_map == {}
         assert failed_keys == {"owner/repo:main"}
+        assert stars == {}
 
     def test_multiple_repos(self):
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {
-            "r0": {"ref": {"target": {"oid": "sha1"}}},
-            "r1": {"ref": {"target": {"oid": "sha2"}}},
-            "r2": {"ref": {"target": {"oid": "sha3"}}},
+            "r0": {"stargazerCount": 100, "ref": {"target": {"oid": "sha1"}}},
+            "r1": {"stargazerCount": 200, "ref": {"target": {"oid": "sha2"}}},
+            "r2": {"stargazerCount": 50, "ref": {"target": {"oid": "sha3"}}},
         }
 
         repos = [
@@ -179,7 +185,7 @@ class TestBatchFetchCommitShas:
             ("org", "repo-b", "develop"),
             ("other", "repo-c", "main"),
         ]
-        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
 
         assert sha_map == {
             "org/repo-a:main": "sha1",
@@ -187,43 +193,47 @@ class TestBatchFetchCommitShas:
             "other/repo-c:main": "sha3",
         }
         assert failed_keys == set()
+        assert stars == {"org/repo-a": 100, "org/repo-b": 200, "other/repo-c": 50}
 
     def test_same_repo_different_branches(self):
         """Two trackers on different branches of the same repo get distinct keys."""
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {
-            "r0": {"ref": {"target": {"oid": "sha_main"}}},
-            "r1": {"ref": {"target": {"oid": "sha_dev"}}},
+            "r0": {"stargazerCount": 77, "ref": {"target": {"oid": "sha_main"}}},
+            "r1": {"stargazerCount": 77, "ref": {"target": {"oid": "sha_dev"}}},
         }
 
         repos = [
             ("org", "repo", "main"),
             ("org", "repo", "develop"),
         ]
-        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
 
         assert sha_map == {
             "org/repo:main": "sha_main",
             "org/repo:develop": "sha_dev",
         }
         assert failed_keys == set()
+        # Same repo, both branches report same star count — deduplicated by owner/repo key
+        assert stars == {"org/repo": 77}
 
     def test_unsafe_branch_name_skipped(self):
         """Branch names with injection characters are silently skipped."""
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {
-            "r0": {"ref": {"target": {"oid": "sha_safe"}}},
+            "r0": {"stargazerCount": 10, "ref": {"target": {"oid": "sha_safe"}}},
         }
 
         repos = [
             ("org", "repo", "main"),
             ("org", "repo", 'feat") { ref(qualifiedName: "refs/heads/main'),
         ]
-        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
 
         # Only the safe repo should appear; the malicious branch is skipped
         assert sha_map == {"org/repo:main": "sha_safe"}
         assert failed_keys == set()
+        assert stars == {"org/repo": 10}
         # GraphQL should still be called (with just 1 alias for the safe repo)
         client.graphql.assert_called_once()
 
@@ -241,13 +251,14 @@ class TestBatchFetchTransientFailures:
         # First call (chunk 0) fails, second call (chunk 1) succeeds
         client.graphql.side_effect = [
             httpx.ConnectError("timeout"),
-            {"r0": {"ref": {"target": {"oid": "sha_last"}}}},
+            {"r0": {"stargazerCount": 1, "ref": {"target": {"oid": "sha_last"}}}},
         ]
 
-        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
 
         # Last repo succeeds
         assert sha_map == {"org250/repo250:main": "sha_last"}
+        assert stars == {"org250/repo250": 1}
         # First 250 repos are in failed_keys
         assert len(failed_keys) == 250
         assert "org0/repo0:main" in failed_keys
@@ -260,12 +271,13 @@ class TestBatchFetchTransientFailures:
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {
             "r0": None,  # repo not found — null data
-            "r1": {"ref": {"target": {"oid": "sha_ok"}}},
+            "r1": {"stargazerCount": 5, "ref": {"target": {"oid": "sha_ok"}}},
         }
 
         repos = [("org", "missing", "main"), ("org", "found", "main")]
-        sha_map, failed_keys = batch_fetch_commit_shas(client, repos)
+        sha_map, failed_keys, stars = batch_fetch_commit_shas(client, repos)
 
         assert sha_map == {"org/found:main": "sha_ok"}
+        assert stars == {"org/found": 5}
         # missing repo is NOT in failed_keys — it's distinguishable from transient
         assert failed_keys == set()

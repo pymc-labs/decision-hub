@@ -162,6 +162,7 @@ skills_table = Table(
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
     Column("source_repo_url", Text, nullable=True),
+    Column("github_stars", sa.Integer, nullable=True),
     Column("search_vector", TSVECTOR, nullable=True),
     Column("embedding", Vector(768), nullable=True),
     # Denormalized latest-version columns (kept in sync by _refresh_skill_latest_version)
@@ -618,6 +619,7 @@ def _row_to_skill(row: sa.Row) -> Skill:
         category=row.category,
         visibility=row.visibility,
         source_repo_url=row.source_repo_url,
+        github_stars=row.github_stars,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -1014,6 +1016,22 @@ def update_skill_source_repo_url(conn: Connection, skill_id: UUID, source_repo_u
     """Set or update the source GitHub repository URL for a skill."""
     stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(source_repo_url=source_repo_url)
     conn.execute(stmt)
+
+
+def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> None:
+    """Batch-update github_stars on the skills table by source_repo_url.
+
+    *repo_stars* maps ``"https://github.com/owner/repo"`` to the star count.
+    Updates all skills whose ``source_repo_url`` starts with the repo URL
+    (a repo may contain multiple skills in subdirectories).
+    """
+    for repo_url, stars in repo_stars.items():
+        stmt = (
+            sa.update(skills_table)
+            .where(skills_table.c.source_repo_url.like(f"{repo_url}%"))
+            .values(github_stars=stars)
+        )
+        conn.execute(stmt)
 
 
 def insert_skill_access_grant(
@@ -1588,6 +1606,7 @@ def fetch_all_skills_for_index(
             skills_table.c.category,
             skills_table.c.visibility,
             skills_table.c.source_repo_url,
+            skills_table.c.github_stars,
             skills_table.c.latest_semver.label("latest_version"),
             skills_table.c.latest_eval_status.label("eval_status"),
             skills_table.c.latest_published_at.label("created_at"),

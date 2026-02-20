@@ -133,28 +133,27 @@ class GitHubClient:
 def batch_fetch_commit_shas(
     client: GitHubClient,
     repos: list[tuple[str, str, str]],
-) -> tuple[dict[str, str], set[str]]:
-    """Fetch latest commit SHAs for multiple repos via batched GraphQL queries.
+) -> tuple[dict[str, str], set[str], dict[str, int]]:
+    """Fetch latest commit SHAs and star counts for multiple repos via batched GraphQL.
 
     Each element of *repos* is ``(owner, repo_name, branch)``.
 
-    Returns ``(sha_map, failed_keys)`` where *sha_map* maps
-    ``"owner/repo_name:branch"`` to the HEAD commit SHA, and *failed_keys*
-    contains keys whose entire GraphQL chunk failed (transient errors).
+    Returns ``(sha_map, failed_keys, stars_map)`` where:
+    - *sha_map* maps ``"owner/repo_name:branch"`` to the HEAD commit SHA
+    - *failed_keys* contains keys whose entire GraphQL chunk failed
+    - *stars_map* maps ``"owner/repo_name"`` to the stargazer count
 
     Repos that resolve successfully but have no data (private, deleted, empty)
     are silently omitted from *sha_map* — they are **not** in *failed_keys*.
-
-    Note: partial GraphQL errors (errors + data coexist) can still yield
-    missing keys indistinguishable from "repo not found". This is a residual
-    risk documented but not addressed here.
     """
     result: dict[str, str] = {}
     failed_keys: set[str] = set()
+    stars: dict[str, int] = {}
     for chunk_start in range(0, len(repos), _GRAPHQL_BATCH_CHUNK):
         chunk = repos[chunk_start : chunk_start + _GRAPHQL_BATCH_CHUNK]
         aliases: list[str] = []
         alias_map: dict[str, str] = {}  # alias -> "owner/repo:branch"
+        alias_owner_repo: dict[str, str] = {}  # alias -> "owner/repo"
         for i, (owner, repo_name, branch) in enumerate(chunk):
             # Defense-in-depth: reject values that could break GraphQL string
             # interpolation.  The API layer validates branch names on creation,
@@ -167,12 +166,14 @@ def batch_fetch_commit_shas(
                 alias = f"r{i}"
                 aliases.append(
                     f'{alias}: repository(owner: "{owner}", name: "{repo_name}") {{'
+                    f"  stargazerCount"
                     f'  ref(qualifiedName: "refs/heads/{branch}") {{'
                     f"    target {{ oid }}"
                     f"  }}"
                     f"}}"
                 )
                 alias_map[alias] = f"{owner}/{repo_name}:{branch}"
+                alias_owner_repo[alias] = f"{owner}/{repo_name}"
 
         query = "query {\n" + "\n".join(aliases) + "\n}"
 
@@ -185,7 +186,10 @@ def batch_fetch_commit_shas(
 
         for alias, full_name in alias_map.items():
             repo_data = data.get(alias)
-            if repo_data and repo_data.get("ref") and repo_data["ref"].get("target"):
-                result[full_name] = repo_data["ref"]["target"]["oid"]
+            if repo_data:
+                if repo_data.get("ref") and repo_data["ref"].get("target"):
+                    result[full_name] = repo_data["ref"]["target"]["oid"]
+                if "stargazerCount" in repo_data:
+                    stars[alias_owner_repo[alias]] = repo_data["stargazerCount"]
 
-    return result, failed_keys
+    return result, failed_keys, stars
