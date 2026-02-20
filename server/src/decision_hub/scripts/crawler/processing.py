@@ -308,7 +308,7 @@ def _publish_one_skill(
         result["skills_failed"] += 1
         return
 
-    report, check_results, llm_reasoning = run_gauntlet_pipeline(
+    _report, check_results, llm_reasoning = run_gauntlet_pipeline(
         skill_md_content,
         lockfile_content,
         source_files,

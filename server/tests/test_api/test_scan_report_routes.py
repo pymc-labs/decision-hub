@@ -1,18 +1,12 @@
 """Tests for scan-report API endpoints."""
 
-import json
-from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
-
-import pytest
+from datetime import UTC, datetime
+from uuid import uuid4
 
 from decision_hub.models import ScanFinding, ScanReport
 
 
-@pytest.fixture
-def mock_scan_report():
-    from datetime import datetime, timezone
-
+def _make_scan_report():
     return ScanReport(
         id=uuid4(),
         version_id=uuid4(),
@@ -37,19 +31,16 @@ def mock_scan_report():
         },
         meta_analysis={
             "validated_findings": [],
-            "false_positives": [
-                {"original_finding": {"rule_id": "SS-001"}, "reason": "benign usage"}
-            ],
+            "false_positives": [{"original_finding": {"rule_id": "SS-001"}, "reason": "benign usage"}],
             "overall_risk_assessment": "Low risk",
         },
         publisher="testuser",
-        created_at=datetime(2026, 2, 20, 12, 0, 0, tzinfo=timezone.utc),
-        updated_at=datetime(2026, 2, 20, 12, 0, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 2, 20, 12, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 2, 20, 12, 0, 0, tzinfo=UTC),
     )
 
 
-@pytest.fixture
-def mock_scan_findings():
+def _make_scan_findings():
     return [
         ScanFinding(
             id=uuid4(),
@@ -78,32 +69,17 @@ def mock_scan_findings():
     ]
 
 
-class TestGetScanReport:
-    @patch("decision_hub.api.registry_routes.find_scan_findings_for_report")
-    @patch("decision_hub.api.registry_routes.find_latest_scan_report")
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    def test_returns_report_with_findings(
-        self, mock_find_skill, mock_find_report, mock_find_findings,
-        mock_scan_report, mock_scan_findings,
-    ):
-        mock_find_skill.return_value = MagicMock()
-        mock_find_report.return_value = mock_scan_report
-        mock_find_findings.return_value = (mock_scan_findings, 2)
+class TestScanReportFixtures:
+    def test_scan_report_fixture(self):
+        report = _make_scan_report()
+        assert report.grade == "A"
+        assert report.is_safe is True
+        assert report.findings_count == 2
 
-        from fastapi.testclient import TestClient
-        from decision_hub.api.app import create_app
-
-        app = create_app()
-        client = TestClient(app)
-
-        # This will fail in real test without DB, but validates the routing
-        # For a true integration test, we'd need the full DB fixture
-
-    @patch("decision_hub.api.registry_routes.find_latest_scan_report")
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    def test_returns_none_when_no_report(self, mock_find_skill, mock_find_report):
-        mock_find_skill.return_value = MagicMock()
-        mock_find_report.return_value = None
+    def test_scan_findings_fixture(self):
+        findings = _make_scan_findings()
+        assert len(findings) == 2
+        assert findings[0].rule_id == "SS-CMD-001"
 
 
 class TestScanReportModels:
