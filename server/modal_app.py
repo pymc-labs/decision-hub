@@ -221,20 +221,20 @@ def check_trackers():
     setup_logging(settings.log_level)
 
     start = time.monotonic()
-    total_processed = 0
+    total_checked = 0
     iterations = 0
 
     while time.monotonic() - start < _TRACKER_LOOP_BUDGET_SECONDS:
-        processed = check_all_due_trackers(settings)
-        total_processed += processed
+        checked = check_all_due_trackers(settings)
+        total_checked += checked
         iterations += 1
-        if processed == 0:
+        if checked == 0:
             break
 
     logger.info(
-        "check_trackers done iterations={} total_processed={} elapsed={:.1f}s",
+        "check_trackers done iterations={} total_checked={} elapsed={:.1f}s",
         iterations,
-        total_processed,
+        total_checked,
         time.monotonic() - start,
     )
-    print(f"[check_trackers] Processed {total_processed} tracker(s) in {iterations} iteration(s)", flush=True)
+    print(f"[check_trackers] Checked {total_checked} tracker(s) in {iterations} iteration(s)", flush=True)

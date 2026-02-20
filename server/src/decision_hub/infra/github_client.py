@@ -169,7 +169,7 @@ def batch_fetch_commit_shas(
 
         try:
             data = client.graphql(query)
-        except (httpx.HTTPStatusError, ValueError) as exc:
+        except (httpx.HTTPError, ValueError) as exc:
             logger.warning("GraphQL batch failed (chunk {}-{}): {}", chunk_start, chunk_start + len(chunk), exc)
             continue
 

@@ -153,6 +153,14 @@ class TestBatchFetchCommitShas:
         result = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
         assert result == {}
 
+    def test_network_error_skips_chunk(self):
+        """Transient network errors (ConnectError, Timeout) are caught per-chunk."""
+        client = MagicMock(spec=GitHubClient)
+        client.graphql.side_effect = httpx.ConnectError("connection refused")
+
+        result = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
+        assert result == {}
+
     def test_multiple_repos(self):
         client = MagicMock(spec=GitHubClient)
         client.graphql.return_value = {

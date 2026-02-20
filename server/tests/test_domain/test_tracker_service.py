@@ -553,6 +553,78 @@ class TestDispatchChangedTrackers:
         assert failed == 1
 
 
+class TestCheckAllDueTrackersLoopSignal:
+    """Verify check_all_due_trackers returns len(trackers) so the caller loop continues."""
+
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.update_skill_tracker")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_returns_due_count_when_none_changed(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_update_tracker,
+        mock_dispatch,
+    ):
+        """When trackers are due but none changed, should return len(trackers) (not 0).
+
+        This ensures the caller loop in check_trackers keeps claiming subsequent
+        batches instead of breaking early.
+        """
+        trackers = [
+            SkillTracker(
+                id=uuid4(),
+                user_id=uuid4(),
+                org_slug="myorg",
+                repo_url=f"https://github.com/myorg/repo-{i}",
+                branch="main",
+                enabled=True,
+                poll_interval_minutes=60,
+                last_commit_sha=f"same_sha_{i}",
+                last_checked_at=None,
+                last_published_at=None,
+                last_error=None,
+                created_at=datetime.now(UTC),
+            )
+            for i in range(5)
+        ]
+
+        mock_conn = MagicMock()
+        mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = trackers
+
+        # All trackers have the same SHA → no changes
+        mock_batch_fetch.return_value = {
+            f"myorg/repo-{i}:main": f"same_sha_{i}" for i in range(5)
+        }
+
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.rate_limit_remaining = 4000
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 100
+        mock_settings.tracker_jitter_seconds = 0
+        mock_settings.tracker_rate_limit_floor = 500
+        mock_settings.github_token = "ghp_test"
+
+        result = check_all_due_trackers(mock_settings)
+
+        # Must return 5 (number of trackers claimed) so the loop continues
+        assert result == 5
+        # _dispatch_changed_trackers should be called with an empty list
+        mock_dispatch.assert_called_once()
+        changed_arg = mock_dispatch.call_args[0][0]
+        assert len(changed_arg) == 0
+
+
 class TestRateLimitGuardrail:
     """Verify check_all_due_trackers skips processing when GitHub rate limit is low."""
 

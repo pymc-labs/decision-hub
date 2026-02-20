@@ -69,7 +69,13 @@ def dict_to_tracker(d: dict[str, Any]) -> SkillTracker:
 
 
 def check_all_due_trackers(settings: Settings) -> int:
-    """Find all due trackers and process them. Returns count of trackers processed.
+    """Find all due trackers and process them. Returns count of trackers checked.
+
+    Returns the number of trackers *claimed* (checked) in this batch —
+    **not** the number that had changes.  The caller loop in ``check_trackers``
+    breaks when this returns 0, meaning no more trackers are due.  Returning
+    ``len(trackers)`` instead of the changed count ensures the loop keeps
+    going through subsequent batches even when one batch has zero changes.
 
     Uses batch GraphQL to check all claimed trackers for new commits in a
     single API call (per 250 repos), then only clones + republishes those
@@ -174,7 +180,7 @@ def check_all_due_trackers(settings: Settings) -> int:
         processed,
         failed,
     )
-    return processed
+    return len(trackers)
 
 
 def _dispatch_changed_trackers(
