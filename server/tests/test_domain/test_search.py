@@ -34,19 +34,41 @@ def test_build_index_entry():
     assert entry.org_slug == "pymc"
     assert entry.skill_name == "causalpy"
     assert entry.trust_score == "A"
+    assert entry.download_count == 0
+    assert entry.source_repo_url is None
+
+
+def test_build_index_entry_with_metadata():
+    entry = build_index_entry(
+        org_slug="acme",
+        skill_name="weather",
+        description="Weather forecasting",
+        latest_version="1.0.0",
+        eval_status="passed",
+        download_count=42,
+        source_repo_url="https://github.com/acme/weather",
+    )
+    assert entry.download_count == 42
+    assert entry.source_repo_url == "https://github.com/acme/weather"
 
 
 def test_serialize_index():
     entries = [
-        build_index_entry("org1", "skill1", "Desc 1", "1.0.0", "passed"),
-        build_index_entry("org2", "skill2", "Desc 2", "0.1.0", "pending"),
+        build_index_entry("org1", "skill1", "Desc 1", "1.0.0", "passed", download_count=10),
+        build_index_entry(
+            "org2", "skill2", "Desc 2", "0.1.0", "pending",
+            source_repo_url="https://github.com/org2/skill2",
+        ),
     ]
     jsonl = serialize_index(entries)
 
     lines = jsonl.strip().split("\n")
     assert len(lines) == 2
     assert "org1" in lines[0]
+    assert '"downloads": 10' in lines[0]
+    assert "source_repo_url" not in lines[0]  # omitted when None
     assert "org2" in lines[1]
+    assert "https://github.com/org2/skill2" in lines[1]
 
 
 def test_serialize_empty():

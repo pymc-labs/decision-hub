@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
-import { Search, X, Send, Loader2, ExternalLink, Sparkles } from "lucide-react";
+import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download } from "lucide-react";
 import { askQuestion } from "../api/client";
 import GradeBadge from "./GradeBadge";
 import type { AskResponse, AskSkillRef } from "../types/api";
@@ -171,6 +171,22 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
                           {skill.description}
                         </p>
                       )}
+                      <div className={styles.skillMeta}>
+                        {skill.category && (
+                          <span className={styles.skillMetaItem}>{skill.category}</span>
+                        )}
+                        {skill.author && (
+                          <span className={styles.skillMetaItem}>by {skill.author}</span>
+                        )}
+                        {skill.download_count > 0 && (
+                          <span className={styles.skillMetaItem}>
+                            <Download size={11} /> {skill.download_count.toLocaleString()}
+                          </span>
+                        )}
+                        {skill.latest_version && (
+                          <span className={styles.skillMetaItem}>v{skill.latest_version}</span>
+                        )}
+                      </div>
                       {skill.reason && (
                         <p className={styles.skillReason}>{skill.reason}</p>
                       )}

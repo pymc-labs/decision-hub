@@ -279,6 +279,12 @@ def ask_conversational(
         "Given a user's question and a set of candidate skills (JSONL format), "
         "provide a conversational answer that helps the user find the right "
         "skill(s) for their needs.\n\n"
+        "Each skill entry includes metadata: org, skill name, description, "
+        "version, eval_status, trust grade, author, category, download count, "
+        "and source_repo_url (when available). Use all available metadata to "
+        "answer the user's question thoroughly — for example, if they ask about "
+        "popularity use download counts, if they ask about the source use "
+        "source_repo_url, etc.\n\n"
         "Adapt your response depth to the query:\n"
         '- For simple lookups ("find a tool for X"), give a concise 2-3 sentence answer.\n'
         '- For analytical queries ("compare", "what are the best", "differences between"), '

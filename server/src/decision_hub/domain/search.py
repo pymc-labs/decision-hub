@@ -13,6 +13,8 @@ def build_index_entry(
     eval_status: str,
     author: str = "",
     category: str = "",
+    download_count: int = 0,
+    source_repo_url: str | None = None,
 ) -> SkillIndexEntry:
     """Create a search index entry from skill metadata.
 
@@ -24,6 +26,8 @@ def build_index_entry(
         eval_status: Current evaluation status (pending/passed/failed).
         author: GitHub username of the publisher.
         category: Skill category from LLM classification.
+        download_count: Number of times the skill has been downloaded.
+        source_repo_url: URL of the source GitHub repository.
 
     Returns:
         A SkillIndexEntry with a computed trust score.
@@ -37,6 +41,8 @@ def build_index_entry(
         trust_score=format_trust_score(eval_status),
         author=author,
         category=category,
+        download_count=download_count,
+        source_repo_url=source_repo_url,
     )
 
 
@@ -70,7 +76,7 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
     """
     lines = []
     for entry in entries:
-        obj = {
+        obj: dict = {
             "org": entry.org_slug,
             "skill": entry.skill_name,
             "description": entry.description,
@@ -79,6 +85,9 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
             "trust": entry.trust_score,
             "author": entry.author,
             "category": entry.category,
+            "downloads": entry.download_count,
         }
+        if entry.source_repo_url:
+            obj["source_repo_url"] = entry.source_repo_url
         lines.append(json.dumps(obj))
     return "\n".join(lines)

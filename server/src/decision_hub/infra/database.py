@@ -1692,6 +1692,7 @@ def search_skills_hybrid(
             skills_table.c.download_count,
             skills_table.c.category,
             skills_table.c.visibility,
+            skills_table.c.source_repo_url,
             skills_table.c.latest_semver.label("latest_version"),
             skills_table.c.latest_eval_status.label("eval_status"),
             skills_table.c.latest_published_at.label("created_at"),

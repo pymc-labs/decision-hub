@@ -309,3 +309,5 @@ class SkillIndexEntry:
     trust_score: str
     author: str = ""
     category: str = ""
+    download_count: int = 0
+    source_repo_url: str | None = None

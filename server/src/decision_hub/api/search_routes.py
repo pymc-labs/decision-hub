@@ -113,6 +113,8 @@ def _run_retrieval(
             eval_status=row["eval_status"],
             author=row.get("published_by", ""),
             category=row.get("category", ""),
+            download_count=row.get("download_count", 0),
+            source_repo_url=row.get("source_repo_url"),
         )
         for row in candidates
     )
@@ -150,6 +152,11 @@ class AskSkillRef(BaseModel):
     description: str
     safety_rating: str
     reason: str
+    author: str = ""
+    category: str = ""
+    download_count: int = 0
+    latest_version: str = ""
+    source_repo_url: str | None = None
 
 
 class AskResponse(BaseModel):
@@ -237,6 +244,11 @@ def ask_skills(
                     candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
                 ),
                 reason="Matched your search query.",
+                author=e.author,
+                category=e.category,
+                download_count=e.download_count,
+                latest_version=e.latest_version,
+                source_repo_url=e.source_repo_url,
             )
             for e in result.entries[:5]
         ]
@@ -297,6 +309,7 @@ def ask_skills(
         key = (ref["org_slug"], ref["skill_name"])
         row = candidate_map.get(key)
         if row:
+            published_by = row.get("published_by", "")
             skill_refs.append(
                 AskSkillRef(
                     org_slug=ref["org_slug"],
@@ -304,6 +317,11 @@ def ask_skills(
                     description=row.get("description", ""),
                     safety_rating=format_trust_score(row.get("eval_status", "")),
                     reason=ref.get("reason", ""),
+                    author=published_by.removeprefix("tracker:") if published_by else "",
+                    category=row.get("category", ""),
+                    download_count=row.get("download_count", 0),
+                    latest_version=row.get("latest_version", ""),
+                    source_repo_url=row.get("source_repo_url"),
                 )
             )
 
