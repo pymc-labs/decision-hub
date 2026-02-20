@@ -66,26 +66,38 @@ def severity_to_grade(max_severity: str) -> SafetyGrade:
 # ---------------------------------------------------------------------------
 
 
-def _build_scanner(settings: Any) -> Any:
-    """Build a SkillScanner configured for Scenario C (full pipeline)."""
-    from skill_scanner import SkillScanner
-    from skill_scanner.core.analyzer_factory import build_analyzers
-    from skill_scanner.core.scan_policy import ScanPolicy
-
-    policy = ScanPolicy.from_preset("balanced")
+def _build_analyzers(settings: Any) -> list[Any]:
+    """Build the list of analyzers for Scenario C (full pipeline)."""
+    from skill_scanner.core.analyzers import (
+        BehavioralAnalyzer,
+        LLMAnalyzer,
+        MetaAnalyzer,
+        StaticAnalyzer,
+        TriggerAnalyzer,
+    )
 
     api_key = getattr(settings, "google_api_key", None)
     model = getattr(settings, "gemini_model", "gemini-2.0-flash")
 
-    analyzers = build_analyzers(
-        policy,
-        use_behavioral=True,
-        use_llm=bool(api_key),
-        llm_model=model,
-        llm_api_key=api_key,
-    )
+    analyzers: list[Any] = [
+        StaticAnalyzer(),
+        BehavioralAnalyzer(),
+        TriggerAnalyzer(),
+    ]
 
-    return SkillScanner(analyzers=analyzers, policy=policy), policy
+    if api_key:
+        analyzers.append(LLMAnalyzer(model=model, api_key=api_key))
+        analyzers.append(MetaAnalyzer(model=model, api_key=api_key))
+
+    return analyzers
+
+
+def _build_scanner(settings: Any) -> Any:
+    """Build a SkillScanner configured for Scenario C (full pipeline)."""
+    from skill_scanner import SkillScanner
+
+    analyzers = _build_analyzers(settings)
+    return SkillScanner(analyzers=analyzers)
 
 
 def _find_skill_root(base: Path) -> Path:
@@ -115,11 +127,11 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     """
     start = time.monotonic()
 
-    scanner, policy = _build_scanner(settings)
-    result = scanner.scan_skill(str(skill_dir))
+    scanner = _build_scanner(settings)
+    result = scanner.scan_skill(skill_dir)
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    return _map_scan_result(result, policy, elapsed_ms)
+    return _map_scan_result(result, elapsed_ms)
 
 
 def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
@@ -133,11 +145,11 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             zf.extractall(tmp)
         skill_dir = _find_skill_root(Path(tmp))
-        scanner, policy = _build_scanner(settings)
-        result = scanner.scan_skill(str(skill_dir))
+        scanner = _build_scanner(settings)
+        result = scanner.scan_skill(skill_dir)
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    return _map_scan_result(result, policy, elapsed_ms)
+    return _map_scan_result(result, elapsed_ms)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +157,7 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
 # ---------------------------------------------------------------------------
 
 
-def _map_scan_result(result: Any, policy: Any, elapsed_ms: int) -> BridgeScanResult:
+def _map_scan_result(result: Any, elapsed_ms: int) -> BridgeScanResult:
     """Convert a skill-scanner ScanResult to a BridgeScanResult."""
     result_dict = result.to_dict()
 
@@ -160,10 +172,14 @@ def _map_scan_result(result: Any, policy: Any, elapsed_ms: int) -> BridgeScanRes
         if hasattr(f.severity, "name"):
             severity = f.severity.name
 
+        category = str(getattr(f, "category", ""))
+        if hasattr(f.category, "value"):
+            category = f.category.value
+
         findings.append(
             {
                 "rule_id": getattr(f, "rule_id", ""),
-                "category": str(getattr(f, "category", "")),
+                "category": category,
                 "severity": severity,
                 "title": getattr(f, "title", ""),
                 "description": getattr(f, "description", None),
@@ -178,7 +194,6 @@ def _map_scan_result(result: Any, policy: Any, elapsed_ms: int) -> BridgeScanRes
         )
 
     analyzers_used = result_dict.get("analyzers_used", [])
-    analyzability_score = result_dict.get("analyzability_score")
 
     meta_analysis = result_dict.get("meta_analysis") or result_dict.get("scan_metadata", {}).get("meta_analysis")
 
@@ -201,9 +216,9 @@ def _map_scan_result(result: Any, policy: Any, elapsed_ms: int) -> BridgeScanRes
         findings_count=len(findings),
         findings=findings,
         analyzers_used=analyzers_used,
-        analyzability_score=analyzability_score,
+        analyzability_score=None,
         scan_duration_ms=elapsed_ms,
-        policy_name=getattr(policy, "name", "balanced"),
+        policy_name="balanced",
         policy_fingerprint=result_dict.get("scan_metadata", {}).get("policy_fingerprint"),
         full_report=result_dict,
         meta_analysis=meta_analysis,

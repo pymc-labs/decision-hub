@@ -80,10 +80,8 @@ class TestMapScanResult:
 
     def test_safe_result_maps_to_grade_a(self):
         mock_result = self._make_mock_result(is_safe=True, max_severity_name="LOW")
-        policy = MagicMock()
-        policy.name = "balanced"
 
-        bridge_result = _map_scan_result(mock_result, policy, elapsed_ms=100)
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=100)
 
         assert bridge_result.grade == "A"
         assert bridge_result.is_safe is True
@@ -93,10 +91,8 @@ class TestMapScanResult:
 
     def test_critical_result_maps_to_grade_f(self):
         mock_result = self._make_mock_result(is_safe=False, max_severity_name="CRITICAL")
-        policy = MagicMock()
-        policy.name = "balanced"
 
-        bridge_result = _map_scan_result(mock_result, policy, elapsed_ms=5000)
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=5000)
 
         assert bridge_result.grade == "F"
         assert bridge_result.is_safe is False
@@ -104,10 +100,8 @@ class TestMapScanResult:
 
     def test_medium_result_maps_to_grade_c(self):
         mock_result = self._make_mock_result(is_safe=True, max_severity_name="MEDIUM")
-        policy = MagicMock()
-        policy.name = "balanced"
 
-        bridge_result = _map_scan_result(mock_result, policy, elapsed_ms=200)
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=200)
 
         assert bridge_result.grade == "C"
 
@@ -132,10 +126,8 @@ class TestMapScanResult:
             max_severity_name="HIGH",
             findings=[finding],
         )
-        policy = MagicMock()
-        policy.name = "balanced"
 
-        bridge_result = _map_scan_result(mock_result, policy, elapsed_ms=300)
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=300)
 
         assert bridge_result.findings_count == 1
         f = bridge_result.findings[0]
@@ -148,11 +140,8 @@ class TestMapScanResult:
 
     def test_full_report_preserved(self):
         mock_result = self._make_mock_result()
-        policy = MagicMock()
-        policy.name = "balanced"
 
-        bridge_result = _map_scan_result(mock_result, policy, elapsed_ms=50)
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=50)
 
         assert bridge_result.full_report is not None
         assert bridge_result.full_report["analyzers_used"] == ["static", "behavioral"]
-        assert bridge_result.analyzability_score == 95.0
