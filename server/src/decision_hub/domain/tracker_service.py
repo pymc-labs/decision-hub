@@ -88,10 +88,13 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
     from decision_hub.infra.database import (
         batch_clear_tracker_errors,
         batch_defer_trackers,
+        batch_disable_trackers,
         batch_set_tracker_errors,
+        batch_update_github_repo_metadata,
         batch_update_github_stars,
         claim_due_trackers,
         create_engine,
+        mark_skills_source_removed,
     )
     from decision_hub.infra.github_client import GitHubClient, batch_fetch_commit_shas
 
@@ -135,7 +138,7 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
     # Batch-fetch latest commit SHAs and star counts via GraphQL
     github_token = _resolve_github_token(settings)
     with GitHubClient(token=github_token) as gh:
-        sha_map, failed_chunk_keys, stars_map = batch_fetch_commit_shas(gh, unique_repos)
+        sha_map, failed_chunk_keys, stars_map, repo_metadata_map = batch_fetch_commit_shas(gh, unique_repos)
         rate_remaining = gh.rate_limit_remaining
 
     # Classify trackers with transient awareness
@@ -170,6 +173,23 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
         batch_clear_tracker_errors(conn, unchanged_ids)
         batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
         batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
+        # Auto-disable permanent errors and mark their skills as removed
+        if errored_ids_permanent:
+            batch_disable_trackers(conn, errored_ids_permanent)
+            removed_urls = list(
+                {
+                    t.repo_url
+                    for key, kts in repo_key_to_trackers.items()
+                    if key not in failed_chunk_keys and sha_map.get(key) is None
+                    for t in kts
+                }
+            )
+            mark_skills_source_removed(conn, removed_urls)
+            logger.info(
+                "auto_disabled {} permanent-error trackers, marked {} repo URLs as removed",
+                len(errored_ids_permanent),
+                len(removed_urls),
+            )
         conn.commit()
 
     # Update github_stars on skills whose source_repo_url matches the tracked repos.
@@ -184,6 +204,16 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
             logger.debug("Updated github_stars for {} repos", len(repo_stars))
         except Exception:
             logger.opt(exception=True).warning("Failed to update github_stars (non-critical)")
+
+    if repo_metadata_map:
+        try:
+            repo_meta = {f"https://github.com/{owner_repo}": meta for owner_repo, meta in repo_metadata_map.items()}
+            with engine.connect() as conn:
+                batch_update_github_repo_metadata(conn, repo_meta)
+                conn.commit()
+            logger.debug("Updated github repo metadata for {} repos", len(repo_meta))
+        except Exception:
+            logger.opt(exception=True).warning("Failed to update github repo metadata (non-critical)")
 
     # Rate-limit budget guardrail: skip clone+publish if GitHub budget is low.
     # Changed trackers that aren't processed will be picked up next tick
@@ -414,8 +444,14 @@ def process_tracker(
                         last_commit_sha=current_sha,
                         last_checked_at=now,
                         last_error="No skills found in repository",
+                        enabled=False,
                     )
                     conn.commit()
+                logger.info(
+                    "tracker_id={} repo={} status=disabled reason=no_skills_found",
+                    tracker.id,
+                    tracker.repo_url,
+                )
                 return
 
             s3_client = create_s3_client(

@@ -15,6 +15,7 @@ from decision_hub.infra.database import (
     _row_to_tracker_metrics,
     batch_clear_tracker_errors,
     batch_defer_trackers,
+    batch_disable_trackers,
     batch_set_tracker_errors,
     claim_due_trackers,
     delete_skill_tracker,
@@ -23,6 +24,7 @@ from decision_hub.infra.database import (
     insert_tracker_metrics,
     list_skill_trackers_for_user,
     list_tracker_metrics,
+    mark_skills_source_removed,
     update_skill_tracker,
 )
 from decision_hub.models import SkillTracker, TrackerMetrics
@@ -284,6 +286,40 @@ class TestBatchDeferTrackers:
 
         result = batch_defer_trackers(conn, ids, "rate_limit: deferred")
         assert result == 4
+        conn.execute.assert_called_once()
+
+
+class TestBatchDisableTrackers:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_disable_trackers(conn, [])
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 3
+        ids = [uuid4() for _ in range(3)]
+
+        result = batch_disable_trackers(conn, ids)
+        assert result == 3
+        conn.execute.assert_called_once()
+
+
+class TestMarkSkillsSourceRemoved:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = mark_skills_source_removed(conn, [])
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 2
+        urls = ["https://github.com/owner/repo1", "https://github.com/owner/repo2"]
+
+        result = mark_skills_source_removed(conn, urls)
+        assert result == 2
         conn.execute.assert_called_once()
 
 

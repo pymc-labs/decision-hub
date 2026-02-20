@@ -212,7 +212,12 @@ class SkillSummary(BaseModel):
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    source_repo_removed: bool = False
     github_stars: int | None = None
+    github_forks: int | None = None
+    github_watchers: int | None = None
+    github_is_archived: bool | None = None
+    github_license: str | None = None
     is_auto_synced: bool = False
 
 
@@ -611,7 +616,12 @@ def list_skills(
             category=row.get("category", ""),
             visibility=row.get("visibility", "public"),
             source_repo_url=row.get("source_repo_url"),
+            source_repo_removed=row.get("source_repo_removed", False),
             github_stars=row.get("github_stars"),
+            github_forks=row.get("github_forks"),
+            github_watchers=row.get("github_watchers"),
+            github_is_archived=row.get("github_is_archived"),
+            github_license=row.get("github_license"),
             is_auto_synced=row.get("has_tracker", False),
         )
         for row in rows
@@ -658,7 +668,12 @@ def get_skill_summary(
         category=skill.category,
         visibility=skill.visibility,
         source_repo_url=skill.source_repo_url,
+        source_repo_removed=skill.source_repo_removed,
         github_stars=skill.github_stars,
+        github_forks=skill.github_forks,
+        github_watchers=skill.github_watchers,
+        github_is_archived=skill.github_is_archived,
+        github_license=skill.github_license,
         is_auto_synced=bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url)),
     )
 
