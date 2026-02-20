@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_s3_client, get_settings
 from decision_hub.api.rate_limit import RateLimiter
-from decision_hub.domain.search import build_index_entry, format_trust_score, serialize_index
+from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import (
@@ -111,7 +111,7 @@ def _run_retrieval(
             description=row.get("description", ""),
             latest_version=row["latest_version"],
             eval_status=row["eval_status"],
-            author=row.get("published_by", ""),
+            author=resolve_author_display(row.get("published_by", "")),
             category=row.get("category", ""),
             download_count=row.get("download_count", 0),
             source_repo_url=row.get("source_repo_url"),
@@ -309,7 +309,6 @@ def ask_skills(
         key = (ref["org_slug"], ref["skill_name"])
         row = candidate_map.get(key)
         if row:
-            published_by = row.get("published_by", "")
             skill_refs.append(
                 AskSkillRef(
                     org_slug=ref["org_slug"],
@@ -317,7 +316,7 @@ def ask_skills(
                     description=row.get("description", ""),
                     safety_rating=format_trust_score(row.get("eval_status", "")),
                     reason=ref.get("reason", ""),
-                    author=published_by.removeprefix("tracker:") if published_by else "",
+                    author=resolve_author_display(row.get("published_by", "")),
                     category=row.get("category", ""),
                     download_count=row.get("download_count", 0),
                     latest_version=row.get("latest_version", ""),

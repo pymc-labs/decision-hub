@@ -587,9 +587,7 @@ _SKILL_SUMMARY_COLUMNS = [
 ]
 
 # Keys present in every skill summary dict (used by _row_to_skill_summary).
-_SKILL_SUMMARY_KEYS = frozenset(
-    col.key if hasattr(col, "key") else col.name for col in _SKILL_SUMMARY_COLUMNS
-)
+_SKILL_SUMMARY_KEYS = frozenset(col.key if hasattr(col, "key") else col.name for col in _SKILL_SUMMARY_COLUMNS)
 
 
 def _row_to_skill_summary(row: sa.Row) -> dict:

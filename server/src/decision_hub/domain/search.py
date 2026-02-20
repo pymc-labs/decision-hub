@@ -46,6 +46,16 @@ def build_index_entry(
     )
 
 
+def resolve_author_display(published_by: str) -> str:
+    """Return a human-friendly author label.
+
+    Tracker-published versions store ``tracker:<uuid>`` — display as "auto-sync".
+    """
+    if published_by.startswith("tracker:"):
+        return "auto-sync"
+    return published_by
+
+
 def format_trust_score(eval_status: str) -> str:
     """Map an evaluation status to a human-readable trust grade.
 

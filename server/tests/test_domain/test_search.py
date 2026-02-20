@@ -56,7 +56,11 @@ def test_serialize_index():
     entries = [
         build_index_entry("org1", "skill1", "Desc 1", "1.0.0", "passed", download_count=10),
         build_index_entry(
-            "org2", "skill2", "Desc 2", "0.1.0", "pending",
+            "org2",
+            "skill2",
+            "Desc 2",
+            "0.1.0",
+            "pending",
             source_repo_url="https://github.com/org2/skill2",
         ),
     ]
