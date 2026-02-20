@@ -120,5 +120,3 @@ def auth_headers(test_settings: MagicMock) -> dict[str, str]:
 def sample_user_id() -> UUID:
     """The UUID that matches the auth_headers JWT 'sub' claim."""
     return UUID("12345678-1234-5678-1234-567812345678")
-
-
