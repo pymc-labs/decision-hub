@@ -62,7 +62,9 @@ Client-package commands (`uv run --package dhub-cli ...`) can run from anywhere.
 
 ### Quick Reference
 
-Common commands are available via `make`. Run `make help` to see all targets.
+Common commands are available via `make`. Run `make help` to see all targets. **Always check the Makefile** for available targets and their exact recipes — do not hardcode or memorize commands that the Makefile already provides.
+
+**Important**: Always run `make` from the **repo root** (where the `Makefile` lives). If your working directory has drifted (e.g. into `server/`), use `make -C /path/to/repo-root <target>` to avoid "No rule to make target" errors.
 
 Install pre-commit hooks once after cloning: `make install-hooks`.
 
@@ -153,24 +155,11 @@ When adding new public endpoints, always add a rate limiter following the existi
 
 ### Linting & Formatting
 
-The project uses **ruff** for linting and formatting, and **mypy** for type checking, both configured in the root `pyproject.toml`. Pre-commit hooks run ruff automatically on every commit (install once with `make install-hooks`). Mypy runs in CI only (not pre-commit).
-
-```bash
-make lint       # check only (CI runs this)
-make typecheck  # mypy type checks (CI runs this)
-make fmt        # auto-fix + format
-```
+The project uses **ruff** for linting and formatting, and **mypy** for type checking, both configured in the root `pyproject.toml`. Pre-commit hooks run ruff automatically on every commit (install once with `make install-hooks`). Mypy runs in CI only (not pre-commit). See `make help` for lint, format, and typecheck targets.
 
 ### Testing
 
-Use `pytest` with fixtures in `conftest.py`. Mock external services (S3, Gemini, Anthropic, Database) in tests.
-
-```bash
-make test              # all tests
-make test-client       # client only
-make test-server       # server only
-make test-frontend     # frontend only
-```
+Use `pytest` with fixtures in `conftest.py`. Mock external services (S3, Gemini, Anthropic, Database) in tests. See `make help` for test targets (all, client, server, frontend).
 
 ### CI
 
@@ -191,12 +180,7 @@ Migrations are tracked SQL files in `server/migrations/`. The runner (`scripts/r
 
 ### Running migrations
 
-```bash
-make migrate-dev     # apply pending migrations to dev
-make migrate-prod    # apply pending migrations to prod (use with care)
-```
-
-Migrations are also applied automatically during deploys (`scripts/deploy.sh`).
+Use the migrate targets from `make help`. Migrations are also applied automatically during deploys (`scripts/deploy.sh`).
 
 ### Creating a new migration
 
@@ -223,7 +207,7 @@ Legacy files use 3-digit numeric prefixes (`001_` through `011_`). Do not add ne
 - **Always update both** the SQL migration file and the SQLAlchemy table definition in `database.py` when changing the schema. CI will catch drift.
 - **Use `IF NOT EXISTS` / `IF EXISTS`** in DDL when possible for idempotency (especially for `CREATE TABLE`, `ADD COLUMN`).
 - **Keep migration PRs focused.** Prefer multiple small PRs over one large one.
-- **Test locally** before pushing: `make check-migrations` validates filenames, `make migrate-dev` applies to dev.
+- **Test locally** before pushing: use the migration-related targets from `make help` to validate filenames and apply to dev.
 - **`created_at` and `updated_at` are managed by PostgreSQL.** `created_at` uses a `DEFAULT now()` server default on insert. `updated_at` is set by a `BEFORE UPDATE` trigger (`set_updated_at()`). Never set either in application code. New mutable tables must include both columns and a `BEFORE UPDATE` trigger for `updated_at`.
 - **Always enable RLS on new tables.** Every `CREATE TABLE` migration must include `ALTER TABLE <name> ENABLE ROW LEVEL SECURITY;`. This blocks Supabase PostgREST (anon/authenticated roles) from querying tables directly — all data access must go through the FastAPI API layer. The backend connects as the table owner, which bypasses RLS automatically.
 
@@ -291,11 +275,7 @@ When reviewing code (PRs, refactors, or when explicitly asked), evaluate these f
 
 #### Release commands
 
-```bash
-make publish-cli                          # patch bump, publish to PyPI
-make publish-cli BUMP=minor               # minor bump, publish to PyPI
-make publish-cli BUMP=major BREAKING=1    # major bump + update MIN_CLI_VERSION + redeploy servers
-```
+Use the `publish-cli` target from `make help`. Supports `BUMP=patch|minor|major` and `BREAKING=1` to sync servers.
 
 #### How it works
 
@@ -305,12 +285,7 @@ Every CLI publish automatically creates a `cli/vX.Y.Z` git tag, and every prod d
 
 ### Deployment
 
-```bash
-make deploy-dev    # build frontend + deploy to dev Modal
-make deploy-prod   # build frontend + deploy to prod Modal
-```
-
-The deploy script builds the React frontend (`frontend/dist/`) and bundles it into the Modal container alongside the server.
+Use the deploy targets from `make help`. The deploy script builds the React frontend (`frontend/dist/`) and bundles it into the Modal container alongside the server.
 
 #### Dev auto-deploy
 
@@ -330,14 +305,7 @@ After implementing significant changes, check whether these need updating:
 
 ## Data Maintenance
 
-Run all backfills (categories, embeddings, org metadata) in one command:
-
-```bash
-make backfill                    # against dev (default)
-DHUB_ENV=prod make backfill      # against prod
-```
-
-Individual backfill scripts can also be run directly from `server/` — see `server/scripts/backfill_categories.py` and `server/src/decision_hub/scripts/backfill_embeddings.py`.
+Use the `backfill` target from `make help` to run all backfills (categories, embeddings, org metadata). Defaults to dev; override with `DHUB_ENV=prod`. Individual backfill scripts can also be run directly from `server/` — see `server/scripts/backfill_categories.py` and `server/src/decision_hub/scripts/backfill_embeddings.py`.
 
 ## Monitoring Trackers
 
@@ -377,11 +345,7 @@ modal secret create decision-hub-github-app --force \
 
 **Note:** The crawler and backfill scripts still use a PAT passed via `--github-token`. Only the tracker cron uses App tokens.
 
-**Quick health check:**
-```bash
-make tracker-health                    # dev (default)
-DHUB_ENV=prod make tracker-health      # prod
-```
+**Quick health check:** Use the `tracker-health` target from `make help`. Defaults to dev; override with `DHUB_ENV=prod`.
 
 **Check Modal logs for failures:**
 ```bash
