@@ -14,6 +14,23 @@ _GITHUB_HTTPS_PATTERN = re.compile(r"https?://github\.com/(?P<owner>[^/]+)/(?P<r
 _GITHUB_SSH_PATTERN = re.compile(r"git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 
 
+# Valid git branch: alphanumeric, -, _, ., /  — no whitespace, quotes, or
+# control characters.  Covers the vast majority of real branch names while
+# blocking any string that could break GraphQL query interpolation.
+_VALID_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/\-]+$")
+
+
+def validate_branch_name(branch: str) -> None:
+    """Raise ``ValueError`` if *branch* contains unsafe characters.
+
+    Only allows ``[A-Za-z0-9._/-]`` which covers all conventional git
+    branch names while preventing GraphQL query injection via
+    string interpolation.
+    """
+    if not branch or not _VALID_BRANCH_RE.match(branch):
+        raise ValueError(f"Invalid branch name: {branch!r}")
+
+
 def build_canonical_repo_url(owner: str, repo: str) -> str:
     """Build a canonical HTTPS GitHub URL from owner and repo name."""
     return f"https://github.com/{owner}/{repo}"

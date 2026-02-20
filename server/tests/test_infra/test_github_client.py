@@ -69,7 +69,7 @@ class TestGitHubClientGraphQL:
         assert result == {"viewer": {"login": "test"}}
 
     @patch("decision_hub.infra.github_client.httpx.post")
-    def test_graphql_errors_raises(self, mock_post):
+    def test_graphql_errors_without_data_raises(self, mock_post):
         resp = MagicMock()
         resp.status_code = 200
         resp.headers = {}
@@ -79,6 +79,24 @@ class TestGitHubClientGraphQL:
 
         with GitHubClient() as gh, pytest.raises(ValueError, match="GraphQL errors"):
             gh.graphql("{ bad }")
+
+    @patch("decision_hub.infra.github_client.httpx.post")
+    def test_graphql_partial_errors_returns_data(self, mock_post):
+        """When both data and errors are present, return data instead of raising."""
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {}
+        resp.json.return_value = {
+            "data": {"r0": {"ref": {"target": {"oid": "abc123"}}}},
+            "errors": [{"message": "Could not resolve to a Repository"}],
+        }
+        resp.raise_for_status = MagicMock()
+        mock_post.return_value = resp
+
+        with GitHubClient(token="ghp_test") as gh:
+            result = gh.graphql("query { ... }")
+
+        assert result == {"r0": {"ref": {"target": {"oid": "abc123"}}}}
 
 
 class TestBatchFetchCommitShas:
@@ -90,7 +108,7 @@ class TestBatchFetchCommitShas:
 
         result = batch_fetch_commit_shas(client, [("owner", "repo", "main")])
 
-        assert result == {"owner/repo": "abc123def456"}
+        assert result == {"owner/repo:main": "abc123def456"}
         client.graphql.assert_called_once()
 
     def test_missing_repo_omitted(self):
@@ -102,7 +120,7 @@ class TestBatchFetchCommitShas:
             [("owner", "missing", "main"), ("owner", "repo", "main")],
         )
 
-        assert result == {"owner/repo": "sha456"}
+        assert result == {"owner/repo:main": "sha456"}
 
     def test_empty_ref_omitted(self):
         """Repos with no ref (empty repo, bad branch) are skipped."""
@@ -136,7 +154,26 @@ class TestBatchFetchCommitShas:
         result = batch_fetch_commit_shas(client, repos)
 
         assert result == {
-            "org/repo-a": "sha1",
-            "org/repo-b": "sha2",
-            "other/repo-c": "sha3",
+            "org/repo-a:main": "sha1",
+            "org/repo-b:develop": "sha2",
+            "other/repo-c:main": "sha3",
+        }
+
+    def test_same_repo_different_branches(self):
+        """Two trackers on different branches of the same repo get distinct keys."""
+        client = MagicMock(spec=GitHubClient)
+        client.graphql.return_value = {
+            "r0": {"ref": {"target": {"oid": "sha_main"}}},
+            "r1": {"ref": {"target": {"oid": "sha_dev"}}},
+        }
+
+        repos = [
+            ("org", "repo", "main"),
+            ("org", "repo", "develop"),
+        ]
+        result = batch_fetch_commit_shas(client, repos)
+
+        assert result == {
+            "org/repo:main": "sha_main",
+            "org/repo:develop": "sha_dev",
         }

@@ -49,7 +49,7 @@ def check_all_due_trackers(settings: Settings) -> int:
     tracker_by_key: dict[str, SkillTracker] = {}
     for tracker in trackers:
         owner, repo = parse_github_repo_url(tracker.repo_url)
-        key = f"{owner}/{repo}"
+        key = f"{owner}/{repo}:{tracker.branch}"
         repos_to_check.append((owner, repo, tracker.branch))
         tracker_by_key[key] = tracker
 
@@ -57,10 +57,10 @@ def check_all_due_trackers(settings: Settings) -> int:
         sha_map = batch_fetch_commit_shas(gh, repos_to_check)
 
     # Partition: unchanged vs changed
-    changed_trackers: list[SkillTracker] = []
+    changed_trackers: list[tuple[SkillTracker, str]] = []  # (tracker, current_sha)
     for tracker in trackers:
         owner, repo = parse_github_repo_url(tracker.repo_url)
-        key = f"{owner}/{repo}"
+        key = f"{owner}/{repo}:{tracker.branch}"
         current_sha = sha_map.get(key)
 
         if current_sha is None:
@@ -77,14 +77,14 @@ def check_all_due_trackers(settings: Settings) -> int:
                 conn.commit()
             continue
 
-        changed_trackers.append(tracker)
+        changed_trackers.append((tracker, current_sha))
 
     # Process changed trackers sequentially
     processed = 0
     failed = 0
-    for tracker in changed_trackers:
+    for tracker, known_sha in changed_trackers:
         try:
-            process_tracker(tracker, settings, engine)
+            process_tracker(tracker, settings, engine, known_sha=known_sha)
             processed += 1
         except Exception:
             logger.opt(exception=True).error(
@@ -104,11 +104,21 @@ def check_all_due_trackers(settings: Settings) -> int:
     return processed
 
 
-def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
+def process_tracker(
+    tracker: SkillTracker,
+    settings: Settings,
+    engine,
+    *,
+    known_sha: str | None = None,
+) -> None:
     """Check a single tracker for updates and republish if needed.
 
     This is the main entry point called by the scheduled function.
     On any error, updates last_error on the tracker row.
+
+    When *known_sha* is provided (from batch GraphQL), skips the
+    per-tracker REST commit check — the caller already determined
+    that the repo has new commits.
     """
     from decision_hub.infra.database import update_skill_tracker
     from decision_hub.infra.storage import create_s3_client
@@ -118,30 +128,35 @@ def process_tracker(tracker: SkillTracker, settings: Settings, engine) -> None:
     try:
         github_token = _resolve_github_token(settings)
         owner, repo = parse_github_repo_url(tracker.repo_url)
-        changed, current_sha = has_new_commits(
-            owner,
-            repo,
-            tracker.branch,
-            tracker.last_commit_sha,
-            github_token=github_token,
-        )
 
-        if not changed:
-            with engine.connect() as conn:
-                update_skill_tracker(
-                    conn,
-                    tracker.id,
-                    last_checked_at=now,
-                    last_error=None,
-                )
-                conn.commit()
-            logger.info(
-                "tracker_id={} repo={}/{} status=checked",
-                tracker.id,
+        if known_sha is not None:
+            # Caller already verified new commits via batch GraphQL
+            current_sha = known_sha
+        else:
+            changed, current_sha = has_new_commits(
                 owner,
                 repo,
+                tracker.branch,
+                tracker.last_commit_sha,
+                github_token=github_token,
             )
-            return
+
+            if not changed:
+                with engine.connect() as conn:
+                    update_skill_tracker(
+                        conn,
+                        tracker.id,
+                        last_checked_at=now,
+                        last_error=None,
+                    )
+                    conn.commit()
+                logger.info(
+                    "tracker_id={} repo={}/{} status=checked",
+                    tracker.id,
+                    owner,
+                    repo,
+                )
+                return
 
         # Clone the repo at the target branch
         repo_root = clone_repo(tracker.repo_url, tracker.branch, github_token=github_token)

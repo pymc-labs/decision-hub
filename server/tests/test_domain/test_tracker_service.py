@@ -306,6 +306,55 @@ class TestProcessTrackerAllFailed:
             assert kwargs["last_error"] is None
 
 
+class TestProcessTrackerKnownSha:
+    """Verify process_tracker skips REST check when known_sha is provided."""
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value=None)
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
+    @patch("decision_hub.infra.storage.create_s3_client")
+    @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker", return_value=True)
+    def test_known_sha_skips_rest_check(
+        self,
+        _mock_publish,
+        _mock_s3,
+        mock_discover,
+        mock_clone,
+        _mock_token,
+    ):
+        """When known_sha is passed, has_new_commits should NOT be called."""
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=5,
+            last_commit_sha="old_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+        mock_clone.return_value = Path("/tmp/fake/repo")
+        mock_discover.return_value = [Path("/tmp/fake/repo/skill-a")]
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+
+        with (
+            patch("decision_hub.infra.database.update_skill_tracker"),
+            patch("decision_hub.domain.tracker_service.has_new_commits") as mock_has_new,
+        ):
+            process_tracker(tracker, mock_settings, mock_engine, known_sha="new_sha_xyz")
+            mock_has_new.assert_not_called()
+
+
 class TestCheckAllDueTrackersBatchSize:
     """Verify check_all_due_trackers passes tracker_batch_size from settings."""
 

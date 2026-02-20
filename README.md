@@ -154,14 +154,7 @@ dhub publish https://github.com/org/repo --no-track
 dhub publish https://github.com/org/repo --track
 ```
 
-**Private repos** require a GitHub personal access token with `repo` scope:
-
-```bash
-dhub keys add GITHUB_TOKEN
-dhub publish https://github.com/org/private-repo
-```
-
-Without a token, private repos will not sync and the tracker will report an error. Public repos work without any token.
+**Private repos:** Tracker polling uses a system-level GitHub token. Private repos will only sync if the system token has access. Public repos work without any additional configuration.
 
 ### Organizations & Config
 

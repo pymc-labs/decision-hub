@@ -90,6 +90,12 @@ class GitHubClient:
         resp.raise_for_status()
         body = resp.json()
         if "errors" in body:
+            if body.get("data"):
+                # Partial failure — some aliases resolved, others didn't.
+                # Log but return whatever data we got; callers already handle
+                # missing aliases gracefully.
+                logger.warning("GraphQL partial errors (returning data): {}", body["errors"])
+                return body["data"]
             raise ValueError(f"GraphQL errors: {body['errors']}")
         return body["data"]
 
@@ -122,7 +128,7 @@ def batch_fetch_commit_shas(
 
     Each element of *repos* is ``(owner, repo_name, branch)``.
 
-    Returns a dict mapping ``"owner/repo_name"`` to the HEAD commit SHA.
+    Returns a dict mapping ``"owner/repo_name:branch"`` to the HEAD commit SHA.
     Repos that fail (private, deleted, empty) are silently omitted.
     """
     result: dict[str, str] = {}
@@ -139,7 +145,7 @@ def batch_fetch_commit_shas(
                 f"  }}"
                 f"}}"
             )
-            alias_map[alias] = f"{owner}/{repo_name}"
+            alias_map[alias] = f"{owner}/{repo_name}:{branch}"
 
         query = "query {\n" + "\n".join(aliases) + "\n}"
 
