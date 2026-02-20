@@ -139,8 +139,11 @@ def discover_batches(
                 )
                 yield new_batch
 
-    # Fork scanning runs last because it depends on discovered repos
-    ordered = [s for s in strategies if s != "fork"]
+    # Curated lists run second (right after trusted orgs) and fork runs last.
+    # Everything else preserves the caller-supplied order.
+    ordered = [s for s in strategies if s not in ("curated", "fork")]
+    if "curated" in strategies:
+        ordered.insert(0, "curated")
     if "fork" in strategies:
         ordered.append("fork")
 
