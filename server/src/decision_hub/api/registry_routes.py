@@ -48,7 +48,9 @@ from decision_hub.infra.database import (
     find_eval_report_by_skill,
     find_eval_run,
     find_eval_runs_for_version,
+    find_latest_scan_report,
     find_org_by_slug,
+    find_scan_findings_for_report,
     find_skill,
     find_skill_by_slug,
     find_version,
@@ -257,6 +259,43 @@ class PaginatedAuditLogResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class ScanFindingResponse(BaseModel):
+    """A single scan finding."""
+
+    rule_id: str
+    category: str
+    severity: str
+    title: str
+    description: str | None
+    file_path: str | None
+    line_number: int | None
+    snippet: str | None
+    remediation: str | None
+    analyzer: str | None
+    aitech_code: str | None
+
+
+class ScanReportSummaryResponse(BaseModel):
+    """Scan report summary with paginated findings."""
+
+    id: str
+    org_slug: str
+    skill_name: str
+    semver: str
+    grade: str
+    is_safe: bool
+    max_severity: str
+    findings_count: int
+    analyzers_used: list[str]
+    analyzability_score: float | None
+    scan_duration_ms: int | None
+    created_at: str | None
+    findings: list[ScanFindingResponse]
+    findings_total: int
+    findings_page: int
+    findings_page_size: int
 
 
 class EvalCaseResultResponse(BaseModel):
@@ -851,6 +890,130 @@ def get_audit_log(
         page=page,
         page_size=page_size,
         total_pages=total_pages,
+    )
+
+
+def _enforce_scan_report_rate_limit(request: Request) -> None:
+    """Rate-limit the scan report endpoints."""
+    state = request.app.state
+    if not hasattr(state, "_scan_report_rate_limiter"):
+        settings: Settings = state.settings
+        state._scan_report_rate_limiter = RateLimiter(
+            max_requests=getattr(settings, "audit_log_rate_limit", 60),
+            window_seconds=getattr(settings, "audit_log_rate_window", 60),
+        )
+    state._scan_report_rate_limiter(request)
+
+
+@public_router.get(
+    "/skills/{org_slug}/{skill_name}/scan-report",
+    response_model=ScanReportSummaryResponse | None,
+    dependencies=[Depends(_enforce_scan_report_rate_limit)],
+)
+def get_scan_report(
+    org_slug: str,
+    skill_name: str,
+    semver: str | None = Query(None, max_length=50),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> ScanReportSummaryResponse | None:
+    """Return the latest scan report for a skill with paginated findings."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+
+    report = find_latest_scan_report(conn, org_slug, skill_name, semver=semver)
+    if report is None:
+        return None
+
+    offset = (page - 1) * page_size
+    findings, findings_total = find_scan_findings_for_report(
+        conn, report.id, limit=page_size, offset=offset
+    )
+
+    return ScanReportSummaryResponse(
+        id=str(report.id),
+        org_slug=report.org_slug,
+        skill_name=report.skill_name,
+        semver=report.semver,
+        grade=report.grade,
+        is_safe=report.is_safe,
+        max_severity=report.max_severity,
+        findings_count=report.findings_count,
+        analyzers_used=report.analyzers_used,
+        analyzability_score=report.analyzability_score,
+        scan_duration_ms=report.scan_duration_ms,
+        created_at=report.created_at.isoformat() if report.created_at else None,
+        findings=[
+            ScanFindingResponse(
+                rule_id=f.rule_id,
+                category=f.category,
+                severity=f.severity,
+                title=f.title,
+                description=f.description,
+                file_path=f.file_path,
+                line_number=f.line_number,
+                snippet=f.snippet,
+                remediation=f.remediation,
+                analyzer=f.analyzer,
+                aitech_code=f.aitech_code,
+            )
+            for f in findings
+        ],
+        findings_total=findings_total,
+        findings_page=page,
+        findings_page_size=page_size,
+    )
+
+
+@public_router.get(
+    "/skills/{org_slug}/{skill_name}/scan-report/download",
+    dependencies=[Depends(_enforce_scan_report_rate_limit)],
+)
+def download_scan_report(
+    org_slug: str,
+    skill_name: str,
+    semver: str | None = Query(None, max_length=50),
+    conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> Response:
+    """Download the full scan report as a JSON file."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+
+    report = find_latest_scan_report(conn, org_slug, skill_name, semver=semver)
+    if report is None:
+        raise HTTPException(status_code=404, detail="No scan report found")
+
+    download_body: dict = {
+        "org_slug": report.org_slug,
+        "skill_name": report.skill_name,
+        "semver": report.semver,
+        "scanned_at": report.created_at.isoformat() if report.created_at else None,
+        "grade": report.grade,
+        "is_safe": report.is_safe,
+        "max_severity": report.max_severity,
+        "findings_count": report.findings_count,
+        "analyzers_used": report.analyzers_used,
+        "analyzability_score": report.analyzability_score,
+        "scan_duration_ms": report.scan_duration_ms,
+    }
+    if report.full_report:
+        download_body["findings"] = report.full_report.get("findings", [])
+        download_body["scan_metadata"] = report.full_report.get("scan_metadata", {})
+    if report.meta_analysis:
+        download_body["meta_analysis"] = report.meta_analysis
+
+    filename = f"{org_slug}_{skill_name}_{report.semver}_scan_report.json"
+    return Response(
+        content=json.dumps(download_body, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
