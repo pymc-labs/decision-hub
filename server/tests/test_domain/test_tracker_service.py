@@ -609,6 +609,7 @@ class TestCheckAllDueTrackersLoopSignal:
         mock_batch_fetch.return_value = (
             {f"myorg/repo-{i}:main": f"same_sha_{i}" for i in range(5)},
             set(),
+            {},
         )
 
         mock_gh_instance = MagicMock()
@@ -643,6 +644,7 @@ class TestRateLimitGuardrail:
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers")
     @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_update_github_stars")
     @patch("decision_hub.infra.database.batch_clear_tracker_errors")
     @patch("decision_hub.infra.database.batch_set_tracker_errors")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
@@ -657,6 +659,7 @@ class TestRateLimitGuardrail:
         mock_batch_fetch,
         mock_batch_set_errors,
         mock_batch_clear_errors,
+        _mock_batch_stars,
         mock_batch_defer,
         mock_dispatch,
         _mock_token,
@@ -681,7 +684,7 @@ class TestRateLimitGuardrail:
         mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
         mock_claim.return_value = [tracker]
-        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set())
+        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set(), {"myorg/myrepo": 42})
 
         # Set rate limit below floor
         mock_gh_instance = MagicMock()
@@ -714,6 +717,7 @@ class TestRateLimitGuardrail:
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(1, 0))
+    @patch("decision_hub.infra.database.batch_update_github_stars")
     @patch("decision_hub.infra.database.batch_clear_tracker_errors")
     @patch("decision_hub.infra.database.batch_set_tracker_errors")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
@@ -728,6 +732,7 @@ class TestRateLimitGuardrail:
         mock_batch_fetch,
         mock_batch_set_errors,
         mock_batch_clear_errors,
+        _mock_batch_stars,
         mock_dispatch,
         _mock_token,
     ):
@@ -751,7 +756,7 @@ class TestRateLimitGuardrail:
         mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
         mock_claim.return_value = [tracker]
-        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set())
+        mock_batch_fetch.return_value = ({"myorg/myrepo:main": "new_sha"}, set(), {"myorg/myrepo": 42})
 
         # Set rate limit above floor
         mock_gh_instance = MagicMock()
@@ -780,6 +785,7 @@ class TestTransientFailureClassification:
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
     @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_update_github_stars")
     @patch("decision_hub.infra.database.batch_clear_tracker_errors")
     @patch("decision_hub.infra.database.batch_set_tracker_errors")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
@@ -794,6 +800,7 @@ class TestTransientFailureClassification:
         mock_batch_fetch,
         mock_batch_set_errors,
         mock_batch_clear_errors,
+        _mock_batch_stars,
         mock_batch_defer,
         mock_dispatch,
         _mock_token,
@@ -851,6 +858,7 @@ class TestTransientFailureClassification:
         mock_batch_fetch.return_value = (
             {"myorg/repo-ok:main": "same_sha"},
             {"myorg/repo-transient:main"},  # failed chunk keys
+            {"myorg/repo-ok": 15},
         )
 
         mock_gh_instance = MagicMock()
@@ -937,7 +945,7 @@ class TestAutoDisablePermanentErrors:
         mock_claim.return_value = [tracker_gone]
 
         # Repo resolves but returns no data → permanent error
-        mock_batch_fetch.return_value = ({}, set())
+        mock_batch_fetch.return_value = ({}, set(), {})
 
         mock_gh_instance = MagicMock()
         mock_gh_instance.rate_limit_remaining = 4000
@@ -1022,6 +1030,7 @@ class TestRepoDeduplication:
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.batch_update_github_stars")
     @patch("decision_hub.infra.database.batch_clear_tracker_errors")
     @patch("decision_hub.infra.database.batch_set_tracker_errors")
     @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
@@ -1036,6 +1045,7 @@ class TestRepoDeduplication:
         mock_batch_fetch,
         mock_batch_set_errors,
         mock_batch_clear_errors,
+        _mock_batch_stars,
         mock_dispatch,
         _mock_token,
     ):
@@ -1062,7 +1072,7 @@ class TestRepoDeduplication:
         mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
         mock_claim.return_value = trackers
-        mock_batch_fetch.return_value = ({"myorg/shared-repo:main": "same_sha"}, set())
+        mock_batch_fetch.return_value = ({"myorg/shared-repo:main": "same_sha"}, set(), {"myorg/shared-repo": 99})
 
         mock_gh_instance = MagicMock()
         mock_gh_instance.rate_limit_remaining = 4000

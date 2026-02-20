@@ -90,6 +90,7 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
         batch_defer_trackers,
         batch_disable_trackers,
         batch_set_tracker_errors,
+        batch_update_github_stars,
         claim_due_trackers,
         create_engine,
         mark_skills_source_removed,
@@ -133,10 +134,10 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
         owner, repo = owner_repo.split("/", 1)
         unique_repos.append((owner, repo, branch))
 
-    # Batch-fetch latest commit SHAs via GraphQL
+    # Batch-fetch latest commit SHAs and star counts via GraphQL
     github_token = _resolve_github_token(settings)
     with GitHubClient(token=github_token) as gh:
-        sha_map, failed_chunk_keys = batch_fetch_commit_shas(gh, unique_repos)
+        sha_map, failed_chunk_keys, stars_map = batch_fetch_commit_shas(gh, unique_repos)
         rate_remaining = gh.rate_limit_remaining
 
     # Classify trackers with transient awareness
@@ -189,6 +190,19 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
                 len(removed_urls),
             )
         conn.commit()
+
+    # Update github_stars on skills whose source_repo_url matches the tracked repos.
+    # This runs every tick for all resolved repos — star counts change independently
+    # of code commits. Uses a separate transaction so failures don't block tracking.
+    if stars_map:
+        try:
+            repo_stars = {f"https://github.com/{owner_repo}": count for owner_repo, count in stars_map.items()}
+            with engine.connect() as conn:
+                batch_update_github_stars(conn, repo_stars)
+                conn.commit()
+            logger.debug("Updated github_stars for {} repos", len(repo_stars))
+        except Exception:
+            logger.opt(exception=True).warning("Failed to update github_stars (non-critical)")
 
     # Rate-limit budget guardrail: skip clone+publish if GitHub budget is low.
     # Changed trackers that aren't processed will be picked up next tick

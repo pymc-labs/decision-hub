@@ -67,6 +67,7 @@ class Skill:
     visibility: str = "public"
     source_repo_url: str | None = None
     source_repo_removed: bool = False
+    github_stars: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

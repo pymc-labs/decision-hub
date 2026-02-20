@@ -21,6 +21,7 @@ function makeSkill(overrides: Partial<SkillSummary> = {}): SkillSummary {
     category: "",
     source_repo_url: null,
     source_repo_removed: false,
+    github_stars: null,
     is_auto_synced: false,
     ...overrides,
   };

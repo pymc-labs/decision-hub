@@ -13,6 +13,7 @@ export interface SkillSummary {
   category: string;
   source_repo_url: string | null;
   source_repo_removed: boolean;
+  github_stars: number | null;
   is_auto_synced: boolean;
 }
 
