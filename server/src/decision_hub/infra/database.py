@@ -162,6 +162,7 @@ skills_table = Table(
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
     Column("source_repo_url", Text, nullable=True),
+    Column("github_stars", sa.Integer, nullable=True),
     Column("search_vector", TSVECTOR, nullable=True),
     Column("embedding", Vector(768), nullable=True),
     # Denormalized latest-version columns (kept in sync by _refresh_skill_latest_version)
@@ -580,6 +581,7 @@ _SKILL_SUMMARY_COLUMNS = [
     skills_table.c.category,
     skills_table.c.visibility,
     skills_table.c.source_repo_url,
+    skills_table.c.github_stars,
     skills_table.c.latest_semver.label("latest_version"),
     skills_table.c.latest_eval_status.label("eval_status"),
     skills_table.c.latest_published_at.label("created_at"),
@@ -655,6 +657,7 @@ def _row_to_skill(row: sa.Row) -> Skill:
         category=row.category,
         visibility=row.visibility,
         source_repo_url=row.source_repo_url,
+        github_stars=row.github_stars,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -1051,6 +1054,28 @@ def update_skill_source_repo_url(conn: Connection, skill_id: UUID, source_repo_u
     """Set or update the source GitHub repository URL for a skill."""
     stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(source_repo_url=source_repo_url)
     conn.execute(stmt)
+
+
+def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> None:
+    """Batch-update github_stars on the skills table by source_repo_url.
+
+    *repo_stars* maps ``"https://github.com/owner/repo"`` to the star count.
+    Updates all skills whose ``source_repo_url`` is either an exact match for
+    the repo URL or starts with the repo URL followed by ``/`` (for skills in
+    subdirectories of the same repo).
+    """
+    for repo_url, stars in repo_stars.items():
+        stmt = (
+            sa.update(skills_table)
+            .where(
+                sa.or_(
+                    skills_table.c.source_repo_url == repo_url,
+                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                )
+            )
+            .values(github_stars=stars)
+        )
+        conn.execute(stmt)
 
 
 def insert_skill_access_grant(
@@ -1615,8 +1640,22 @@ def fetch_all_skills_for_index(
     Supports server-side filtering by search term, org, category, grade,
     and sorting by updated/name/downloads.
     """
+    # Subquery: does an enabled tracker exist for this skill's source repo?
+    tracker_exists = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+        .correlate(skills_table)
+        .exists()
+        .label("has_tracker")
+    )
+
     base = (
-        sa.select(*_SKILL_SUMMARY_COLUMNS)
+        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
         .select_from(
             skills_table.join(
                 organizations_table,
@@ -1665,7 +1704,7 @@ def fetch_all_skills_for_index(
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
-    items = [_row_to_skill_summary(row) for row in rows]
+    items = [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
     return items, total
 
 
@@ -2461,6 +2500,17 @@ def insert_skill_tracker(
     tracker = _row_to_skill_tracker(row)
     logger.debug("Created tracker repo={} branch={} id={}", repo_url, branch, tracker.id)
     return tracker
+
+
+def has_active_tracker_for_repo(conn: Connection, repo_url: str) -> bool:
+    """Return True if at least one enabled tracker exists for the given repo URL."""
+    stmt = sa.select(sa.literal(True)).where(
+        sa.and_(
+            skill_trackers_table.c.repo_url == repo_url,
+            skill_trackers_table.c.enabled.is_(True),
+        )
+    )
+    return conn.execute(stmt).first() is not None
 
 
 def find_skill_tracker(conn: Connection, tracker_id: UUID) -> SkillTracker | None:

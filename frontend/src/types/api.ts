@@ -12,6 +12,7 @@ export interface SkillSummary {
   is_personal_org: boolean;
   category: string;
   source_repo_url: string | null;
+  github_stars: number | null;
   is_auto_synced: boolean;
 }
 
