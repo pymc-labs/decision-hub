@@ -132,16 +132,14 @@
 .cardCategory {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--neon-pink);
+  border-radius: 4px;
   font-family: 'Share Tech Mono', monospace;
   font-size: 0.65rem;
   color: var(--neon-pink);
-  border: 1px solid var(--neon-pink);
-  border-radius: 4px;
-  padding: 2px 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  align-self: flex-start;
+  width: fit-content;
 }
 
 .cardDesc {
