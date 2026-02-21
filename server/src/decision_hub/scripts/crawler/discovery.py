@@ -20,8 +20,6 @@ from decision_hub.scripts.crawler.models import CrawlStats, DiscoveredRepo
 # highest-signal skills are indexed first.
 TRUSTED_ORGS: frozenset[str] = frozenset(
     {
-        # Decision Hub
-        "pymc-labs",
         # LLM providers
         "anthropics",
         "openai",
