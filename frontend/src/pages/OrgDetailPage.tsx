@@ -51,14 +51,28 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
       </div>
     );
   }
-  if (!loading && !profileLoading && profileError && totalSkills === 0) {
+  const isOrgNotFound = !loading && !profileLoading && profileError && totalSkills === 0;
+  if (isOrgNotFound) {
+    const is404 = /API 404\b/.test(profileError);
     return (
       <div className="container" style={{ textAlign: "center", paddingTop: "4rem" }}>
-        <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--neon-pink)", margin: 0 }}>404</p>
-        <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Organization not found</h1>
-        <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
-          <strong>{orgSlug}</strong> doesn&apos;t exist or has no published skills.
-        </p>
+        {is404 ? (
+          <>
+            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--neon-pink)", margin: 0 }}>404</p>
+            <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Organization not found</h1>
+            <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
+              <strong>{orgSlug}</strong> doesn&apos;t exist or has no published skills.
+            </p>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--neon-pink)", margin: 0 }}>Error</p>
+            <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Something went wrong</h1>
+            <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
+              Could not load <strong>{orgSlug}</strong>: {profileError}
+            </p>
+          </>
+        )}
         <Link to="/orgs" style={{ color: "var(--neon-cyan)" }}>
           ← Browse all organizations
         </Link>
