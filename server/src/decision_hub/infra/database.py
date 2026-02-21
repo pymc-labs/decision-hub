@@ -1463,7 +1463,9 @@ def delete_skill(conn: Connection, skill_id: UUID) -> None:
     """Delete a skill record (after all versions have been removed).
 
     The DB trigger ``trg_cleanup_orphaned_tracker`` automatically deletes the
-    associated skill_tracker when this is the last skill sourced from that repo.
+    associated skill_tracker when this is the last skill in the same org sourced
+    from that repo (scoped to org to avoid removing trackers for other orgs that
+    happen to track the same repo).
     """
     stmt = sa.delete(skills_table).where(skills_table.c.id == skill_id)
     conn.execute(stmt)
