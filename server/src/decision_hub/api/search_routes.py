@@ -196,7 +196,7 @@ def ask_skills(
     gemini = create_gemini_client(settings.google_api_key)
 
     guard = check_query_topicality(gemini, q, settings.gemini_model)
-    if not guard["is_skill_query"]:
+    if not guard["is_skill_query"] and not guard.get("is_platform_question"):
         return AskResponse(query=q, answer=_OFF_TOPIC_ANSWER, skills=[])
 
     start_time = time.monotonic()
