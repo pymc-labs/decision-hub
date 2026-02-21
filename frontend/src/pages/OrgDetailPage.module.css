@@ -129,6 +129,19 @@
   letter-spacing: 0;
 }
 
+.cardCategory {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--neon-pink);
+  border-radius: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--neon-pink);
+  width: fit-content;
+}
+
 .cardDesc {
   font-size: 0.85rem;
   color: var(--text-secondary);
