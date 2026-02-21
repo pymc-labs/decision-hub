@@ -35,19 +35,33 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
 
   const { items: skills, total: totalSkills, loading, loadingMore, error, hasMore, sentinelRef, retry } =
     useInfiniteScroll(fetchPage, [orgSlug]);
-  const { data: profile } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
+  const { data: profile, loading: profileLoading, error: profileError } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
 
   const blogUrl = profile?.blog
     ? profile.blog.match(/^https?:\/\//) ? profile.blog : `https://${profile.blog}`
     : null;
 
-  if (loading && skills.length === 0) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
+  if ((loading || profileLoading) && skills.length === 0) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
   if (error && skills.length === 0) {
     return (
       <div className="container">
         <NeonCard glow="pink">
           <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
         </NeonCard>
+      </div>
+    );
+  }
+  if (!loading && !profileLoading && profileError && totalSkills === 0) {
+    return (
+      <div className="container" style={{ textAlign: "center", paddingTop: "4rem" }}>
+        <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--neon-pink)", margin: 0 }}>404</p>
+        <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Organization not found</h1>
+        <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
+          <strong>{orgSlug}</strong> doesn&apos;t exist or has no published skills.
+        </p>
+        <Link to="/orgs" style={{ color: "var(--neon-cyan)" }}>
+          ← Browse all organizations
+        </Link>
       </div>
     );
   }

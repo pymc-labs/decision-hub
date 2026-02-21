@@ -119,6 +119,7 @@ export default function SkillsPage() {
         <div className={styles.filterGroup}>
           <Filter size={14} />
           <select
+            aria-label="Filter by organization"
             value={orgFilter}
             onChange={(e) => setOrgFilter(e.target.value)}
             className={styles.select}
@@ -132,6 +133,7 @@ export default function SkillsPage() {
           </select>
 
           <select
+            aria-label="Filter by safety grade"
             value={gradeFilter}
             onChange={(e) => setGradeFilter(e.target.value)}
             className={styles.select}
@@ -143,6 +145,7 @@ export default function SkillsPage() {
           </select>
 
           <select
+            aria-label="Filter by category"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
             className={styles.select}
@@ -164,6 +167,7 @@ export default function SkillsPage() {
           </select>
 
           <select
+            aria-label="Sort skills by"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as "name" | "downloads" | "updated")}
             className={styles.select}
