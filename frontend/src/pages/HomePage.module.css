@@ -542,7 +542,8 @@
     grid-template-columns: 1fr;
   }
 
-  .heroCta {
+  .heroCta,
+  .bottomCtaActions {
     flex-direction: column;
     align-items: center;
   }

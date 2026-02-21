@@ -96,6 +96,7 @@ def backfill(batch_size: int = 100) -> None:
 
             conn.commit()
             total_processed += len(rows)
+            total_errors = 0  # reset per-window error count on success
             logger.info("Backfilled {}/{} skills", total_processed, total_processed)
 
     logger.info(

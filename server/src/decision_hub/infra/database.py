@@ -2769,10 +2769,21 @@ def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
 
 
 def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
-    """Set source_repo_removed=True for skills matching any repo URL."""
+    """Set source_repo_removed=True for skills matching any repo URL.
+
+    Matches both exact repo URLs and subdirectory URLs
+    (e.g. https://github.com/org/repo/tree/main/subdir).
+    """
     if not repo_urls:
         return 0
-    stmt = sa.update(skills_table).where(skills_table.c.source_repo_url.in_(repo_urls)).values(source_repo_removed=True)
+    conditions = [
+        sa.or_(
+            skills_table.c.source_repo_url == url,
+            skills_table.c.source_repo_url.like(f"{url}/%"),
+        )
+        for url in repo_urls
+    ]
+    stmt = sa.update(skills_table).where(sa.or_(*conditions)).values(source_repo_removed=True)
     return conn.execute(stmt).rowcount
 
 
