@@ -2768,6 +2768,11 @@ def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
     return conn.execute(stmt).rowcount
 
 
+def _escape_like(s: str) -> str:
+    """Escape SQL LIKE wildcards in a literal string (escape char: \\)."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
     """Set source_repo_removed=True for skills matching any repo URL.
 
@@ -2779,7 +2784,7 @@ def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
     conditions = [
         sa.or_(
             skills_table.c.source_repo_url == url,
-            skills_table.c.source_repo_url.like(f"{url}/%"),
+            skills_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
         )
         for url in repo_urls
     ]
