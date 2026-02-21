@@ -175,5 +175,5 @@ def raise_for_status(resp: httpx.Response) -> None:
             "Run [bold]dhub upgrade[/bold] to install the latest version.\n"
             "Browse the registry at [link=https://hub.decision.ai]https://hub.decision.ai[/link]"
         )
-        raise typer.Exit(1)
+        raise SystemExit(1)
     resp.raise_for_status()

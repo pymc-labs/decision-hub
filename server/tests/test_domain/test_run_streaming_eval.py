@@ -148,9 +148,7 @@ class TestRunStreamingEval:
         assert report_kwargs.kwargs["status"] == "completed"
 
         # Verify final status update marks run as completed
-        completed_calls = [
-            c for c in status_calls if c.kwargs.get("status") == "completed"
-        ]
+        completed_calls = [c for c in status_calls if c.kwargs.get("status") == "completed"]
         assert len(completed_calls) >= 1
 
         # Verify at least one S3 chunk was uploaded (final flush)
@@ -195,9 +193,7 @@ class TestRunStreamingEval:
             )
 
         # Should mark run as failed
-        failed_calls = [
-            c for c in mock_update_status.call_args_list if c.kwargs.get("status") == "failed"
-        ]
+        failed_calls = [c for c in mock_update_status.call_args_list if c.kwargs.get("status") == "failed"]
         assert len(failed_calls) >= 1
         assert failed_calls[-1].kwargs.get("error_message") == "Sandbox provisioning failed"
         assert failed_calls[-1].kwargs.get("completed_at") is not None
@@ -338,11 +334,7 @@ class TestRunStreamingEval:
         )
 
         # Find the case_start heartbeat call
-        case_start_calls = [
-            c
-            for c in mock_update_status.call_args_list
-            if c.kwargs.get("current_case") == "case-0"
-        ]
+        case_start_calls = [c for c in mock_update_status.call_args_list if c.kwargs.get("current_case") == "case-0"]
         assert len(case_start_calls) == 1
         assert case_start_calls[0].kwargs["status"] == "running"
         assert case_start_calls[0].kwargs["stage"] == "agent"
@@ -401,11 +393,7 @@ class TestRunStreamingEval:
             log_s3_prefix=f"eval-logs/{run_id}/",
         )
 
-        judging_calls = [
-            c
-            for c in mock_update_status.call_args_list
-            if c.kwargs.get("status") == "judging"
-        ]
+        judging_calls = [c for c in mock_update_status.call_args_list if c.kwargs.get("status") == "judging"]
         assert len(judging_calls) == 1
         assert judging_calls[0].kwargs["stage"] == "judge"
 
@@ -532,7 +520,5 @@ class TestRunStreamingEval:
         assert mock_upload_chunk.call_count >= 1
 
         # Run should be marked as failed
-        failed_calls = [
-            c for c in mock_update_status.call_args_list if c.kwargs.get("status") == "failed"
-        ]
+        failed_calls = [c for c in mock_update_status.call_args_list if c.kwargs.get("status") == "failed"]
         assert len(failed_calls) >= 1
