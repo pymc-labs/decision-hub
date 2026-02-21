@@ -37,6 +37,7 @@ export interface OrgSummary {
 export interface OrgProfile {
   slug: string;
   is_personal: boolean;
+  is_featured: boolean;
   avatar_url: string | null;
   description: string | null;
   blog: string | null;
@@ -117,6 +118,7 @@ export interface RegistryStats {
 export interface OrgStatsEntry {
   slug: string;
   is_personal: boolean;
+  is_featured: boolean;
   avatar_url: string | null;
   skill_count: number;
   total_downloads: number;

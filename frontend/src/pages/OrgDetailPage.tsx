@@ -9,7 +9,6 @@ import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import OrgAvatar from "../components/OrgAvatar";
-import { FEATURED_SET } from "../constants/featuredOrgs";
 import styles from "./OrgDetailPage.module.css";
 
 const PAGE_SIZE = 24;
@@ -68,7 +67,7 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
         <div>
           <div className={styles.titleRow}>
             <h1 className={styles.title}>{orgSlug}</h1>
-            {FEATURED_SET.has(orgSlug) && (
+            {profile?.is_featured && (
               <span className={styles.featuredBadge}>
                 <Star size={12} />
                 Featured

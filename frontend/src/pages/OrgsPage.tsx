@@ -8,7 +8,6 @@ import type { OrgStatsResponse } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import OrgAvatar from "../components/OrgAvatar";
 import LoadingSpinner from "../components/LoadingSpinner";
-import { FEATURED_ORGS, FEATURED_SET } from "../constants/featuredOrgs";
 import styles from "./OrgsPage.module.css";
 
 type OrgType = "orgs" | "users" | "all";
@@ -52,13 +51,8 @@ export default function OrgsPage() {
   const orgs = useMemo(() => {
     const items = data?.items ?? [];
     return [...items].sort((a, b) => {
-      const aFeatured = FEATURED_SET.has(a.slug);
-      const bFeatured = FEATURED_SET.has(b.slug);
-      if (aFeatured && !bFeatured) return -1;
-      if (!aFeatured && bFeatured) return 1;
-      if (aFeatured && bFeatured) {
-        return FEATURED_ORGS.indexOf(a.slug) - FEATURED_ORGS.indexOf(b.slug);
-      }
+      if (a.is_featured && !b.is_featured) return -1;
+      if (!a.is_featured && b.is_featured) return 1;
       return 0;
     });
   }, [data]);
@@ -172,9 +166,9 @@ export default function OrgsPage() {
                 to={`/orgs/${org.slug}`}
                 className={styles.orgLink}
               >
-                <NeonCard glow={FEATURED_SET.has(org.slug) ? "purple" : "cyan"}>
+                <NeonCard glow={org.is_featured ? "purple" : "cyan"}>
                   <div className={styles.card}>
-                    {FEATURED_SET.has(org.slug) && (
+                    {org.is_featured && (
                       <div className={styles.featuredBadge}>
                         <Star size={12} />
                         Featured

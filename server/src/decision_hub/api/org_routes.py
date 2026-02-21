@@ -21,6 +21,7 @@ from decision_hub.infra.database import (
     org_has_public_skills,
 )
 from decision_hub.models import User
+from decision_hub.scripts.crawler.discovery import TRUSTED_ORGS
 
 org_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
 org_public_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
@@ -58,6 +59,7 @@ class OrgProfile(BaseModel):
 
     slug: str
     is_personal: bool
+    is_featured: bool = False
     avatar_url: str | None = None
     description: str | None = None
     blog: str | None = None
@@ -137,6 +139,7 @@ class OrgStatsEntry(BaseModel):
 
     slug: str
     is_personal: bool
+    is_featured: bool = False
     avatar_url: str | None = None
     skill_count: int
     total_downloads: int
@@ -161,6 +164,7 @@ def get_org_stats(
         OrgStatsEntry(
             slug=row["slug"],
             is_personal=row["is_personal"],
+            is_featured=row["slug"].lower() in TRUSTED_ORGS,
             avatar_url=row["avatar_url"],
             skill_count=row["skill_count"],
             total_downloads=row["total_downloads"],
@@ -181,6 +185,7 @@ def list_org_profiles(
         OrgProfile(
             slug=o.slug,
             is_personal=o.is_personal,
+            is_featured=o.slug.lower() in TRUSTED_ORGS,
             avatar_url=o.avatar_url,
             description=o.description,
             blog=o.blog,
@@ -203,6 +208,7 @@ def get_org_profile(
     return OrgProfile(
         slug=org.slug,
         is_personal=org.is_personal,
+        is_featured=org.slug.lower() in TRUSTED_ORGS,
         avatar_url=org.avatar_url,
         description=org.description,
         blog=org.blog,
