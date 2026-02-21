@@ -268,7 +268,7 @@ def _make_code_search_response(items: list[dict], status_code: int = 200):
     return mock_resp
 
 
-def _make_search_item(full_name: str, owner_type: str = "User"):
+def _make_search_item(full_name: str, owner_type: str = "User", private: bool = False):
     return {
         "repository": {
             "full_name": full_name,
@@ -276,8 +276,153 @@ def _make_search_item(full_name: str, owner_type: str = "User"):
             "clone_url": f"https://github.com/{full_name}.git",
             "stargazers_count": 10,
             "description": "test",
+            "private": private,
         }
     }
+
+
+class TestPrivateRepoFiltering:
+    """Private repos must be excluded from all auto-discovery strategies."""
+
+    def test_code_search_skips_private_repos(self):
+        gh = MagicMock()
+        gh.get.return_value = _make_code_search_response(
+            [_make_search_item("public/repo"), _make_search_item("private/repo", private=True)]
+        )
+        stats = CrawlStats()
+        result = _run_code_search(gh, "filename:SKILL.md", stats)
+        assert "public/repo" in result
+        assert "private/repo" not in result
+
+    def test_topic_search_skips_private_repos(self):
+        gh = MagicMock()
+        items = [
+            {
+                "full_name": "public/repo",
+                "owner": {"login": "public", "type": "User"},
+                "clone_url": "https://github.com/public/repo.git",
+                "stargazers_count": 10,
+                "description": "test",
+                "private": False,
+            },
+            {
+                "full_name": "private/repo",
+                "owner": {"login": "private", "type": "User"},
+                "clone_url": "https://github.com/private/repo.git",
+                "stargazers_count": 5,
+                "description": "secret",
+                "private": True,
+            },
+        ]
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"items": items}
+        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+        gh.get.return_value = resp
+        stats = CrawlStats()
+
+        result: dict[str, DiscoveredRepo] = {}
+        for batch in search_by_topic(gh, stats):
+            result.update(batch)
+
+        assert "public/repo" in result
+        assert "private/repo" not in result
+
+    def test_fork_scan_skips_private_forks(self):
+        gh = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = [
+            {
+                "full_name": "public-fork/repo",
+                "owner": {"login": "public-fork", "type": "User"},
+                "clone_url": "https://github.com/public-fork/repo.git",
+                "stargazers_count": 5,
+                "description": "fork",
+                "private": False,
+            },
+            {
+                "full_name": "private-fork/repo",
+                "owner": {"login": "private-fork", "type": "User"},
+                "clone_url": "https://github.com/private-fork/repo.git",
+                "stargazers_count": 3,
+                "description": "secret fork",
+                "private": True,
+            },
+        ]
+        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+        gh.get.return_value = resp
+        stats = CrawlStats()
+
+        result: dict[str, DiscoveredRepo] = {}
+        for batch in scan_forks(gh, ["original/repo"], stats):
+            result.update(batch)
+
+        assert "public-fork/repo" in result
+        assert "private-fork/repo" not in result
+
+    def test_curated_list_skips_private_repos(self):
+        import base64
+
+        readme_content = "# Awesome\n- https://github.com/public/skill\n- https://github.com/private/skill\n"
+        encoded = base64.b64encode(readme_content.encode()).decode()
+
+        def _side_effect(url, **_kwargs):
+            resp = MagicMock()
+            resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+            if url.endswith("/readme"):
+                resp.status_code = 200
+                resp.json.return_value = {"content": encoded}
+            elif url == "/repos/public/skill":
+                resp.status_code = 200
+                resp.json.return_value = {
+                    "owner": {"login": "public", "type": "User"},
+                    "clone_url": "https://github.com/public/skill.git",
+                    "stargazers_count": 50,
+                    "description": "A public skill",
+                    "private": False,
+                }
+            elif url == "/repos/private/skill":
+                resp.status_code = 200
+                resp.json.return_value = {
+                    "owner": {"login": "private", "type": "User"},
+                    "clone_url": "https://github.com/private/skill.git",
+                    "stargazers_count": 0,
+                    "description": "A private skill",
+                    "private": True,
+                }
+            else:
+                resp.status_code = 404
+            return resp
+
+        gh = MagicMock()
+        gh.get.side_effect = _side_effect
+        stats = CrawlStats()
+        result: dict[str, DiscoveredRepo] = {}
+        for batch in parse_curated_lists(gh, stats):
+            result.update(batch)
+
+        assert "public/skill" in result
+        assert "private/skill" not in result
+
+    def test_resolve_repos_allows_private_with_warning(self, caplog):
+        gh = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "owner": {"login": "pymc-labs", "type": "Organization"},
+            "clone_url": "https://github.com/pymc-labs/private-skills.git",
+            "stargazers_count": 0,
+            "description": "Internal skills",
+            "private": True,
+        }
+        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "9999999999"}
+        gh.get.return_value = resp
+
+        stats = CrawlStats()
+        # --repos is explicit opt-in, so private repos must be allowed
+        result = resolve_repos(gh, ["pymc-labs/private-skills"], stats)
+        assert "pymc-labs/private-skills" in result
 
 
 class TestRunCodeSearch:

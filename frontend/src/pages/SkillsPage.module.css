@@ -100,7 +100,8 @@
   text-decoration: none !important;
   color: inherit !important;
   text-shadow: none !important;
-  display: flex;
+  display: block;
+  height: 100%;
 }
 
 .card {
@@ -184,6 +185,20 @@
   font-family: 'Share Tech Mono', monospace;
   font-size: 0.65rem;
   color: var(--neon-pink);
+  width: fit-content;
+}
+
+/* Removed from GitHub badge */
+.cardRemoved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--neon-orange);
+  border-radius: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--neon-orange);
   width: fit-content;
 }
 

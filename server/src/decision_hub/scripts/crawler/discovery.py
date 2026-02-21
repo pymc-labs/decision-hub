@@ -20,8 +20,6 @@ from decision_hub.scripts.crawler.models import CrawlStats, DiscoveredRepo
 # highest-signal skills are indexed first.
 TRUSTED_ORGS: frozenset[str] = frozenset(
     {
-        # Decision Hub
-        "pymc-labs",
         # LLM providers
         "anthropics",
         "openai",
@@ -51,6 +49,43 @@ TRUSTED_ORGS: frozenset[str] = frozenset(
         "deepmind",
         "google-deepmind",
         "stability-ai",
+        # PyData / scientific Python ecosystem
+        "marimo-team",
+        # Core scientific Python
+        "numpy",
+        "scipy",
+        "pandas-dev",
+        "scikit-learn",
+        "matplotlib",
+        "astropy",
+        # Notebooks & interactive tools
+        "jupyter",
+        "jupyterlab",
+        "ipython",
+        # Visualization
+        "holoviz",
+        "bokeh",
+        "altair-viz",
+        "plotly",
+        # Data apps & dashboards
+        "streamlit",
+        "gradio-app",
+        "evidence-dev",
+        # Data processing & compute
+        "pola-rs",
+        "dask",
+        "ray-project",
+        "duckdb",
+        "apache",
+        # MLOps & experiment tracking
+        "mlflow",
+        "wandb",
+        "prefecthq",
+        "great-expectations",
+        # Deep learning
+        "pytorch",
+        "keras-team",
+        "tensorflow",
     }
 )
 
@@ -107,6 +142,11 @@ def resolve_repos(
             continue
 
         d = resp.json()
+        if d.get("private", False):
+            logger.warning(
+                "Resolved repo {} is private — processing because it was explicitly requested via --repos",
+                full_name,
+            )
         repos[full_name] = DiscoveredRepo(
             full_name=full_name,
             owner_login=d["owner"]["login"],
@@ -248,6 +288,9 @@ def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str
             for item in items:
                 fn = item["full_name"]
                 if fn not in batch:
+                    if item.get("private", False):
+                        logger.debug("Skipping private repo {} found in topic search", fn)
+                        continue
                     batch[fn] = DiscoveredRepo(
                         full_name=fn,
                         owner_login=item["owner"]["login"],
@@ -296,6 +339,9 @@ def scan_forks(
             for fork in forks:
                 fn = fork["full_name"]
                 if fn not in batch:
+                    if fork.get("private", False):
+                        logger.debug("Skipping private repo {} found in fork scan", fn)
+                        continue
                     batch[fn] = DiscoveredRepo(
                         full_name=fn,
                         owner_login=fork["owner"]["login"],
@@ -355,6 +401,9 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict
             if dr.status_code != 200:
                 continue
             d = dr.json()
+            if d.get("private", False):
+                logger.debug("Skipping private repo {} found in curated list", ref)
+                continue
             batch[ref] = DiscoveredRepo(
                 full_name=ref,
                 owner_login=d["owner"]["login"],
@@ -398,6 +447,9 @@ def _run_code_search(
             repo = item.get("repository", {})
             fn = repo.get("full_name", "")
             if fn and fn not in repos:
+                if repo.get("private", False):
+                    logger.debug("Skipping private repo {} found in code search", fn)
+                    continue
                 repos[fn] = DiscoveredRepo(
                     full_name=fn,
                     owner_login=repo["owner"]["login"],

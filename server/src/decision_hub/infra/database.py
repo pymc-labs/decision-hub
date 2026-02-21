@@ -162,7 +162,12 @@ skills_table = Table(
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
     Column("source_repo_url", Text, nullable=True),
+    Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
     Column("github_stars", sa.Integer, nullable=True),
+    Column("github_forks", sa.Integer, nullable=True),
+    Column("github_watchers", sa.Integer, nullable=True),
+    Column("github_is_archived", Boolean, nullable=True),
+    Column("github_license", Text, nullable=True),
     Column("search_vector", TSVECTOR, nullable=True),
     Column("embedding", Vector(768), nullable=True),
     # Denormalized latest-version columns (kept in sync by _refresh_skill_latest_version)
@@ -581,7 +586,12 @@ _SKILL_SUMMARY_COLUMNS = [
     skills_table.c.category,
     skills_table.c.visibility,
     skills_table.c.source_repo_url,
+    skills_table.c.source_repo_removed,
     skills_table.c.github_stars,
+    skills_table.c.github_forks,
+    skills_table.c.github_watchers,
+    skills_table.c.github_is_archived,
+    skills_table.c.github_license,
     skills_table.c.latest_semver.label("latest_version"),
     skills_table.c.latest_eval_status.label("eval_status"),
     skills_table.c.latest_published_at.label("created_at"),
@@ -657,7 +667,12 @@ def _row_to_skill(row: sa.Row) -> Skill:
         category=row.category,
         visibility=row.visibility,
         source_repo_url=row.source_repo_url,
+        source_repo_removed=row.source_repo_removed,
         github_stars=row.github_stars,
+        github_forks=row.github_forks,
+        github_watchers=row.github_watchers,
+        github_is_archived=row.github_is_archived,
+        github_license=row.github_license,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -1078,6 +1093,34 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
         conn.execute(stmt)
 
 
+def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str, dict]) -> None:
+    """Batch-update github_forks, github_watchers, github_is_archived, github_license on skills by source_repo_url.
+
+    *repo_metadata* maps ``"https://github.com/owner/repo"`` to a dict with keys
+    ``forks``, ``watchers``, ``is_archived``, ``license``.
+    Updates all skills whose ``source_repo_url`` is either an exact match for
+    the repo URL or starts with the repo URL followed by ``/`` (for skills in
+    subdirectories of the same repo).
+    """
+    for repo_url, meta in repo_metadata.items():
+        stmt = (
+            sa.update(skills_table)
+            .where(
+                sa.or_(
+                    skills_table.c.source_repo_url == repo_url,
+                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                )
+            )
+            .values(
+                github_forks=meta.get("forks"),
+                github_watchers=meta.get("watchers"),
+                github_is_archived=meta.get("is_archived"),
+                github_license=meta.get("license"),
+            )
+        )
+        conn.execute(stmt)
+
+
 def insert_skill_access_grant(
     conn: Connection, skill_id: UUID, grantee_org_id: UUID, granted_by: UUID
 ) -> SkillAccessGrant:
@@ -1460,7 +1503,13 @@ def delete_all_versions(conn: Connection, skill_id: UUID) -> list[str]:
 
 
 def delete_skill(conn: Connection, skill_id: UUID) -> None:
-    """Delete a skill record (after all versions have been removed)."""
+    """Delete a skill record (after all versions have been removed).
+
+    The DB trigger ``trg_cleanup_orphaned_tracker`` automatically deletes the
+    associated skill_tracker when this is the last skill in the same org sourced
+    from that repo (scoped to org to avoid removing trackers for other orgs that
+    happen to track the same repo).
+    """
     stmt = sa.delete(skills_table).where(skills_table.c.id == skill_id)
     conn.execute(stmt)
     logger.debug("Deleted skill id={}", skill_id)
@@ -2502,6 +2551,33 @@ def insert_skill_tracker(
     return tracker
 
 
+def upsert_skill_tracker(
+    conn: Connection,
+    user_id: UUID,
+    org_slug: str,
+    repo_url: str,
+    branch: str = "main",
+    poll_interval_minutes: int = 60,
+) -> bool:
+    """Insert a tracker if one doesn't already exist. Returns True if created."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    stmt = (
+        pg_insert(skill_trackers_table)
+        .values(
+            user_id=user_id,
+            org_slug=org_slug,
+            repo_url=repo_url,
+            branch=branch,
+            poll_interval_minutes=poll_interval_minutes,
+        )
+        .on_conflict_do_nothing(constraint="skill_trackers_user_id_repo_url_branch_key")
+        .returning(skill_trackers_table.c.id)
+    )
+    row = conn.execute(stmt).first()
+    return row is not None
+
+
 def has_active_tracker_for_repo(conn: Connection, repo_url: str) -> bool:
     """Return True if at least one enabled tracker exists for the given repo URL."""
     stmt = sa.select(sa.literal(True)).where(
@@ -2684,6 +2760,41 @@ def batch_defer_trackers(conn: Connection, tracker_ids: list[UUID], error_messag
         .where(skill_trackers_table.c.id.in_(tracker_ids))
         .values(last_error=error_message, next_check_at=None)
     )
+    return conn.execute(stmt).rowcount
+
+
+def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
+    """Disable trackers in one UPDATE. Returns rowcount.
+
+    Error message is already set by batch_set_tracker_errors before this call.
+    """
+    if not tracker_ids:
+        return 0
+    stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id.in_(tracker_ids)).values(enabled=False)
+    return conn.execute(stmt).rowcount
+
+
+def _escape_like(s: str) -> str:
+    """Escape SQL LIKE wildcards in a literal string (escape char: \\)."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
+    """Set source_repo_removed=True for skills matching any repo URL.
+
+    Matches both exact repo URLs and subdirectory URLs
+    (e.g. https://github.com/org/repo/tree/main/subdir).
+    """
+    if not repo_urls:
+        return 0
+    conditions = [
+        sa.or_(
+            skills_table.c.source_repo_url == url,
+            skills_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+        )
+        for url in repo_urls
+    ]
+    stmt = sa.update(skills_table).where(sa.or_(*conditions)).values(source_repo_removed=True)
     return conn.execute(stmt).rowcount
 
 

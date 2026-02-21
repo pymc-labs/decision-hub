@@ -180,3 +180,160 @@ class TestStreamEvalPipeline:
         assert report["total"] == 1
         assert report["status"] == "completed"
         assert report["total_duration_ms"] == 5000
+
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    @patch("decision_hub.domain.evals.stream_eval_case_in_sandbox")
+    @patch("decision_hub.domain.evals.get_agent_config")
+    def test_multiple_cases_one_pass_one_fail(
+        self,
+        mock_get_config: MagicMock,
+        mock_stream_sandbox: MagicMock,
+        mock_judge: MagicMock,
+    ):
+        """Two cases: first passes, second fails judge — report status is 'failed'."""
+        mock_get_config.return_value = MagicMock(key_env_var="ANTHROPIC_API_KEY")
+
+        call_count = 0
+
+        def fake_stream(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            yield {"stream": "stdout", "content": f"output-{call_count}"}
+            return (f"output-{call_count}", "", 0, 3000)
+
+        mock_stream_sandbox.side_effect = fake_stream
+        mock_judge.side_effect = [
+            {"verdict": "pass", "reasoning": "Good"},
+            {"verdict": "fail", "reasoning": "Missing null check"},
+        ]
+
+        two_cases = (
+            EvalCase(
+                name="case-a",
+                description="First case",
+                prompt="Do A",
+                judge_criteria="PASS: does A",
+            ),
+            EvalCase(
+                name="case-b",
+                description="Second case",
+                prompt="Do B",
+                judge_criteria="PASS: does B",
+            ),
+        )
+
+        events = list(
+            stream_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_config(),
+                eval_cases=two_cases,
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+            )
+        )
+
+        case_results = [e for e in events if e["type"] == "case_result"]
+        assert len(case_results) == 2
+        assert case_results[0]["verdict"] == "pass"
+        assert case_results[1]["verdict"] == "fail"
+
+        report = next(e for e in events if e["type"] == "report")
+        assert report["passed"] == 1
+        assert report["total"] == 2
+        assert report["status"] == "failed"
+
+        # Verify both case_start events are present with correct indices
+        case_starts = [e for e in events if e["type"] == "case_start"]
+        assert len(case_starts) == 2
+        assert case_starts[0]["case_index"] == 0
+        assert case_starts[1]["case_index"] == 1
+
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    @patch("decision_hub.domain.evals.stream_eval_case_in_sandbox")
+    @patch("decision_hub.domain.evals.get_agent_config")
+    def test_nonzero_exit_yields_error_without_judging(
+        self,
+        mock_get_config: MagicMock,
+        mock_stream_sandbox: MagicMock,
+        mock_judge: MagicMock,
+    ):
+        """Agent non-zero exit yields case_result with verdict=error, stage=agent, skips judge."""
+        mock_get_config.return_value = MagicMock(key_env_var="ANTHROPIC_API_KEY")
+
+        def fake_stream(*args, **kwargs):
+            yield {"stream": "stderr", "content": "ModuleNotFoundError: no module named 'pandas'"}
+            return ("", "ModuleNotFoundError: no module named 'pandas'", 1, 4000)
+
+        mock_stream_sandbox.side_effect = fake_stream
+
+        events = list(
+            stream_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_config(),
+                eval_cases=_make_cases(),
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+            )
+        )
+
+        case_results = [e for e in events if e["type"] == "case_result"]
+        assert len(case_results) == 1
+        assert case_results[0]["verdict"] == "error"
+        assert "exit" in case_results[0]["reasoning"].lower()
+
+        # Judge should never be called for non-zero exit
+        mock_judge.assert_not_called()
+
+        # No judge_start event should be emitted
+        judge_starts = [e for e in events if e["type"] == "judge_start"]
+        assert len(judge_starts) == 0
+
+        # Report should reflect the error
+        report = next(e for e in events if e["type"] == "report")
+        assert report["status"] == "failed"
+        assert report["passed"] == 0
+
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    @patch("decision_hub.domain.evals.stream_eval_case_in_sandbox")
+    @patch("decision_hub.domain.evals.get_agent_config")
+    def test_judge_failure_yields_error_result(
+        self,
+        mock_get_config: MagicMock,
+        mock_stream_sandbox: MagicMock,
+        mock_judge: MagicMock,
+    ):
+        """Judge API exception yields case_result with verdict=error, stage=judge."""
+        mock_get_config.return_value = MagicMock(key_env_var="ANTHROPIC_API_KEY")
+
+        def fake_stream(*args, **kwargs):
+            yield {"stream": "stdout", "content": "good output"}
+            return ("good output", "", 0, 5000)
+
+        mock_stream_sandbox.side_effect = fake_stream
+        mock_judge.side_effect = RuntimeError("Anthropic API rate limited")
+
+        events = list(
+            stream_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_config(),
+                eval_cases=_make_cases(),
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+            )
+        )
+
+        # judge_start should be emitted before judge failure
+        judge_starts = [e for e in events if e["type"] == "judge_start"]
+        assert len(judge_starts) == 1
+
+        case_results = [e for e in events if e["type"] == "case_result"]
+        assert len(case_results) == 1
+        assert case_results[0]["verdict"] == "error"
+        assert "rate limited" in case_results[0]["reasoning"].lower()
+
+        report = next(e for e in events if e["type"] == "report")
+        assert report["status"] == "failed"
+        assert report["passed"] == 0

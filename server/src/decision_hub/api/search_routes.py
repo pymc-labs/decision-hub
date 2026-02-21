@@ -259,6 +259,7 @@ def ask_skills(
         llm_ms = int((time.monotonic() - llm_start) * 1000)
     except Exception:
         logger.opt(exception=True).warning("Conversational ask failed, using fallback")
+        fallback_latency_ms = int((time.monotonic() - start_time) * 1000)
         skill_refs = [
             AskSkillRef(
                 org_slug=e.org_slug,
@@ -276,6 +277,35 @@ def ask_skills(
             )
             for e in result.entries[:5]
         ]
+        try:
+            log_id = uuid4()
+            s3_key = upload_search_log(
+                s3_client,
+                settings.s3_bucket,
+                log_id,
+                q,
+                "",
+                {
+                    "results_count": len(result.entries),
+                    "model": settings.gemini_model,
+                    "latency_ms": fallback_latency_ms,
+                    "user_id": str(current_user.id) if current_user else None,
+                    "username": current_user.username if current_user else None,
+                    "fallback": True,
+                },
+            )
+            insert_search_log(
+                conn,
+                log_id=log_id,
+                query=q,
+                s3_key=s3_key,
+                results_count=len(result.entries),
+                model=settings.gemini_model,
+                latency_ms=fallback_latency_ms,
+                user_id=current_user.id if current_user else None,
+            )
+        except Exception:
+            logger.opt(exception=True).warning("Analytics logging failed for fallback ask q='{}'", q[:80])
         return AskResponse(
             query=q,
             answer="Here are the most relevant skills I found:",

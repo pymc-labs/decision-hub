@@ -47,7 +47,7 @@ def main() -> None:
 
     stmt = (
         sa.select(
-            sa.func.distinct(skills_table.c.source_repo_url).label("repo_url"),
+            skills_table.c.source_repo_url.label("repo_url"),
             organizations_table.c.slug.label("org_slug"),
         )
         .select_from(
@@ -63,6 +63,7 @@ def main() -> None:
                 skills_table.c.source_repo_url.notin_(sa.select(existing_trackers.c.repo_url)),
             )
         )
+        .distinct()
     )
 
     with engine.connect() as conn:
