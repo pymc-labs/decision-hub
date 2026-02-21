@@ -179,6 +179,18 @@ def crawl_process_repo(
     settings = create_settings()
     setup_logging(settings.log_level)
 
+    # Mint a fresh token per container when none is supplied (nightly crawl path).
+    # This avoids passing a token minted in the orchestrator that may have aged
+    # significantly by the time this container is scheduled.
+    if github_token is None and settings.github_app_id:
+        from decision_hub.infra.github_app_token import mint_installation_token
+
+        github_token = mint_installation_token(
+            settings.github_app_id,
+            settings.github_app_private_key,
+            settings.github_app_installation_id,
+        )
+
     return process_repo_on_modal(repo_dict, bot_user_id, github_token, set_tracker=set_tracker)
 
 
@@ -196,6 +208,89 @@ def tracker_process_repo(
     from decision_hub.domain.tracker_service import process_tracker_remote
 
     return process_tracker_remote(tracker_dict, known_sha)
+
+
+@app.function(image=crawler_image, secrets=secrets, timeout=3600, schedule=modal.Cron("0 2 * * *"))
+def crawl_trusted_orgs_nightly() -> None:
+    """Crawl all TRUSTED_ORGS for new SKILL.md files every night at 2am UTC.
+
+    Mints a short-lived GitHub App installation token for discovery; each
+    crawl_process_repo container mints its own fresh token to avoid expiry
+    during long fan-outs. Discovers repos via search_trusted_orgs, then fans
+    out processing — the same pipeline as the manual crawler.
+    """
+    import time
+
+    from loguru import logger
+
+    from decision_hub.infra.database import create_engine, upsert_user
+    from decision_hub.infra.github_app_token import mint_installation_token
+    from decision_hub.logging import setup_logging
+    from decision_hub.scripts.crawler.discovery import GitHubClient, search_trusted_orgs
+    from decision_hub.scripts.crawler.models import CrawlStats, DiscoveredRepo, repo_to_dict
+    from decision_hub.scripts.crawler.processing import BOT_GITHUB_ID, BOT_USERNAME
+    from decision_hub.settings import create_settings
+
+    settings = create_settings()
+    setup_logging(settings.log_level)
+
+    # Token for the discovery phase only; worker containers mint their own.
+    github_token = mint_installation_token(
+        settings.github_app_id,
+        settings.github_app_private_key,
+        settings.github_app_installation_id,
+    )
+
+    engine = create_engine(settings.database_url)
+    with engine.connect() as conn:
+        bot_user = upsert_user(conn, github_id=BOT_GITHUB_ID, username=BOT_USERNAME)
+        conn.commit()
+    bot_user_id = str(bot_user.id)
+
+    stats = CrawlStats()
+    gh = GitHubClient(github_token)
+    try:
+        all_repos: list[DiscoveredRepo] = []
+        for batch in search_trusted_orgs(gh, stats):
+            # search_trusted_orgs already sets is_trusted=True on every repo it yields.
+            all_repos.extend(batch.values())
+    finally:
+        gh.close()
+
+    if not all_repos:
+        logger.info("crawl_trusted_orgs_nightly: no repos discovered")
+        return
+
+    logger.info("crawl_trusted_orgs_nightly: discovered {} repos, processing", len(all_repos))
+    start = time.monotonic()
+
+    repo_dicts = [repo_to_dict(r) for r in all_repos]
+    published = skipped = repos_failed = skills_failed = quarantined = 0
+    for result in crawl_process_repo.map(
+        repo_dicts,
+        kwargs={"bot_user_id": bot_user_id},
+        return_exceptions=True,
+        wrap_returned_exceptions=False,
+    ):
+        if isinstance(result, BaseException):
+            repos_failed += 1
+            logger.warning("crawl_trusted_orgs_nightly: repo error: {}", str(result)[:200])
+        else:
+            published += result.get("skills_published", 0)
+            skipped += result.get("skills_skipped", 0)
+            skills_failed += result.get("skills_failed", 0)
+            quarantined += result.get("skills_quarantined", 0)
+
+    elapsed = time.monotonic() - start
+    logger.info(
+        "crawl_trusted_orgs_nightly done in {:.1f}s — pub:{} skip:{} repos_failed:{} skills_failed:{} quar:{}",
+        elapsed,
+        published,
+        skipped,
+        repos_failed,
+        skills_failed,
+        quarantined,
+    )
 
 
 _TRACKER_LOOP_BUDGET_SECONDS = 480  # 8 min, leaving 2-min buffer before 600s timeout
