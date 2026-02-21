@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, Download, ArrowLeft, Globe, Github, Star } from "lucide-react";
+import { Package, Download, ArrowLeft, Globe, Github, Star, Tag } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
@@ -127,6 +127,12 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
                       <h3 className={styles.cardName}>{skill.skill_name}</h3>
                       <GradeBadge grade={skill.safety_rating} size="sm" />
                     </div>
+                    {skill.category && (
+                      <div className={styles.cardCategory}>
+                        <Tag size={10} />
+                        {skill.category}
+                      </div>
+                    )}
                     <p className={styles.cardDesc}>{skill.description}</p>
                     <div className={styles.cardFooter}>
                       <span className={styles.cardVersion}>
