@@ -33,7 +33,8 @@ def backfill(batch_size: int = 100) -> None:
     client = create_gemini_client(settings.google_api_key)
 
     total_processed = 0
-    total_errors = 0
+    total_errors = 0  # cumulative errors for final summary
+    consecutive_errors = 0  # circuit breaker: abort if too many in a row
 
     while True:
         with engine.connect() as conn:
@@ -84,10 +85,11 @@ def backfill(batch_size: int = 100) -> None:
                     total_processed,
                 )
                 total_errors += 1
-                if total_errors > 10:
-                    logger.error("Too many errors, aborting")
+                consecutive_errors += 1
+                if consecutive_errors > 10:
+                    logger.error("Too many consecutive errors, aborting")
                     break
-                time.sleep(min(2**total_errors, 60))
+                time.sleep(min(2**consecutive_errors, 60))
                 continue
 
             # Store embeddings
@@ -96,7 +98,7 @@ def backfill(batch_size: int = 100) -> None:
 
             conn.commit()
             total_processed += len(rows)
-            total_errors = 0  # reset per-window error count on success
+            consecutive_errors = 0  # reset circuit breaker on success
             logger.info("Backfilled {}/{} skills", total_processed, total_processed)
 
     logger.info(
