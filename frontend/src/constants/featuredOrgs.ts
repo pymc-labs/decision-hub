@@ -4,6 +4,7 @@ export const FEATURED_ORGS = [
   "openai",
   "getcursor",
   "google-deepmind",
+  "marimo-team",
 ];
 
 export const FEATURED_SET = new Set(FEATURED_ORGS);
