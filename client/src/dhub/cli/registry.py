@@ -381,6 +381,8 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
             resp = client.get(f"{api_url}/v1/trackers", headers=headers)
             raise_for_status(resp)
             existing = resp.json()
+    except (SystemExit, typer.Exit):
+        raise  # Don't swallow typer.Exit (e.g. from 426 handler)
     except Exception:
         return  # Don't fail the publish if tracker API is unavailable
 
