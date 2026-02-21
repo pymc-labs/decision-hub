@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
 
+import httpx
 import typer
 
 CONFIG_DIR = Path.home() / ".dhub"
@@ -157,3 +158,22 @@ def build_headers(token: str | None = None) -> dict[str, str]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+def raise_for_status(resp: httpx.Response) -> None:
+    """Like ``resp.raise_for_status()`` but with a friendly 426 message.
+
+    When the server returns 426 Upgrade Required, the raw httpx traceback
+    exposes internal URLs and gives no guidance. This wrapper intercepts
+    that status and prints an actionable message instead.
+    """
+    if resp.status_code == 426:
+        from rich.console import Console
+
+        Console(stderr=True).print(
+            "[red]Error: Your dhub CLI is outdated and incompatible with the server.[/]\n"
+            "Run [bold]dhub upgrade[/bold] to install the latest version.\n"
+            "Browse the registry at [link=https://hub.decision.ai]https://hub.decision.ai[/link]"
+        )
+        raise typer.Exit(1)
+    resp.raise_for_status()

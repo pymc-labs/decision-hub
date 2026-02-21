@@ -101,7 +101,7 @@ def check_and_show_update(console: Console) -> None:
                 Panel(
                     f"[bold]dhub update available![/bold] "
                     f"[dim]{current}[/dim] -> [bold cyan]{latest}[/bold cyan]\n"
-                    f"Update with [bold]pip install --upgrade dhub-cli[/bold]",
+                    f"Update with [bold]dhub upgrade[/bold]",
                     border_style="cyan",
                 )
             )

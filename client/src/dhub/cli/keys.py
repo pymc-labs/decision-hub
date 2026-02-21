@@ -14,7 +14,7 @@ def add_key(
     key_name: str = typer.Argument(help="Name for the API key"),
 ) -> None:
     """Add an API key (prompts for the value securely)."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
 
     key_value = typer.prompt("Enter API key value", hide_input=True)
 
@@ -33,7 +33,7 @@ def add_key(
                 f"[red]Error: Key '{key_name}' already exists. Remove it first with [bold]dhub keys remove[/bold].[/]"
             )
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
 
     console.print(f"[green]Added key: {key_name}[/]")
 
@@ -41,14 +41,14 @@ def add_key(
 @keys_app.command("list")
 def list_keys() -> None:
     """List stored API key names."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
 
     with httpx.Client(timeout=60) as client:
         resp = client.get(
             f"{get_api_url()}/v1/keys",
             headers=build_headers(get_token()),
         )
-        resp.raise_for_status()
+        raise_for_status(resp)
         keys = resp.json()
 
     if not keys:
@@ -70,7 +70,7 @@ def remove_key(
     key_name: str = typer.Argument(help="Name of the API key to remove"),
 ) -> None:
     """Remove a stored API key."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
 
     with httpx.Client(timeout=60) as client:
         resp = client.delete(
@@ -80,6 +80,6 @@ def remove_key(
         if resp.status_code == 404:
             console.print(f"[red]Error: Key '{key_name}' not found.[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
 
     console.print(f"[green]Removed key: {key_name}[/]")
