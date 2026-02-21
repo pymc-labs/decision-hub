@@ -211,6 +211,30 @@ def ask_skills(
     )
 
     if result is None:
+        # Platform questions (safety grades, trust scores, registry mechanics)
+        # don't need skill candidates — route them directly to the LLM.
+        if guard.get("is_platform_question"):
+            try:
+                llm_result = ask_conversational(
+                    gemini, q, "", settings.gemini_model,
+                )
+                elapsed_ms = int((time.monotonic() - start_time) * 1000)
+                logger.info(
+                    "Platform question answered (no retrieval needed) | "
+                    "query={q!r} elapsed_ms={ms}",
+                    q=q, ms=elapsed_ms,
+                )
+                return AskResponse(
+                    query=q,
+                    answer=llm_result["answer"],
+                    skills=[],
+                    category=category,
+                )
+            except Exception:
+                logger.opt(exception=True).warning(
+                    "Conversational ask failed for platform question"
+                )
+
         msg = (
             f"No skills found in category '{category}'."
             if category
