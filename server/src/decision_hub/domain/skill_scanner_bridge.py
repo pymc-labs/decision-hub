@@ -8,6 +8,7 @@ tracker) call through this module instead of the old gauntlet.
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import time
 import zipfile
@@ -112,7 +113,25 @@ def _find_skill_root(base: Path) -> Path:
     for d in subdirs:
         if (d / "SKILL.md").exists():
             return d
+    logger.warning(
+        "SKILL.md not found in '{}' or its immediate subdirectories; using base directory as skill root fallback",
+        base,
+    )
     return base
+
+
+def _safe_extract_zip(zf: zipfile.ZipFile, dest: str) -> None:
+    """Extract zip members with path traversal protection.
+
+    Rejects any member whose resolved path escapes the destination
+    directory (e.g. via ``../`` or absolute paths).
+    """
+    dest_path = os.path.realpath(dest)
+    for member in zf.namelist():
+        member_path = os.path.realpath(os.path.join(dest, member))
+        if not member_path.startswith(dest_path + os.sep) and member_path != dest_path:
+            raise ValueError(f"Zip member '{member}' would escape extraction directory")
+    zf.extractall(dest)
 
 
 # ---------------------------------------------------------------------------
@@ -124,11 +143,17 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     """Scan an on-disk skill directory (used by crawler/tracker).
 
     Returns a BridgeScanResult with all fields populated.
+    Wraps scanner errors so callers get a failing BridgeScanResult
+    instead of an unhandled exception from the third-party library.
     """
     start = time.monotonic()
 
-    scanner = _build_scanner(settings)
-    result = scanner.scan_skill(skill_dir)
+    try:
+        scanner = _build_scanner(settings)
+        result = scanner.scan_skill(skill_dir)
+    except Exception:
+        logger.opt(exception=True).error("skill-scanner crashed on {}", skill_dir)
+        return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     return _map_scan_result(result, elapsed_ms)
@@ -138,15 +163,21 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
     """Extract a zip to a temp dir and scan (used by publish endpoint).
 
     Returns a BridgeScanResult with all fields populated.
+    Wraps scanner errors so callers get a failing BridgeScanResult
+    instead of an unhandled exception from the third-party library.
     """
     start = time.monotonic()
 
-    with tempfile.TemporaryDirectory(prefix="skill_scan_") as tmp:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            zf.extractall(tmp)
-        skill_dir = _find_skill_root(Path(tmp))
-        scanner = _build_scanner(settings)
-        result = scanner.scan_skill(skill_dir)
+    try:
+        with tempfile.TemporaryDirectory(prefix="skill_scan_") as tmp:
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+                _safe_extract_zip(zf, tmp)
+            skill_dir = _find_skill_root(Path(tmp))
+            scanner = _build_scanner(settings)
+            result = scanner.scan_skill(skill_dir)
+    except Exception:
+        logger.opt(exception=True).error("skill-scanner crashed on zip input")
+        return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     return _map_scan_result(result, elapsed_ms)
@@ -155,6 +186,39 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
 # ---------------------------------------------------------------------------
 # Result mapping
 # ---------------------------------------------------------------------------
+
+
+def _error_scan_result(elapsed_ms: int) -> BridgeScanResult:
+    """Return a fail-closed BridgeScanResult when the scanner itself errors."""
+    return BridgeScanResult(
+        is_safe=False,
+        max_severity="CRITICAL",
+        grade="F",
+        findings_count=1,
+        findings=[
+            {
+                "rule_id": "SCANNER_ERROR",
+                "category": "policy_violation",
+                "severity": "CRITICAL",
+                "title": "Scanner internal error",
+                "description": "The skill-scanner failed to complete. The skill is rejected (fail-closed).",
+                "file_path": None,
+                "line_number": None,
+                "snippet": None,
+                "remediation": "Retry the publish. If it persists, contact the platform team.",
+                "analyzer": "bridge",
+                "aitech_code": None,
+                "metadata": {},
+            }
+        ],
+        analyzers_used=[],
+        analyzability_score=None,
+        scan_duration_ms=elapsed_ms,
+        policy_name=None,
+        policy_fingerprint=None,
+        full_report={"error": "scanner_crashed"},
+        meta_analysis=None,
+    )
 
 
 def _map_scan_result(result: Any, elapsed_ms: int) -> BridgeScanResult:
@@ -194,8 +258,9 @@ def _map_scan_result(result: Any, elapsed_ms: int) -> BridgeScanResult:
         )
 
     analyzers_used = result_dict.get("analyzers_used", [])
+    scan_metadata = result_dict.get("scan_metadata", {})
 
-    meta_analysis = result_dict.get("meta_analysis") or result_dict.get("scan_metadata", {}).get("meta_analysis")
+    meta_analysis = result_dict.get("meta_analysis") or scan_metadata.get("meta_analysis")
 
     grade = severity_to_grade(max_severity)
 
@@ -216,10 +281,10 @@ def _map_scan_result(result: Any, elapsed_ms: int) -> BridgeScanResult:
         findings_count=len(findings),
         findings=findings,
         analyzers_used=analyzers_used,
-        analyzability_score=None,
+        analyzability_score=result_dict.get("analyzability_score"),
         scan_duration_ms=elapsed_ms,
-        policy_name="balanced",
-        policy_fingerprint=result_dict.get("scan_metadata", {}).get("policy_fingerprint"),
+        policy_name=scan_metadata.get("policy_name", "balanced"),
+        policy_fingerprint=scan_metadata.get("policy_fingerprint"),
         full_report=result_dict,
         meta_analysis=meta_analysis,
     )

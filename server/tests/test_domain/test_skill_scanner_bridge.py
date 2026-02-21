@@ -1,10 +1,16 @@
 """Tests for domain/skill_scanner_bridge.py — the adapter between skill-scanner and dhub."""
 
+import io
+import zipfile
 from unittest.mock import MagicMock
 
+import pytest
+
 from decision_hub.domain.skill_scanner_bridge import (
+    _error_scan_result,
     _find_skill_root,
     _map_scan_result,
+    _safe_extract_zip,
     severity_to_grade,
 )
 
@@ -43,9 +49,38 @@ class TestFindSkillRoot:
         (sub / "SKILL.md").write_text("---\nname: test\n---\n")
         assert _find_skill_root(tmp_path) == sub
 
-    def test_no_skill_md_returns_base(self, tmp_path):
+    def test_no_skill_md_returns_base_with_warning(self, tmp_path):
         (tmp_path / "README.md").write_text("hello")
         assert _find_skill_root(tmp_path) == tmp_path
+
+
+class TestSafeExtractZip:
+    def test_normal_zip_extracts(self, tmp_path):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: test\n---\n")
+        buf.seek(0)
+        with zipfile.ZipFile(buf) as zf:
+            _safe_extract_zip(zf, str(tmp_path))
+        assert (tmp_path / "SKILL.md").exists()
+
+    def test_path_traversal_rejected(self, tmp_path):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("../../../etc/passwd", "malicious")
+        buf.seek(0)
+        with zipfile.ZipFile(buf) as zf, pytest.raises(ValueError, match="would escape"):
+            _safe_extract_zip(zf, str(tmp_path))
+
+
+class TestErrorScanResult:
+    def test_returns_grade_f(self):
+        result = _error_scan_result(100)
+        assert result.grade == "F"
+        assert result.is_safe is False
+        assert result.max_severity == "CRITICAL"
+        assert result.findings_count == 1
+        assert result.findings[0]["rule_id"] == "SCANNER_ERROR"
 
 
 class TestMapScanResult:
@@ -74,7 +109,7 @@ class TestMapScanResult:
             "findings": [],
             "analyzers_used": ["static", "behavioral"],
             "analyzability_score": 95.0,
-            "scan_metadata": {"policy_fingerprint": "abc123"},
+            "scan_metadata": {"policy_fingerprint": "abc123", "policy_name": "strict"},
         }
         return result
 
@@ -87,7 +122,7 @@ class TestMapScanResult:
         assert bridge_result.is_safe is True
         assert bridge_result.max_severity == "LOW"
         assert bridge_result.scan_duration_ms == 100
-        assert bridge_result.policy_name == "balanced"
+        assert bridge_result.policy_name == "strict"
 
     def test_critical_result_maps_to_grade_f(self):
         mock_result = self._make_mock_result(is_safe=False, max_severity_name="CRITICAL")
@@ -145,3 +180,18 @@ class TestMapScanResult:
 
         assert bridge_result.full_report is not None
         assert bridge_result.full_report["analyzers_used"] == ["static", "behavioral"]
+
+    def test_analyzability_score_extracted(self):
+        mock_result = self._make_mock_result()
+
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=50)
+
+        assert bridge_result.analyzability_score == 95.0
+
+    def test_policy_name_extracted_from_metadata(self):
+        mock_result = self._make_mock_result()
+
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=50)
+
+        assert bridge_result.policy_name == "strict"
+        assert bridge_result.policy_fingerprint == "abc123"
