@@ -145,6 +145,35 @@ class TestLinkSkillToAllAgents:
             assert symlink.resolve() == canonical_skill_dir.resolve()
 
 
+class TestUninstallSharedPaths:
+    """Tests for uninstall_skill with agents sharing the same directory."""
+
+    def test_uninstall_with_shared_agent_paths(self, tmp_path: Path) -> None:
+        """Agents sharing a path (e.g. amp, kimi-cli) must not crash on uninstall."""
+        shared_dir = tmp_path / "agents" / "shared" / "skills"
+        mock_paths = {
+            "agent-a": shared_dir,
+            "agent-b": shared_dir,
+            "agent-c": tmp_path / "agents" / "unique" / "skills",
+        }
+        canonical = tmp_path / ".dhub" / "skills" / "myorg" / "myskill"
+        canonical.mkdir(parents=True)
+        (canonical / "SKILL.md").write_text("# Skill content")
+
+        with (
+            patch.object(install, "AGENT_SKILL_PATHS", mock_paths),
+            patch.object(install, "get_dhub_skill_path", return_value=canonical),
+        ):
+            # Link to all agents — shared path gets one physical symlink
+            install.link_skill_to_all_agents("myorg", "myskill")
+
+            # Uninstall must not crash despite agent-a and agent-b sharing a symlink
+            unlinked = install.uninstall_skill("myorg", "myskill")
+
+            assert sorted(unlinked) == ["agent-a", "agent-b", "agent-c"]
+            assert not canonical.exists()
+
+
 class TestListLinkedAgents:
     """Tests for list_linked_agents."""
 

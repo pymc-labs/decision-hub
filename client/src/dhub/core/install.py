@@ -212,10 +212,19 @@ def uninstall_skill(org: str, skill_name: str) -> list[str]:
     if not canonical.exists():
         raise FileNotFoundError(f"Skill not installed: {canonical}")
 
-    # Remove agent symlinks first
+    # Remove agent symlinks first.
+    # Multiple agents can share the same directory (e.g. amp, kimi-cli, replit,
+    # universal all use ~/.config/agents/skills). Track which physical symlink
+    # paths have already been removed to avoid FileNotFoundError on duplicates.
     unlinked: list[str] = []
+    removed_paths: set[Path] = set()
     for agent in list_linked_agents(org, skill_name):
+        symlink_path = AGENT_SKILL_PATHS[agent] / skill_name
+        if symlink_path in removed_paths:
+            unlinked.append(agent)
+            continue
         unlink_skill_from_agent(org, skill_name, agent)
+        removed_paths.add(symlink_path)
         unlinked.append(agent)
 
     # Remove the skill directory
