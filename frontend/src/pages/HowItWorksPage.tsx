@@ -164,7 +164,7 @@ Published: pymc-labs/my-skill@0.1.0 (Grade A)`,
         title: "Write Once, Run Everywhere",
         icon: Link,
         bullets: [
-          <>One <strong>--agent all</strong> flag links the skill to Claude, Cursor, Codex, Gemini, and OpenCode</>,
+          <>One <strong>--agent all</strong> flag links the skill to 40+ agents — Claude Code, Cursor, Codex, Windsurf, and more</>,
           <>Symlinks live at the path each agent expects — <strong>no per-agent configuration</strong> files</>,
           <>Update the skill once; <strong>all agents pick up the change</strong> on next reload</>,
         ],
@@ -176,7 +176,7 @@ Published: pymc-labs/my-skill@0.1.0 (Grade A)`,
 Resolving pymc-labs/pymc-modeling@latest...
 Downloading pymc-labs/pymc-modeling@0.2.0...
 Installed pymc-labs/pymc-modeling@0.2.0 to ~/.dhub/skills/pymc-labs/pymc-modeling
-Linked to agents: claude, codex, cursor, gemini, opencode`,
+Linked to agents: claude-code, codex, cursor, gemini-cli, windsurf, ... (40 agents)`,
         },
       },
       {

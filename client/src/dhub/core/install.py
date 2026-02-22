@@ -8,13 +8,50 @@ import hashlib
 import shutil
 from pathlib import Path
 
-# Mapping of agent names to their skill directories
+# Mapping of agent --agent flag values to their global skill directories.
+# Each key is the CLI argument for `dhub install --agent <key>`.
 AGENT_SKILL_PATHS: dict[str, Path] = {
-    "claude": Path.home() / ".claude" / "skills",
+    "adal": Path.home() / ".adal" / "skills",
+    "amp": Path.home() / ".config" / "agents" / "skills",
+    "antigravity": Path.home() / ".gemini" / "antigravity" / "skills",
+    "augment": Path.home() / ".augment" / "skills",
+    "claude-code": Path.home() / ".claude" / "skills",
+    "cline": Path.home() / ".cline" / "skills",
+    "codebuddy": Path.home() / ".codebuddy" / "skills",
     "codex": Path.home() / ".codex" / "skills",
+    "command-code": Path.home() / ".commandcode" / "skills",
+    "continue": Path.home() / ".continue" / "skills",
+    "cortex": Path.home() / ".snowflake" / "cortex" / "skills",
+    "crush": Path.home() / ".config" / "crush" / "skills",
     "cursor": Path.home() / ".cursor" / "skills",
+    "droid": Path.home() / ".factory" / "skills",
+    "gemini-cli": Path.home() / ".gemini" / "skills",
+    "github-copilot": Path.home() / ".copilot" / "skills",
+    "goose": Path.home() / ".config" / "goose" / "skills",
+    "iflow-cli": Path.home() / ".iflow" / "skills",
+    "junie": Path.home() / ".junie" / "skills",
+    "kilo": Path.home() / ".kilocode" / "skills",
+    "kimi-cli": Path.home() / ".config" / "agents" / "skills",
+    "kiro-cli": Path.home() / ".kiro" / "skills",
+    "kode": Path.home() / ".kode" / "skills",
+    "mcpjam": Path.home() / ".mcpjam" / "skills",
+    "mistral-vibe": Path.home() / ".vibe" / "skills",
+    "mux": Path.home() / ".mux" / "skills",
+    "neovate": Path.home() / ".neovate" / "skills",
+    "openclaw": Path.home() / ".openclaw" / "skills",
     "opencode": Path.home() / ".config" / "opencode" / "skills",
-    "gemini": Path.home() / ".gemini" / "skills",
+    "openhands": Path.home() / ".openhands" / "skills",
+    "pi": Path.home() / ".pi" / "agent" / "skills",
+    "pochi": Path.home() / ".pochi" / "skills",
+    "qoder": Path.home() / ".qoder" / "skills",
+    "qwen-code": Path.home() / ".qwen" / "skills",
+    "replit": Path.home() / ".config" / "agents" / "skills",
+    "roo": Path.home() / ".roo" / "skills",
+    "trae": Path.home() / ".trae" / "skills",
+    "trae-cn": Path.home() / ".trae-cn" / "skills",
+    "universal": Path.home() / ".config" / "agents" / "skills",
+    "windsurf": Path.home() / ".codeium" / "windsurf" / "skills",
+    "zencoder": Path.home() / ".zencoder" / "skills",
 }
 
 

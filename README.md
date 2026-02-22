@@ -113,7 +113,7 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 |---------|-------------|
 | `dhub install ORG/SKILL` | Install a skill and symlink into all detected agents |
 | `dhub install ORG/SKILL -v VERSION` | Install a specific version |
-| `dhub install ORG/SKILL --agent claude` | Install for a specific agent only |
+| `dhub install ORG/SKILL --agent claude-code` | Install for a specific agent only |
 | `dhub install ORG/SKILL --allow-risky` | Allow installing C-grade skills |
 | `dhub uninstall ORG/SKILL` | Remove a skill and its agent symlinks |
 | `dhub run ORG/SKILL [ARGS...]` | Run a locally installed skill |
@@ -165,15 +165,51 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 
 Skills are installed as symlinks into each agent's skill directory:
 
-| Agent | Skill path |
-|-------|-----------|
-| Claude | `~/.claude/skills/{skill}` |
-| Cursor | `~/.cursor/skills/{skill}` |
-| Codex | `~/.codex/skills/{skill}` |
-| OpenCode | `~/.config/opencode/skills/{skill}` |
-| Gemini | `~/.gemini/skills/{skill}` |
+| Agent | `--agent` | Skill path |
+|-------|-----------|-----------|
+| AdaL | `adal` | `~/.adal/skills/{skill}` |
+| Amp | `amp` | `~/.config/agents/skills/{skill}` |
+| Antigravity | `antigravity` | `~/.gemini/antigravity/skills/{skill}` |
+| Augment | `augment` | `~/.augment/skills/{skill}` |
+| Claude Code | `claude-code` | `~/.claude/skills/{skill}` |
+| Cline | `cline` | `~/.cline/skills/{skill}` |
+| CodeBuddy | `codebuddy` | `~/.codebuddy/skills/{skill}` |
+| Codex | `codex` | `~/.codex/skills/{skill}` |
+| Command Code | `command-code` | `~/.commandcode/skills/{skill}` |
+| Continue | `continue` | `~/.continue/skills/{skill}` |
+| Cortex Code | `cortex` | `~/.snowflake/cortex/skills/{skill}` |
+| Crush | `crush` | `~/.config/crush/skills/{skill}` |
+| Cursor | `cursor` | `~/.cursor/skills/{skill}` |
+| Droid | `droid` | `~/.factory/skills/{skill}` |
+| Gemini CLI | `gemini-cli` | `~/.gemini/skills/{skill}` |
+| GitHub Copilot | `github-copilot` | `~/.copilot/skills/{skill}` |
+| Goose | `goose` | `~/.config/goose/skills/{skill}` |
+| iFlow CLI | `iflow-cli` | `~/.iflow/skills/{skill}` |
+| Junie | `junie` | `~/.junie/skills/{skill}` |
+| Kilo Code | `kilo` | `~/.kilocode/skills/{skill}` |
+| Kimi Code CLI | `kimi-cli` | `~/.config/agents/skills/{skill}` |
+| Kiro CLI | `kiro-cli` | `~/.kiro/skills/{skill}` |
+| Kode | `kode` | `~/.kode/skills/{skill}` |
+| MCPJam | `mcpjam` | `~/.mcpjam/skills/{skill}` |
+| Mistral Vibe | `mistral-vibe` | `~/.vibe/skills/{skill}` |
+| Mux | `mux` | `~/.mux/skills/{skill}` |
+| Neovate | `neovate` | `~/.neovate/skills/{skill}` |
+| OpenClaw | `openclaw` | `~/.openclaw/skills/{skill}` |
+| OpenCode | `opencode` | `~/.config/opencode/skills/{skill}` |
+| OpenHands | `openhands` | `~/.openhands/skills/{skill}` |
+| Pi | `pi` | `~/.pi/agent/skills/{skill}` |
+| Pochi | `pochi` | `~/.pochi/skills/{skill}` |
+| Qoder | `qoder` | `~/.qoder/skills/{skill}` |
+| Qwen Code | `qwen-code` | `~/.qwen/skills/{skill}` |
+| Replit | `replit` | `~/.config/agents/skills/{skill}` |
+| Roo Code | `roo` | `~/.roo/skills/{skill}` |
+| Trae | `trae` | `~/.trae/skills/{skill}` |
+| Trae CN | `trae-cn` | `~/.trae-cn/skills/{skill}` |
+| Universal | `universal` | `~/.config/agents/skills/{skill}` |
+| Windsurf | `windsurf` | `~/.codeium/windsurf/skills/{skill}` |
+| Zencoder | `zencoder` | `~/.zencoder/skills/{skill}` |
 
-By default, `dhub install` symlinks into all detected agents. Use `--agent NAME` to target a specific one.
+By default, `dhub install` symlinks into all agents. Use `--agent NAME` to target a specific one.
 
 ## Safety & Evals
 

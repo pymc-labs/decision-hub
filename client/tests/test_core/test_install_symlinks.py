@@ -10,12 +10,17 @@ from dhub.core import install
 
 @pytest.fixture(autouse=True)
 def _mock_agent_paths(tmp_path: Path) -> None:
-    """Override AGENT_SKILL_PATHS to use temp directories for all tests."""
+    """Override AGENT_SKILL_PATHS to use temp directories for all tests.
+
+    Uses a representative subset of agents covering different path structures
+    (simple, nested, shared directories).
+    """
     mock_paths = {
-        "claude": tmp_path / "agents" / "claude" / "skills",
+        "claude-code": tmp_path / "agents" / "claude-code" / "skills",
         "cursor": tmp_path / "agents" / "cursor" / "skills",
         "opencode": tmp_path / "agents" / "opencode" / "skills",
-        "gemini": tmp_path / "agents" / "gemini" / "skills",
+        "gemini-cli": tmp_path / "agents" / "gemini-cli" / "skills",
+        "windsurf": tmp_path / "agents" / "windsurf" / "skills",
     }
     with patch.object(install, "AGENT_SKILL_PATHS", mock_paths):
         yield
@@ -53,10 +58,11 @@ class TestGetAgentSkillPaths:
 
     def test_contains_all_agents(self) -> None:
         paths = install.get_agent_skill_paths()
-        assert "claude" in paths
+        assert "claude-code" in paths
         assert "cursor" in paths
         assert "opencode" in paths
-        assert "gemini" in paths
+        assert "gemini-cli" in paths
+        assert "windsurf" in paths
 
 
 class TestLinkSkillToAgent:
@@ -64,7 +70,7 @@ class TestLinkSkillToAgent:
 
     @pytest.mark.usefixtures("_mock_dhub_path")
     def test_creates_symlink(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
-        symlink = install.link_skill_to_agent("myorg", "myskill", "claude")
+        symlink = install.link_skill_to_agent("myorg", "myskill", "claude-code")
 
         assert symlink.is_symlink()
         assert symlink.resolve() == canonical_skill_dir.resolve()
@@ -73,19 +79,19 @@ class TestLinkSkillToAgent:
     @pytest.mark.usefixtures("_mock_dhub_path")
     def test_creates_parent_dirs(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
         # The agent skills directory should not exist yet
-        agent_dir = install.AGENT_SKILL_PATHS["claude"]
+        agent_dir = install.AGENT_SKILL_PATHS["claude-code"]
         assert not agent_dir.exists()
 
-        install.link_skill_to_agent("myorg", "myskill", "claude")
+        install.link_skill_to_agent("myorg", "myskill", "claude-code")
         assert agent_dir.exists()
 
     @pytest.mark.usefixtures("_mock_dhub_path")
     def test_replaces_existing_symlink(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
         # Create the first symlink
-        install.link_skill_to_agent("myorg", "myskill", "claude")
+        install.link_skill_to_agent("myorg", "myskill", "claude-code")
 
         # Create again -- should not raise
-        symlink = install.link_skill_to_agent("myorg", "myskill", "claude")
+        symlink = install.link_skill_to_agent("myorg", "myskill", "claude-code")
         assert symlink.is_symlink()
         assert symlink.resolve() == canonical_skill_dir.resolve()
 
@@ -100,7 +106,7 @@ class TestLinkSkillToAgent:
             patch.object(install, "get_dhub_skill_path", return_value=missing),
             pytest.raises(FileNotFoundError, match="not found"),
         ):
-            install.link_skill_to_agent("myorg", "myskill", "claude")
+            install.link_skill_to_agent("myorg", "myskill", "claude-code")
 
 
 class TestUnlinkSkillFromAgent:
@@ -108,10 +114,10 @@ class TestUnlinkSkillFromAgent:
 
     @pytest.mark.usefixtures("_mock_dhub_path")
     def test_removes_symlink(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
-        symlink = install.link_skill_to_agent("myorg", "myskill", "claude")
+        symlink = install.link_skill_to_agent("myorg", "myskill", "claude-code")
         assert symlink.exists()
 
-        install.unlink_skill_from_agent("myorg", "myskill", "claude")
+        install.unlink_skill_from_agent("myorg", "myskill", "claude-code")
         assert not symlink.exists()
 
     def test_unknown_agent_raises(self) -> None:
@@ -120,7 +126,7 @@ class TestUnlinkSkillFromAgent:
 
     def test_no_symlink_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError, match="No symlink"):
-            install.unlink_skill_from_agent("myorg", "myskill", "claude")
+            install.unlink_skill_from_agent("myorg", "myskill", "claude-code")
 
 
 class TestLinkSkillToAllAgents:
@@ -130,7 +136,7 @@ class TestLinkSkillToAllAgents:
     def test_links_to_all_agents(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
         linked = install.link_skill_to_all_agents("myorg", "myskill")
 
-        assert sorted(linked) == ["claude", "cursor", "gemini", "opencode"]
+        assert sorted(linked) == ["claude-code", "cursor", "gemini-cli", "opencode", "windsurf"]
 
         # Verify all symlinks exist
         for agent in linked:
@@ -144,11 +150,11 @@ class TestListLinkedAgents:
 
     @pytest.mark.usefixtures("_mock_dhub_path")
     def test_returns_linked_agents(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
-        install.link_skill_to_agent("myorg", "myskill", "claude")
+        install.link_skill_to_agent("myorg", "myskill", "claude-code")
         install.link_skill_to_agent("myorg", "myskill", "cursor")
 
         linked = install.list_linked_agents("myorg", "myskill")
-        assert sorted(linked) == ["claude", "cursor"]
+        assert sorted(linked) == ["claude-code", "cursor"]
 
     @pytest.mark.usefixtures("_mock_dhub_path")
     def test_returns_empty_when_none_linked(self, canonical_skill_dir: Path) -> None:

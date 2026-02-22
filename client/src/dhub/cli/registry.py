@@ -804,7 +804,7 @@ def eval_report_command(
 def install_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
     version: str = typer.Option("latest", "--version", "-v", help="Version spec"),
-    agent: str = typer.Option(None, "--agent", help="Target agent (claude, cursor, etc.) or 'all'"),
+    agent: str = typer.Option(None, "--agent", help="Target agent (e.g. claude-code, cursor) or 'all'"),
     allow_risky: bool = typer.Option(False, "--allow-risky", help="Allow installing C-grade (risky) skills"),
 ) -> None:
     """Install a skill from the registry."""
