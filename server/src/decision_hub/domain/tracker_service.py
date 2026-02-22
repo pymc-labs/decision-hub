@@ -68,7 +68,7 @@ def dict_to_tracker(d: dict[str, Any]) -> SkillTracker:
 # ---------------------------------------------------------------------------
 
 
-def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
+def check_all_due_trackers(settings: Settings, *, deadline: float | None = None) -> TrackerBatchResult:
     """Find all due trackers and process them. Returns structured metrics.
 
     The caller loop in ``check_trackers`` breaks when ``result.checked == 0``,
@@ -253,7 +253,7 @@ def check_all_due_trackers(settings: Settings) -> TrackerBatchResult:
         )
 
     # Dispatch changed trackers (Modal fan-out with sequential fallback)
-    processed, failed = _dispatch_changed_trackers(changed_trackers, settings, engine)
+    processed, failed = _dispatch_changed_trackers(changed_trackers, settings, engine, deadline=deadline)
 
     logger.info(
         "tracker_batch due={} unchanged={} changed={} errored={} processed={} failed={}",
@@ -281,13 +281,24 @@ def _dispatch_changed_trackers(
     changed_trackers: list[tuple[SkillTracker, str]],
     settings: Settings,
     engine: Any,
+    *,
+    deadline: float | None = None,
 ) -> tuple[int, int]:
     """Fan out processing of changed trackers via Modal, with sequential fallback.
 
     Returns (processed_count, failed_count).
     Each Modal container mints its own GitHub App token from environment
     credentials, so no token passthrough is needed.
+
+    When *deadline* is set (monotonic clock), the function will stop
+    consuming ``fn.map`` results once the deadline is within 30 seconds,
+    preventing the orchestrator from hitting the hard Modal timeout.
+    Unprocessed trackers will be retried on the next tick.
     """
+    import time
+
+    _DEADLINE_BUFFER_SECONDS = 30
+
     processed = 0
     failed = 0
 
@@ -302,7 +313,16 @@ def _dispatch_changed_trackers(
             tracker_dicts,
             known_shas,
             return_exceptions=True,
+            order_outputs=False,
         ):
+            if deadline is not None and time.monotonic() > deadline - _DEADLINE_BUFFER_SECONDS:
+                logger.warning(
+                    "Deadline approaching, stopping fn.map consumption after {}/{} results",
+                    processed + failed,
+                    len(changed_trackers),
+                )
+                break
+
             if isinstance(batch_result, Exception):
                 logger.opt(exception=batch_result).error("Modal tracker_process_repo failed")
                 failed += 1
@@ -320,6 +340,9 @@ def _dispatch_changed_trackers(
         # Modal unavailable (local dev, import error, lookup failure) — fall back to sequential
         logger.info("Modal fan-out unavailable ({}), falling back to sequential processing", modal_err)
         for tracker, known_sha in changed_trackers:
+            if deadline is not None and time.monotonic() > deadline - _DEADLINE_BUFFER_SECONDS:
+                logger.warning("Deadline approaching, stopping sequential processing")
+                break
             try:
                 process_tracker(tracker, settings, engine, known_sha=known_sha)
                 processed += 1

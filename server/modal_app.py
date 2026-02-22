@@ -331,8 +331,9 @@ def check_trackers():
     last_github_rate: int | None = None
     iterations = 0
 
-    while time.monotonic() - start < _TRACKER_LOOP_BUDGET_SECONDS:
-        result = check_all_due_trackers(settings)
+    deadline = start + _TRACKER_LOOP_BUDGET_SECONDS
+    while time.monotonic() < deadline:
+        result = check_all_due_trackers(settings, deadline=deadline)
         total_checked += result.checked
         total_due += result.due
         total_unchanged += result.unchanged
