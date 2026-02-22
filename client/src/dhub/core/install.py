@@ -157,6 +157,10 @@ def unlink_skill_from_agent(org: str, skill_name: str, agent: str) -> None:
 def link_skill_to_all_agents(org: str, skill_name: str) -> list[str]:
     """Symlink a skill to all known agent directories.
 
+    Multiple agents can share the same directory (e.g. amp, kimi-cli, replit,
+    universal all use ~/.config/agents/skills). Each unique physical path is
+    only symlinked once to avoid needless delete-recreate cycles.
+
     Args:
         org: The organization slug.
         skill_name: The skill name.
@@ -165,8 +169,15 @@ def link_skill_to_all_agents(org: str, skill_name: str) -> list[str]:
         List of agent names that were successfully linked.
     """
     linked: list[str] = []
+    seen_paths: set[Path] = set()
     for agent in sorted(AGENT_SKILL_PATHS):
+        agent_dir = AGENT_SKILL_PATHS[agent]
+        symlink_path = agent_dir / skill_name
+        if symlink_path in seen_paths:
+            linked.append(agent)
+            continue
         link_skill_to_agent(org, skill_name, agent)
+        seen_paths.add(symlink_path)
         linked.append(agent)
     return linked
 
