@@ -1,42 +1,37 @@
 ## PLAN — Numbered key decisions with rationale.
 
-1.  **Finalize the 19-issue audit scope**: I will adopt the comprehensive 19-issue scope from Agent B. The critiques confirm that volume is acceptable if structured well, and missing real issues (like CORS or dependency audits) is a worse outcome for a final audit.
-2.  **Refine the "Branding vs Lock-in" Strategy**: I will explicitly adopt the three-tier classification for `pymc-labs` references:
-    *   **Category A (Keep)**: Attribution/Legal.
-    *   **Category B (Blocker)**: Runtime infrastructure lock-in (hardcoded URLs/Domains).
-    *   **Category C (Cosmetic)**: Example commands/marketing text (Critical/Important but deferrable).
-3.  **Elevate `SECURITY.md` to Blocker**: Consensus is clear that missing a vulnerability reporting channel is a release blocker.
-4.  **License Metadata Correction**: I verified that `client` *does* have a license, but `server` and `shared` (dhub-core) do *not*. I will update the finding to reflect this precision.
-5.  **Sanitization vs Removal**: For `CLAUDE.md`, I will recommend *sanitization* (removing App IDs/Secrets) rather than full removal, as the file contains useful dev context. `PRD.md` and `tasks.md` will remain "Remove".
-6.  **Auth Rate Limits**: Confirmed as CRITICAL (deferrable with mitigating factors like GitHub's upstream limits, but urgent).
+1.  **Finalize the Audit Artifact**: I will adopt Agent B's comprehensive 19-issue scope as the final audit plan. This approach has proven robust through three rounds of critique, incorporating every valid finding from all agents while structuring them into an actionable "Day 0 / Week 1" execution plan.
+2.  **Strategic Framing**: I will retain the "Release Contract" question (Hosted Product vs. Self-Hosted OSS) at the very top of the checklist. This is the single most important strategic decision for the release, as it dictates the severity of ~40% of the findings.
+3.  **Remediation Sequencing**: I will explicitly include the "Prioritized Remediation Sequence" table (Day 0 / Week 1 / Post-Release) with effort estimates. This directly addresses the "analysis paralysis" concern by providing a clear critical path.
+4.  **Refined Sanitize-Not-Delete**: I will maintain the specific instruction to *sanitize* `CLAUDE.md` (remove App IDs, Installation IDs, Modal secrets) rather than delete it. This preserves developer velocity while mitigating reconnaissance risk.
+5.  **Blocker Definition**: I affirm the consensus blocker set:
+    *   Missing `SECURITY.md` (Disclosure path)
+    *   Hardcoded Modal Domains (Deployability)
+    *   Hardcoded CLI Defaults (Runtime routing)
+    *   Missing License Metadata (Legal clarity)
+    *   Unsanitized Internal Docs (Reconnaissance risk)
+6.  **Open Questions**: I will expand the Open Questions section to include Agent C's specific additions regarding CORS enforcement architecture and CODEOWNERS governance, ensuring the post-release roadmap is clear.
 
 ## CHANGES — Unified diff or precise change descriptions.
 
 **Audit Checklist (`audit/oss-release-checklist.md`)**:
--   Updated to reflect the full 19-issue scope.
--   Refined status for License Metadata (Client PASS, Server/Shared FAIL).
--   Categorized issues by urgency (Blocker, Critical, Important).
+-   **Structure**: Retained the "Day 0 / Week 1 / Post-Release" remediation table.
+-   **Content**: Full 19-issue inventory with PASS/FAIL status.
+-   **Strategic Prompt**: "Release Contract" question remains at the top.
 
 **Blocker Issues**:
--   `BLOCKER-hardcoded-modal-domains.md` (Unchanged)
--   `BLOCKER-hardcoded-api-urls-in-client.md` (Unchanged)
--   `BLOCKER-missing-license-declarations.md`: Updated description to specify `server` and `shared` packages only.
--   `BLOCKER-internal-docs-committed.md`: Updated recommendation to "Sanitize CLAUDE.md, Remove PRD/tasks".
--   `BLOCKER-missing-security-policy.md` (Unchanged)
+-   `BLOCKER-hardcoded-modal-domains.md`: Unchanged.
+-   `BLOCKER-hardcoded-api-urls-in-client.md`: Unchanged.
+-   `BLOCKER-missing-license-declarations.md`: Confirmed text specifies `server` and `shared` only.
+-   `BLOCKER-internal-docs-committed.md`: Explicit "Sanitize CLAUDE.md" instruction.
+-   `BLOCKER-missing-security-policy.md`: Unchanged.
 
 **Critical Issues**:
--   `CRITICAL-auth-endpoints-missing-rate-limits.md` (Unchanged)
--   `CRITICAL-branding-hardcoding.md`: Updated to use the 3-category framework (Keep/Block/Cosmetic).
--   `CRITICAL-hardcoded-seo-urls.md` (Unchanged)
--   `CRITICAL-modal-secret-names-hardcoded.md` (New from Agent B)
--   `CRITICAL-missing-community-docs.md`: Removed SECURITY.md reference (now its own blocker).
+-   `CRITICAL-auth-endpoints-missing-rate-limits.md`: Unchanged.
+-   `CRITICAL-branding-hardcoding.md`: Retained 3-category framework (Keep/Block/Cosmetic).
+-   `CRITICAL-hardcoded-seo-urls.md`: Unchanged.
+-   `CRITICAL-modal-secret-names-hardcoded.md`: Unchanged.
+-   `CRITICAL-missing-community-docs.md`: Unchanged.
 
-**Important Issues** (Adopted from Agent B to complete the set):
--   `IMPORTANT-missing-cors-configuration.md`
--   `IMPORTANT-print-statement-in-production.md`
--   `IMPORTANT-missing-security-headers.md`
--   `IMPORTANT-dependency-audit-needed.md`
--   `IMPORTANT-personal-modal-urls-in-examples.md`
--   `IMPORTANT-claude-directory-test-commands.md`
--   `IMPORTANT-codeowners-personal-username.md`
--   `IMPORTANT-personal-email-metadata.md`
+**Important Issues**:
+-   Full set of 8 important issues (CORS, Headers, Dependencies, etc.) retained as "Post-Release" tasks.
