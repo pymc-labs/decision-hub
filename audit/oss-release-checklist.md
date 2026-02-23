@@ -1,4 +1,4 @@
-# OSS Release Readiness Checklist (Round 01 Revision)
+# OSS Release Readiness Checklist (Round 02 Revision)
 
 Audit date: 2026-02-23  
 Auditor: agent_c  
@@ -43,6 +43,10 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
   See: `audit/issues/CRITICAL-public-auth-endpoints-missing-rate-limits.md`
 - [x] Write routes are authenticated at router level — `PASS`
 - [x] JWT validation/401 path exists — `PASS`
+- [ ] CORS behavior is explicitly configured for self-host and split-origin deployments — `ISSUE`  
+  See: `audit/issues/IMPORTANT-missing-cors-configuration.md`
+- [ ] HTTP security headers are explicitly set by app/reverse-proxy policy — `ISSUE`  
+  See: `audit/issues/IMPORTANT-missing-http-security-headers.md`
 
 ## 5) Secrets and sensitive data hygiene
 
@@ -76,6 +80,8 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
 - [x] CI runs lint/typecheck/tests/migration checks — `PASS`
 - [x] Deploy and release-note workflows exist — `PASS`
 - [x] Recent `main` workflows are mostly green — `PASS`
+- [ ] Ownership rules are resilient to maintainer churn (team-based CODEOWNERS where appropriate) — `ISSUE`  
+  See: `audit/issues/IMPORTANT-codeowners-uses-personal-user-instead-of-team.md`
 
 ---
 
@@ -100,4 +106,15 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
 2. `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
 3. `audit/issues/IMPORTANT-internal-ops-runbook-exposed-in-public-docs.md`
 4. `audit/issues/IMPORTANT-personal-email-in-package-metadata.md`
+5. `audit/issues/IMPORTANT-missing-cors-configuration.md`
+6. `audit/issues/IMPORTANT-missing-http-security-headers.md`
+7. `audit/issues/IMPORTANT-codeowners-uses-personal-user-instead-of-team.md`
+
+---
+
+## Suggested remediation sequence (round 02)
+
+1. **Day 0 (release gate):** close all BLOCKER items.
+2. **Week 1 hardening:** close CRITICAL items or explicitly document compensating controls and deadlines.
+3. **Post-release stabilization:** close IMPORTANT items in descending operational risk (security posture first, governance/metadata next).
 
