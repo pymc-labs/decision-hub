@@ -2,6 +2,7 @@
 name = "dhub-core"
 version = "0.2.1"
 description = "Shared domain models and manifest parsing for Decision Hub"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0.0",
