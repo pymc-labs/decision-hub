@@ -1,5 +1,7 @@
 # BLOCKER: Missing Security Disclosure Policy (SECURITY.md)
 
+**Tracking:** [#176](https://github.com/pymc-labs/decision-hub/issues/176)
+
 ## Summary
 
 The repository has no `SECURITY.md` or equivalent security disclosure policy.

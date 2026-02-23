@@ -1,5 +1,7 @@
 # BLOCKER: Missing License Declarations in Sub-Packages
 
+**Tracking:** [#177](https://github.com/pymc-labs/decision-hub/issues/177)
+
 ## Summary
 
 While the root `LICENSE` file declares MIT, three of the four sub-packages
