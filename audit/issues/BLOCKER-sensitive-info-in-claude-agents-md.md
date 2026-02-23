@@ -54,7 +54,19 @@ deployment, making targeted attacks easier.
 
 ## Recommended Fix
 
-1. Move `CLAUDE.md` to `.cursor/rules` or a git-ignored location
-2. Delete `AGENTS.md` (it's a duplicate)
-3. Create a sanitized `CONTRIBUTING.md` with development guidelines
-4. Keep operational details in a private runbook (separate repo or wiki)
+**Sanitize, don't delete.** CLAUDE.md contains valuable content (code
+standards, design principles, testing conventions) alongside the sensitive
+operational details. The right approach is:
+
+1. **Strip operational identifiers** — remove GitHub App IDs, Installation IDs,
+   Modal secret names, PEM file paths, and troubleshooting commands that
+   reference specific infrastructure
+2. **Keep development guidelines** — code standards, design principles, testing
+   conventions, logging patterns, and contribution workflow are valuable for
+   OSS contributors
+3. **Delete `AGENTS.md`** — it's a duplicate of CLAUDE.md content
+4. **Move stripped operational details** to a private runbook (separate repo,
+   wiki, or git-ignored file) for maintainers only
+
+This preserves the AI-assisted development experience while removing the
+reconnaissance risk.
