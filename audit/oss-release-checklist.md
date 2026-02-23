@@ -1,99 +1,103 @@
-# OSS Release Readiness Checklist (Final Audit)
+# OSS Release Readiness Checklist (Round 01 Revision)
 
 Audit date: 2026-02-23  
 Auditor: agent_c  
-Scope: repository-level OSS release readiness (legal, security, governance, supply chain, and operational defaults)
+Scope: repository-level OSS readiness for legal clarity, deployability/forkability, security hardening, and operational support.
 
 ## Status legend
 
 - `PASS` — checked and acceptable for release
-- `ISSUE` — gap found; linked to a file in `audit/issues/`
-- `UNKNOWN` — needs explicit owner confirmation
+- `ISSUE` — concrete gap found (linked issue file)
+- `UNKNOWN` — requires explicit owner/legal decision
 
 ---
 
-## 1) Legal and licensing
+## 1) Legal and package licensing
 
-- [x] **Root OSS license is present and clear** (`LICENSE`) — `PASS`
-- [x] **README references project license clearly** (`README.md`) — `PASS`
-- [ ] **Public vulnerability disclosure policy exists** (`SECURITY.md`) — `ISSUE`  
+- [x] Root license file exists and is clear (`LICENSE`) — `PASS`
+- [x] README references license — `PASS`
+- [ ] Package manifests consistently declare license metadata — `ISSUE`  
+  See: `audit/issues/BLOCKER-missing-license-metadata-in-shared-and-server-packages.md`
+- [ ] Security disclosure policy exists (`SECURITY.md`) — `ISSUE`  
   See: `audit/issues/BLOCKER-security-disclosure-policy-missing.md`
-- [ ] **Contributor policy exists** (`CONTRIBUTING.md`) — `ISSUE`  
-  See: `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
-- [ ] **Community conduct policy exists** (`CODE_OF_CONDUCT.md`) — `ISSUE`  
-  See: `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
 
-## 2) Secrets and sensitive information hygiene
+## 2) Deployability and forkability (must work outside maintainer org)
 
-- [x] **No tracked `.env` secrets** (only `.env.example` files tracked) — `PASS`
-- [x] **No committed private keys / PEM files** — `PASS`
-- [x] **No obvious hardcoded cloud/API secrets in source** (targeted regex scan) — `PASS`
-- [ ] **Public examples do not default to private maintainer infrastructure** — `ISSUE`  
-  See: `audit/issues/BLOCKER-frontend-env-example-points-to-private-dev-backend.md`
+- [ ] Deployment does not depend on maintainer-owned custom domains — `ISSUE`  
+  See: `audit/issues/BLOCKER-hardcoded-modal-custom-domains-break-third-party-deploys.md`
+- [ ] CLI defaults are neutral (not hardwired to maintainer infra) — `ISSUE`  
+  See: `audit/issues/BLOCKER-hardcoded-cli-default-api-urls-lock-to-maintainer-infra.md`
+- [x] Core runtime configuration exists via env/settings — `PASS`
 
-## 3) Public API abuse resistance and security controls
+## 3) Public-domain/URL coupling hygiene
 
-- [x] **Public read-heavy endpoints are rate limited** (`/v1/ask`, listing/download/audit/scan routes) — `PASS`
-- [ ] **Public auth endpoints are rate limited** (`/auth/github/code`, `/auth/github/token`) — `ISSUE`  
+- [ ] Canonical/SEO/user-facing links are configuration-driven — `ISSUE`  
+  See: `audit/issues/CRITICAL-hardcoded-public-domains-in-seo-and-ux.md`
+- [ ] Example env templates are neutral and non-maintainer-specific — `ISSUE`  
+  See: `audit/issues/IMPORTANT-frontend-env-example-points-to-private-dev-backend.md`
+
+## 4) Public endpoint abuse resistance and security controls
+
+- [x] Read-heavy public endpoints are rate-limited — `PASS`
+- [ ] Public auth endpoints are rate-limited — `ISSUE`  
   See: `audit/issues/CRITICAL-public-auth-endpoints-missing-rate-limits.md`
-- [x] **Write routers enforce auth at router level** (`Depends(get_current_user)` in app wiring) — `PASS`
-- [x] **JWT validation path exists and returns 401 on invalid tokens** — `PASS`
+- [x] Write routes are authenticated at router level — `PASS`
+- [x] JWT validation/401 path exists — `PASS`
 
-## 4) Supply chain and dependency risk
+## 5) Secrets and sensitive data hygiene
 
-- [x] **Python and frontend dependencies are declared and lockfiles exist** (`uv.lock`, `frontend/package-lock.json`) — `PASS`
-- [ ] **Automated dependency/vulnerability monitoring is configured** (Dependabot / equivalent) — `ISSUE`  
+- [x] No tracked `.env` secrets (only examples) — `PASS`
+- [x] No committed private keys/PEM files — `PASS`
+- [x] No obvious hardcoded credentials in source scan — `PASS`
+
+## 6) Supply chain and dependency security process
+
+- [x] Dependency manifests/lockfiles exist — `PASS`
+- [ ] Automated dependency/vuln monitoring configured (Dependabot + scans) — `ISSUE`  
   See: `audit/issues/CRITICAL-no-automated-dependency-vulnerability-monitoring.md`
-- [ ] **Automated SAST/security scanning workflow is configured** (e.g., CodeQL/OSV scans) — `ISSUE`  
-  See: `audit/issues/CRITICAL-no-automated-dependency-vulnerability-monitoring.md`
 
-## 5) CI/release pipeline readiness
+## 7) OSS governance and contributor readiness
 
-- [x] **CI workflow exists and covers lint/typecheck/tests/migrations** — `PASS`
-- [x] **Dev deploy workflow exists** — `PASS`
-- [x] **Release notes/tag workflow exists** — `PASS`
-- [x] **Recent `main` CI mostly green** (latest failures appear non-persistent formatting issue later resolved) — `PASS`
-
-## 6) OSS documentation and contributor onboarding
-
-- [x] **Root README exists with install/usage/development basics** — `PASS`
-- [ ] **Public contributor onboarding policy exists** (`CONTRIBUTING`) — `ISSUE`  
+- [ ] CONTRIBUTING.md exists — `ISSUE`  
   See: `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
-- [ ] **Community governance/moderation baseline exists** (`CODE_OF_CONDUCT`) — `ISSUE`  
+- [ ] CODE_OF_CONDUCT.md exists — `ISSUE`  
   See: `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
-- [ ] **Internal runbooks are separated from public contributor docs** — `ISSUE`  
+- [ ] Public docs are separated from internal runbooks/planning docs — `ISSUE`  
   See: `audit/issues/IMPORTANT-internal-ops-runbook-exposed-in-public-docs.md`
 
-## 7) Operational safety defaults for public users
+## 8) Metadata and ownership clarity
 
-- [x] **Server defaults to safe `DHUB_ENV=dev` behavior** — `PASS`
-- [x] **Env templates use placeholders for secrets** — `PASS`
-- [ ] **Example frontend API endpoint is neutral/safe for OSS users** — `ISSUE`  
-  See: `audit/issues/BLOCKER-frontend-env-example-points-to-private-dev-backend.md`
+- [ ] Published package maintainer contact policy is explicit — `ISSUE`  
+  See: `audit/issues/IMPORTANT-personal-email-in-package-metadata.md`
+- [ ] Trademark/branding policy for forks is documented — `UNKNOWN`
 
-## 8) Open-source release communications and support
+## 9) CI/release controls
 
-- [ ] **Documented security contact path for embargoed reports** — `ISSUE`  
-  See: `audit/issues/BLOCKER-security-disclosure-policy-missing.md`
-- [ ] **Documented issue triage expectations / support scope** — `UNKNOWN` (can be folded into CONTRIBUTING)
-- [ ] **Stable public roadmap/release notes policy for external users** — `UNKNOWN`
+- [x] CI runs lint/typecheck/tests/migration checks — `PASS`
+- [x] Deploy and release-note workflows exist — `PASS`
+- [x] Recent `main` workflows are mostly green — `PASS`
 
 ---
 
 ## Findings summary from checklist iteration
 
-### OSS release blockers (must fix before release)
+### OSS release blockers (must fix before public release)
 
-1. `audit/issues/BLOCKER-security-disclosure-policy-missing.md`
-2. `audit/issues/BLOCKER-frontend-env-example-points-to-private-dev-backend.md`
+1. `audit/issues/BLOCKER-hardcoded-modal-custom-domains-break-third-party-deploys.md`
+2. `audit/issues/BLOCKER-hardcoded-cli-default-api-urls-lock-to-maintainer-infra.md`
+3. `audit/issues/BLOCKER-missing-license-metadata-in-shared-and-server-packages.md`
+4. `audit/issues/BLOCKER-security-disclosure-policy-missing.md`
 
-### Urgent issues (fix ASAP; can be deferred only with explicit risk acceptance)
+### Urgent issues (fix ASAP; can be deferred only with explicit compensating controls)
 
 1. `audit/issues/CRITICAL-public-auth-endpoints-missing-rate-limits.md`
-2. `audit/issues/CRITICAL-no-automated-dependency-vulnerability-monitoring.md`
+2. `audit/issues/CRITICAL-hardcoded-public-domains-in-seo-and-ux.md`
+3. `audit/issues/CRITICAL-no-automated-dependency-vulnerability-monitoring.md`
 
-### Important but deferrable issues
+### Important but clearly deferrable issues
 
-1. `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
-2. `audit/issues/IMPORTANT-internal-ops-runbook-exposed-in-public-docs.md`
+1. `audit/issues/IMPORTANT-frontend-env-example-points-to-private-dev-backend.md`
+2. `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
+3. `audit/issues/IMPORTANT-internal-ops-runbook-exposed-in-public-docs.md`
+4. `audit/issues/IMPORTANT-personal-email-in-package-metadata.md`
 
