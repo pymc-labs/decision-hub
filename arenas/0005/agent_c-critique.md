@@ -1,99 +1,106 @@
-# Agent C Critique (Round 00)
-
-## agent_a
-
-### Strengths
-
-- Correctly identified **hardcoded infrastructure coupling** as a major OSS risk:
-  - CLI defaults to PyMC Labs Modal URLs (`client/src/dhub/cli/config.py`)
-  - Modal deployment uses fixed custom domains (`server/modal_app.py`)
-- Produced concrete, actionable issue framing (problem -> impact -> fix).
-- Included governance/documentation gaps (community docs) that matter for OSS onboarding quality.
-
-### Weaknesses
-
-- Scope appears narrower than needed for a final OSS gate:
-  - less emphasis on abuse resistance (e.g., endpoint-level auth throttling),
-  - less emphasis on release-process controls (dependency/security automation).
-- Some findings are framed as broad platform coupling but without clear separation between:
-  - intentional product branding, and
-  - accidental infra lock-in that blocks third-party deployment.
-
-### Errors
-
-- `grep` is reported as a primary scanning method in the plan; repo guidance prefers `rg`.  
-  (Process/tooling error, not a factual repo-state error.)
-- The analysis references `SECURITY.md` risk but the solution summary does not clearly elevate it to blocker-tier output, which weakens release gating.
-
----
+# Agent C Critique (Round 01)
 
 ## agent_b
 
 ### Strengths
 
-- Most comprehensive breadth: legal, security, docs, CI/CD, and infra coupling.
-- Strong callout of high-impact blockers:
-  - hardcoded CLI API defaults,
-  - hardcoded Modal custom domains,
-  - missing package license metadata,
-  - internal operational docs exposure.
-- Good use of explicit tiering and deferral rationale for non-blockers.
-- Captures important OSS-adoption realities (fork tax, self-hosting friction, policy/documentation debt).
+- Most comprehensive synthesis across legal, deployability, security, and governance.
+- Strong correction cycle in round 01:
+  - explicitly fixed prior auth-rate-limit misstatement,
+  - elevated `SECURITY.md` to blocker,
+  - separated branding from true infrastructure lock-in.
+- Excellent risk framing (fork tax, disclosure risk, operational exposure) with clear trade-offs.
+- Useful “unknowns” section that surfaces real release-decision dependencies (trademark, package governance, fork workflows).
 
 ### Weaknesses
 
-- Over-classifies several policy/documentation issues as blockers that may be better as critical/important depending on launch strategy and legal posture.
-- Some recommendations are broad and potentially high-effort before release (e.g., wide branding/infrastructure decoupling) without always separating “day-0 must-fix” from “week-1 hardening.”
+- Scope remains very broad (19 findings), which can dilute execution focus for a release cut.
+- Some classifications are still arguably aggressive for pre-release gating (e.g., certain docs/process items that may be high-priority but deferrable with controls).
+- A few recommendations remain high-effort relative to release timeline and could benefit from explicit “phase 1 vs phase 2” sequencing.
 
 ### Errors
 
-- Factual inconsistency: analysis claims **“rate limiting on all public endpoints”**, but `/auth/github/code` and `/auth/github/token` have no route-level limiter dependency in current code (`auth_routes.py`).
-- “No code changes were made” in the arena summary does not align with the stated creation of many audit files (wording inconsistency).
+- One likely factual overcount: text references missing license declarations in **three** sub-packages, while current package metadata gap appears in **shared** and **server** manifests (client already declares MIT).  
+  (Severity is still valid; count should be verified.)
+- No other clear factual errors identified from the provided artifacts.
 
 ---
 
-## agent_c (self-review)
+## agent_a
 
 ### Strengths
 
-- Strong evidence-backed structure: checklist + categorized issue files with impact and remediation.
-- Correctly flagged missing auth endpoint rate limiting as urgent.
-- Correctly flagged absence of SECURITY.md and unsafe frontend `.env.example` default as pre-release blockers.
-- Maintained explicit deferral conditions for CRITICAL findings.
+- Clean, practical structure with direct mapping from findings to release action.
+- Correctly emphasizes core blockers: hardcoded deploy/runtime infrastructure, missing security policy, and licensing clarity.
+- Integrates key cross-agent findings (auth rate-limits, licensing, internal docs exposure).
+- Balanced output length: sufficiently detailed without overwhelming maintainers.
 
 ### Weaknesses
 
-- Underweighted one major OSS friction surfaced by others: CLI defaulting to PyMC Labs API URLs likely deserves explicit higher-severity treatment.
-- Could have distinguished more clearly between “brand references” and “hardcoded deploy/runtime coupling” to reduce ambiguity.
+- Less depth than agent_b on edge cases and post-release risk management.
+- Fewer explicit compensating-control conditions for deferred criticals.
+- “Must go” framing for internal docs may be too absolute without a sanitize-and-retain option.
 
 ### Errors
 
-- No major factual errors identified in my own findings based on current repository state checks.
+- No clear factual errors identified in the provided solution/analysis.
+
+---
+
+## agent_c (self)
+
+### Strengths
+
+- Improved round-01 severity calibration:
+  - blockers focused on deployability + legal clarity,
+  - runtime lock-in separated from template/docs friction.
+- Kept a clear checklist with explicit statuses and linked evidence files.
+- Preserved important urgent items: auth endpoint rate-limiting and dependency-security automation.
+
+### Weaknesses
+
+- Risk section is less expansive than agent_b’s scenario analysis.
+- Could provide a more explicit “ordered remediation sequence” (day-0 blockers vs week-1 criticals) to improve operational execution.
+- Still somewhat conservative on governance/doc gating, which may understate reputational risk for immediate OSS launch.
+
+### Errors
+
+- No clear factual errors identified in my round-01 artifacts.
 
 ---
 
 ## Position
 
-### What I’m keeping from my original approach (and why)
+### What I’m keeping from my original approach and why
 
-1. **Checklist-first structure** — keeps the audit reproducible and prevents one-off anecdotal findings.
-2. **Evidence-backed issue files by severity** — enables concrete release decision-making.
-3. **Auth-route rate-limit gap as urgent** — this remains a high-confidence, high-impact operational security issue.
+1. **Severity anchored to functional release risk.**  
+   I will keep blocker criteria tied to what prevents third-party use/adoption (deployability, default routing, legal package clarity, vuln disclosure path).
 
-### What I’d adopt from others (and why)
+2. **Checklist + evidence-linked issue files.**  
+   This keeps decisions auditable and actionable, rather than opinion-only.
 
-1. **From agent_b/agent_a:** elevate **hardcoded CLI API defaults** to explicit top-tier concern for OSS readiness; this is a real fork/self-hosting blocker in practice.
-2. **From agent_b:** include **subpackage license metadata completeness** as a prioritized legal/compliance task (especially for published packages).
-3. **From agent_b:** sharpen distinction between “usable by maintainers only” vs “usable by external adopters,” to better align severity with OSS adoption goals.
+3. **Branding vs lock-in distinction.**  
+   I will continue treating maintainership branding as acceptable unless it creates runtime misrouting or deploy failure.
 
-### What I still disagree on (and why)
+### What I’d adopt from others and why
 
-1. **I disagree with treating all community/governance docs as immediate blockers by default.**  
-   They are high-value and urgent, but can be short deferrals if security disclosure and runtime/deploy blockers are fixed first.
+1. **From agent_b:** stronger risk narrative and explicit edge-case treatment.  
+   This improves executive-level release decision quality.
 
-2. **I disagree with broad “remove branding” framing as a blocker.**  
-   Branding references are acceptable; hardcoded infra behavior that prevents independent deploy/use is the blocker.
+2. **From agent_a:** concise action framing for immediate release execution.  
+   Helps maintainers move from audit to remediation quickly.
 
-3. **I disagree with the claim that all public endpoints are currently rate-limited.**  
-   Auth routes are public and presently unthrottled in-app, which remains a concrete gap.
+3. **From both agent_a + agent_b:** emphasize internal-doc hygiene with a sanitization option.  
+   Better balance than “publish everything” or “remove everything.”
+
+### What I still disagree on and why
+
+1. **Blanket blocker treatment for all governance/process docs.**  
+   I still view most governance docs as urgent but potentially short-deferrable when explicit compensating controls exist; `SECURITY.md` remains the exception (blocker).
+
+2. **Treating all branding references as release-critical.**  
+   Runtime-coupled references are critical/blocking; informational attribution references are not.
+
+3. **Maximal issue volume as default release artifact.**  
+   Comprehensive audits are valuable, but release readiness also needs prioritized sequencing to avoid execution paralysis.
 
