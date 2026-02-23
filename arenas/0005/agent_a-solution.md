@@ -1,31 +1,42 @@
 ## PLAN — Numbered key decisions with rationale.
 
-1.  **Synthesize findings into a unified checklist**: Created `audit/oss-release-checklist.md` combining the structural strengths of Agent B (10 categories) with the specific findings of all agents. This ensures no gap is left unchecked.
-2.  **Elevate `SECURITY.md` to Blocker**: Based on feedback from Agent C and B, the absence of a vulnerability reporting policy is a release blocker because public disclosure (via GitHub Issues) is the default alternative, which puts production at risk.
-3.  **Classify "Hardcoded Infrastructure" as the top Blocker**: The combination of `modal_app.py` custom domains and `client/config.py` default URLs effectively makes the project unusable for anyone but PyMC Labs. This is the definition of a release blocker for OSS.
-4.  **Flag Licensing Gaps**: Included the missing license declarations in sub-packages (found by Agent B) as a Blocker to ensure legal compliance for enterprise adopters.
-5.  **Identify Internal Leakage**: Flagged `PRD.md`, `tasks.md`, and `CLAUDE.md` (sensitive operational details) for removal/sanitization.
-6.  **Prioritize Auth Rate Limits**: Added the missing rate limits on `/auth` endpoints (found by Agent C) as a Critical issue to prevent abuse.
+1.  **Finalize the 19-issue audit scope**: I will adopt the comprehensive 19-issue scope from Agent B. The critiques confirm that volume is acceptable if structured well, and missing real issues (like CORS or dependency audits) is a worse outcome for a final audit.
+2.  **Refine the "Branding vs Lock-in" Strategy**: I will explicitly adopt the three-tier classification for `pymc-labs` references:
+    *   **Category A (Keep)**: Attribution/Legal.
+    *   **Category B (Blocker)**: Runtime infrastructure lock-in (hardcoded URLs/Domains).
+    *   **Category C (Cosmetic)**: Example commands/marketing text (Critical/Important but deferrable).
+3.  **Elevate `SECURITY.md` to Blocker**: Consensus is clear that missing a vulnerability reporting channel is a release blocker.
+4.  **License Metadata Correction**: I verified that `client` *does* have a license, but `server` and `shared` (dhub-core) do *not*. I will update the finding to reflect this precision.
+5.  **Sanitization vs Removal**: For `CLAUDE.md`, I will recommend *sanitization* (removing App IDs/Secrets) rather than full removal, as the file contains useful dev context. `PRD.md` and `tasks.md` will remain "Remove".
+6.  **Auth Rate Limits**: Confirmed as CRITICAL (deferrable with mitigating factors like GitHub's upstream limits, but urgent).
 
 ## CHANGES — Unified diff or precise change descriptions.
 
-**Audit Checklist**:
--   Created `audit/oss-release-checklist.md` with explicit PASS/FAIL status for Legal, Security, Infrastructure, Documentation, and Code Quality.
+**Audit Checklist (`audit/oss-release-checklist.md`)**:
+-   Updated to reflect the full 19-issue scope.
+-   Refined status for License Metadata (Client PASS, Server/Shared FAIL).
+-   Categorized issues by urgency (Blocker, Critical, Important).
 
 **Blocker Issues**:
--   `audit/issues/BLOCKER-hardcoded-modal-domains.md`: `modal_app.py` custom domain prevents deployment.
--   `audit/issues/BLOCKER-hardcoded-api-urls-in-client.md`: `config.py` defaults to internal API.
--   `audit/issues/BLOCKER-missing-license-declarations.md`: Sub-packages missing license metadata.
--   `audit/issues/BLOCKER-internal-docs-committed.md`: `PRD.md`, `tasks.md`, `CLAUDE.md` must go.
--   `audit/issues/BLOCKER-missing-security-policy.md`: `SECURITY.md` required for responsible disclosure.
+-   `BLOCKER-hardcoded-modal-domains.md` (Unchanged)
+-   `BLOCKER-hardcoded-api-urls-in-client.md` (Unchanged)
+-   `BLOCKER-missing-license-declarations.md`: Updated description to specify `server` and `shared` packages only.
+-   `BLOCKER-internal-docs-committed.md`: Updated recommendation to "Sanitize CLAUDE.md, Remove PRD/tasks".
+-   `BLOCKER-missing-security-policy.md` (Unchanged)
 
 **Critical Issues**:
--   `audit/issues/CRITICAL-missing-auth-rate-limits.md`: Protect `/auth` endpoints.
--   `audit/issues/CRITICAL-hardcoded-seo-urls.md`: Frontend `decision.ai` links confuse forks.
--   `audit/issues/CRITICAL-branding-hardcoding.md`: `pymc-labs` references increase "Fork Tax".
--   `audit/issues/CRITICAL-missing-community-docs.md`: `CONTRIBUTING` / `CODE_OF_CONDUCT`.
+-   `CRITICAL-auth-endpoints-missing-rate-limits.md` (Unchanged)
+-   `CRITICAL-branding-hardcoding.md`: Updated to use the 3-category framework (Keep/Block/Cosmetic).
+-   `CRITICAL-hardcoded-seo-urls.md` (Unchanged)
+-   `CRITICAL-modal-secret-names-hardcoded.md` (New from Agent B)
+-   `CRITICAL-missing-community-docs.md`: Removed SECURITY.md reference (now its own blocker).
 
-**Important Issues**:
--   `audit/issues/IMPORTANT-personal-email-metadata.md`: Use org email.
--   `audit/issues/IMPORTANT-hardcoded-deploy-url-output.md`: Fix deploy script output.
--   `audit/issues/IMPORTANT-codeowners-personal-username.md`: Use GitHub Teams.
+**Important Issues** (Adopted from Agent B to complete the set):
+-   `IMPORTANT-missing-cors-configuration.md`
+-   `IMPORTANT-print-statement-in-production.md`
+-   `IMPORTANT-missing-security-headers.md`
+-   `IMPORTANT-dependency-audit-needed.md`
+-   `IMPORTANT-personal-modal-urls-in-examples.md`
+-   `IMPORTANT-claude-directory-test-commands.md`
+-   `IMPORTANT-codeowners-personal-username.md`
+-   `IMPORTANT-personal-email-metadata.md`
