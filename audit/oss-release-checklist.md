@@ -1,6 +1,6 @@
 # OSS Release Checklist — Decision Hub
 
-**Audit date:** 2026-02-23 (round 02 revision)
+**Audit date:** 2026-02-23 (round 03 — final)
 **Status legend:** `[x]` PASS — `[ ]` ISSUE (linked) — `[?]` UNKNOWN (needs owner confirmation)
 
 ---
@@ -20,7 +20,7 @@ items (SEO domains, Modal secret names) become IMPORTANT.
 
 ## Prioritized Remediation Sequence
 
-### Day 0 — Must fix before repo goes public
+### Day 0 — Must fix before repo goes public (~3-4 hours)
 
 | Priority | Issue | Effort |
 |----------|-------|--------|
@@ -31,7 +31,9 @@ items (SEO domains, Modal secret names) become IMPORTANT.
 | 5 | Sanitize CLAUDE.md (strip App IDs, secret names, operational details) | 1-2 hr |
 | 6 | Remove/move PRD.md, tasks.md | 5 min |
 
-### Week 1 — Fix ASAP with explicit risk acceptance if deferred
+**Exit criteria:** All 6 items merged to main. Verified: (1) `SECURITY.md` exists with a private contact channel, (2) `pyproject.toml` and `package.json` license fields present, (3) `modal deploy` succeeds without hardcoded domains (test with a fresh Modal workspace if possible), (4) `dhub` CLI without `DHUB_API_URL` does not route to `pymc-labs--api.modal.run`, (5) `CLAUDE.md` contains no App IDs, Installation IDs, or Modal secret names, (6) `PRD.md` and `tasks.md` are absent from the repo.
+
+### Week 1 — Fix ASAP with explicit risk acceptance if deferred (~5-7 hours)
 
 | Priority | Issue | Effort |
 |----------|-------|--------|
@@ -41,9 +43,11 @@ items (SEO domains, Modal secret names) become IMPORTANT.
 | 10 | Replace company-specific examples in frontend | 2-3 hr |
 | 11 | Make Modal secret names configurable | 30 min |
 
-### Post-release — Track as issues
+**Exit criteria:** All 5 items merged. Verified: (7) auth endpoints return 429 on excessive requests, (8) CONTRIBUTING.md and CODE_OF_CONDUCT.md exist with contributor-facing content, (9) SEO canonical URLs derive from config, not hardcoded strings, (10) frontend How It Works / terminal examples use generic org/skill names, (11) Modal secret names read from env vars with fallback defaults.
 
-All IMPORTANT items (CORS, security headers, dependency audit, etc.)
+### Post-release — Track as GitHub issues
+
+All IMPORTANT items (CORS, security headers, dependency audit, etc.). Create one GitHub issue per IMPORTANT finding on release day. No exit criteria needed — these are tracked in the normal development backlog.
 
 ---
 
