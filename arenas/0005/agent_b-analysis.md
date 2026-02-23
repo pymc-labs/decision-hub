@@ -1,42 +1,32 @@
 ## RISKS — Known risks, edge cases, trade-offs
 
-### Risk 1: Day 0 Remediation Is Cross-Cutting
+### Risk 1: Day 0 Remediation Is Cross-Cutting but Low-Risk
 
-The 6 blockers touch deploy config, CLI defaults, package metadata, documentation, and legal files across 4 packages. Fixing them as isolated PRs is straightforward (~3-4 hours total), but integration testing the combined changes requires deploying a dev instance to verify nothing breaks. Budget an additional 1-2 hours for verification.
+The 6 blockers touch deploy config, CLI defaults, package metadata, documentation, and legal files across 4 packages. Total effort is ~3-4 hours. Fix in dependency order: (1) license metadata, (2) SECURITY.md, (3) remove PRD.md/tasks.md — these three have zero runtime risk. Then (4) sanitize CLAUDE.md, (5) Modal domains, (6) CLI URLs — these affect deployment behavior and need testing. Budget 1-2 additional hours for verification against the exit criteria.
 
-**Mitigation:** Fix blockers in dependency order: (1) license metadata, (2) SECURITY.md, (3) remove PRD.md/tasks.md, (4) sanitize CLAUDE.md, (5) Modal domains, (6) CLI URLs. Items 1-4 have zero runtime risk. Items 5-6 affect deployment behavior and need testing.
+### Risk 2: Release Contract Ambiguity
 
-### Risk 2: Release Contract Ambiguity Persists
+If the team hasn't decided whether self-hosting is first-class, ~40% of findings have ambiguous severity. Default to the stricter interpretation ("self-host first-class") to avoid post-release complaints from early adopters who try to self-host and hit hardcoded infrastructure.
 
-If the team hasn't decided whether self-hosting is first-class, ~40% of findings have ambiguous severity. SEO domains, Modal secret names, and some `pymc-labs` references are only CRITICAL if forks are expected to be fully independent. For a "hosted product + open code" release, they're IMPORTANT.
+### Risk 3: Auth Endpoint Abuse
 
-**Mitigation:** Answer the release contract question before cutting the release. If unclear, treat as "self-host first-class" (the stricter interpretation) to avoid post-release complaints from early adopters who try to self-host.
+`/auth/github/code` and `/auth/github/token` are unthrottled. Mitigated partially by GitHub's upstream device flow limits and the requirement for a valid `device_code`. Classified as CRITICAL (Week 1) not BLOCKER because of these compensating controls. If Modal's edge infrastructure also rate-limits, urgency is further reduced.
 
-### Risk 3: Auth Endpoint Abuse Vector
+### Risk 4: CLAUDE.md Sanitization Requires Judgment
 
-`/auth/github/code` and `/auth/github/token` are unthrottled. While GitHub's upstream device flow has its own rate limits, an attacker could exhaust the project's GitHub OAuth API budget or trigger expensive DB operations.
+Strip all specific identifiers (App IDs, Installation IDs, Modal secret names, PEM paths, troubleshooting commands referencing infrastructure). Keep all development guidelines (code standards, design principles, testing conventions, logging patterns). If in doubt: "Would this help an attacker target production infrastructure?" If yes, strip it.
 
-**Mitigating factors:** GitHub's device flow endpoints return rate-limit errors to abusers. The `/auth/github/token` endpoint requires a valid `device_code`. Modal may have edge-level protection. Classified as CRITICAL (Week 1) rather than BLOCKER because of these mitigating factors.
+### Risk 5: Git History Is Clean but Should Be Verified with Dedicated Tools
 
-### Risk 4: CLAUDE.md Sanitization Is Subjective
+Run `trufflehog` or `gitleaks` before making the repo public. The `git log` audit found no secrets, but dedicated scanners check all git objects including deleted branches. Takes minutes, provides high confidence.
 
-What counts as "sensitive operational detail" vs "useful development context" requires judgment. Over-sanitizing creates a sterile document that doesn't help contributors. Under-sanitizing leaves reconnaissance surface.
+### Risk 6: License Metadata Is the Highest-ROI Fix
 
-**Mitigation:** Err on the side of stripping. Specific identifiers to remove are enumerated in the issue file (App IDs, Installation IDs, Modal secret names, PEM paths). Everything else (code standards, logging conventions, testing approach) stays. If in doubt, ask: "Would this help an attacker target our production infrastructure?" If yes, strip it.
-
-### Risk 5: Git History Is Clean but Irrevocable
-
-The git history audit found no secrets via `git log` filters, but once the repo is public, the full history is permanently exposed. A dedicated scanner (`trufflehog`, `gitleaks`) would catch objects in deleted branches and force-pushed commits that `git log` misses.
-
-**Mitigation:** Run `trufflehog` or `gitleaks` against the repo before making it public. Takes minutes, provides high confidence.
-
-### Risk 6: License Metadata Is Trivial but High-Impact
-
-Adding `license = "MIT"` to three files is a 5-minute fix, but *not* doing it causes `dhub-core` on PyPI to show "License: UNKNOWN," blocking enterprise adoption. This is the highest ROI fix in the entire audit.
+Adding `license = "MIT"` to three files takes 5 minutes but prevents `dhub-core` on PyPI from showing "License: UNKNOWN" which blocks enterprise adoption. Fix first.
 
 ### Risk 7: Modal Vendor Lock-in Is Visible but Not Fixable Pre-Release
 
-The entire deployment stack is Modal-specific. The OSS release makes this dependency visible. Abstracting Modal is a major architectural effort not worth doing before release. Document it as a known limitation.
+The entire deployment stack is Modal-specific. Document as a known limitation. Abstracting Modal is a major architectural effort not warranted before release.
 
 ---
 
@@ -44,50 +34,56 @@ The entire deployment stack is Modal-specific. The OSS release makes this depend
 
 ### Q1: Release contract — hosted product or self-host first-class?
 
-This is the single most important question. It determines severity of ~40% of findings (SEO domains, Modal secret names, some branding references). Needs an explicit answer from the project owner before triage.
+Determines severity of ~40% of findings. Needs an explicit answer from the project owner before triage.
 
 ### Q2: Should `trufflehog` or `gitleaks` be run before release?
 
-The git history audit used `git log` filters. A dedicated scanner would catch objects in deleted branches. **Recommendation: run before making the repo public.** Takes minutes.
+Recommended. Takes minutes. Provides higher confidence than `git log` filters.
 
 ### Q3: Is the copyright holder correct?
 
-LICENSE says "Copyright (c) 2025 Luca Fiaschi." If others contributed under PyMC Labs employment, the copyright should reflect that. Verify with legal.
+LICENSE says "Copyright (c) 2025 Luca Fiaschi." Verify whether it should be "PyMC Labs" or "PyMC Labs and contributors."
 
 ### Q4: Are there trademark concerns with "Decision Hub"?
 
-MIT license allows code reuse but not trademark rights. If "Decision Hub" is trademarked, forks need guidance on naming. Consider a trademark notice in README.
+MIT license covers code reuse but not trademark rights. Consider a trademark notice in README if the name is trademarked.
 
 ### Q5: Does Modal's edge infrastructure rate-limit auth endpoints?
 
-If Modal's proxy layer already throttles per-IP, the auth rate-limit finding is lower urgency. Verify with Modal docs or support.
+If yes, the auth rate-limit finding drops in urgency. Verify with Modal docs or support.
 
 ### Q6: What is the PyPI governance model post-OSS?
 
-Will OSS contributors be able to publish `dhub-cli` / `dhub-core` releases, or does this remain centrally controlled? Document the trust model.
+Will OSS contributors publish releases, or is this centrally controlled? Document the trust model.
 
 ### Q7: Will GitHub Actions workflows work for forks?
 
-CI references GitHub Environments (`dev`) with specific secrets. Forks will fail on deploy workflows without configuration. Consider a "fork setup" guide.
+CI references GitHub Environments with specific secrets. Forks need guidance. Consider a "fork setup" section in CONTRIBUTING.md.
 
 ### Q8: Is transitive dependency license attestation required?
 
-Current audit checked direct dependencies only. Enterprise legal may require full transitive license scans. (Raised by Agent C.)
+Current audit checked direct dependencies only. Enterprise legal may require full transitive scans.
+
+### Q9: Should CORS and security headers be enforced in app middleware, edge proxy, or both?
+
+(From Agent C.) Self-hosters need guidance on where these policies should live. Document the recommended architecture.
+
+### Q10: Is there a GitHub team alias ready for CODEOWNERS migration?
+
+(From Agent C.) Current CODEOWNERS uses a personal username. If a team alias exists, migration is straightforward. If not, creating one should precede the CODEOWNERS change.
 
 ---
 
 ## DISAGREEMENTS — Remaining substantive disagreements with other approaches
 
-### 1. CLAUDE.md as IMPORTANT vs BLOCKER (Agent C)
+### CLAUDE.md severity: BLOCKER (Agent B) vs IMPORTANT (Agent C)
 
-Agent C classifies operational runbook exposure as IMPORTANT. I maintain BLOCKER because CLAUDE.md contains specific GitHub App IDs (2887189, 2887208), Installation IDs (111380021, 111379955), and Modal secret naming patterns that reduce attacker reconnaissance effort against live infrastructure. This is distinct from PRD.md/tasks.md (strategy exposure, IMPORTANT-tier risk).
+This is the sole remaining disagreement across all three agents. The remediation is identical (sanitize, don't delete). The disagreement is purely about timing — must it be done before the first public commit (BLOCKER/Day 0) or can it be tracked for shortly after (IMPORTANT)?
 
-However, this disagreement has narrowed significantly. Agent C's round 01 revision correctly expanded the issue scope to include PRD.md, tasks.md, and `.claude/commands/*`, and the remediation path (sanitize, not delete) is now shared across all agents. The remaining disagreement is purely about severity classification of the operational identifiers, not about whether action is needed.
+**My position (BLOCKER):** The file contains specific production GitHub App IDs (2887189, 2887208), Installation IDs (111380021, 111379955), and Modal secret naming patterns. While these are not secrets per se, publishing them in the first public commit creates a permanent record that reduces attacker reconnaissance effort against live infrastructure. The 1-2 hour sanitization effort is well within the Day 0 budget.
 
-### 2. Issue count as a weakness
+**Agent C's position (IMPORTANT):** App IDs are already visible in GitHub's UI. The operational details are context-dependent reconnaissance risk, not direct compromise vectors. The file's development value (code standards, contribution patterns) is high. Deferring briefly while the repo is low-visibility is acceptable.
 
-Agent C frames 19 findings as potentially causing "execution paralysis." I maintain that comprehensiveness is a feature, not a bug — the round 02 remediation sequencing (Day 0 / Week 1 / Post-release) directly addresses the execution concern without dropping valid findings. A 6-issue audit that misses license declarations, auth rate limits, SEO domains, and internal docs is a more dangerous outcome than a 19-issue audit with clear priorities.
+**Resolution path:** This is a judgment call. If the team wants maximum security posture, classify as BLOCKER (my recommendation). If the team wants minimum release friction, classify as IMPORTANT and commit to sanitization within 48 hours of going public. Either way, the sanitization work is identical.
 
-### 3. No remaining factual disagreements
-
-All factual claims have been verified or corrected across two rounds. The license count (Agent C's correction) is now accurate. The auth rate-limit gap (Agent C's original finding) is confirmed. The branding vs. lock-in distinction (Agent C's analytical contribution) is adopted.
+No other substantive disagreements remain. All three agents agree on: the 19-issue scope, the core 5 blockers, auth rate limiting as CRITICAL, the branding/lock-in/cosmetic framework, sanitize-not-delete for CLAUDE.md, remediation sequencing, exit criteria, and the release contract as the top strategic question.
