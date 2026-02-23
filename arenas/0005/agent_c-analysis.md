@@ -15,6 +15,12 @@
 5. **Legal/compliance risk depends on downstream consumer policy.**  
    Missing package-level license metadata may be tolerated by some users but blocks others (especially enterprise compliance tooling).
 
+6. **Security hardening defaults vary by deployment architecture.**  
+   Missing explicit CORS and HTTP security-header policy may be harmless in first-party same-origin setups but can produce avoidable failures or weak defaults for self-hosters.
+
+7. **Governance bus-factor risk remains post-release.**  
+   CODEOWNERS tied to one personal account can bottleneck changes in critical paths if availability changes.
+
 ## OPEN QUESTIONS — Uncertainties requiring verification.
 
 1. **Release contract:** Is this release positioned as “hosted product client + open code” or “fork/self-host first-class OSS”?  
@@ -30,6 +36,10 @@
 
 6. **Trademark/branding guidance:** Will the project publish explicit fork-branding/trademark guidance (to separate brand retention from runtime coupling)?
 
+7. **Operational hardening source of truth:** Should CORS and security headers be enforced in app middleware, edge proxy templates, or both for OSS guidance?
+
+8. **CODEOWNERS governance:** Is there a team alias ready for migration, and what review-policy transition is expected?
+
 ## DISAGREEMENTS — Any remaining substantive disagreements with the other approaches, or "None."
 
 1. **`frontend/.env.example` severity:** I now classify this as `IMPORTANT`, not `BLOCKER`.  
@@ -39,4 +49,7 @@
    Rationale: branding can be intentional; blocker status should be reserved for references that break deployability or misroute runtime behavior.
 
 3. **Governance docs as immediate blockers:** I keep `CONTRIBUTING`/`CODE_OF_CONDUCT` as `IMPORTANT` (high-priority, short deferral possible), while `SECURITY.md` remains a blocker due to direct vulnerability disclosure risk.
+
+4. **Single-issue treatment for all internal docs:** I disagree with collapsing all internal docs into one remediation action.  
+   Rationale: `CLAUDE.md`/`AGENTS.md` may warrant sanitization, while planning artifacts (`PRD.md`, `tasks.md`, `.claude/commands/*`) may be moved or rewritten; these paths should be tracked distinctly even if grouped under one theme.
 

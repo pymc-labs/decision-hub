@@ -1,49 +1,34 @@
 ## PLAN — Numbered key decisions with rationale.
 
-1. **Incorporate critique convergence before revising findings.**  
-   Read all agent critiques and adopted recurring high-confidence gaps that I previously underweighted: hardcoded Modal custom domains, hardcoded CLI API defaults, and package license metadata consistency.
+1. **Incorporate round-02 critique convergence from all agents.**  
+   Re-read critiques from agents A/B/C and preserved the converged blocker set (deployability + legal clarity + security disclosure), while adding missing important hardening/governance items where coverage was still thin.
 
-2. **Re-center blocker criteria on external deployability + legal clarity.**  
-   Upgraded issues that directly prevent third-party deployment or legal adoption to `BLOCKER` (custom domains, CLI defaults, package license metadata, missing `SECURITY.md`).
+2. **Keep blocker criteria tied to major release headaches.**  
+   Maintained blocker focus on issues that create immediate OSS failure modes (third-party deploy breakage, incorrect default routing, legal metadata ambiguity, no disclosure channel).
 
-3. **Differentiate runtime blockers from template/docs friction.**  
-   Reclassified `frontend/.env.example` from `BLOCKER` to `IMPORTANT` because it is a template (editable), unlike shipped runtime defaults that affect users immediately.
+3. **Adopt stronger breadth without over-promoting severity.**  
+   Incorporated high-signal additional findings (CORS clarity, HTTP header policy, CODEOWNERS resiliency) as `IMPORTANT` to improve completeness while avoiding blocker inflation.
 
-4. **Preserve abuse-resistance/security process findings as urgent.**  
-   Kept auth endpoint rate-limit gap and missing automated dependency monitoring as `CRITICAL`, and added hardcoded public-domain coupling as `CRITICAL` due to high fork confusion risk.
+4. **Add explicit execution sequencing.**  
+   Added a remediation sequence (Day 0 blockers -> Week 1 criticals -> post-release important) to combine agent A’s concise actionability with agent B’s breadth and risk framing.
 
-5. **Expand checklist coverage while keeping evidence links explicit.**  
-   Revised checklist now covers legal/package metadata, forkability, domain coupling, endpoint security, supply chain, governance, and metadata ownership with direct links to issue files.
+5. **Preserve lock-in vs branding distinction.**  
+   Continued separating informational branding from runtime/deploy coupling so severity maps to functional impact, not merely project attribution.
 
 ## CHANGES — Unified diff or precise change descriptions.
 
-- **Rewrote** `audit/oss-release-checklist.md` into a round-01 revision with updated sections and status outcomes:
-  - legal/package licensing,
-  - deployability/forkability,
-  - public-domain coupling,
-  - endpoint abuse resistance,
-  - secrets hygiene,
-  - supply-chain automation,
-  - governance readiness,
-  - ownership metadata,
-  - CI/release controls.
-
-- **Added blocker issue files**:
-  - `audit/issues/BLOCKER-hardcoded-modal-custom-domains-break-third-party-deploys.md`
-  - `audit/issues/BLOCKER-hardcoded-cli-default-api-urls-lock-to-maintainer-infra.md`
-  - `audit/issues/BLOCKER-missing-license-metadata-in-shared-and-server-packages.md`
-
-- **Added critical issue file**:
-  - `audit/issues/CRITICAL-hardcoded-public-domains-in-seo-and-ux.md`
+- **Updated** `audit/oss-release-checklist.md` to **Round 02**:
+  - retained blocker/critical/important classification,
+  - added explicit checks for CORS policy, HTTP security header policy, and CODEOWNERS resilience,
+  - added a remediation sequence section for execution prioritization.
 
 - **Added important issue files**:
-  - `audit/issues/IMPORTANT-frontend-env-example-points-to-private-dev-backend.md` (reclassified from blocker)
-  - `audit/issues/IMPORTANT-personal-email-in-package-metadata.md`
+  - `audit/issues/IMPORTANT-missing-cors-configuration.md`
+  - `audit/issues/IMPORTANT-missing-http-security-headers.md`
+  - `audit/issues/IMPORTANT-codeowners-uses-personal-user-instead-of-team.md`
 
-- **Updated existing issue**:
-  - `audit/issues/IMPORTANT-internal-ops-runbook-exposed-in-public-docs.md`  
-    Expanded evidence to include `PRD.md`, `tasks.md`, and `.claude/commands/*`.
-
-- **Deleted obsolete file**:
-  - `audit/issues/BLOCKER-frontend-env-example-points-to-private-dev-backend.md`
+- **Kept existing round-01 high-priority findings unchanged**:
+  - blockers: hardcoded modal custom domains, hardcoded CLI default API URLs, missing package license metadata (shared/server), missing `SECURITY.md`,
+  - critical: auth endpoint rate limits, hardcoded public domains/SEO coupling, missing dependency security automation,
+  - important: governance docs, internal ops/planning doc exposure, personal metadata email, frontend env template neutrality.
 
