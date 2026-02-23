@@ -5,7 +5,7 @@ description = "The AI Skill Manager for Data Science Agents"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
-    { name = "Luca Fiaschi", email = "luca.fiaschi@gmail.com" },
+    { name = "PyMC Labs", email = "info@pymc-labs.com" },
 ]
 readme = "README.md"
 classifiers = [
