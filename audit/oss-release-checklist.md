@@ -1,4 +1,4 @@
-# OSS Release Readiness Checklist (Round 02 Revision)
+# OSS Release Readiness Checklist (Round 03 Revision)
 
 Audit date: 2026-02-23  
 Auditor: agent_c  
@@ -11,6 +11,11 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
 - `UNKNOWN` — requires explicit owner/legal decision
 
 ---
+
+## 0) Release contract (must be decided before triage)
+
+- [ ] Explicitly choose release posture: **hosted-product + open code** vs **self-host first-class OSS** — `UNKNOWN`
+  - This choice affects severity of several branding/domain coupling items.
 
 ## 1) Legal and package licensing
 
@@ -59,6 +64,8 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
 - [x] Dependency manifests/lockfiles exist — `PASS`
 - [ ] Automated dependency/vuln monitoring configured (Dependabot + scans) — `ISSUE`  
   See: `audit/issues/CRITICAL-no-automated-dependency-vulnerability-monitoring.md`
+- [ ] One-time dependency vulnerability audit is recorded for initial OSS release — `ISSUE`  
+  See: `audit/issues/IMPORTANT-run-one-time-dependency-vulnerability-audit-before-release.md`
 
 ## 7) OSS governance and contributor readiness
 
@@ -66,7 +73,9 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
   See: `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
 - [ ] CODE_OF_CONDUCT.md exists — `ISSUE`  
   See: `audit/issues/IMPORTANT-missing-contributor-governance-docs.md`
-- [ ] Public docs are separated from internal runbooks/planning docs — `ISSUE`  
+- [ ] Public runbooks are sanitized of sensitive operational identifiers — `ISSUE`  
+  See: `audit/issues/BLOCKER-sensitive-operational-identifiers-in-public-runbooks.md`
+- [ ] Internal planning/scratch artifacts are separated from public contributor docs — `ISSUE`  
   See: `audit/issues/IMPORTANT-internal-ops-runbook-exposed-in-public-docs.md`
 
 ## 8) Metadata and ownership clarity
@@ -82,6 +91,8 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
 - [x] Recent `main` workflows are mostly green — `PASS`
 - [ ] Ownership rules are resilient to maintainer churn (team-based CODEOWNERS where appropriate) — `ISSUE`  
   See: `audit/issues/IMPORTANT-codeowners-uses-personal-user-instead-of-team.md`
+- [ ] Operational logging patterns are consistent in production paths (no ad-hoc `print`) — `ISSUE`  
+  See: `audit/issues/IMPORTANT-print-statement-in-production-tracker-job.md`
 
 ---
 
@@ -93,6 +104,7 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
 2. `audit/issues/BLOCKER-hardcoded-cli-default-api-urls-lock-to-maintainer-infra.md`
 3. `audit/issues/BLOCKER-missing-license-metadata-in-shared-and-server-packages.md`
 4. `audit/issues/BLOCKER-security-disclosure-policy-missing.md`
+5. `audit/issues/BLOCKER-sensitive-operational-identifiers-in-public-runbooks.md`
 
 ### Urgent issues (fix ASAP; can be deferred only with explicit compensating controls)
 
@@ -109,12 +121,19 @@ Scope: repository-level OSS readiness for legal clarity, deployability/forkabili
 5. `audit/issues/IMPORTANT-missing-cors-configuration.md`
 6. `audit/issues/IMPORTANT-missing-http-security-headers.md`
 7. `audit/issues/IMPORTANT-codeowners-uses-personal-user-instead-of-team.md`
+8. `audit/issues/IMPORTANT-print-statement-in-production-tracker-job.md`
+9. `audit/issues/IMPORTANT-run-one-time-dependency-vulnerability-audit-before-release.md`
 
 ---
 
-## Suggested remediation sequence (round 02)
+## Suggested remediation sequence (round 03)
 
-1. **Day 0 (release gate):** close all BLOCKER items.
-2. **Week 1 hardening:** close CRITICAL items or explicitly document compensating controls and deadlines.
-3. **Post-release stabilization:** close IMPORTANT items in descending operational risk (security posture first, governance/metadata next).
+1. **Day 0 (release gate, ~3-5 hours):**
+   - close all BLOCKER items,
+   - verify deployability from a non-maintainer configuration path.
+2. **Week 1 hardening (~5-8 hours):**
+   - close CRITICAL items, or
+   - document compensating controls + owners + deadlines for any temporary deferrals.
+3. **Post-release stabilization (scheduled backlog):**
+   - close IMPORTANT items in descending operational risk (security posture first, governance/metadata next).
 
