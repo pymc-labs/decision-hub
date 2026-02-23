@@ -1,4 +1,4 @@
-# CRITICAL: Modal Secret Names Hardcoded in Deployment Configuration
+# IMPORTANT: Modal Secret Names Hardcoded to Hosted Product Infrastructure
 
 ## Summary
 
@@ -20,11 +20,13 @@ secrets = [
 ]
 ```
 
-## Why This Is Critical
+## Why This Is Important (Not Critical)
 
-Self-hosters must create secrets with the exact names `decision-hub-db`,
-`decision-hub-secrets`, etc. This is not documented for external users and
-the naming convention is project-specific.
+Under the "hosted product + open code" release contract, these secret names
+are the hosted product's infrastructure naming. Self-hosting is not a
+first-class use case, so this is a quality-of-life improvement rather than
+a critical gap. Contributors who want to deploy their own instance can
+follow the naming convention documented in `.env.example`.
 
 ## Recommended Fix
 

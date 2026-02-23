@@ -1,4 +1,4 @@
-# CRITICAL: SEO and Canonical URLs Hardcoded to Production Domains
+# IMPORTANT: SEO and Canonical URLs Hardcoded to Hosted Product Domains
 
 ## Summary
 
@@ -35,13 +35,15 @@ incorrect canonical URLs, harming their SEO and confusing search engines.
   <meta property="og:url" content="https://hub.decision.ai/" />
   ```
 
-## Why This Is Critical
+## Why This Is Important (Not Critical)
 
-- Self-hosted instances will serve canonical URLs pointing to someone else's
-  domain
-- Search engines may de-index self-hosted instances in favor of the canonical
-- Sitemap generation points to the wrong domain
-- Open Graph metadata links to wrong URL when shared on social media
+Under the "hosted product + open code" release contract, these domains are
+the hosted product's canonical URLs. This is intentional behavior.
+
+For anyone who does self-host, the impact would be:
+- Canonical URLs pointing to the hosted product's domain
+- Search engines may favor the hosted instance (which is the intent)
+- Sitemap generation uses the hosted product's domain
 
 ## Recommended Fix
 

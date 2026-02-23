@@ -1,15 +1,10 @@
-# CRITICAL: `pymc-labs` Infrastructure Lock-in vs. Branding
+# IMPORTANT: `pymc-labs` References Throughout Codebase
 
 ## Summary
 
-The string `pymc-labs` appears in 50+ locations across the codebase. These
-references fall into two distinct categories that require different treatment:
-
-1. **Branding / attribution** (acceptable for OSS) — "This project is
-   maintained by PyMC Labs" in README, footer, repo links
-2. **Infrastructure lock-in** (must fix for OSS) — hardcoded Modal workspace
-   names in API URLs, deploy scripts, and runtime defaults that prevent
-   third-party deployment
+The string `pymc-labs` appears in 50+ locations across the codebase. Under
+the "hosted product + open code" release contract, these references fall
+into three categories — all acceptable for release:
 
 ## Category A: Branding (Acceptable — Keep)
 
@@ -52,13 +47,15 @@ Not infrastructure blockers, but make forks feel like second-class citizens.
 
 ## Recommended Fix
 
-1. **Category B** — tracked in BLOCKER issues; fix before release
-2. **Category C** — replace company-specific examples with generic
-   alternatives (e.g., `my-org/my-skill`); can be done first week post-release
-3. **Category A** — no changes needed
+Under the hosted product model:
+1. **Category A** — no changes needed (intentional branding)
+2. **Category B** — CLI defaults and deploy scripts point to the hosted
+   product, which is intentional. Document `DHUB_API_URL` override for
+   contributors in CONTRIBUTING.md. Modal custom domains tracked separately.
+3. **Category C** — cosmetic; can be improved post-release if desired
 
 ## Deferral Rationale
 
-Category B blockers must be fixed before release. Category C cosmetic fixes
-can follow within the first week. Category A branding is appropriate and
-should remain.
+All categories are acceptable under the hosted product release contract.
+The code is the hosted product's codebase, and branding reflects this.
+Category C improvements are nice-to-have for contributor experience.

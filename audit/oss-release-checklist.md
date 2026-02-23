@@ -1,53 +1,54 @@
 # OSS Release Checklist — Decision Hub
 
-**Audit date:** 2026-02-23 (round 03 — final)
+**Audit date:** 2026-02-23 (final)
+**Release contract:** Hosted product + open code
 **Status legend:** `[x]` PASS — `[ ]` ISSUE (linked) — `[?]` UNKNOWN (needs owner confirmation)
 
 ---
 
-## Release Contract (determine first)
+## Release Contract Decision
 
-Before triaging findings, the team must decide:
+> **This is a "hosted product + open code" release.**
 
-> **Is this release "hosted product + open code" or "fork/self-host first-class OSS"?**
+The CLI (`dhub`) is the client for the hosted service at `hub.decision.ai`.
+The default API URLs pointing to PyMC Labs infrastructure are **intentional** —
+they route users to the hosted product. The `DHUB_API_URL` env var exists for
+contributors who want to run against a local or custom server.
 
-This determines severity of infrastructure coupling findings. If self-hosting
-is a first-class goal, all BLOCKER and CRITICAL infrastructure issues must be
-fixed. If this is primarily "open code with a hosted service," some CRITICAL
-items (SEO domains, Modal secret names) become IMPORTANT.
+This means:
+- Infrastructure coupling to PyMC Labs is expected, not a bug
+- SEO domains, Modal secret names, and company branding are the hosted product's identity
+- Self-hosting is possible but not a first-class supported use case
+- Blockers are limited to: legal compliance, security governance, and sensitive information exposure
 
 ---
 
 ## Prioritized Remediation Sequence
 
-### Day 0 — Must fix before repo goes public (~3-4 hours)
+### Day 0 — Must fix before repo goes public (~2 hours)
 
 | Priority | Issue | Effort |
 |----------|-------|--------|
 | 1 | Create `SECURITY.md` | 15-30 min |
 | 2 | Add `license = "MIT"` to server + shared pyproject.toml, frontend package.json | 5 min |
-| 3 | Make Modal custom domains configurable (default: none) | 30 min |
-| 4 | Make CLI default API URLs configurable or use localhost defaults | 30 min |
-| 5 | Sanitize CLAUDE.md (strip App IDs, secret names, operational details) | 1-2 hr |
-| 6 | Remove/move PRD.md, tasks.md | 5 min |
+| 3 | Sanitize CLAUDE.md (strip App IDs, secret names, operational details) | 1-2 hr |
+| 4 | Remove/move PRD.md, tasks.md | 5 min |
 
-**Exit criteria:** All 6 items merged to main. Verified: (1) `SECURITY.md` exists with a private contact channel, (2) `pyproject.toml` and `package.json` license fields present, (3) `modal deploy` succeeds without hardcoded domains (test with a fresh Modal workspace if possible), (4) `dhub` CLI without `DHUB_API_URL` does not route to `pymc-labs--api.modal.run`, (5) `CLAUDE.md` contains no App IDs, Installation IDs, or Modal secret names, (6) `PRD.md` and `tasks.md` are absent from the repo.
+**Exit criteria:** All 4 items merged to main. Verified: (1) `SECURITY.md` exists with a private contact channel, (2) `pyproject.toml` and `package.json` license fields present, (3) `CLAUDE.md` contains no App IDs, Installation IDs, or Modal secret names, (4) `PRD.md` and `tasks.md` are absent from the repo.
 
-### Week 1 — Fix ASAP with explicit risk acceptance if deferred (~5-7 hours)
+### Week 1 — Fix ASAP with explicit risk acceptance if deferred (~3 hours)
 
 | Priority | Issue | Effort |
 |----------|-------|--------|
-| 7 | Add rate limiting to auth endpoints | 1 hr |
-| 8 | Create CONTRIBUTING.md, CODE_OF_CONDUCT.md | 1-2 hr |
-| 9 | Make SEO base URLs configurable | 1 hr |
-| 10 | Replace company-specific examples in frontend | 2-3 hr |
-| 11 | Make Modal secret names configurable | 30 min |
+| 5 | Add rate limiting to auth endpoints | 1 hr |
+| 6 | Create CONTRIBUTING.md, CODE_OF_CONDUCT.md, issue templates | 1-2 hr |
+| 7 | Make Modal custom domains configurable (for contributors) | 30 min |
 
-**Exit criteria:** All 5 items merged. Verified: (7) auth endpoints return 429 on excessive requests, (8) CONTRIBUTING.md and CODE_OF_CONDUCT.md exist with contributor-facing content, (9) SEO canonical URLs derive from config, not hardcoded strings, (10) frontend How It Works / terminal examples use generic org/skill names, (11) Modal secret names read from env vars with fallback defaults.
+**Exit criteria:** All 3 items merged. Verified: (5) auth endpoints return 429 on excessive requests, (6) CONTRIBUTING.md and CODE_OF_CONDUCT.md exist with contributor-facing content, (7) `modal deploy` works without hardcoded custom domains when `CUSTOM_DOMAINS` env var is unset.
 
 ### Post-release — Track as GitHub issues
 
-All IMPORTANT items (CORS, security headers, dependency audit, etc.). Create one GitHub issue per IMPORTANT finding on release day. No exit criteria needed — these are tracked in the normal development backlog.
+All IMPORTANT items. Create one GitHub issue per finding on release day.
 
 ---
 
@@ -64,20 +65,20 @@ All IMPORTANT items (CORS, security headers, dependency audit, etc.). Create one
 - [ ] Personal Modal URLs in bootstrap skills → see `IMPORTANT-personal-modal-urls-in-examples.md`
 - [?] Full git packfile scan with `trufflehog`/`gitleaks` not yet performed
 
-## 2. Infrastructure Lock-in (Deployment Blockers)
+## 2. Infrastructure Coupling (hosted product context)
 
-- [ ] **CLI default API URLs** hardcode `pymc-labs--api.modal.run` → see `BLOCKER-hardcoded-api-urls-in-client.md`
-- [ ] **Modal custom domains** hardcode `hub.decision.ai` → see `BLOCKER-hardcoded-custom-domains-in-modal.md`
-- [ ] **SEO base URLs** hardcode `hub.decision.ai` / `decisionhub.dev` → see `CRITICAL-seo-hardcoded-domains.md`
-- [ ] **Deploy script URLs** hardcode `pymc-labs--api` → see `CRITICAL-pymc-labs-references-throughout-codebase.md`
-- [ ] **Modal secret names** hardcode `decision-hub-*` prefix → see `CRITICAL-modal-secret-names-hardcoded.md`
+- [x] **CLI default API URLs** point to hosted service — intentional for hosted product model
+- [ ] **Modal custom domains** hardcode `hub.decision.ai` — prevents contributor deployments → see `CRITICAL-hardcoded-custom-domains-in-modal.md`
+- [ ] **SEO base URLs** hardcode hosted product domains → see `IMPORTANT-seo-hardcoded-domains.md`
+- [ ] **Deploy script URLs** hardcode `pymc-labs--api` → see `IMPORTANT-pymc-labs-references-throughout-codebase.md`
+- [ ] **Modal secret names** hardcode `decision-hub-*` prefix → see `IMPORTANT-modal-secret-names-hardcoded.md`
 
-## 3. Branding vs. Lock-in Distinction
+## 3. Branding
 
-- [x] Maintainer branding in README, footer, legal pages — acceptable for OSS
-- [ ] Company-specific examples in frontend (HowItWorks, AnimatedTerminal) → see `CRITICAL-pymc-labs-references-throughout-codebase.md`
+- [x] Maintainer branding in README, footer, legal pages — intentional for hosted product
+- [x] Company-specific examples in frontend — intentional branding for hosted product
 - [x] Test fixtures using `pymc-labs` — acceptable (just data)
-- [ ] `pymc-labs` in `featuredOrgs.ts` — cosmetic, fix post-release
+- [x] `pymc-labs` in `featuredOrgs.ts` — intentional for hosted product
 - [x] Repository URLs in pyproject.toml — correct (points to actual repo)
 
 ## 4. License & Legal
@@ -141,24 +142,20 @@ All IMPORTANT items (CORS, security headers, dependency audit, etc.). Create one
 
 ## Findings Summary
 
-### BLOCKERS (6) — Day 0 fixes before release
+### BLOCKERS (4) — Day 0 fixes before release
 
 1. `BLOCKER-security-disclosure-policy-missing.md` — No SECURITY.md (~15 min fix)
 2. `BLOCKER-missing-license-declarations.md` — server, shared, frontend lack license metadata (~5 min fix)
-3. `BLOCKER-hardcoded-custom-domains-in-modal.md` — Modal deploy fails for third parties (~30 min fix)
-4. `BLOCKER-hardcoded-api-urls-in-client.md` — CLI defaults to PyMC Labs servers (~30 min fix)
-5. `BLOCKER-sensitive-info-in-claude-agents-md.md` — Sanitize ops runbook, keep dev guidelines (~1-2 hr)
-6. `BLOCKER-internal-docs-committed.md` — Remove PRD.md, tasks.md (~5 min fix)
+3. `BLOCKER-sensitive-info-in-claude-agents-md.md` — Sanitize ops runbook, keep dev guidelines (~1-2 hr)
+4. `BLOCKER-internal-docs-committed.md` — Remove PRD.md, tasks.md (~5 min fix)
 
-### CRITICAL (5) — Week 1 fixes, deferrable with explicit risk acceptance
+### CRITICAL (3) — Week 1 fixes, deferrable with explicit risk acceptance
 
 1. `CRITICAL-auth-endpoints-missing-rate-limits.md` — Auth endpoints unthrottled (~1 hr fix)
 2. `CRITICAL-missing-oss-community-docs.md` — No CONTRIBUTING, CODE_OF_CONDUCT, issue templates (~1-2 hr)
-3. `CRITICAL-pymc-labs-references-throughout-codebase.md` — Infra lock-in + cosmetic coupling (~2-3 hr)
-4. `CRITICAL-seo-hardcoded-domains.md` — Canonical URLs hardcoded (~1 hr)
-5. `CRITICAL-modal-secret-names-hardcoded.md` — Secret name prefix hardcoded (~30 min)
+3. `CRITICAL-hardcoded-custom-domains-in-modal.md` — Modal deploy fails for contributors (~30 min fix)
 
-### IMPORTANT (8) — Post-release, track as GitHub issues
+### IMPORTANT (12) — Post-release, track as GitHub issues
 
 1. `IMPORTANT-missing-cors-configuration.md`
 2. `IMPORTANT-print-statement-in-production.md`
@@ -168,3 +165,7 @@ All IMPORTANT items (CORS, security headers, dependency audit, etc.). Create one
 6. `IMPORTANT-claude-directory-test-commands.md`
 7. `IMPORTANT-codeowners-personal-username.md`
 8. `IMPORTANT-personal-email-in-metadata.md`
+9. `IMPORTANT-hardcoded-api-urls-in-client.md` — CLI defaults to hosted service (intentional; `DHUB_API_URL` override exists)
+10. `IMPORTANT-seo-hardcoded-domains.md` — Hosted product's canonical domains
+11. `IMPORTANT-modal-secret-names-hardcoded.md` — Hosted product's infrastructure naming
+12. `IMPORTANT-pymc-labs-references-throughout-codebase.md` — Intentional branding for hosted product
