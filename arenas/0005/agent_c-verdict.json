@@ -3,18 +3,18 @@
   "best_solutions": ["agent_b", "agent_a"],
   "divergences": [
     {
-      "topic": "Governance/doc gating threshold",
-      "description": "agent_b and agent_a lean toward stricter pre-release gating for internal docs/governance artifacts, while agent_c keeps most governance docs as urgent-but-deferrable (except SECURITY.md as blocker)."
+      "topic": "Internal documentation severity policy",
+      "description": "agent_b treats CLAUDE/AGENTS operational detail exposure as blocker-level, while agent_c favors split handling (sanitize high-risk operational details aggressively, keep non-exploitable guidance lower-tier); agent_a is closer to full alignment but less explicit about split criteria."
     },
     {
-      "topic": "Audit scope breadth vs execution focus",
-      "description": "agent_b favors a broad 19-issue audit surface; agent_a and agent_c favor tighter prioritization to reduce release execution overhead."
+      "topic": "Audit breadth versus release-phase focus",
+      "description": "agent_b maintains a full 19-issue release artifact, whereas agent_c emphasizes phase-gated execution and a tighter must-fix-now set; agent_a trends concise but with less exhaustive coverage detail."
     },
     {
-      "topic": "Branding references severity",
-      "description": "agent_b still treats more branding/domain coupling as critical, whereas agent_c narrows blocker/critical status to runtime or deploy-impacting references and treats attribution-style branding as non-blocking."
+      "topic": "Branding-coupling classification",
+      "description": "agent_b keeps more branding/domain coupling in higher urgency tiers, while agent_c narrows high severity to runtime/deploy/security-impacting coupling and treats attribution-only references as non-blocking."
     }
   ],
-  "rationale": "agent_b is strongest on completeness, correction depth, and risk framing, and agent_a is strongest on concise, actionable prioritization. All three now converge on core blockers (deployability lock-in, security disclosure policy, licensing clarity), but still differ on how aggressively to gate governance/docs and how broad the critical set should be before release."
+  "rationale": "agent_b offers the strongest completeness, correction quality, and operational detail, while agent_a provides the cleanest concise synthesis for fast decision-making. All agents now align on core blockers (deployability lock-in, security disclosure, licensing clarity), but differ on severity thresholds for internal docs and branding-adjacent findings, and on how broad the final release artifact should be."
 }
 
