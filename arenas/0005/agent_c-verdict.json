@@ -3,18 +3,18 @@
   "best_solutions": ["agent_b", "agent_a"],
   "divergences": [
     {
-      "topic": "Internal documentation severity policy",
-      "description": "agent_b treats CLAUDE/AGENTS operational detail exposure as blocker-level, while agent_c favors split handling (sanitize high-risk operational details aggressively, keep non-exploitable guidance lower-tier); agent_a is closer to full alignment but less explicit about split criteria."
+      "topic": "Operational runbook severity timing",
+      "description": "agent_b classifies exposure of CLAUDE/AGENTS operational identifiers as a day-0 blocker, while agent_c prefers split treatment (blocker timing for high-risk identifiers, lower tier for planning/scratch artifacts); agent_a is largely aligned but less explicit on split criteria."
     },
     {
-      "topic": "Audit breadth versus release-phase focus",
-      "description": "agent_b maintains a full 19-issue release artifact, whereas agent_c emphasizes phase-gated execution and a tighter must-fix-now set; agent_a trends concise but with less exhaustive coverage detail."
+      "topic": "Scope breadth vs decision ergonomics",
+      "description": "agent_b favors retaining the full 19-issue artifact with detailed sequencing, whereas agent_c emphasizes stricter phase-gated prioritization to keep go/no-go execution manageable; agent_a remains more concise with less long-tail detail."
     },
     {
-      "topic": "Branding-coupling classification",
-      "description": "agent_b keeps more branding/domain coupling in higher urgency tiers, while agent_c narrows high severity to runtime/deploy/security-impacting coupling and treats attribution-only references as non-blocking."
+      "topic": "Severity of non-runtime branding references",
+      "description": "agent_b keeps more branding/domain coupling in higher urgency buckets, while agent_c limits blocker/critical status to runtime, deployability, or security-impacting coupling and treats attribution-only references as non-blocking."
     }
   ],
-  "rationale": "agent_b offers the strongest completeness, correction quality, and operational detail, while agent_a provides the cleanest concise synthesis for fast decision-making. All agents now align on core blockers (deployability lock-in, security disclosure, licensing clarity), but differ on severity thresholds for internal docs and branding-adjacent findings, and on how broad the final release artifact should be."
+  "rationale": "agent_b remains strongest on completeness and operational execution detail, and agent_a remains strongest on concise synthesis. Convergence is high on core blockers and remediation direction, but actionable differences persist around internal-doc severity timing, final artifact breadth, and branding-adjacent severity policy."
 }
 
