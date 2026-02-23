@@ -1,0 +1,20 @@
+{
+  "convergence_score": 7,
+  "best_solutions": ["agent_b"],
+  "divergences": [
+    {
+      "topic": "Hardcoded infrastructure severity",
+      "description": "agent_a and agent_b treat CLI default API URLs and Modal custom domains as top-tier blockers; agent_c flagged the frontend env default as blocker but underemphasized the CLI default API coupling."
+    },
+    {
+      "topic": "Public endpoint rate-limit coverage",
+      "description": "agent_b states all public endpoints are rate-limited, while agent_c finds auth endpoints (/auth/github/code and /auth/github/token) missing explicit in-app rate limiting."
+    },
+    {
+      "topic": "Documentation/governance gating",
+      "description": "agent_b tends to elevate OSS governance and internal-doc exposure to blocker-level, whereas agent_c classifies most governance documentation gaps as important/critical but potentially deferrable with explicit risk acceptance."
+    }
+  ],
+  "rationale": "agent_b provides the strongest breadth and release-readiness framing, especially around external deployability and legal/package metadata concerns. The main unresolved differences are severity calibration: how hard to gate on governance/docs versus deploy/runtime coupling, and whether auth-route throttling is already adequately covered. Overall outputs converge on major themes (infra coupling, missing OSS policies, security hardening), but differ on prioritization and one factual rate-limit claim."
+}
+
