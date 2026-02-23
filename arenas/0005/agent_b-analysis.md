@@ -1,109 +1,93 @@
 ## RISKS — Known risks, edge cases, trade-offs
 
-### Risk 1: Hardcoded Infrastructure Creates a "Fork Tax"
+### Risk 1: Day 0 Remediation Is Cross-Cutting
 
-The most pervasive risk is the tight coupling between the codebase and PyMC Labs' infrastructure. The CLI defaults to `pymc-labs--api.modal.run`, Modal deployment claims `hub.decision.ai`, and the frontend references these domains in SEO metadata. A fork requires touching 20+ files across 4 packages before basic deployment works.
+The 6 blockers touch deploy config, CLI defaults, package metadata, documentation, and legal files across 4 packages. Fixing them as isolated PRs is straightforward (~3-4 hours total), but integration testing the combined changes requires deploying a dev instance to verify nothing breaks. Budget an additional 1-2 hours for verification.
 
-**Trade-off:** Fixing all infrastructure references before release is substantial work (estimated 2-3 days). The alternative is shipping with clear "self-hosting guide" documentation that lists every configuration point, accepting that the initial fork experience is rough. The round 01 distinction between branding (keep) and lock-in (fix) helps prioritize: only Category B items are true blockers.
+**Mitigation:** Fix blockers in dependency order: (1) license metadata, (2) SECURITY.md, (3) remove PRD.md/tasks.md, (4) sanitize CLAUDE.md, (5) Modal domains, (6) CLI URLs. Items 1-4 have zero runtime risk. Items 5-6 affect deployment behavior and need testing.
 
-### Risk 2: CLAUDE.md Exposure Is a Judgment Call
+### Risk 2: Release Contract Ambiguity Persists
 
-`CLAUDE.md` contains GitHub App IDs, Modal secret names, and internal deployment procedures. None of these are secrets per se — App IDs are visible in GitHub's UI, and secret names don't grant access. However, publishing the full operational runbook reduces the attacker's reconnaissance effort.
+If the team hasn't decided whether self-hosting is first-class, ~40% of findings have ambiguous severity. SEO domains, Modal secret names, and some `pymc-labs` references are only CRITICAL if forks are expected to be fully independent. For a "hosted product + open code" release, they're IMPORTANT.
 
-**Trade-off:** Removing `CLAUDE.md` entirely degrades the AI-assisted development experience for the project. Moving it to `.cursor/rules` (git-ignored) means forks lose the development guidelines. The middle ground is a sanitized version that strips infrastructure identifiers while keeping code standards. Agent C correctly noted this is "context-dependent" — the risk depends on the threat model.
+**Mitigation:** Answer the release contract question before cutting the release. If unclear, treat as "self-host first-class" (the stricter interpretation) to avoid post-release complaints from early adopters who try to self-host.
 
-### Risk 3: Auth Endpoint Abuse Vector (NEW in round 01)
+### Risk 3: Auth Endpoint Abuse Vector
 
-`/auth/github/code` and `/auth/github/token` are unthrottled. While GitHub's upstream device flow has its own rate limits, an attacker could:
-- Flood `/auth/github/code` to exhaust the project's GitHub OAuth API budget
-- Flood `/auth/github/token` to trigger expensive DB upserts and GitHub API calls
+`/auth/github/code` and `/auth/github/token` are unthrottled. While GitHub's upstream device flow has its own rate limits, an attacker could exhaust the project's GitHub OAuth API budget or trigger expensive DB operations.
 
-**Mitigating factors:** GitHub's device flow endpoints return rate-limit errors to abusers directly. The `/auth/github/token` endpoint requires a valid `device_code` from a real GitHub flow, limiting amplification. Modal may have edge-level protection.
+**Mitigating factors:** GitHub's device flow endpoints return rate-limit errors to abusers. The `/auth/github/token` endpoint requires a valid `device_code`. Modal may have edge-level protection. Classified as CRITICAL (Week 1) rather than BLOCKER because of these mitigating factors.
 
-**Trade-off:** This is deferrable because of the mitigating factors, but should be fixed within the first week. The implementation pattern is already established in the codebase (copy from any other rate-limited endpoint).
+### Risk 4: CLAUDE.md Sanitization Is Subjective
 
-### Risk 4: Missing SECURITY.md Is High-Consequence (ELEVATED in round 01)
+What counts as "sensitive operational detail" vs "useful development context" requires judgment. Over-sanitizing creates a sterile document that doesn't help contributors. Under-sanitizing leaves reconnaissance surface.
 
-Without a security disclosure policy, the first vulnerability discovered by an external researcher will likely be disclosed publicly. For a project with live production infrastructure, this creates a 0-day window.
+**Mitigation:** Err on the side of stripping. Specific identifiers to remove are enumerated in the issue file (App IDs, Installation IDs, Modal secret names, PEM paths). Everything else (code standards, logging conventions, testing approach) stays. If in doubt, ask: "Would this help an attacker target our production infrastructure?" If yes, strip it.
 
-**Trade-off:** None. This takes 15-30 minutes to create and has no downside. Should not be deferred.
+### Risk 5: Git History Is Clean but Irrevocable
 
-### Risk 5: License Ambiguity for Enterprise Adopters
+The git history audit found no secrets via `git log` filters, but once the repo is public, the full history is permanently exposed. A dedicated scanner (`trufflehog`, `gitleaks`) would catch objects in deleted branches and force-pushed commits that `git log` misses.
 
-While the root LICENSE file is MIT, three sub-packages lack license metadata. Enterprise license compliance tools (FOSSA, Snyk, etc.) flag packages without declared licenses. The `dhub-core` package on PyPI is the most concerning since it's a public dependency.
+**Mitigation:** Run `trufflehog` or `gitleaks` against the repo before making it public. Takes minutes, provides high confidence.
 
-**Trade-off:** Adding `license = "MIT"` to three files is trivial. No reason to defer.
+### Risk 6: License Metadata Is Trivial but High-Impact
 
-### Risk 6: Git History Is Clean but Irrevocable
+Adding `license = "MIT"` to three files is a 5-minute fix, but *not* doing it causes `dhub-core` on PyPI to show "License: UNKNOWN," blocking enterprise adoption. This is the highest ROI fix in the entire audit.
 
-The git history audit found no secrets, but once the repo is public, the full history is permanently exposed. If any sensitive data was in branches that were later deleted, it would not appear in the current branch-based check. A more thorough audit would use tools like `trufflehog` or `gitleaks` to scan all objects in the packfile.
+### Risk 7: Modal Vendor Lock-in Is Visible but Not Fixable Pre-Release
 
-**Trade-off:** Running `trufflehog` against the repo takes minutes and provides higher confidence. Recommended before making the repo public.
-
-### Risk 7: Modal Vendor Lock-in Visibility
-
-The entire deployment stack (server, cron, crawler, eval) is Modal-specific. The OSS release makes this dependency very visible. Contributors who prefer other platforms have no alternative deployment path.
-
-**Trade-off:** Abstracting away Modal is a major architectural effort and not worth doing before release. However, documenting it as a known limitation and outlining a "bring your own compute" path would help manage expectations.
-
-### Edge Case: Trusted Orgs List
-
-The `TRUSTED_ORGS` frozenset in `discovery.py` is a curated list of ~40 major AI/tech organizations. This is not company-specific data, but it is an editorial decision baked into the code. OSS contributors may disagree with the list or want to customize it.
-
-**Trade-off:** Moving to a configuration file adds complexity. Keeping it in code is fine for now with a comment explaining it can be overridden.
+The entire deployment stack is Modal-specific. The OSS release makes this dependency visible. Abstracting Modal is a major architectural effort not worth doing before release. Document it as a known limitation.
 
 ---
 
 ## OPEN QUESTIONS — Uncertainties requiring verification
 
-### Q1: Should `trufflehog` or `gitleaks` be run before release?
+### Q1: Release contract — hosted product or self-host first-class?
 
-The git history audit was done via `git log` filters, which only catches files committed to current branches. A dedicated secret scanner would scan all git objects including deleted branches and force-pushed commits. **Recommendation: run one of these tools before making the repo public.**
+This is the single most important question. It determines severity of ~40% of findings (SEO domains, Modal secret names, some branding references). Needs an explicit answer from the project owner before triage.
 
-### Q2: Is the copyright holder correct?
+### Q2: Should `trufflehog` or `gitleaks` be run before release?
 
-The LICENSE says "Copyright (c) 2025 Luca Fiaschi <luca.fiaschi@pymc-labs.com>". Should this be "PyMC Labs" or "PyMC Labs and contributors"? The individual copyright may be correct if Luca is the sole original author, but if others contributed under PyMC Labs employment, the copyright should reflect that.
+The git history audit used `git log` filters. A dedicated scanner would catch objects in deleted branches. **Recommendation: run before making the repo public.** Takes minutes.
 
-### Q3: Should the Terms of Service / Privacy Policy pages be included?
+### Q3: Is the copyright holder correct?
 
-These pages reference PyMC Labs as the service operator and contain specific legal terms. For an OSS release of the *code*, these are templates. But if someone deploys a fork, they inherit PyMC Labs' legal terms by default, which is incorrect. Should these be stripped, templated, or left as-is with a notice?
+LICENSE says "Copyright (c) 2025 Luca Fiaschi." If others contributed under PyMC Labs employment, the copyright should reflect that. Verify with legal.
 
-### Q4: Are there any trademark concerns?
+### Q4: Are there trademark concerns with "Decision Hub"?
 
-"Decision Hub" as a product name — has it been trademarked? If so, can forks use the same name? The MIT license allows code reuse but doesn't grant trademark rights. Consider adding a trademark notice to the README. (Also raised by Agent A.)
+MIT license allows code reuse but not trademark rights. If "Decision Hub" is trademarked, forks need guidance on naming. Consider a trademark notice in README.
 
-### Q5: Does Modal's edge infrastructure provide auth endpoint rate limiting?
+### Q5: Does Modal's edge infrastructure rate-limit auth endpoints?
 
-The auth rate-limit finding assumes no external protection. If Modal's proxy layer already throttles per-IP request rates, the urgency is lower. **Verify with Modal's documentation or support.**
+If Modal's proxy layer already throttles per-IP, the auth rate-limit finding is lower urgency. Verify with Modal docs or support.
 
-### Q6: What is the plan for the existing PyPI packages?
+### Q6: What is the PyPI governance model post-OSS?
 
-`dhub-cli` and `dhub-core` are already published to PyPI under specific maintainer accounts. Will OSS contributors be able to publish releases, or will this remain centrally controlled? This affects the trust model and should be documented.
+Will OSS contributors be able to publish `dhub-cli` / `dhub-core` releases, or does this remain centrally controlled? Document the trust model.
 
 ### Q7: Will GitHub Actions workflows work for forks?
 
-The CI workflows reference GitHub Environments (`dev`) with specific secrets. Forks will need to set up their own environments. The `deploy-dev.yml` workflow will fail silently for forks without proper configuration. Should there be a "fork setup" guide?
+CI references GitHub Environments (`dev`) with specific secrets. Forks will fail on deploy workflows without configuration. Consider a "fork setup" guide.
 
-### Q8: Is a formal dependency license attestation required?
+### Q8: Is transitive dependency license attestation required?
 
-Agent C raised this: "deeper legal/compliance validation (e.g., full transitive license attestation) may still be required by legal counsel." The current audit checked direct dependencies but did not perform a full transitive license scan.
+Current audit checked direct dependencies only. Enterprise legal may require full transitive license scans. (Raised by Agent C.)
 
 ---
 
 ## DISAGREEMENTS — Remaining substantive disagreements with other approaches
 
-### 1. Frontend `.env.example` as BLOCKER (Agent C) — I disagree
+### 1. CLAUDE.md as IMPORTANT vs BLOCKER (Agent C)
 
-Agent C classified the personal Modal URL in `frontend/.env.example` as a release BLOCKER. I maintain this is IMPORTANT at most. A `.env.example` is a template file that users are expected to copy and edit before use. The file literally begins with a comment explaining it's a configuration template. The **real** blockers are the compiled defaults in the CLI's `config.py` (which every `pip install` user gets) and the Modal custom domains in `modal_app.py` (which prevent deployment). These are the files that actually break third-party use without source modification.
+Agent C classifies operational runbook exposure as IMPORTANT. I maintain BLOCKER because CLAUDE.md contains specific GitHub App IDs (2887189, 2887208), Installation IDs (111380021, 111379955), and Modal secret naming patterns that reduce attacker reconnaissance effort against live infrastructure. This is distinct from PRD.md/tasks.md (strategy exposure, IMPORTANT-tier risk).
 
-### 2. Scope narrowness (Agents A and C) — I maintain broader coverage is warranted
+However, this disagreement has narrowed significantly. Agent C's round 01 revision correctly expanded the issue scope to include PRD.md, tasks.md, and `.claude/commands/*`, and the remediation path (sanitize, not delete) is now shared across all agents. The remaining disagreement is purely about severity classification of the operational identifiers, not about whether action is needed.
 
-Both Agent A and Agent C produced 6 issues each. This audit produces 19. Agent C's critique noted my "volume may overwhelm maintainers," but I disagree that fewer findings is better if the missed findings are real. The round 01 revision improved signal-to-noise by sharpening classifications (branding distinction, severity corrections) rather than dropping valid findings. Missing license declarations, internal planning docs, auth rate limits, and SEO domains are all real issues that a 6-issue audit misses.
+### 2. Issue count as a weakness
 
-### 3. Branding removal as a category (Agent C) — Nuanced agreement
+Agent C frames 19 findings as potentially causing "execution paralysis." I maintain that comprehensiveness is a feature, not a bug — the round 02 remediation sequencing (Day 0 / Week 1 / Post-release) directly addresses the execution concern without dropping valid findings. A 6-issue audit that misses license declarations, auth rate limits, SEO domains, and internal docs is a more dangerous outcome than a 19-issue audit with clear priorities.
 
-Agent C correctly argued that "branding references are acceptable; hardcoded infra behavior that prevents deploy is the blocker." I fully adopted this distinction in round 01. However, I still flag **cosmetic coupling** (Category C in the revised pymc-labs issue) as a CRITICAL-tier concern because it makes forks feel second-class. This isn't branding — it's example code that says `dhub install pymc-labs/pymc-modeling` in the How It Works page, which is confusing for users of a fork that has nothing to do with PyMC Labs.
+### 3. No remaining factual disagreements
 
-### 4. No remaining factual disagreements
-
-All three agents' factual claims have been verified or corrected. The auth rate-limit gap (Agent C) is confirmed. The Modal domain blocker (Agents A and B) is confirmed. The license declaration gap (Agent B) is confirmed. The personal email issue (Agent A) is confirmed.
+All factual claims have been verified or corrected across two rounds. The license count (Agent C's correction) is now accurate. The auth rate-limit gap (Agent C's original finding) is confirmed. The branding vs. lock-in distinction (Agent C's analytical contribution) is adopted.

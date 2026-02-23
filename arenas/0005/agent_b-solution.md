@@ -1,95 +1,83 @@
 ## PLAN — Numbered key decisions with rationale
 
-### Round 01 revision — changes from round 00
+### Round 02 revision — changes from round 01
 
-This revision incorporates three key corrections from cross-agent critiques:
-- **Factual fix:** Round 00 incorrectly claimed "rate limiting on all public endpoints." Auth endpoints (`/auth/github/code`, `/auth/github/token`) have no rate-limit dependencies. Corrected in checklist and added as a new CRITICAL issue. (Credit: Agent C)
-- **Severity re-classification:** SECURITY.md elevated from CRITICAL to BLOCKER. Agent C's argument — that the first external vulnerability report will default to public disclosure without a private channel — is compelling for a project with live production infrastructure. (Consensus: Agent C proposed, Agent B and Agent A acknowledged in critiques)
-- **Analytical sharpening:** Separated `pymc-labs` references into three categories — branding (keep), infrastructure lock-in (blocker), cosmetic coupling (fix post-release) — per Agent C's critique that "branding references are acceptable; hardcoded infra behavior that prevents deploy is the blocker."
+This revision incorporates three improvements from round 01 cross-agent critiques:
+
+- **Remediation sequencing** (from Agents A and C): Added explicit Day 0 / Week 1 / Post-release priority ordering with effort estimates per item. Agent C's critique that "comprehensive audits also need prioritized sequencing to avoid execution paralysis" is valid — breadth without ordering creates triage overhead.
+- **CLAUDE.md remediation refined** (consensus across all agents): Changed from "move or delete" to "sanitize and retain." All three agents agree CLAUDE.md contains both valuable development guidelines (keep) and sensitive operational identifiers (strip). The round 02 issue file now specifies exactly what to strip (App IDs, Installation IDs, Modal secret names, PEM paths) and what to keep (code standards, design principles, testing conventions).
+- **Release contract framing** (from Agent C): Added the strategic question "Is this release hosted product + open code, or fork/self-host first-class OSS?" at the top of the checklist. This determines severity of ~40% of findings and should be answered before triage begins.
+- **License count correction** (from Agent C): Clarified that `client/pyproject.toml` already has `license = "MIT"`. The missing declarations are in server, shared, and frontend only. The issue file was already accurate; the checklist and summary text now match.
 
 ---
 
 ### Numbered decisions
 
-1. **Structured as a completed audit with status indicators, not a template.** Every checklist item is marked PASS (`[x]`), ISSUE (`[ ]` with linked issue file), or UNKNOWN (`[?]` needing owner confirmation). Agent A's round 00 checklist left all items unchecked, which is a template, not an audit. Agent C's PASS/ISSUE/UNKNOWN legend was the right approach.
+1. **Structured as a completed audit with prioritized remediation sequence.** Every checklist item has PASS/ISSUE/UNKNOWN status. The top of the document now contains a Day 0 / Week 1 / Post-release remediation table with effort estimates, converting the audit from a "findings report" into an "execution plan." This addresses Agent C's concern about volume-driven execution paralysis.
 
-2. **Six release blockers identified** (up from 5 in round 00):
-   - **NEW: Missing SECURITY.md** — elevated from CRITICAL. No private vulnerability reporting channel means the first external security finding becomes a public 0-day disclosure against live production infrastructure.
-   - Hardcoded CLI API URLs (`config.py`) — every `pip install dhub-cli` user hits PyMC Labs servers by default
-   - Hardcoded Modal custom domains (`modal_app.py:65`) — `modal deploy` fails for third parties because `hub.decision.ai` is already claimed
-   - Sensitive info in CLAUDE.md/AGENTS.md — operational runbook with GitHub App IDs, Modal secret names
-   - Missing license declarations in 3 sub-packages — `dhub-core` on PyPI shows "License: UNKNOWN"
-   - Internal planning docs committed (PRD.md, tasks.md) — product strategy exposure
+2. **Six release blockers with effort estimates** — total Day 0 effort: ~3-4 hours:
+   - Missing SECURITY.md (~15 min)
+   - Missing license declarations in server, shared, frontend (~5 min)
+   - Hardcoded Modal custom domains (~30 min)
+   - Hardcoded CLI API URLs (~30 min)
+   - CLAUDE.md/AGENTS.md sanitization (~1-2 hr) — now specifies "sanitize, don't delete"
+   - Internal planning docs removal (~5 min)
 
-3. **Five critical issues** (up from 4 in round 00):
-   - **NEW: Auth endpoint rate limiting** — `/auth/github/code` and `/auth/github/token` are unthrottled unlike every other public endpoint. Mitigated partially by GitHub's upstream limits but still an abuse vector.
-   - `pymc-labs` infrastructure lock-in vs cosmetic coupling — now cleanly separated
-   - Missing contributor/governance docs (CONTRIBUTING, CODE_OF_CONDUCT, issue templates)
-   - Hardcoded SEO domains (5+ files)
-   - Modal secret name prefix hardcoded
+3. **Five critical issues with effort estimates** — total Week 1 effort: ~5-7 hours:
+   - Auth endpoint rate limiting (~1 hr)
+   - Community docs (CONTRIBUTING, CODE_OF_CONDUCT, issue templates) (~1-2 hr)
+   - `pymc-labs` infrastructure lock-in and cosmetic coupling (~2-3 hr)
+   - SEO domain hardcoding (~1 hr)
+   - Modal secret name prefix (~30 min)
 
-4. **Eight important issues** (up from 7 in round 00):
-   - **NEW: Personal email in metadata** (from Agent A) — Gmail in `client/pyproject.toml` vs PyMC Labs email in LICENSE
-   - CORS middleware, security headers, dependency audit, print statement, personal Modal URLs, .claude directory, CODEOWNERS
+4. **Eight important issues** — tracked as GitHub issues post-release:
+   - CORS middleware, security headers, dependency audit, print statement, personal Modal URLs, .claude directory, CODEOWNERS, personal email in metadata
 
-5. **Confirmed clean areas remain unchanged:**
-   - No secrets in source or git history
-   - No private keys tracked
-   - SQL injection protection (parameterized queries)
-   - JWT authentication on write endpoints
-   - API key encryption at rest (Fernet)
-   - All dependency licenses MIT-compatible
+5. **Release contract question precedes all triage.** The severity of many findings depends on whether self-hosting is first-class. For a "hosted product + open code" release, SEO domains and Modal secret names can be downgraded to IMPORTANT. For "self-host first-class OSS," they remain CRITICAL.
 
-6. **Adopted the branding vs lock-in distinction** (from Agent C's critique). The `pymc-labs` references issue now explicitly separates:
-   - **Category A (keep):** Maintainer attribution in README, footer, legal pages — standard OSS practice
-   - **Category B (blocker):** Hardcoded Modal workspace in API URLs and custom domains — tracked in BLOCKER issues
-   - **Category C (cosmetic, fix post-release):** Example commands, featured orgs, animated terminal — make the project feel proprietary but don't break functionality
+6. **Maintained comprehensive 19-issue coverage.** All three agents now acknowledge this audit has the broadest coverage. The round 02 revision addresses the signal-to-noise concern not by dropping findings but by sequencing them — Day 0 items get attention first, IMPORTANT items become GitHub issues to track post-release.
 
-7. **Maintained comprehensive coverage** as the primary differentiator. Round 00 evaluation confirmed this audit has the broadest coverage (19 issues vs 6 each from Agents A and C). The revision tightens signal-to-noise by improving issue quality rather than reducing quantity — every issue now has sharper classification and deferral rationale.
+7. **Branding framework unchanged.** The three-category distinction (branding/lock-in/cosmetic) from round 01 was validated by all critiques and remains the most actionable treatment.
 
 ## CHANGES — Unified diff or precise change descriptions
 
-### New files created (round 01)
+### Files modified (round 02)
 
-- `audit/issues/BLOCKER-security-disclosure-policy-missing.md` — SECURITY.md blocker with template fix and effort estimate (15-30 min)
-- `audit/issues/CRITICAL-auth-endpoints-missing-rate-limits.md` — auth rate-limit gap with evidence, mitigating factors, and implementation pattern
-- `audit/issues/IMPORTANT-personal-email-in-metadata.md` — personal Gmail in package metadata
+- `audit/oss-release-checklist.md` — major revision:
+  - Added "Release Contract" decision prompt at top (from Agent C)
+  - Added "Prioritized Remediation Sequence" with Day 0 / Week 1 / Post-release tables and effort estimates (from Agents A and C)
+  - Explicitly marked `client/pyproject.toml` license as PASS (factual correction from Agent C)
+  - Updated CLAUDE.md checklist item to say "must be sanitized" not just "contains sensitive info"
+  - Added effort estimates to all items in Findings Summary
 
-### Files modified (round 01)
+- `audit/issues/BLOCKER-sensitive-info-in-claude-agents-md.md` — refined remediation:
+  - Changed recommended fix from "move to .cursor/rules or git-ignored location" to "sanitize, don't delete"
+  - Specifies exactly what to strip (App IDs, Installation IDs, Modal secret names, PEM paths, troubleshooting commands)
+  - Specifies what to keep (code standards, design principles, testing conventions, logging patterns)
+  - Preserves AI-assisted development experience while removing reconnaissance risk
 
-- `audit/oss-release-checklist.md` — complete rewrite:
-  - Fixed factual error in security section (auth endpoints now correctly marked as unthrottled)
-  - Added Security Governance section (SECURITY.md, dependency monitoring)
-  - Restructured infrastructure section with branding distinction
-  - Updated findings summary: 6 BLOCKERS, 5 CRITICAL, 8 IMPORTANT
-  - Added `[?]` UNKNOWN items for owner verification (trufflehog scan, copyright holder, trademark)
+### Files unchanged from round 01
 
-- `audit/issues/CRITICAL-missing-oss-community-docs.md` — removed SECURITY.md (now tracked as separate BLOCKER), retitled to "Contributor & Governance Documents"
-
-- `audit/issues/CRITICAL-pymc-labs-references-throughout-codebase.md` — complete rewrite with three-category framework (branding / lock-in / cosmetic), explicit keep/fix/defer guidance per category
-
-### Files unchanged from round 00
-
-All other BLOCKER, CRITICAL, and IMPORTANT issue files remain unchanged — their findings and recommendations were validated by cross-agent review with no factual corrections needed.
+All other issue files (18 remaining) validated by cross-agent review — no factual corrections needed.
 
 ### Complete issue inventory (19 files)
 
-**BLOCKERS (6):**
-1. `BLOCKER-security-disclosure-policy-missing.md` — **NEW**
-2. `BLOCKER-hardcoded-api-urls-in-client.md`
+**BLOCKERS (6) — Day 0:**
+1. `BLOCKER-security-disclosure-policy-missing.md`
+2. `BLOCKER-missing-license-declarations.md`
 3. `BLOCKER-hardcoded-custom-domains-in-modal.md`
-4. `BLOCKER-sensitive-info-in-claude-agents-md.md`
-5. `BLOCKER-missing-license-declarations.md`
+4. `BLOCKER-hardcoded-api-urls-in-client.md`
+5. `BLOCKER-sensitive-info-in-claude-agents-md.md` — **REVISED** (sanitize, don't delete)
 6. `BLOCKER-internal-docs-committed.md`
 
-**CRITICAL (5):**
-1. `CRITICAL-auth-endpoints-missing-rate-limits.md` — **NEW**
-2. `CRITICAL-pymc-labs-references-throughout-codebase.md` — **REVISED**
-3. `CRITICAL-missing-oss-community-docs.md` — **REVISED**
+**CRITICAL (5) — Week 1:**
+1. `CRITICAL-auth-endpoints-missing-rate-limits.md`
+2. `CRITICAL-missing-oss-community-docs.md`
+3. `CRITICAL-pymc-labs-references-throughout-codebase.md`
 4. `CRITICAL-seo-hardcoded-domains.md`
 5. `CRITICAL-modal-secret-names-hardcoded.md`
 
-**IMPORTANT (8):**
+**IMPORTANT (8) — Post-release:**
 1. `IMPORTANT-missing-cors-configuration.md`
 2. `IMPORTANT-print-statement-in-production.md`
 3. `IMPORTANT-missing-security-headers.md`
@@ -97,4 +85,4 @@ All other BLOCKER, CRITICAL, and IMPORTANT issue files remain unchanged — thei
 5. `IMPORTANT-personal-modal-urls-in-examples.md`
 6. `IMPORTANT-claude-directory-test-commands.md`
 7. `IMPORTANT-codeowners-personal-username.md`
-8. `IMPORTANT-personal-email-in-metadata.md` — **NEW**
+8. `IMPORTANT-personal-email-in-metadata.md`
