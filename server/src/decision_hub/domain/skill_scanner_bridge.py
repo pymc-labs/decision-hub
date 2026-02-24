@@ -25,6 +25,7 @@ from loguru import logger
 
 from decision_hub.models import SafetyGrade
 
+
 def _fix_gemini_union_types(schema: Any) -> Any:
     """Recursively convert JSON Schema union types to Gemini-compatible form.
 
@@ -51,21 +52,15 @@ def _fix_gemini_union_types(schema: Any) -> Any:
             if has_null:
                 types.remove("null")
             if len(types) == 0:
-                raise NotImplementedError(
-                    f"Google GenAI SDK does not support null-only types: {value!r}"
-                )
+                raise NotImplementedError(f"Google GenAI SDK does not support null-only types: {value!r}")
             if len(types) > 1:
-                raise NotImplementedError(
-                    f"Google GenAI SDK does not support multi-type unions: {value!r}"
-                )
+                raise NotImplementedError(f"Google GenAI SDK does not support multi-type unions: {value!r}")
             out["type"] = types[0].upper()
             if has_null:
                 out["nullable"] = True
         elif key == "type" and isinstance(value, str):
             if value == "null":
-                raise NotImplementedError(
-                    "Google GenAI SDK does not support null-only types"
-                )
+                raise NotImplementedError("Google GenAI SDK does not support null-only types")
             out["type"] = value.upper()
         elif key == "additionalProperties":
             continue
@@ -89,7 +84,7 @@ def _patch_gemini_schema_sanitizer() -> None:
     version that handles union types.  Safe to call multiple times —
     only patches once.
     """
-    global _PATCHED  # noqa: PLW0603
+    global _PATCHED
     if _PATCHED:
         return
 
@@ -107,6 +102,7 @@ def _patch_gemini_schema_sanitizer() -> None:
     LLMRequestHandler._sanitize_schema_for_google = _patched_sanitize  # type: ignore[assignment]
     _PATCHED = True
     logger.debug("Patched LLMRequestHandler._sanitize_schema_for_google for Gemini union-type compat")
+
 
 # ---------------------------------------------------------------------------
 # Scanner result dataclass (decoupled from skill-scanner types)
@@ -233,9 +229,7 @@ def _llm_configured(settings: Any) -> bool:
     return bool(getattr(settings, "google_api_key", None))
 
 
-def _check_llm_degradation(
-    result: BridgeScanResult, *, llm_expected: bool
-) -> BridgeScanResult:
+def _check_llm_degradation(result: BridgeScanResult, *, llm_expected: bool) -> BridgeScanResult:
     """Detect and flag silent LLM analyzer degradation.
 
     The Cisco scanner swallows LLM errors and still reports
