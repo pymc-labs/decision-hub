@@ -9,6 +9,7 @@ import pytest
 from decision_hub.domain.skill_scanner_bridge import (
     BridgeScanResult,
     _check_llm_degradation,
+    _effective_max_severity,
     _error_scan_result,
     _find_skill_root,
     _fix_gemini_union_types,
@@ -40,6 +41,37 @@ class TestSeverityToGrade:
 
     def test_unknown_defaults_to_a(self):
         assert severity_to_grade("UNKNOWN") == "A"
+
+
+class TestEffectiveMaxSeverity:
+    def test_no_meta_returns_raw(self):
+        findings = [{"severity": "MEDIUM", "metadata": {}}]
+        assert _effective_max_severity(findings, "MEDIUM") == "MEDIUM"
+
+    def test_all_fps_returns_safe(self):
+        findings = [
+            {"severity": "MEDIUM", "metadata": {"meta_false_positive": True}},
+            {"severity": "HIGH", "metadata": {"meta_false_positive": True}},
+        ]
+        assert _effective_max_severity(findings, "HIGH") == "SAFE"
+
+    def test_fp_filtered_lowers_severity(self):
+        findings = [
+            {"severity": "MEDIUM", "metadata": {"meta_false_positive": True}},
+            {"severity": "LOW", "metadata": {"meta_false_positive": False}},
+            {"severity": "INFO", "metadata": {"meta_false_positive": False}},
+        ]
+        assert _effective_max_severity(findings, "MEDIUM") == "LOW"
+
+    def test_no_findings_returns_raw(self):
+        assert _effective_max_severity([], "SAFE") == "SAFE"
+
+    def test_mixed_with_critical_non_fp(self):
+        findings = [
+            {"severity": "MEDIUM", "metadata": {"meta_false_positive": True}},
+            {"severity": "CRITICAL", "metadata": {"meta_false_positive": False}},
+        ]
+        assert _effective_max_severity(findings, "CRITICAL") == "CRITICAL"
 
 
 class TestFindSkillRoot:
@@ -215,6 +247,53 @@ class TestMapScanResult:
 
         assert bridge_result.meta_analysis is None
 
+    def test_fp_findings_excluded_from_grade(self):
+        """Grade should reflect non-FP findings only when meta-analysis is present."""
+        medium_fp = MagicMock()
+        medium_fp.rule_id = "FP-001"
+        medium_fp.category = "prompt_injection"
+        sev_m = MagicMock()
+        sev_m.name = "MEDIUM"
+        medium_fp.severity = sev_m
+        medium_fp.title = "False positive"
+        medium_fp.description = None
+        medium_fp.file_path = None
+        medium_fp.line_number = None
+        medium_fp.snippet = None
+        medium_fp.remediation = None
+        medium_fp.analyzer = "llm_analyzer"
+        medium_fp.to_dict.return_value = {
+            "metadata": {"meta_false_positive": True, "meta_reason": "benign"},
+        }
+
+        low_valid = MagicMock()
+        low_valid.rule_id = "V-001"
+        low_valid.category = "policy_violation"
+        sev_l = MagicMock()
+        sev_l.name = "LOW"
+        low_valid.severity = sev_l
+        low_valid.title = "Valid finding"
+        low_valid.description = None
+        low_valid.file_path = None
+        low_valid.line_number = None
+        low_valid.snippet = None
+        low_valid.remediation = None
+        low_valid.analyzer = "static"
+        low_valid.to_dict.return_value = {
+            "metadata": {"meta_false_positive": False},
+        }
+
+        mock_result = self._make_mock_result(
+            is_safe=True,
+            max_severity_name="MEDIUM",
+            findings=[medium_fp, low_valid],
+        )
+
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=100)
+
+        assert bridge_result.grade == "A"
+        assert bridge_result.findings_count == 2
+
 
 class TestFixGeminiUnionTypes:
     """Tests for the Gemini schema union-type converter."""
@@ -338,7 +417,7 @@ class TestRunMetaAnalysis:
         result = self._make_scan_result(findings=[MagicMock()])
         settings = self._make_settings(api_key="")
 
-        meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+        meta_dict, _findings = _run_meta_analysis(result, tmp_path, settings)
 
         assert meta_dict is None
 
@@ -376,7 +455,7 @@ class TestRunMetaAnalysis:
             MockMeta.return_value = MagicMock()
             MockLoader.return_value.load_skill.return_value = MagicMock()
 
-            meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+            meta_dict, _findings = _run_meta_analysis(result, tmp_path, settings)
 
         assert meta_dict == {"overall_risk_assessment": {"risk_level": "SAFE"}}
 
@@ -386,7 +465,7 @@ class TestRunMetaAnalysis:
         settings = self._make_settings()
 
         with patch.dict("sys.modules", {"skill_scanner.core.analyzers": None}):
-            meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+            meta_dict, _findings = _run_meta_analysis(result, tmp_path, settings)
 
         assert meta_dict is None
 

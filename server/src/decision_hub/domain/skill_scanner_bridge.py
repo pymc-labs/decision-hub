@@ -148,6 +148,32 @@ def severity_to_grade(max_severity: str) -> SafetyGrade:
     return _SEVERITY_TO_GRADE.get(max_severity, "A")
 
 
+_SEVERITY_RANK = {"CRITICAL": 5, "HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFO": 1, "SAFE": 0}
+
+
+def _effective_max_severity(findings: list[dict], raw_max: str) -> str:
+    """Recompute max severity after excluding meta-analysis false positives.
+
+    If meta-analysis marked some findings as FP, the raw max_severity from the
+    scanner may overstate the risk. Recalculate from non-FP findings only.
+    Falls back to *raw_max* when no meta-analysis metadata is present.
+    """
+    has_meta = any(
+        "meta_false_positive" in f.get("metadata", {}) for f in findings
+    )
+    if not has_meta:
+        return raw_max
+
+    non_fp_severities = [
+        f["severity"]
+        for f in findings
+        if not f.get("metadata", {}).get("meta_false_positive", False)
+    ]
+    if not non_fp_severities:
+        return "SAFE"
+    return max(non_fp_severities, key=lambda s: _SEVERITY_RANK.get(s, 0))
+
+
 # ---------------------------------------------------------------------------
 # Scanner construction
 # ---------------------------------------------------------------------------
@@ -525,12 +551,14 @@ def _map_scan_result(
         or scan_metadata.get("meta_analysis")
     )
 
-    grade = severity_to_grade(max_severity)
+    effective_severity = _effective_max_severity(findings, max_severity)
+    grade = severity_to_grade(effective_severity)
 
     logger.info(
-        "Scan complete: is_safe={} max_severity={} grade={} findings={} analyzers={} duration={}ms",
+        "Scan complete: is_safe={} max_severity={} effective={} grade={} findings={} analyzers={} duration={}ms",
         result.is_safe,
         max_severity,
+        effective_severity,
         grade,
         len(findings),
         analyzers_used,
