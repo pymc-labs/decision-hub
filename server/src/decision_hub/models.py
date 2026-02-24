@@ -281,6 +281,7 @@ class TrackerBatchResult:
     processed: int
     failed: int
     skipped_rate_limit: int
+    deadline_deferred: int
     github_rate_remaining: int | None
 
 

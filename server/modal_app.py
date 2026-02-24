@@ -358,6 +358,10 @@ def check_trackers():
             # Rate limit is low — stop looping to avoid re-claiming the same
             # deferred trackers and burning more API budget.
             break
+        if result.deadline_deferred > 0:
+            # Budget exhausted — deferred trackers have next_check_at=NULL so
+            # they'd be re-claimed immediately, causing a tight loop.
+            break
 
     elapsed = time.monotonic() - start
 

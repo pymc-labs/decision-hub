@@ -124,6 +124,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             processed=0,
             failed=0,
             skipped_rate_limit=0,
+            deadline_deferred=0,
             github_rate_remaining=None,
         )
 
@@ -255,6 +256,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             processed=0,
             failed=0,
             skipped_rate_limit=len(changed_trackers),
+            deadline_deferred=0,
             github_rate_remaining=rate_remaining,
         )
 
@@ -285,6 +287,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                 processed=0,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=len(changed_trackers),
                 github_rate_remaining=rate_remaining,
             )
 
@@ -309,6 +312,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         processed=processed,
         failed=failed,
         skipped_rate_limit=0,
+        deadline_deferred=0,
         github_rate_remaining=rate_remaining,
     )
 

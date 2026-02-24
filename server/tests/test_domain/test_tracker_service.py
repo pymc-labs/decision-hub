@@ -1134,6 +1134,8 @@ class TestCronLoopBehavior:
                 break
             if result.skipped_rate_limit > 0:
                 break
+            if result.deadline_deferred > 0:
+                break
 
         return {
             "iterations": iterations,
@@ -1159,6 +1161,7 @@ class TestCronLoopBehavior:
                 processed=0,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=4000,
             ),
             TrackerBatchResult(
@@ -1170,6 +1173,7 @@ class TestCronLoopBehavior:
                 processed=0,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=3900,
             ),
             TrackerBatchResult(
@@ -1181,6 +1185,7 @@ class TestCronLoopBehavior:
                 processed=0,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=None,
             ),
         ]
@@ -1200,6 +1205,7 @@ class TestCronLoopBehavior:
                 processed=2,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=600,
             ),
             TrackerBatchResult(
@@ -1211,6 +1217,7 @@ class TestCronLoopBehavior:
                 processed=0,
                 failed=0,
                 skipped_rate_limit=3,
+                deadline_deferred=0,
                 github_rate_remaining=100,
             ),
             # This should never be reached
@@ -1223,6 +1230,7 @@ class TestCronLoopBehavior:
                 processed=0,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=50,
             ),
         ]
@@ -1242,6 +1250,7 @@ class TestCronLoopBehavior:
                 processed=2,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=4000,
             ),
             TrackerBatchResult(
@@ -1253,6 +1262,7 @@ class TestCronLoopBehavior:
                 processed=1,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=3900,
             ),
             TrackerBatchResult(
@@ -1264,6 +1274,7 @@ class TestCronLoopBehavior:
                 processed=0,
                 failed=0,
                 skipped_rate_limit=0,
+                deadline_deferred=0,
                 github_rate_remaining=None,
             ),
         ]
@@ -1289,6 +1300,7 @@ class TestMetricsMathContract:
             processed=3,
             failed=0,
             skipped_rate_limit=0,
+            deadline_deferred=0,
             github_rate_remaining=4000,
         )
         assert result.checked == result.unchanged + result.changed + result.errored
@@ -1305,6 +1317,7 @@ class TestMetricsMathContract:
             processed=4,
             failed=1,
             skipped_rate_limit=0,
+            deadline_deferred=0,
             github_rate_remaining=3000,
         )
         assert result.checked == result.unchanged + result.changed + result.errored
@@ -1320,6 +1333,7 @@ class TestMetricsMathContract:
             processed=3,
             failed=2,
             skipped_rate_limit=0,
+            deadline_deferred=0,
             github_rate_remaining=4000,
         )
         assert result.processed + result.failed <= result.changed
@@ -1335,6 +1349,7 @@ class TestMetricsMathContract:
             processed=0,
             failed=0,
             skipped_rate_limit=3,
+            deadline_deferred=0,
             github_rate_remaining=100,
         )
         assert result.skipped_rate_limit == result.changed
