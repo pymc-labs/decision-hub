@@ -158,17 +158,11 @@ def _effective_max_severity(findings: list[dict], raw_max: str) -> str:
     scanner may overstate the risk. Recalculate from non-FP findings only.
     Falls back to *raw_max* when no meta-analysis metadata is present.
     """
-    has_meta = any(
-        "meta_false_positive" in f.get("metadata", {}) for f in findings
-    )
+    has_meta = any("meta_false_positive" in f.get("metadata", {}) for f in findings)
     if not has_meta:
         return raw_max
 
-    non_fp_severities = [
-        f["severity"]
-        for f in findings
-        if not f.get("metadata", {}).get("meta_false_positive", False)
-    ]
+    non_fp_severities = [f["severity"] for f in findings if not f.get("metadata", {}).get("meta_false_positive", False)]
     if not non_fp_severities:
         return "SAFE"
     return max(non_fp_severities, key=lambda s: _SEVERITY_RANK.get(s, 0))
@@ -216,9 +210,7 @@ def _build_scanner(settings: Any) -> Any:
     return SkillScanner(analyzers=analyzers)
 
 
-def _run_meta_analysis(
-    result: Any, skill_dir: Path, settings: Any
-) -> tuple[dict | None, list[Any]]:
+def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dict | None, list[Any]]:
     """Run MetaAnalyzer as a post-processing step on scan findings.
 
     Follows the same pattern as the scanner's CLI (``--enable-meta``) and
@@ -504,9 +496,7 @@ def _error_scan_result(elapsed_ms: int) -> BridgeScanResult:
     )
 
 
-def _map_scan_result(
-    result: Any, elapsed_ms: int, *, meta_analysis_override: dict | None = None
-) -> BridgeScanResult:
+def _map_scan_result(result: Any, elapsed_ms: int, *, meta_analysis_override: dict | None = None) -> BridgeScanResult:
     """Convert a skill-scanner ScanResult to a BridgeScanResult."""
     result_dict = result.to_dict()
 
@@ -545,11 +535,7 @@ def _map_scan_result(
     analyzers_used = result_dict.get("analyzers_used", [])
     scan_metadata = result_dict.get("scan_metadata", {})
 
-    meta_analysis = (
-        meta_analysis_override
-        or result_dict.get("meta_analysis")
-        or scan_metadata.get("meta_analysis")
-    )
+    meta_analysis = meta_analysis_override or result_dict.get("meta_analysis") or scan_metadata.get("meta_analysis")
 
     effective_severity = _effective_max_severity(findings, max_severity)
     grade = severity_to_grade(effective_severity)

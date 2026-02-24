@@ -449,7 +449,10 @@ class TestRunMetaAnalysis:
 
         with (
             patch("skill_scanner.core.analyzers.MetaAnalyzer") as MockMeta,
-            patch("skill_scanner.core.analyzers.meta_analyzer.apply_meta_analysis_to_results", return_value=enriched_findings),
+            patch(
+                "skill_scanner.core.analyzers.meta_analyzer.apply_meta_analysis_to_results",
+                return_value=enriched_findings,
+            ),
             patch("skill_scanner.core.loader.SkillLoader") as MockLoader,
         ):
             MockMeta.return_value = MagicMock()
@@ -514,30 +517,22 @@ class TestCheckLlmDegradation:
 
     def test_no_degradation_when_llm_not_expected(self):
         result = self._make_result()
-        checked = _check_llm_degradation(
-            result, llm_expected=False, captured_stdout="Error in LLM"
-        )
+        checked = _check_llm_degradation(result, llm_expected=False, captured_stdout="Error in LLM")
         assert checked is result
 
     def test_no_degradation_when_stdout_empty(self):
         result = self._make_result()
-        checked = _check_llm_degradation(
-            result, llm_expected=True, captured_stdout=""
-        )
+        checked = _check_llm_degradation(result, llm_expected=True, captured_stdout="")
         assert checked is result
 
     def test_no_degradation_when_stdout_clean(self):
         result = self._make_result()
-        checked = _check_llm_degradation(
-            result, llm_expected=True, captured_stdout="Processing skill..."
-        )
+        checked = _check_llm_degradation(result, llm_expected=True, captured_stdout="Processing skill...")
         assert checked is result
 
     def test_degradation_detected_on_error_stdout(self):
         result = self._make_result()
-        checked = _check_llm_degradation(
-            result, llm_expected=True, captured_stdout="Error calling Gemini API"
-        )
+        checked = _check_llm_degradation(result, llm_expected=True, captured_stdout="Error calling Gemini API")
         assert checked is not result
         assert checked.findings_count == 1
         degradation = checked.findings[0]
@@ -567,25 +562,19 @@ class TestCheckLlmDegradation:
     def test_degradation_preserves_existing_findings(self):
         static_finding = {"analyzer": "static", "rule_id": "SS-001", "severity": "LOW"}
         result = self._make_result(findings=[static_finding])
-        checked = _check_llm_degradation(
-            result, llm_expected=True, captured_stdout="Error: LLM failed"
-        )
+        checked = _check_llm_degradation(result, llm_expected=True, captured_stdout="Error: LLM failed")
         assert checked.findings_count == 2
         assert checked.findings[0] == static_finding
         assert checked.findings[1]["rule_id"] == "LLM_DEGRADED"
 
     def test_degradation_does_not_change_grade(self):
         result = self._make_result()
-        checked = _check_llm_degradation(
-            result, llm_expected=True, captured_stdout="failed to connect"
-        )
+        checked = _check_llm_degradation(result, llm_expected=True, captured_stdout="failed to connect")
         assert checked.grade == result.grade
 
     def test_degradation_preserves_all_other_fields(self):
         result = self._make_result()
-        checked = _check_llm_degradation(
-            result, llm_expected=True, captured_stdout="error in LLM call"
-        )
+        checked = _check_llm_degradation(result, llm_expected=True, captured_stdout="error in LLM call")
         assert checked.is_safe == result.is_safe
         assert checked.max_severity == result.max_severity
         assert checked.analyzers_used == result.analyzers_used
