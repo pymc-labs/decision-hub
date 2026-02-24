@@ -33,3 +33,7 @@ crawl_checkpoint.json
 *.pem
 *.key
 *.private-key*
+
+# Internal planning docs (keep in wiki/Notion, not in repo)
+PRD.md
+tasks.md

@@ -238,7 +238,7 @@ Copy `server/.env.example` to `server/.env.dev` and fill in your values. The pro
 
 ### Contributing
 
-See [`CLAUDE.md`](CLAUDE.md) for detailed development guidelines including: coding standards, database migration rules, deployment procedures, environment setup, and CI workflows.
+See [`AGENTS.md`](AGENTS.md) for detailed development guidelines including: coding standards, database migration rules, deployment procedures, environment setup, and CI workflows.
 
 ## License
 
