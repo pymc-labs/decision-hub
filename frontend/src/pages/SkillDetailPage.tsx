@@ -436,16 +436,17 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
 
   const isScanner = check?.check_name === "skill_scanner";
   const reportApiPath = `/v1/skills/${encodeURIComponent(entry.org_slug)}/${encodeURIComponent(entry.skill_name)}/scan-report`;
+  const semverParam = `semver=${encodeURIComponent(entry.semver)}`;
 
   useEffect(() => {
     if (!isScanner) return;
     let cancelled = false;
-    fetch(`${reportApiPath}?page_size=100`)
+    fetch(`${reportApiPath}?${semverParam}&page_size=100`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => { if (!cancelled && data) setReport(data); })
       .finally(() => { if (!cancelled) setReportFetched(true); });
     return () => { cancelled = true; };
-  }, [isScanner, reportApiPath]);
+  }, [isScanner, reportApiPath, semverParam]);
 
   const loading = isScanner && !reportFetched;
 
@@ -459,7 +460,7 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
     setShowRaw(true);
     if (fullJson) return;
     try {
-      const res = await fetch(`${reportApiPath}/download`);
+      const res = await fetch(`${reportApiPath}/download?${semverParam}`);
       if (res.ok) {
         const data = await res.json();
         setFullJson(JSON.stringify(data, null, 2));
