@@ -25,18 +25,6 @@ from loguru import logger
 
 from decision_hub.models import SafetyGrade
 
-# Gemini type enum values accepted by the Google GenAI SDK.
-_JSON_TYPE_TO_GEMINI: dict[str, str] = {
-    "string": "STRING",
-    "number": "NUMBER",
-    "integer": "INTEGER",
-    "boolean": "BOOLEAN",
-    "array": "ARRAY",
-    "object": "OBJECT",
-    "null": "NULL",
-}
-
-
 def _fix_gemini_union_types(schema: Any) -> Any:
     """Recursively convert JSON Schema union types to Gemini-compatible form.
 
@@ -58,14 +46,27 @@ def _fix_gemini_union_types(schema: Any) -> Any:
     out: dict[str, Any] = {}
     for key, value in schema.items():
         if key == "type" and isinstance(value, list):
-            non_null = [t for t in value if t != "null"]
-            has_null = len(non_null) < len(value)
-            resolved = non_null[0] if non_null else "string"
-            out["type"] = _JSON_TYPE_TO_GEMINI.get(resolved, resolved.upper())
+            types = list(value)
+            has_null = "null" in types
+            if has_null:
+                types.remove("null")
+            if len(types) == 0:
+                raise NotImplementedError(
+                    f"Google GenAI SDK does not support null-only types: {value!r}"
+                )
+            if len(types) > 1:
+                raise NotImplementedError(
+                    f"Google GenAI SDK does not support multi-type unions: {value!r}"
+                )
+            out["type"] = types[0].upper()
             if has_null:
                 out["nullable"] = True
         elif key == "type" and isinstance(value, str):
-            out["type"] = _JSON_TYPE_TO_GEMINI.get(value, value.upper())
+            if value == "null":
+                raise NotImplementedError(
+                    "Google GenAI SDK does not support null-only types"
+                )
+            out["type"] = value.upper()
         elif key == "additionalProperties":
             continue
         elif isinstance(value, dict):
@@ -227,6 +228,79 @@ def _safe_extract_zip(zf: zipfile.ZipFile, dest: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _llm_configured(settings: Any) -> bool:
+    """Return True if LLM analyzers would be enabled for these settings."""
+    return bool(getattr(settings, "google_api_key", None))
+
+
+def _check_llm_degradation(
+    result: BridgeScanResult, *, llm_expected: bool
+) -> BridgeScanResult:
+    """Detect and flag silent LLM analyzer degradation.
+
+    The Cisco scanner swallows LLM errors and still reports
+    ``llm_analyzer`` in ``analyzers_used``
+    (see https://github.com/cisco-ai-defense/skill-scanner/issues/38).
+
+    Heuristic: if LLM analyzers were configured but meta_analysis is
+    None *and* no findings came from the ``llm`` analyzer, both the
+    LLMAnalyzer and MetaAnalyzer silently failed.  Inject an INFO
+    finding so the failure is visible in audit logs and scan reports.
+    """
+    if not llm_expected:
+        return result
+
+    has_llm_findings = any(f.get("analyzer") == "llm" for f in result.findings)
+    if result.meta_analysis is not None or has_llm_findings:
+        return result
+
+    logger.warning(
+        "LLM analyzer degradation detected: LLM analyzers were configured "
+        "but produced no findings and no meta-analysis. "
+        "Scan result is static-only (see cisco-ai-defense/skill-scanner#38)"
+    )
+
+    degradation_finding: dict[str, Any] = {
+        "rule_id": "LLM_DEGRADED",
+        "category": "scan_quality",
+        "severity": "INFO",
+        "title": "LLM analysis did not produce results",
+        "description": (
+            "The LLM and meta-analysis stages were configured but "
+            "returned no output. This scan reflects static analysis "
+            "only. The grade may undercount threats that require "
+            "semantic understanding."
+        ),
+        "file_path": None,
+        "line_number": None,
+        "snippet": None,
+        "remediation": (
+            "Check server logs for LLM errors (API key, rate limits, "
+            "schema compatibility). See "
+            "https://github.com/cisco-ai-defense/skill-scanner/issues/38"
+        ),
+        "analyzer": "bridge",
+        "aitech_code": None,
+        "metadata": {},
+    }
+
+    findings = [*result.findings, degradation_finding]
+    return BridgeScanResult(
+        is_safe=result.is_safe,
+        max_severity=result.max_severity,
+        grade=result.grade,
+        findings_count=len(findings),
+        findings=findings,
+        analyzers_used=result.analyzers_used,
+        analyzability_score=result.analyzability_score,
+        scan_duration_ms=result.scan_duration_ms,
+        policy_name=result.policy_name,
+        policy_fingerprint=result.policy_fingerprint,
+        full_report=result.full_report,
+        meta_analysis=result.meta_analysis,
+    )
+
+
 def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     """Scan an on-disk skill directory (used by crawler/tracker).
 
@@ -235,6 +309,7 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     instead of an unhandled exception from the third-party library.
     """
     start = time.monotonic()
+    llm_expected = _llm_configured(settings)
 
     try:
         scanner = _build_scanner(settings)
@@ -244,7 +319,8 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    return _map_scan_result(result, elapsed_ms)
+    bridge_result = _map_scan_result(result, elapsed_ms)
+    return _check_llm_degradation(bridge_result, llm_expected=llm_expected)
 
 
 def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
@@ -255,6 +331,7 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
     instead of an unhandled exception from the third-party library.
     """
     start = time.monotonic()
+    llm_expected = _llm_configured(settings)
 
     try:
         with tempfile.TemporaryDirectory(prefix="skill_scan_") as tmp:
@@ -268,7 +345,8 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    return _map_scan_result(result, elapsed_ms)
+    bridge_result = _map_scan_result(result, elapsed_ms)
+    return _check_llm_degradation(bridge_result, llm_expected=llm_expected)
 
 
 # ---------------------------------------------------------------------------

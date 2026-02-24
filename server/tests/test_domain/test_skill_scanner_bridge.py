@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from decision_hub.domain.skill_scanner_bridge import (
+    BridgeScanResult,
+    _check_llm_degradation,
     _error_scan_result,
     _find_skill_root,
     _fix_gemini_union_types,
@@ -260,7 +262,6 @@ class TestFixGeminiUnionTypes:
             ("boolean", "BOOLEAN"),
             ("array", "ARRAY"),
             ("object", "OBJECT"),
-            ("null", "NULL"),
         ]:
             assert _fix_gemini_union_types({"type": lower}) == {"type": upper}
 
@@ -300,3 +301,84 @@ class TestFixGeminiUnionTypes:
 
         assert "additionalProperties" not in result
         assert "additionalProperties" not in result["properties"]["findings"]["items"]
+
+
+class TestCheckLlmDegradation:
+    """Tests for silent LLM failure detection."""
+
+    def _make_result(
+        self,
+        *,
+        meta_analysis: dict | None = None,
+        findings: list[dict] | None = None,
+    ) -> BridgeScanResult:
+        findings = findings or []
+        return BridgeScanResult(
+            is_safe=True,
+            max_severity="SAFE",
+            grade="A",
+            findings_count=len(findings),
+            findings=findings,
+            analyzers_used=["static_analyzer", "llm_analyzer", "meta_analyzer"],
+            analyzability_score=90.0,
+            scan_duration_ms=500,
+            policy_name="balanced",
+            policy_fingerprint="abc",
+            full_report={},
+            meta_analysis=meta_analysis,
+        )
+
+    def test_no_degradation_when_llm_not_expected(self):
+        result = self._make_result(meta_analysis=None)
+        checked = _check_llm_degradation(result, llm_expected=False)
+        assert checked is result
+
+    def test_no_degradation_when_meta_analysis_present(self):
+        result = self._make_result(meta_analysis={"risk": "LOW"})
+        checked = _check_llm_degradation(result, llm_expected=True)
+        assert checked is result
+
+    def test_no_degradation_when_llm_findings_present(self):
+        findings = [{"analyzer": "llm", "rule_id": "LLM_THREAT", "severity": "HIGH"}]
+        result = self._make_result(meta_analysis=None, findings=findings)
+        checked = _check_llm_degradation(result, llm_expected=True)
+        assert checked is result
+
+    def test_degradation_detected_injects_finding(self):
+        result = self._make_result(meta_analysis=None, findings=[])
+        checked = _check_llm_degradation(result, llm_expected=True)
+
+        assert checked is not result
+        assert checked.findings_count == 1
+        degradation = checked.findings[0]
+        assert degradation["rule_id"] == "LLM_DEGRADED"
+        assert degradation["severity"] == "INFO"
+        assert degradation["analyzer"] == "bridge"
+
+    def test_degradation_preserves_existing_findings(self):
+        static_finding = {"analyzer": "static", "rule_id": "SS-001", "severity": "LOW"}
+        result = self._make_result(meta_analysis=None, findings=[static_finding])
+        checked = _check_llm_degradation(result, llm_expected=True)
+
+        assert checked.findings_count == 2
+        assert checked.findings[0] == static_finding
+        assert checked.findings[1]["rule_id"] == "LLM_DEGRADED"
+
+    def test_degradation_does_not_change_grade(self):
+        result = self._make_result(meta_analysis=None)
+        checked = _check_llm_degradation(result, llm_expected=True)
+        assert checked.grade == result.grade
+
+    def test_degradation_preserves_all_other_fields(self):
+        result = self._make_result(meta_analysis=None)
+        checked = _check_llm_degradation(result, llm_expected=True)
+
+        assert checked.is_safe == result.is_safe
+        assert checked.max_severity == result.max_severity
+        assert checked.analyzers_used == result.analyzers_used
+        assert checked.analyzability_score == result.analyzability_score
+        assert checked.scan_duration_ms == result.scan_duration_ms
+        assert checked.policy_name == result.policy_name
+        assert checked.policy_fingerprint == result.policy_fingerprint
+        assert checked.full_report == result.full_report
+        assert checked.meta_analysis == result.meta_analysis
