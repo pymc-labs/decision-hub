@@ -444,7 +444,7 @@ class TestPublishSkill:
         resp = _publish_request(client, auth_headers, zip_bytes=zip_bytes)
 
         assert resp.status_code == 422
-        assert "Safety scan failed" in resp.json()["detail"]
+        assert "Safety scan rejected" in resp.json()["detail"]
         # Rejected zip uploaded to quarantine
         mock_upload.assert_called_once()
         assert mock_upload.call_args[0][2].startswith("rejected/")
