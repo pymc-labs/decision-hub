@@ -304,12 +304,11 @@ class TestFixGeminiUnionTypes:
 
 
 class TestCheckLlmDegradation:
-    """Tests for silent LLM failure detection."""
+    """Tests for silent LLM failure detection (stdout-based)."""
 
     def _make_result(
         self,
         *,
-        meta_analysis: dict | None = None,
         findings: list[dict] | None = None,
     ) -> BridgeScanResult:
         findings = findings or []
@@ -325,29 +324,35 @@ class TestCheckLlmDegradation:
             policy_name="balanced",
             policy_fingerprint="abc",
             full_report={},
-            meta_analysis=meta_analysis,
+            meta_analysis=None,
         )
 
     def test_no_degradation_when_llm_not_expected(self):
-        result = self._make_result(meta_analysis=None)
-        checked = _check_llm_degradation(result, llm_expected=False)
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result, llm_expected=False, captured_stdout="Error in LLM"
+        )
         assert checked is result
 
-    def test_no_degradation_when_meta_analysis_present(self):
-        result = self._make_result(meta_analysis={"risk": "LOW"})
-        checked = _check_llm_degradation(result, llm_expected=True)
+    def test_no_degradation_when_stdout_empty(self):
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result, llm_expected=True, captured_stdout=""
+        )
         assert checked is result
 
-    def test_no_degradation_when_llm_findings_present(self):
-        findings = [{"analyzer": "llm", "rule_id": "LLM_THREAT", "severity": "HIGH"}]
-        result = self._make_result(meta_analysis=None, findings=findings)
-        checked = _check_llm_degradation(result, llm_expected=True)
+    def test_no_degradation_when_stdout_clean(self):
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result, llm_expected=True, captured_stdout="Processing skill..."
+        )
         assert checked is result
 
-    def test_degradation_detected_injects_finding(self):
-        result = self._make_result(meta_analysis=None, findings=[])
-        checked = _check_llm_degradation(result, llm_expected=True)
-
+    def test_degradation_detected_on_error_stdout(self):
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result, llm_expected=True, captured_stdout="Error calling Gemini API"
+        )
         assert checked is not result
         assert checked.findings_count == 1
         degradation = checked.findings[0]
@@ -355,24 +360,47 @@ class TestCheckLlmDegradation:
         assert degradation["severity"] == "INFO"
         assert degradation["analyzer"] == "bridge"
 
+    def test_degradation_on_exception_stdout(self):
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result,
+            llm_expected=True,
+            captured_stdout="Exception: ConnectionError",
+        )
+        assert checked is not result
+        assert checked.findings[0]["rule_id"] == "LLM_DEGRADED"
+
+    def test_degradation_on_traceback_stdout(self):
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result,
+            llm_expected=True,
+            captured_stdout="Traceback (most recent call last):\n  File ...",
+        )
+        assert checked is not result
+
     def test_degradation_preserves_existing_findings(self):
         static_finding = {"analyzer": "static", "rule_id": "SS-001", "severity": "LOW"}
-        result = self._make_result(meta_analysis=None, findings=[static_finding])
-        checked = _check_llm_degradation(result, llm_expected=True)
-
+        result = self._make_result(findings=[static_finding])
+        checked = _check_llm_degradation(
+            result, llm_expected=True, captured_stdout="Error: LLM failed"
+        )
         assert checked.findings_count == 2
         assert checked.findings[0] == static_finding
         assert checked.findings[1]["rule_id"] == "LLM_DEGRADED"
 
     def test_degradation_does_not_change_grade(self):
-        result = self._make_result(meta_analysis=None)
-        checked = _check_llm_degradation(result, llm_expected=True)
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result, llm_expected=True, captured_stdout="failed to connect"
+        )
         assert checked.grade == result.grade
 
     def test_degradation_preserves_all_other_fields(self):
-        result = self._make_result(meta_analysis=None)
-        checked = _check_llm_degradation(result, llm_expected=True)
-
+        result = self._make_result()
+        checked = _check_llm_degradation(
+            result, llm_expected=True, captured_stdout="error in LLM call"
+        )
         assert checked.is_safe == result.is_safe
         assert checked.max_severity == result.max_severity
         assert checked.analyzers_used == result.analyzers_used

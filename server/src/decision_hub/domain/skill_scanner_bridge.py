@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import tempfile
 import time
 import zipfile
@@ -229,29 +230,32 @@ def _llm_configured(settings: Any) -> bool:
     return bool(getattr(settings, "google_api_key", None))
 
 
-def _check_llm_degradation(result: BridgeScanResult, *, llm_expected: bool) -> BridgeScanResult:
+def _check_llm_degradation(
+    result: BridgeScanResult, *, llm_expected: bool, captured_stdout: str = ""
+) -> BridgeScanResult:
     """Detect and flag silent LLM analyzer degradation.
 
-    The Cisco scanner swallows LLM errors and still reports
-    ``llm_analyzer`` in ``analyzers_used``
+    The Cisco scanner swallows LLM errors, prints them to stdout, and
+    still reports ``llm_analyzer`` in ``analyzers_used``
     (see https://github.com/cisco-ai-defense/skill-scanner/issues/38).
 
-    Heuristic: if LLM analyzers were configured but meta_analysis is
-    None *and* no findings came from the ``llm`` analyzer, both the
-    LLMAnalyzer and MetaAnalyzer silently failed.  Inject an INFO
-    finding so the failure is visible in audit logs and scan reports.
+    Detection uses captured stdout from the scanner run: the scanner
+    ``print()``s error messages when LLM calls fail.  ``MetaAnalyzer``
+    always returns empty through the standard ``analyze()`` API so its
+    ``meta_analysis`` field is unreliable as a signal.
     """
     if not llm_expected:
         return result
 
-    has_llm_findings = any(f.get("analyzer") == "llm" for f in result.findings)
-    if result.meta_analysis is not None or has_llm_findings:
+    _ERROR_SIGNALS = ("error", "exception", "failed", "traceback")
+    has_error_output = any(s in captured_stdout.lower() for s in _ERROR_SIGNALS)
+    if not has_error_output:
         return result
 
     logger.warning(
         "LLM analyzer degradation detected: LLM analyzers were configured "
-        "but produced no findings and no meta-analysis. "
-        "Scan result is static-only (see cisco-ai-defense/skill-scanner#38)"
+        "but scanner emitted error output to stdout. "
+        "Scan result may be static-only (see cisco-ai-defense/skill-scanner#38)"
     )
 
     degradation_finding: dict[str, Any] = {
@@ -295,6 +299,17 @@ def _check_llm_degradation(result: BridgeScanResult, *, llm_expected: bool) -> B
     )
 
 
+def _capture_stdout_during(fn: Any) -> tuple[Any, str]:
+    """Run *fn()* while capturing anything the scanner ``print()``s."""
+    buf = io.StringIO()
+    old = sys.stdout
+    try:
+        sys.stdout = buf
+        return fn(), buf.getvalue()
+    finally:
+        sys.stdout = old
+
+
 def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     """Scan an on-disk skill directory (used by crawler/tracker).
 
@@ -307,14 +322,17 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
 
     try:
         scanner = _build_scanner(settings)
-        result = scanner.scan_skill(skill_dir)
+        result, stdout = _capture_stdout_during(lambda: scanner.scan_skill(skill_dir))
     except Exception:
         logger.opt(exception=True).error("skill-scanner crashed on {}", skill_dir)
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
+    if stdout:
+        logger.info("skill-scanner stdout on {}: {}", skill_dir, stdout[:500])
+
     elapsed_ms = int((time.monotonic() - start) * 1000)
     bridge_result = _map_scan_result(result, elapsed_ms)
-    return _check_llm_degradation(bridge_result, llm_expected=llm_expected)
+    return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
 
 def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
@@ -333,14 +351,17 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
                 _safe_extract_zip(zf, tmp)
             skill_dir = _find_skill_root(Path(tmp))
             scanner = _build_scanner(settings)
-            result = scanner.scan_skill(skill_dir)
+            result, stdout = _capture_stdout_during(lambda: scanner.scan_skill(skill_dir))
     except Exception:
         logger.opt(exception=True).error("skill-scanner crashed on zip input")
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
+    if stdout:
+        logger.info("skill-scanner stdout on zip: {}", stdout[:500])
+
     elapsed_ms = int((time.monotonic() - start) * 1000)
     bridge_result = _map_scan_result(result, elapsed_ms)
-    return _check_llm_degradation(bridge_result, llm_expected=llm_expected)
+    return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
 
 # ---------------------------------------------------------------------------
