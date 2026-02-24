@@ -312,7 +312,7 @@ def check_trackers():
 
     from loguru import logger
 
-    from decision_hub.domain.tracker_service import check_all_due_trackers
+    from decision_hub.domain.tracker_service import DEADLINE_BUFFER_SECONDS, check_all_due_trackers
     from decision_hub.logging import setup_logging
     from decision_hub.settings import create_settings
 
@@ -332,7 +332,7 @@ def check_trackers():
     iterations = 0
 
     deadline = start + _TRACKER_LOOP_BUDGET_SECONDS
-    while time.monotonic() < deadline:
+    while time.monotonic() < deadline - DEADLINE_BUFFER_SECONDS:
         result = check_all_due_trackers(settings, deadline=deadline)
         total_checked += result.checked
         total_due += result.due

@@ -27,6 +27,11 @@ from decision_hub.domain.tracker import has_new_commits, parse_github_repo_url
 from decision_hub.models import SkillTracker, TrackerBatchResult
 from decision_hub.settings import Settings
 
+# How close to the deadline we stop accepting new work.  Used by both the
+# outer loop in modal_app.py (via check_all_due_trackers) and the dispatch
+# function to avoid overrunning the hard Modal timeout.
+DEADLINE_BUFFER_SECONDS = 30
+
 # ---------------------------------------------------------------------------
 # Serialization helpers for Modal transport
 # ---------------------------------------------------------------------------
@@ -297,8 +302,6 @@ def _dispatch_changed_trackers(
     """
     import time
 
-    _DEADLINE_BUFFER_SECONDS = 30
-
     processed = 0
     failed = 0
 
@@ -315,14 +318,9 @@ def _dispatch_changed_trackers(
             return_exceptions=True,
             order_outputs=False,
         ):
-            if deadline is not None and time.monotonic() > deadline - _DEADLINE_BUFFER_SECONDS:
-                logger.warning(
-                    "Deadline approaching, stopping fn.map consumption after {}/{} results",
-                    processed + failed,
-                    len(changed_trackers),
-                )
-                break
-
+            # Process the already-received result before checking the deadline —
+            # the for-loop already blocked to receive it, so discarding it would
+            # undercount processed/failed.
             if isinstance(batch_result, Exception):
                 logger.opt(exception=batch_result).error("Modal tracker_process_repo failed")
                 failed += 1
@@ -336,11 +334,19 @@ def _dispatch_changed_trackers(
                         batch_result.get("repo_url", "?"),
                         batch_result.get("error", "unknown"),
                     )
+
+            if deadline is not None and time.monotonic() > deadline - DEADLINE_BUFFER_SECONDS:
+                logger.warning(
+                    "Deadline approaching, stopping fn.map consumption after {}/{} results",
+                    processed + failed,
+                    len(changed_trackers),
+                )
+                break
     except Exception as modal_err:
         # Modal unavailable (local dev, import error, lookup failure) — fall back to sequential
         logger.info("Modal fan-out unavailable ({}), falling back to sequential processing", modal_err)
         for tracker, known_sha in changed_trackers:
-            if deadline is not None and time.monotonic() > deadline - _DEADLINE_BUFFER_SECONDS:
+            if deadline is not None and time.monotonic() > deadline - DEADLINE_BUFFER_SECONDS:
                 logger.warning("Deadline approaching, stopping sequential processing")
                 break
             try:
