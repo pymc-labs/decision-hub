@@ -293,7 +293,14 @@ def crawl_trusted_orgs_nightly() -> None:
     )
 
 
-_TRACKER_LOOP_BUDGET_SECONDS = 480  # 8 min, leaving 2-min buffer before 600s timeout
+# Budget for the outer while-loop that claims batches of trackers.
+# fn.map() blocks the thread while waiting for tracker_process_repo results
+# (up to 300s container timeout + ~60s cold start = 360s worst case).  The
+# deadline check inside the for-loop only fires BETWEEN results, so a single
+# blocking wait can consume the entire 360s.  The budget must satisfy:
+#   max_loop_entry + pre_dispatch_overhead + max_fn_map_block < hard_timeout
+#   (180 - 30) + ~30 + 360 = 540 < 600  ✓
+_TRACKER_LOOP_BUDGET_SECONDS = 180
 
 
 @app.function(image=crawler_image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=600))
@@ -350,6 +357,10 @@ def check_trackers():
         if result.skipped_rate_limit > 0:
             # Rate limit is low — stop looping to avoid re-claiming the same
             # deferred trackers and burning more API budget.
+            break
+        if result.deadline_deferred > 0:
+            # Budget exhausted — deferred trackers have next_check_at=NULL so
+            # they'd be re-claimed immediately, causing a tight loop.
             break
 
     elapsed = time.monotonic() - start

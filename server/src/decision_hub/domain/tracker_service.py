@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import shutil
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             processed=0,
             failed=0,
             skipped_rate_limit=0,
+            deadline_deferred=0,
             github_rate_remaining=None,
         )
 
@@ -254,8 +256,40 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             processed=0,
             failed=0,
             skipped_rate_limit=len(changed_trackers),
+            deadline_deferred=0,
             github_rate_remaining=rate_remaining,
         )
+
+    # Time-budget guardrail: fn.map() blocks the thread while waiting for
+    # tracker_process_repo results (up to 300s timeout + cold start).  If the
+    # deadline is too close, dispatching would risk hitting the hard Modal
+    # timeout.  Defer changed trackers so they're immediately due next tick.
+    _MIN_DISPATCH_BUDGET_SECONDS = 60
+    if deadline is not None and changed_trackers:
+        remaining = deadline - time.monotonic()
+        if remaining < _MIN_DISPATCH_BUDGET_SECONDS:
+            logger.warning(
+                "Insufficient time budget ({:.0f}s < {}s) for dispatch, deferring {} changed trackers",
+                remaining,
+                _MIN_DISPATCH_BUDGET_SECONDS,
+                len(changed_trackers),
+            )
+            deferred_ids = [t.id for t, _ in changed_trackers]
+            with engine.connect() as conn:
+                batch_defer_trackers(conn, deferred_ids, "deadline: deferred to next tick")
+                conn.commit()
+            return TrackerBatchResult(
+                checked=len(trackers),
+                due=len(trackers),
+                unchanged=unchanged,
+                changed=len(changed_trackers),
+                errored=errored,
+                processed=0,
+                failed=0,
+                skipped_rate_limit=0,
+                deadline_deferred=len(changed_trackers),
+                github_rate_remaining=rate_remaining,
+            )
 
     # Dispatch changed trackers (Modal fan-out with sequential fallback)
     processed, failed = _dispatch_changed_trackers(changed_trackers, settings, engine, deadline=deadline)
@@ -278,6 +312,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         processed=processed,
         failed=failed,
         skipped_rate_limit=0,
+        deadline_deferred=0,
         github_rate_remaining=rate_remaining,
     )
 
@@ -300,8 +335,6 @@ def _dispatch_changed_trackers(
     preventing the orchestrator from hitting the hard Modal timeout.
     Unprocessed trackers will be retried on the next tick.
     """
-    import time
-
     processed = 0
     failed = 0
 
