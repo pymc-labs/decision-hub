@@ -130,7 +130,7 @@ def _scan_result_to_audit_fields(scan_result: BridgeScanResult) -> tuple[list[di
     check_results = [
         {
             "check_name": "skill_scanner",
-            "severity": "pass" if scan_result.grade != "F" else "fail",
+            "severity": "pass" if scan_result.is_safe else "fail",
             "message": (
                 f"grade={scan_result.grade} max_severity={scan_result.max_severity} "
                 f"findings={scan_result.findings_count} analyzers={scan_result.analyzers_used}"
@@ -237,7 +237,7 @@ def quarantine_rejected_scan(
 
     raise HTTPException(
         status_code=422,
-        detail=f"Safety scan failed: grade={scan_result.grade}, {scan_result.findings_count} finding(s)",
+        detail=f"Safety scan rejected: grade={scan_result.grade} max_severity={scan_result.max_severity}, {scan_result.findings_count} finding(s)",
     )
 
 

@@ -483,7 +483,7 @@ def publish_skill(
         scan_result.is_safe,
     )
 
-    if scan_result.grade == "F":
+    if not scan_result.is_safe:
         quarantine_rejected_scan(
             conn,
             s3_client,

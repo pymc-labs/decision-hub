@@ -295,7 +295,7 @@ def _publish_one_skill(
 
     scan_result = run_scan_pipeline_dir(skill_dir, settings)
 
-    if scan_result.grade == "F":
+    if not scan_result.is_safe:
         quarantine_scan_rejection(
             conn,
             s3_client,

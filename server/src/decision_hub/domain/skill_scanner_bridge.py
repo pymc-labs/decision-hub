@@ -553,12 +553,14 @@ def _map_scan_result(
 
     effective_severity = _effective_max_severity(findings, max_severity)
     grade = severity_to_grade(effective_severity)
+    effective_safe = effective_severity not in ("CRITICAL", "HIGH")
 
     logger.info(
-        "Scan complete: is_safe={} max_severity={} effective={} grade={} findings={} analyzers={} duration={}ms",
+        "Scan complete: raw_safe={} max_severity={} effective={} safe={} grade={} findings={} analyzers={} duration={}ms",
         result.is_safe,
         max_severity,
         effective_severity,
+        effective_safe,
         grade,
         len(findings),
         analyzers_used,
@@ -566,7 +568,7 @@ def _map_scan_result(
     )
 
     return BridgeScanResult(
-        is_safe=result.is_safe,
+        is_safe=effective_safe,
         max_severity=max_severity,
         grade=grade,
         findings_count=len(findings),

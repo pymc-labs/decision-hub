@@ -673,15 +673,16 @@ def _publish_skill_from_tracker(
 
         scan_result = run_scan_pipeline_dir(skill_dir, settings)
 
-        if scan_result.grade == "F":
+        if not scan_result.is_safe:
             logger.warning(
-                "tracker_id={} repo={} skill={}/{}@{} status=rejected grade={}",
+                "tracker_id={} repo={} skill={}/{}@{} status=rejected grade={} safe={}",
                 tracker.id,
                 tracker.repo_url,
                 org_slug,
                 skill_name,
                 version,
                 scan_result.grade,
+                scan_result.is_safe,
             )
             quarantine_scan_rejection(
                 conn,
