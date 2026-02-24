@@ -275,6 +275,9 @@ class ScanFindingResponse(BaseModel):
     remediation: str | None
     analyzer: str | None
     aitech_code: str | None
+    meta_false_positive: bool | None = None
+    meta_confidence: str | None = None
+    meta_reason: str | None = None
 
 
 class ScanReportSummaryResponse(BaseModel):
@@ -296,6 +299,11 @@ class ScanReportSummaryResponse(BaseModel):
     findings_total: int
     findings_page: int
     findings_page_size: int
+    meta_risk_level: str | None = None
+    meta_verdict: str | None = None
+    meta_verdict_reasoning: str | None = None
+    meta_validated_count: int | None = None
+    meta_false_positive_count: int | None = None
 
 
 class EvalCaseResultResponse(BaseModel):
@@ -912,6 +920,10 @@ def get_scan_report(
     offset = (page - 1) * page_size
     findings, findings_total = find_scan_findings_for_report(conn, report.id, limit=page_size, offset=offset)
 
+    ma = report.meta_analysis or {}
+    risk = ma.get("overall_risk_assessment", {})
+    summary = ma.get("summary", {})
+
     return ScanReportSummaryResponse(
         id=str(report.id),
         org_slug=report.org_slug,
@@ -938,12 +950,20 @@ def get_scan_report(
                 remediation=f.remediation,
                 analyzer=f.analyzer,
                 aitech_code=f.aitech_code,
+                meta_false_positive=(f.metadata or {}).get("meta_false_positive"),
+                meta_confidence=(f.metadata or {}).get("meta_confidence"),
+                meta_reason=(f.metadata or {}).get("meta_reason") or (f.metadata or {}).get("meta_confidence_reason"),
             )
             for f in findings
         ],
         findings_total=findings_total,
         findings_page=page,
         findings_page_size=page_size,
+        meta_risk_level=risk.get("risk_level"),
+        meta_verdict=risk.get("skill_verdict"),
+        meta_verdict_reasoning=risk.get("verdict_reasoning"),
+        meta_validated_count=summary.get("validated_count"),
+        meta_false_positive_count=summary.get("false_positive_count"),
     )
 
 

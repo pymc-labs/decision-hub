@@ -409,6 +409,23 @@ const SEVERITY_COLORS: Record<string, string> = {
   INFO: "var(--text-muted)",
 };
 
+interface ScanFinding {
+  rule_id: string;
+  category: string;
+  severity: string;
+  title: string;
+  description: string | null;
+  file_path: string | null;
+  line_number: number | null;
+  snippet: string | null;
+  remediation: string | null;
+  analyzer: string | null;
+  aitech_code: string | null;
+  meta_false_positive: boolean | null;
+  meta_confidence: string | null;
+  meta_reason: string | null;
+}
+
 interface ScanReportDetail {
   grade: string;
   is_safe: boolean;
@@ -416,8 +433,13 @@ interface ScanReportDetail {
   findings_count: number;
   analyzers_used: string[];
   analyzability_score: number | null;
-  findings: Record<string, unknown>[];
+  findings: ScanFinding[];
   findings_total: number;
+  meta_risk_level: string | null;
+  meta_verdict: string | null;
+  meta_verdict_reasoning: string | null;
+  meta_validated_count: number | null;
+  meta_false_positive_count: number | null;
 }
 
 function ScanSummary({ entry }: { entry: AuditLogEntry }) {
@@ -468,7 +490,12 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
     } catch { /* non-critical */ }
   };
 
-  const findings = report?.findings ?? inlineFindings;
+  const rawFindings: ScanFinding[] = report?.findings ?? (inlineFindings as unknown as ScanFinding[]);
+  const findings = [...rawFindings].sort((a, b) => {
+    const aFp = a.meta_false_positive ? 1 : 0;
+    const bFp = b.meta_false_positive ? 1 : 0;
+    return aFp - bFp;
+  });
 
   return (
     <div className={styles.auditChecks}>
@@ -512,6 +539,10 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
                 <span key={a} className={styles.analyzerChip}>{a.replace(/_/g, " ")}</span>
               ))}
             </div>
+          )}
+
+          {report?.meta_verdict && (
+            <MetaVerdictLine report={report} />
           )}
 
           {findings.length > 0 && (
@@ -586,30 +617,82 @@ function ScanSummaryLine({ message }: { message: string }) {
   );
 }
 
-function FindingRow({ finding }: { finding: Record<string, unknown> }) {
-  const severity = String(finding.severity ?? "INFO");
-  const title = String(finding.title ?? finding.rule_id ?? "Unknown");
-  const filePath = finding.file_path ? String(finding.file_path) : null;
-  const lineNumber = finding.line_number ? Number(finding.line_number) : null;
-  const remediation = finding.remediation ? String(finding.remediation) : null;
+const META_VERDICT_COLORS: Record<string, string> = {
+  SAFE: "var(--neon-green, #4ade80)",
+  SUSPICIOUS: "#e8c547",
+  MALICIOUS: "var(--neon-pink, #f472b6)",
+};
+
+function MetaVerdictLine({ report }: { report: ScanReportDetail }) {
+  const verdict = report.meta_verdict;
+  if (!verdict) return null;
+
+  const color = META_VERDICT_COLORS[verdict] ?? "var(--text-muted)";
+  const vCount = report.meta_validated_count ?? 0;
+  const fpCount = report.meta_false_positive_count ?? 0;
 
   return (
-    <div className={styles.findingRow}>
-      <span
-        className={styles.severityBadge}
-        style={{ color: SEVERITY_COLORS[severity] ?? "var(--text-muted)" }}
-      >
-        {severity}
+    <div className={styles.metaVerdictLine}>
+      <span className={styles.metaVerdictLabel}>Meta verdict:</span>
+      <span className={styles.metaVerdictValue} style={{ color }}>
+        {verdict}
       </span>
+      {(vCount > 0 || fpCount > 0) && (
+        <>
+          <span className={styles.scanSummaryDot}>·</span>
+          <span className={styles.metaVerdictCounts}>
+            {vCount} validated{fpCount > 0 ? `, ${fpCount} false positive${fpCount !== 1 ? "s" : ""}` : ""}
+          </span>
+        </>
+      )}
+      {report.meta_verdict_reasoning && (
+        <span className={styles.metaVerdictReasoning}>{report.meta_verdict_reasoning}</span>
+      )}
+    </div>
+  );
+}
+
+function FindingRow({ finding }: { finding: ScanFinding }) {
+  const severity = finding.severity ?? "INFO";
+  const title = finding.title ?? finding.rule_id ?? "Unknown";
+  const isFp = finding.meta_false_positive === true;
+
+  return (
+    <div className={`${styles.findingRow} ${isFp ? styles.findingRowFp : ""}`}>
+      <div className={styles.findingBadges}>
+        <span
+          className={styles.severityBadge}
+          style={{ color: SEVERITY_COLORS[severity] ?? "var(--text-muted)" }}
+        >
+          {severity}
+        </span>
+        {finding.analyzer && (
+          <span className={styles.analyzerTag}>{finding.analyzer}</span>
+        )}
+      </div>
       <div className={styles.findingContent}>
-        <span className={styles.findingTitle}>{title}</span>
-        {filePath && (
+        <div className={styles.findingHeader}>
+          <span className={styles.findingTitle}>{title}</span>
+          {isFp && <span className={styles.fpBadge}>False Positive</span>}
+          {!isFp && finding.meta_confidence && (
+            <span className={styles.validatedBadge}>
+              Validated ({finding.meta_confidence})
+            </span>
+          )}
+        </div>
+        {finding.description && (
+          <span className={styles.findingDescription}>{finding.description}</span>
+        )}
+        {finding.file_path && (
           <span className={styles.findingFile}>
-            {filePath}{lineNumber ? `:${lineNumber}` : ""}
+            {finding.file_path}{finding.line_number ? `:${finding.line_number}` : ""}
           </span>
         )}
-        {remediation && (
-          <span className={styles.findingRemediation}>{remediation}</span>
+        {isFp && finding.meta_reason && (
+          <span className={styles.fpReason}>{finding.meta_reason}</span>
+        )}
+        {!isFp && finding.remediation && (
+          <span className={styles.findingRemediation}>{finding.remediation}</span>
         )}
       </div>
     </div>

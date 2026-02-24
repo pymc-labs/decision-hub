@@ -434,6 +434,42 @@ a.metaItem:hover {
   gap: 6px;
 }
 
+.metaVerdictLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.metaVerdictLabel {
+  color: var(--text-muted);
+}
+
+.metaVerdictValue {
+  font-family: 'Share Tech Mono', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metaVerdictCounts {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.metaVerdictReasoning {
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+  margin-top: 2px;
+}
+
 .findingRow {
   display: flex;
   align-items: flex-start;
@@ -442,6 +478,19 @@ a.metaItem:hover {
   background: var(--bg-dark);
   border: 1px solid var(--border-color);
   border-radius: 4px;
+  transition: opacity 0.15s;
+}
+
+.findingRowFp {
+  opacity: 0.45;
+}
+
+.findingBadges {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+  min-width: 60px;
 }
 
 .severityBadge {
@@ -451,20 +500,66 @@ a.metaItem:hover {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
-  flex-shrink: 0;
-  min-width: 60px;
+}
+
+.analyzerTag {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: lowercase;
 }
 
 .findingContent {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
+}
+
+.findingHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .findingTitle {
   font-size: 0.85rem;
   color: var(--text-primary);
+}
+
+.findingDescription {
+  font-size: 0.75rem;
+  color: var(--text-secondary, var(--text-muted));
+  line-height: 1.4;
+}
+
+.fpBadge {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--neon-orange, #fb923c);
+  border: 1px solid var(--neon-orange, #fb923c);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.validatedBadge {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.fpReason {
+  font-size: 0.75rem;
+  color: var(--neon-orange, #fb923c);
+  font-style: italic;
+  opacity: 0.8;
 }
 
 .findingFile {
