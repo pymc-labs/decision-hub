@@ -5,6 +5,7 @@ description = "Shared domain models and manifest parsing for Decision Hub"
 authors = [
     { name = "PyMC Labs", email = "info@pymc-labs.com" },
 ]
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0.0",
