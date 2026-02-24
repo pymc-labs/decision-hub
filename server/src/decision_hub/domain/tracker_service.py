@@ -282,47 +282,52 @@ def _dispatch_changed_trackers(
     settings: Settings,
     engine: Any,
 ) -> tuple[int, int]:
-    """Fan out processing of changed trackers via Modal, with sequential fallback.
+    """Fan out processing of changed trackers via Modal fire-and-forget, with sequential fallback.
 
-    Returns (processed_count, failed_count).
+    Uses fn.spawn() (fire-and-forget) instead of fn.map() so the orchestrator
+    does not block waiting for all containers to complete.  This prevents
+    check_trackers from timing out when many repos change simultaneously (e.g.
+    after the nightly crawler adds a large batch of new trackers).
+
+    Returns (spawned_count, spawn_failed_count).  The spawned containers update
+    the DB themselves (last_commit_sha, last_published_at, last_error), so
+    correctness is not affected by not awaiting their results.
+
     Each Modal container mints its own GitHub App token from environment
     credentials, so no token passthrough is needed.
     """
-    processed = 0
+    spawned = 0
     failed = 0
 
     try:
         import modal
 
         fn = modal.Function.from_name(settings.modal_app_name, "tracker_process_repo")
-        tracker_dicts = [tracker_to_dict(t) for t, _ in changed_trackers]
-        known_shas = [sha for _, sha in changed_trackers]
 
-        for batch_result in fn.map(
-            tracker_dicts,
-            known_shas,
-            return_exceptions=True,
-        ):
-            if isinstance(batch_result, Exception):
-                logger.opt(exception=batch_result).error("Modal tracker_process_repo failed")
+        for tracker, known_sha in changed_trackers:
+            try:
+                fn.spawn(tracker_to_dict(tracker), known_sha)
+                spawned += 1
+            except Exception:
+                logger.opt(exception=True).error(
+                    "Modal spawn failed tracker_id={} repo={}",
+                    tracker.id,
+                    tracker.repo_url,
+                )
                 failed += 1
-            else:
-                if batch_result.get("status") == "ok":
-                    processed += 1
-                else:
-                    failed += 1
-                    logger.error(
-                        "tracker_process_repo error: repo={} error={}",
-                        batch_result.get("repo_url", "?"),
-                        batch_result.get("error", "unknown"),
-                    )
+
+        logger.info(
+            "fire-and-forget dispatch: spawned={} spawn_failed={}",
+            spawned,
+            failed,
+        )
     except Exception as modal_err:
         # Modal unavailable (local dev, import error, lookup failure) — fall back to sequential
         logger.info("Modal fan-out unavailable ({}), falling back to sequential processing", modal_err)
         for tracker, known_sha in changed_trackers:
             try:
                 process_tracker(tracker, settings, engine, known_sha=known_sha)
-                processed += 1
+                spawned += 1
             except Exception:
                 logger.opt(exception=True).error(
                     "tracker_id={} repo={} status=failed",
@@ -331,7 +336,7 @@ def _dispatch_changed_trackers(
                 )
                 failed += 1
 
-    return processed, failed
+    return spawned, failed
 
 
 # ---------------------------------------------------------------------------

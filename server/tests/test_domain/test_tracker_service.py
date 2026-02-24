@@ -554,6 +554,42 @@ class TestDispatchChangedTrackers:
         assert processed == 0
         assert failed == 1
 
+    def test_modal_spawn_fire_and_forget(self):
+        """When Modal is available, should spawn each tracker without blocking (fire-and-forget)."""
+        tracker1 = self._make_tracker()
+        tracker2 = self._make_tracker()
+        changed = [(tracker1, "sha1"), (tracker2, "sha2")]
+        mock_settings = MagicMock()
+        mock_settings.modal_app_name = "decision-hub"
+        mock_engine = MagicMock()
+
+        mock_fn = MagicMock()
+        with patch("modal.Function.from_name", return_value=mock_fn):
+            spawned, failed = _dispatch_changed_trackers(changed, mock_settings, mock_engine)
+
+        assert spawned == 2
+        assert failed == 0
+        assert mock_fn.spawn.call_count == 2
+        # Verify map() was NOT called (old blocking approach)
+        mock_fn.map.assert_not_called()
+
+    def test_modal_spawn_failure_counted(self):
+        """When fn.spawn() raises, the failure should be counted without aborting other spawns."""
+        tracker1 = self._make_tracker()
+        tracker2 = self._make_tracker()
+        changed = [(tracker1, "sha1"), (tracker2, "sha2")]
+        mock_settings = MagicMock()
+        mock_settings.modal_app_name = "decision-hub"
+        mock_engine = MagicMock()
+
+        mock_fn = MagicMock()
+        mock_fn.spawn.side_effect = [RuntimeError("quota exceeded"), None]
+        with patch("modal.Function.from_name", return_value=mock_fn):
+            spawned, failed = _dispatch_changed_trackers(changed, mock_settings, mock_engine)
+
+        assert spawned == 1
+        assert failed == 1
+
 
 class TestCheckAllDueTrackersLoopSignal:
     """Verify check_all_due_trackers returns len(trackers) so the caller loop continues."""
