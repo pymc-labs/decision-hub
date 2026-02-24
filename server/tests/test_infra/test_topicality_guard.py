@@ -8,7 +8,7 @@ import respx
 
 from decision_hub.infra.gemini import check_query_topicality, create_gemini_client
 
-_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 
 @pytest.fixture

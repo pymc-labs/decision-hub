@@ -132,7 +132,7 @@ _PARSE_QUERY_SCHEMA = {
 def parse_query_keywords(
     client: dict,
     query: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> list[str]:
     """Extract FTS keyword phrases from a natural-language query.
 
@@ -179,7 +179,7 @@ def parse_query_keywords(
 def check_query_topicality(
     client: dict,
     query: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> dict:
     """Classify whether a query is a legitimate skill-search request.
 
@@ -256,7 +256,7 @@ def ask_conversational(
     client: dict,
     query: str,
     index: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> dict:
     """Generate a conversational answer with structured skill references.
 
@@ -349,7 +349,7 @@ def classify_skill(
     description: str,
     body: str,
     taxonomy_fragment: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> str:
     """Classify a skill into a category from the taxonomy using Gemini.
 
@@ -414,7 +414,7 @@ def analyze_code_safety(
     source_files: list[tuple[str, str]],
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> list[dict]:
     """Ask Gemini to judge whether flagged code patterns are actually dangerous.
 
@@ -535,7 +535,7 @@ def analyze_credential_entropy(
     entropy_hits: list[dict],
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> list[dict]:
     """Ask Gemini to judge whether high-entropy strings are real secrets.
 
@@ -649,7 +649,7 @@ def analyze_prompt_safety(
     prompt_hits: list[dict],
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> list[dict]:
     """Ask Gemini to judge whether flagged prompt patterns are actually dangerous.
 
@@ -762,7 +762,7 @@ def review_prompt_body_safety(
     body: str,
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> dict:
     """Holistic LLM review of the full SKILL.md body for hidden dangers.
 
