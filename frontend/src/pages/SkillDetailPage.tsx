@@ -401,220 +401,6 @@ function FilesTab({
   return <FileBrowser files={files} />;
 }
 
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: "var(--neon-pink)",
-  HIGH: "var(--neon-orange)",
-  MEDIUM: "#e8c547",
-  LOW: "var(--neon-cyan)",
-  INFO: "var(--text-muted)",
-};
-
-interface ScanReportDetail {
-  grade: string;
-  is_safe: boolean;
-  max_severity: string;
-  findings_count: number;
-  analyzers_used: string[];
-  analyzability_score: number | null;
-  findings: Record<string, unknown>[];
-  findings_total: number;
-}
-
-function ScanSummary({ entry }: { entry: AuditLogEntry }) {
-  const [report, setReport] = useState<ScanReportDetail | null>(null);
-  const [fullJson, setFullJson] = useState<string | null>(null);
-  const [showRaw, setShowRaw] = useState(false);
-  const [reportFetched, setReportFetched] = useState(false);
-
-  const check = entry.check_results[0] as
-    | { check_name?: string; message?: string; severity?: string }
-    | undefined;
-  const reasoning = entry.llm_reasoning as
-    | { scanner_findings?: Record<string, unknown>[]; meta_analysis?: Record<string, unknown> }
-    | null;
-  const inlineFindings = reasoning?.scanner_findings ?? [];
-
-  const isScanner = check?.check_name === "skill_scanner";
-  const reportApiPath = `/v1/skills/${encodeURIComponent(entry.org_slug)}/${encodeURIComponent(entry.skill_name)}/scan-report`;
-
-  useEffect(() => {
-    if (!isScanner) return;
-    let cancelled = false;
-    fetch(`${reportApiPath}?page_size=100`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (!cancelled && data) setReport(data); })
-      .finally(() => { if (!cancelled) setReportFetched(true); });
-    return () => { cancelled = true; };
-  }, [isScanner, reportApiPath]);
-
-  const loading = isScanner && !reportFetched;
-
-  if (!check && inlineFindings.length === 0) return null;
-
-  const handleRawToggle = async () => {
-    if (showRaw) {
-      setShowRaw(false);
-      return;
-    }
-    setShowRaw(true);
-    if (fullJson) return;
-    try {
-      const res = await fetch(`${reportApiPath}/download`);
-      if (res.ok) {
-        const data = await res.json();
-        setFullJson(JSON.stringify(data, null, 2));
-      }
-    } catch { /* non-critical */ }
-  };
-
-  const findings = report?.findings ?? inlineFindings;
-
-  return (
-    <div className={styles.auditChecks}>
-      <h5 className={styles.auditCheckTitle}>
-        {isScanner ? "Scan Report" : "Safety Checks"}
-      </h5>
-
-      {isScanner && check?.message && (
-        <ScanSummaryLine message={check.message} />
-      )}
-
-      {!isScanner && check && (
-        <div className={styles.auditCheck}>
-          <pre className={styles.auditPre}>
-            {JSON.stringify(check, null, 2)}
-          </pre>
-        </div>
-      )}
-
-      {isScanner && (
-        <div className={styles.scanReportDetail}>
-          {loading && <span className={styles.scanReportLoading}>Loading report…</span>}
-
-          {report && (
-            <div className={styles.scanReportMeta}>
-              <span>Grade: <strong>{report.grade}</strong></span>
-              <span className={styles.scanSummaryDot}>·</span>
-              <span>Safe: {report.is_safe ? "Yes" : "No"}</span>
-              {report.analyzability_score != null && (
-                <>
-                  <span className={styles.scanSummaryDot}>·</span>
-                  <span>Analyzability: {(report.analyzability_score * 100).toFixed(0)}%</span>
-                </>
-              )}
-            </div>
-          )}
-
-          {report && report.analyzers_used.length > 0 && (
-            <div className={styles.analyzersList}>
-              {report.analyzers_used.map((a) => (
-                <span key={a} className={styles.analyzerChip}>{a.replace(/_/g, " ")}</span>
-              ))}
-            </div>
-          )}
-
-          {findings.length > 0 && (
-            <div className={styles.findingsList}>
-              {findings.map((f, i) => (
-                <FindingRow key={i} finding={f} />
-              ))}
-            </div>
-          )}
-
-          {!loading && findings.length === 0 && report && (
-            <span className={styles.scanReportLoading}>No findings</span>
-          )}
-
-          {isScanner && (
-            <button
-              type="button"
-              onClick={handleRawToggle}
-              className={styles.scanReportToggle}
-            >
-              {showRaw ? "Hide full report ▴" : "Full report ▾"}
-            </button>
-          )}
-
-          {showRaw && fullJson && (
-            <pre className={styles.scanReportRaw}>{fullJson}</pre>
-          )}
-
-          {showRaw && !fullJson && (
-            <span className={styles.scanReportLoading}>Loading…</span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function parseScanMessage(message: string) {
-  const grade = message.match(/grade=(\w+)/)?.[1];
-  const maxSeverity = message.match(/max_severity=(\w+)/)?.[1];
-  const findings = message.match(/findings=(\d+)/)?.[1];
-  const analyzerList = message.match(/analyzers=\[([^\]]*)\]/)?.[1];
-  const analyzers = analyzerList
-    ?.split(",")
-    .map((a) => a.trim().replace(/'/g, ""))
-    .filter(Boolean) ?? [];
-  return { grade, maxSeverity, findings, analyzers };
-}
-
-function ScanSummaryLine({ message }: { message: string }) {
-  const { maxSeverity, findings, analyzers } = parseScanMessage(message);
-
-  return (
-    <div className={styles.scanSummaryLine}>
-      <span>
-        {analyzers.length} analyzer{analyzers.length !== 1 ? "s" : ""} ran
-      </span>
-      <span className={styles.scanSummaryDot}>·</span>
-      <span>{findings ?? "0"} finding{findings !== "1" ? "s" : ""}</span>
-      {maxSeverity && maxSeverity !== "SAFE" && (
-        <>
-          <span className={styles.scanSummaryDot}>·</span>
-          <span
-            className={styles.severityBadge}
-            style={{ color: SEVERITY_COLORS[maxSeverity] ?? "var(--text-muted)" }}
-          >
-            {maxSeverity}
-          </span>
-        </>
-      )}
-    </div>
-  );
-}
-
-function FindingRow({ finding }: { finding: Record<string, unknown> }) {
-  const severity = String(finding.severity ?? "INFO");
-  const title = String(finding.title ?? finding.rule_id ?? "Unknown");
-  const filePath = finding.file_path ? String(finding.file_path) : null;
-  const lineNumber = finding.line_number ? Number(finding.line_number) : null;
-  const remediation = finding.remediation ? String(finding.remediation) : null;
-
-  return (
-    <div className={styles.findingRow}>
-      <span
-        className={styles.severityBadge}
-        style={{ color: SEVERITY_COLORS[severity] ?? "var(--text-muted)" }}
-      >
-        {severity}
-      </span>
-      <div className={styles.findingContent}>
-        <span className={styles.findingTitle}>{title}</span>
-        {filePath && (
-          <span className={styles.findingFile}>
-            {filePath}{lineNumber ? `:${lineNumber}` : ""}
-          </span>
-        )}
-        {remediation && (
-          <span className={styles.findingRemediation}>{remediation}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function AuditTab({
   entries,
   loading,
@@ -655,7 +441,18 @@ function AuditTab({
               )}
             </div>
 
-            <ScanSummary entry={entry} />
+            {entry.check_results.length > 0 && (
+              <div className={styles.auditChecks}>
+                <h5 className={styles.auditCheckTitle}>Safety Checks</h5>
+                {entry.check_results.map((check, i) => (
+                  <div key={i} className={styles.auditCheck}>
+                    <pre className={styles.auditPre}>
+                      {JSON.stringify(check, null, 2)}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {entry.quarantine_s3_key && (
               <span className={styles.auditQuarantine}>

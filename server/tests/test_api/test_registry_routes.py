@@ -9,7 +9,6 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from decision_hub.domain.skill_scanner_bridge import BridgeScanResult
 from decision_hub.models import Organization, OrgMember, Skill, Version
 
 # ---------------------------------------------------------------------------
@@ -66,24 +65,6 @@ def _make_skill_zip(
     return buf.getvalue()
 
 
-def _safe_scan_result(grade: str = "A") -> BridgeScanResult:
-    """Create a mock BridgeScanResult for tests that don't exercise the scanner."""
-    return BridgeScanResult(
-        is_safe=grade != "F",
-        max_severity="LOW" if grade == "A" else ("MEDIUM" if grade == "C" else "HIGH"),
-        grade=grade,
-        findings_count=0,
-        findings=[],
-        analyzers_used=["static"],
-        analyzability_score=None,
-        scan_duration_ms=100,
-        policy_name="balanced",
-        policy_fingerprint=None,
-        full_report={"findings": []},
-        meta_analysis=None,
-    )
-
-
 def _publish_request(
     client: TestClient,
     headers: dict[str, str],
@@ -132,9 +113,10 @@ class TestPublishSkill:
         assert resp.status_code == 503
         assert "LLM judge" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_routes.store_scan_result")
-    @patch("decision_hub.api.registry_routes.run_scan_pipeline", return_value=_safe_scan_result())
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.update_skill_category")
     @patch("decision_hub.api.registry_routes.update_skill_description")
@@ -157,9 +139,10 @@ class TestPublishSkill:
         mock_update_desc: MagicMock,
         mock_update_cat: MagicMock,
         mock_insert_audit: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         _mock_classify: MagicMock,
-        _mock_scan: MagicMock,
-        _mock_store_scan: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,
@@ -272,9 +255,10 @@ class TestPublishSkill:
         assert resp.status_code == 413
         assert "maximum size" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_routes.store_scan_result")
-    @patch("decision_hub.api.registry_routes.run_scan_pipeline", return_value=_safe_scan_result())
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.insert_version")
     @patch("decision_hub.api.registry_routes.find_version")
@@ -295,9 +279,10 @@ class TestPublishSkill:
         mock_find_version: MagicMock,
         mock_insert_version: MagicMock,
         mock_insert_audit: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         _mock_classify: MagicMock,
-        _mock_scan: MagicMock,
-        _mock_store_scan: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,
@@ -335,9 +320,10 @@ class TestPublishSkill:
         )
         assert resp.json()["skill_id"] == str(new_skill.id)
 
-    @patch("decision_hub.api.registry_routes.store_scan_result")
-    @patch("decision_hub.api.registry_routes.run_scan_pipeline", return_value=_safe_scan_result())
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.update_skill_category")
     @patch("decision_hub.api.registry_routes.update_skill_description")
     @patch("decision_hub.api.registry_routes.find_version")
@@ -354,9 +340,10 @@ class TestPublishSkill:
         mock_find_version: MagicMock,
         _mock_update_desc: MagicMock,
         _mock_update_cat: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         _mock_classify: MagicMock,
-        _mock_scan: MagicMock,
-        _mock_store_scan: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,
@@ -379,6 +366,9 @@ class TestPublishSkill:
         assert resp.status_code == 409
         assert "already exists" in resp.json()["detail"]
 
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_service.insert_audit_log")
     @patch("decision_hub.api.registry_service.upload_skill_zip")
     @patch("decision_hub.api.registry_service.find_org_member")
@@ -389,6 +379,9 @@ class TestPublishSkill:
         mock_find_member: MagicMock,
         mock_upload: MagicMock,
         mock_insert_audit: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,
@@ -411,8 +404,9 @@ class TestPublishSkill:
         assert resp.status_code == 422
         assert "malformed" in resp.json()["detail"].lower()
 
-    @patch("decision_hub.api.registry_routes.store_scan_result")
-    @patch("decision_hub.api.registry_routes.run_scan_pipeline", return_value=_safe_scan_result("F"))
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_service.insert_audit_log")
     @patch("decision_hub.api.registry_service.upload_skill_zip")
     @patch("decision_hub.api.registry_service.find_org_member")
@@ -423,8 +417,9 @@ class TestPublishSkill:
         mock_find_member: MagicMock,
         mock_upload: MagicMock,
         mock_insert_audit: MagicMock,
-        _mock_scan: MagicMock,
-        _mock_store_scan: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,
@@ -444,7 +439,7 @@ class TestPublishSkill:
         resp = _publish_request(client, auth_headers, zip_bytes=zip_bytes)
 
         assert resp.status_code == 422
-        assert "Safety scan failed" in resp.json()["detail"]
+        assert "Gauntlet checks failed" in resp.json()["detail"]
         # Rejected zip uploaded to quarantine
         mock_upload.assert_called_once()
         assert mock_upload.call_args[0][2].startswith("rejected/")
@@ -507,9 +502,10 @@ class TestPublishSkill:
         assert resp.status_code == 422
         assert "Invalid skill name" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_routes.store_scan_result")
-    @patch("decision_hub.api.registry_routes.run_scan_pipeline", return_value=_safe_scan_result())
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.insert_version")
     @patch("decision_hub.api.registry_routes.find_version")
@@ -532,9 +528,10 @@ class TestPublishSkill:
         mock_find_version: MagicMock,
         mock_insert_version: MagicMock,
         mock_insert_audit: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         _mock_classify: MagicMock,
-        _mock_scan: MagicMock,
-        _mock_store_scan: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,
@@ -1385,8 +1382,9 @@ class TestDownloadSkillVisibility:
 class TestPublishVisibilityPreservation:
     """POST /v1/publish -- visibility is preserved when not explicitly provided."""
 
-    @patch("decision_hub.api.registry_routes.store_scan_result")
-    @patch("decision_hub.api.registry_routes.run_scan_pipeline", return_value=_safe_scan_result())
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.update_skill_visibility")
     @patch("decision_hub.api.registry_routes.update_skill_description")
@@ -1409,8 +1407,9 @@ class TestPublishVisibilityPreservation:
         mock_update_desc: MagicMock,
         mock_update_vis: MagicMock,
         mock_insert_audit: MagicMock,
-        _mock_scan: MagicMock,
-        _mock_store_scan: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,
@@ -1445,8 +1444,9 @@ class TestPublishVisibilityPreservation:
         # update_skill_visibility should NOT have been called
         mock_update_vis.assert_not_called()
 
-    @patch("decision_hub.api.registry_routes.store_scan_result")
-    @patch("decision_hub.api.registry_routes.run_scan_pipeline", return_value=_safe_scan_result())
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.update_skill_visibility")
     @patch("decision_hub.api.registry_routes.update_skill_description")
@@ -1469,8 +1469,9 @@ class TestPublishVisibilityPreservation:
         mock_update_desc: MagicMock,
         mock_update_vis: MagicMock,
         mock_insert_audit: MagicMock,
-        _mock_scan: MagicMock,
-        _mock_store_scan: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
         sample_user_id: UUID,

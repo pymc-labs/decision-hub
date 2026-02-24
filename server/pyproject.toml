@@ -24,7 +24,6 @@ dependencies = [
     "loguru>=0.7.0",
     "pgvector>=0.3.0",
     "PyJWT[crypto]>=2.8.0",
-    "cisco-ai-skill-scanner>=1.0.0,<2.0.0",
     "dhub-core",
 ]
 
