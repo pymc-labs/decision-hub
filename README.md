@@ -276,6 +276,10 @@ Copy `server/.env.example` to `server/.env.dev` and fill in your values. The pro
 
 See [`AGENTS.md`](AGENTS.md) for detailed development guidelines including: coding standards, database migration rules, deployment procedures, environment setup, and CI workflows.
 
+## Security
+
+If you discover a security vulnerability, please report it responsibly via the process described in [SECURITY.md](SECURITY.md). **Do not** open a public GitHub issue.
+
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
