@@ -342,6 +342,143 @@ a.metaItem:hover {
   overflow-y: auto;
 }
 
+.scanSummaryLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.scanSummaryDot {
+  color: var(--text-muted);
+}
+
+.scanReportToggle {
+  background: none;
+  border: none;
+  color: var(--neon-cyan);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.scanReportToggle:hover {
+  text-decoration: underline;
+}
+
+.scanReportDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.scanReportMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.scanReportLoading {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.analyzersList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.analyzerChip {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.scanReportRaw {
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre;
+}
+
+.findingsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.findingRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.severityBadge {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.findingContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.findingTitle {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.findingFile {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--neon-cyan);
+}
+
+.findingRemediation {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .auditQuarantine {
   font-family: 'Share Tech Mono', monospace;
   font-size: 0.75rem;
@@ -425,5 +562,19 @@ a.metaItem:hover {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .scanSummaryLine {
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+  }
+
+  .findingRow {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .severityBadge {
+    min-width: 0;
   }
 }
