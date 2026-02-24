@@ -3,6 +3,11 @@
 Handles zip extraction, scanner configuration, result mapping, and
 grade computation. All three code paths (publish endpoint, crawler,
 tracker) call through this module instead of the old gauntlet.
+
+Includes a monkey-patch for the Cisco scanner's Google GenAI SDK
+schema sanitizer to work around upstream incompatibility with Gemini
+structured output (union types like ``["string", "null"]`` are not
+accepted by the SDK — see github.com/pymc-labs/decision-hub/issues/187).
 """
 
 from __future__ import annotations
@@ -19,6 +24,88 @@ from typing import Any
 from loguru import logger
 
 from decision_hub.models import SafetyGrade
+
+# Gemini type enum values accepted by the Google GenAI SDK.
+_JSON_TYPE_TO_GEMINI: dict[str, str] = {
+    "string": "STRING",
+    "number": "NUMBER",
+    "integer": "INTEGER",
+    "boolean": "BOOLEAN",
+    "array": "ARRAY",
+    "object": "OBJECT",
+    "null": "NULL",
+}
+
+
+def _fix_gemini_union_types(schema: Any) -> Any:
+    """Recursively convert JSON Schema union types to Gemini-compatible form.
+
+    The Cisco scanner's ``llm_response_schema.json`` uses
+    ``{"type": ["string", "null"]}`` for nullable fields.  Google's GenAI
+    SDK rejects arrays in the ``type`` field — it expects a single enum
+    value plus ``nullable: true``.
+
+    Transforms applied:
+    * ``{"type": ["X", "null"]}`` → ``{"type": "X_UPPER", "nullable": true}``
+    * ``{"type": "x"}`` → ``{"type": "X_UPPER"}``  (case normalisation)
+    * Recurses into ``properties``, ``items``, and list values.
+    """
+    if isinstance(schema, list):
+        return [_fix_gemini_union_types(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "type" and isinstance(value, list):
+            non_null = [t for t in value if t != "null"]
+            has_null = len(non_null) < len(value)
+            resolved = non_null[0] if non_null else "string"
+            out["type"] = _JSON_TYPE_TO_GEMINI.get(resolved, resolved.upper())
+            if has_null:
+                out["nullable"] = True
+        elif key == "type" and isinstance(value, str):
+            out["type"] = _JSON_TYPE_TO_GEMINI.get(value, value.upper())
+        elif key == "additionalProperties":
+            continue
+        elif isinstance(value, dict):
+            out[key] = _fix_gemini_union_types(value)
+        elif isinstance(value, list):
+            out[key] = [_fix_gemini_union_types(v) if isinstance(v, dict) else v for v in value]
+        else:
+            out[key] = value
+
+    return out
+
+
+_PATCHED = False
+
+
+def _patch_gemini_schema_sanitizer() -> None:
+    """Monkey-patch the Cisco scanner's schema sanitizer for Gemini compat.
+
+    Replaces ``LLMRequestHandler._sanitize_schema_for_google`` with a
+    version that handles union types.  Safe to call multiple times —
+    only patches once.
+    """
+    global _PATCHED  # noqa: PLW0603
+    if _PATCHED:
+        return
+
+    try:
+        from skill_scanner.core.analyzers.llm_request_handler import (
+            LLMRequestHandler,
+        )
+    except ImportError:
+        logger.warning("skill_scanner not installed — skipping Gemini schema patch")
+        return
+
+    def _patched_sanitize(self: Any, schema: dict[str, Any]) -> dict[str, Any]:
+        return _fix_gemini_union_types(schema)
+
+    LLMRequestHandler._sanitize_schema_for_google = _patched_sanitize  # type: ignore[assignment]
+    _PATCHED = True
+    logger.debug("Patched LLMRequestHandler._sanitize_schema_for_google for Gemini union-type compat")
 
 # ---------------------------------------------------------------------------
 # Scanner result dataclass (decoupled from skill-scanner types)
@@ -97,6 +184,7 @@ def _build_scanner(settings: Any) -> Any:
     """Build a SkillScanner configured for Scenario C (full pipeline)."""
     from skill_scanner import SkillScanner
 
+    _patch_gemini_schema_sanitizer()
     analyzers = _build_analyzers(settings)
     return SkillScanner(analyzers=analyzers)
 
