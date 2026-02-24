@@ -12,6 +12,7 @@ accepted by the SDK — see github.com/pymc-labs/decision-hub/issues/187).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import sys
@@ -153,11 +154,14 @@ def severity_to_grade(max_severity: str) -> SafetyGrade:
 
 
 def _build_analyzers(settings: Any) -> list[Any]:
-    """Build the list of analyzers for Scenario C (full pipeline)."""
+    """Build the list of scan-phase analyzers (everything except MetaAnalyzer).
+
+    MetaAnalyzer is a post-processing step called separately after the scan
+    via :func:`_run_meta_analysis` — see cisco-ai-defense/skill-scanner#41.
+    """
     from skill_scanner.core.analyzers import (
         BehavioralAnalyzer,
         LLMAnalyzer,
-        MetaAnalyzer,
         StaticAnalyzer,
         TriggerAnalyzer,
     )
@@ -173,7 +177,6 @@ def _build_analyzers(settings: Any) -> list[Any]:
 
     if api_key:
         analyzers.append(LLMAnalyzer(model=model, api_key=api_key))
-        analyzers.append(MetaAnalyzer(model=model, api_key=api_key))
 
     return analyzers
 
@@ -185,6 +188,75 @@ def _build_scanner(settings: Any) -> Any:
     _patch_gemini_schema_sanitizer()
     analyzers = _build_analyzers(settings)
     return SkillScanner(analyzers=analyzers)
+
+
+def _run_meta_analysis(
+    result: Any, skill_dir: Path, settings: Any
+) -> tuple[dict | None, list[Any]]:
+    """Run MetaAnalyzer as a post-processing step on scan findings.
+
+    Follows the same pattern as the scanner's CLI (``--enable-meta``) and
+    API router: build a MetaAnalyzer separately, call
+    ``analyze_with_findings()``, then ``apply_meta_analysis_to_results()``.
+
+    Uses Gemini via LiteLLM (``gemini/<model>`` prefix) with the same
+    Google API key used for the LLMAnalyzer.
+
+    Returns ``(meta_analysis_dict, enriched_findings)`` on success, or
+    ``(None, original_findings)`` if meta-analysis is unavailable or fails.
+    """
+    api_key = getattr(settings, "google_api_key", None)
+    if not api_key or not result.findings:
+        return None, list(result.findings)
+
+    try:
+        from skill_scanner.core.analyzers import MetaAnalyzer
+        from skill_scanner.core.analyzers.meta_analyzer import (
+            apply_meta_analysis_to_results,
+        )
+        from skill_scanner.core.loader import SkillLoader
+    except ImportError:
+        logger.debug("MetaAnalyzer or dependencies not available — skipping")
+        return None, list(result.findings)
+
+    model = getattr(settings, "gemini_model", "gemini-2.0-flash")
+    litellm_model = f"gemini/{model}"
+
+    try:
+        meta = MetaAnalyzer(model=litellm_model, api_key=api_key)
+        skill = SkillLoader().load_skill(skill_dir)
+
+        meta_result, stdout = _capture_stdout_during(
+            lambda: asyncio.run(
+                meta.analyze_with_findings(
+                    skill=skill,
+                    findings=result.findings,
+                    analyzers_used=result.analyzers_used,
+                )
+            )
+        )
+        if stdout:
+            logger.info("MetaAnalyzer stdout: {}", stdout[:500])
+
+        enriched = apply_meta_analysis_to_results(
+            original_findings=result.findings,
+            meta_result=meta_result,
+            skill=skill,
+        )
+        result.findings = enriched
+        if "meta_analyzer" not in result.analyzers_used:
+            result.analyzers_used.append("meta_analyzer")
+
+        logger.info(
+            "Meta-analysis complete: validated={} fp={} missed={}",
+            len(meta_result.validated_findings),
+            len(meta_result.false_positives),
+            len(meta_result.missed_threats),
+        )
+        return meta_result.to_dict(), enriched
+    except Exception:
+        logger.opt(exception=True).warning("Meta-analysis failed — using scan results as-is")
+        return None, list(result.findings)
 
 
 def _find_skill_root(base: Path) -> Path:
@@ -330,8 +402,10 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     if stdout:
         logger.info("skill-scanner stdout on {}: {}", skill_dir, stdout[:500])
 
+    meta_dict, _ = _run_meta_analysis(result, skill_dir, settings)
+
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    bridge_result = _map_scan_result(result, elapsed_ms)
+    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
 
@@ -352,15 +426,17 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
             skill_dir = _find_skill_root(Path(tmp))
             scanner = _build_scanner(settings)
             result, stdout = _capture_stdout_during(lambda: scanner.scan_skill(skill_dir))
+
+            if stdout:
+                logger.info("skill-scanner stdout on zip: {}", stdout[:500])
+
+            meta_dict, _ = _run_meta_analysis(result, skill_dir, settings)
     except Exception:
         logger.opt(exception=True).error("skill-scanner crashed on zip input")
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
-    if stdout:
-        logger.info("skill-scanner stdout on zip: {}", stdout[:500])
-
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    bridge_result = _map_scan_result(result, elapsed_ms)
+    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
 
@@ -402,7 +478,9 @@ def _error_scan_result(elapsed_ms: int) -> BridgeScanResult:
     )
 
 
-def _map_scan_result(result: Any, elapsed_ms: int) -> BridgeScanResult:
+def _map_scan_result(
+    result: Any, elapsed_ms: int, *, meta_analysis_override: dict | None = None
+) -> BridgeScanResult:
     """Convert a skill-scanner ScanResult to a BridgeScanResult."""
     result_dict = result.to_dict()
 
@@ -441,7 +519,11 @@ def _map_scan_result(result: Any, elapsed_ms: int) -> BridgeScanResult:
     analyzers_used = result_dict.get("analyzers_used", [])
     scan_metadata = result_dict.get("scan_metadata", {})
 
-    meta_analysis = result_dict.get("meta_analysis") or scan_metadata.get("meta_analysis")
+    meta_analysis = (
+        meta_analysis_override
+        or result_dict.get("meta_analysis")
+        or scan_metadata.get("meta_analysis")
+    )
 
     grade = severity_to_grade(max_severity)
 

@@ -2,7 +2,7 @@
 
 import io
 import zipfile
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,6 +13,7 @@ from decision_hub.domain.skill_scanner_bridge import (
     _find_skill_root,
     _fix_gemini_union_types,
     _map_scan_result,
+    _run_meta_analysis,
     _safe_extract_zip,
     severity_to_grade,
 )
@@ -199,6 +200,21 @@ class TestMapScanResult:
         assert bridge_result.policy_name == "strict"
         assert bridge_result.policy_fingerprint == "abc123"
 
+    def test_meta_analysis_override_takes_precedence(self):
+        mock_result = self._make_mock_result()
+        override = {"risk_level": "SAFE", "summary": "All clear"}
+
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=50, meta_analysis_override=override)
+
+        assert bridge_result.meta_analysis == override
+
+    def test_meta_analysis_none_without_override(self):
+        mock_result = self._make_mock_result()
+
+        bridge_result = _map_scan_result(mock_result, elapsed_ms=50)
+
+        assert bridge_result.meta_analysis is None
+
 
 class TestFixGeminiUnionTypes:
     """Tests for the Gemini schema union-type converter."""
@@ -301,6 +317,96 @@ class TestFixGeminiUnionTypes:
 
         assert "additionalProperties" not in result
         assert "additionalProperties" not in result["properties"]["findings"]["items"]
+
+
+class TestRunMetaAnalysis:
+    """Tests for the MetaAnalyzer post-processing step."""
+
+    def _make_scan_result(self, *, findings=None, analyzers_used=None):
+        result = MagicMock()
+        result.findings = findings or []
+        result.analyzers_used = analyzers_used or ["static_analyzer"]
+        return result
+
+    def _make_settings(self, *, api_key="fake-key", model="gemini-2.0-flash"):
+        settings = MagicMock()
+        settings.google_api_key = api_key
+        settings.gemini_model = model
+        return settings
+
+    def test_skips_when_no_api_key(self, tmp_path):
+        result = self._make_scan_result(findings=[MagicMock()])
+        settings = self._make_settings(api_key="")
+
+        meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+
+        assert meta_dict is None
+
+    def test_skips_when_no_findings(self, tmp_path):
+        result = self._make_scan_result(findings=[])
+        settings = self._make_settings()
+
+        meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+
+        assert meta_dict is None
+        assert findings == []
+
+    @patch("decision_hub.domain.skill_scanner_bridge.asyncio")
+    @patch("decision_hub.domain.skill_scanner_bridge._capture_stdout_during")
+    def test_returns_meta_dict_on_success(self, mock_capture, mock_asyncio, tmp_path):
+        finding = MagicMock()
+        result = self._make_scan_result(findings=[finding])
+        settings = self._make_settings()
+
+        mock_meta_result = MagicMock()
+        mock_meta_result.validated_findings = [{"rule_id": "X"}]
+        mock_meta_result.false_positives = []
+        mock_meta_result.missed_threats = []
+        mock_meta_result.to_dict.return_value = {"overall_risk_assessment": {"risk_level": "SAFE"}}
+
+        mock_capture.return_value = (mock_meta_result, "")
+
+        enriched_findings = [MagicMock()]
+
+        with (
+            patch("skill_scanner.core.analyzers.MetaAnalyzer") as MockMeta,
+            patch("skill_scanner.core.analyzers.meta_analyzer.apply_meta_analysis_to_results", return_value=enriched_findings),
+            patch("skill_scanner.core.loader.SkillLoader") as MockLoader,
+        ):
+            MockMeta.return_value = MagicMock()
+            MockLoader.return_value.load_skill.return_value = MagicMock()
+
+            meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+
+        assert meta_dict == {"overall_risk_assessment": {"risk_level": "SAFE"}}
+
+    def test_returns_none_on_import_error(self, tmp_path):
+        finding = MagicMock()
+        result = self._make_scan_result(findings=[finding])
+        settings = self._make_settings()
+
+        with patch.dict("sys.modules", {"skill_scanner.core.analyzers": None}):
+            meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+
+        assert meta_dict is None
+
+    @patch("decision_hub.domain.skill_scanner_bridge.asyncio")
+    @patch("decision_hub.domain.skill_scanner_bridge._capture_stdout_during")
+    def test_uses_gemini_prefix_for_litellm(self, mock_capture, mock_asyncio, tmp_path):
+        finding = MagicMock()
+        result = self._make_scan_result(findings=[finding])
+        settings = self._make_settings(model="gemini-2.0-flash")
+
+        mock_capture.return_value = (MagicMock(), "")
+
+        with (
+            patch("skill_scanner.core.analyzers.MetaAnalyzer") as MockMeta,
+            patch("skill_scanner.core.analyzers.meta_analyzer.apply_meta_analysis_to_results", return_value=[]),
+            patch("skill_scanner.core.loader.SkillLoader"),
+        ):
+            MockMeta.return_value = MagicMock()
+            _run_meta_analysis(result, tmp_path, settings)
+            MockMeta.assert_called_once_with(model="gemini/gemini-2.0-flash", api_key="fake-key")
 
 
 class TestCheckLlmDegradation:
