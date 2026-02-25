@@ -4,10 +4,13 @@ Handles zip extraction, scanner configuration, result mapping, and
 grade computation. All three code paths (publish endpoint, crawler,
 tracker) call through this module instead of the old gauntlet.
 
-Includes a monkey-patch for the Cisco scanner's Google GenAI SDK
-schema sanitizer to work around upstream incompatibility with Gemini
-structured output (union types like ``["string", "null"]`` are not
-accepted by the SDK — see github.com/pymc-labs/decision-hub/issues/187).
+Includes monkey-patches for two upstream issues:
+1. Google GenAI SDK schema sanitizer — union types like
+   ``["string", "null"]`` are not accepted by the SDK
+   (see github.com/pymc-labs/decision-hub/issues/187).
+2. Dict-valued ``compatibility`` field crash in StaticAnalyzer —
+   ``.lower()`` on a dict raises AttributeError
+   (see github.com/cisco-ai-defense/skill-scanner/pull/49).
 
 Logging policy: Domain functions in this module are pure and do NOT log.
 Logging happens in the public entry points (``scan_skill_dir``, ``scan_skill_zip``)
@@ -129,6 +132,57 @@ def _patch_gemini_schema_sanitizer() -> None:
     logger.debug("Patched LLMRequestHandler._sanitize_schema_for_google for Gemini union-type compat")
 
 
+def _patch_dict_compatibility_crash() -> None:
+    """Monkey-patch StaticAnalyzer to handle dict-valued compatibility fields.
+
+    Upstream fix: https://github.com/cisco-ai-defense/skill-scanner/pull/49
+    Skills with ``compatibility: {python-version: '3.8+'}`` crash the
+    scanner because ``.lower()`` is called on a dict.  Wrapping with
+    ``str()`` first matches the fix in the upstream PR.
+    """
+    try:
+        from skill_scanner.core.analyzers.static import StaticAnalyzer
+    except ImportError:
+        return
+
+    original = getattr(StaticAnalyzer, "_manifest_declares_network", None)
+    if original is None:
+        return
+
+    import inspect
+
+    src = inspect.getsource(original)
+    if "str(" in src:
+        return  # upstream already fixed
+
+    def _patched_manifest_declares_network(self: Any, skill: Any) -> bool:
+        if skill.manifest.compatibility:
+            compat_lower = str(skill.manifest.compatibility).lower()
+            return "network" in compat_lower or "internet" in compat_lower
+        return False
+
+    StaticAnalyzer._manifest_declares_network = _patched_manifest_declares_network  # type: ignore[assignment]
+    logger.debug("Patched StaticAnalyzer._manifest_declares_network for dict-valued compatibility (PR #49)")
+
+    try:
+        from skill_scanner.data.packs.core.python import consistency_checks
+    except ImportError:
+        return
+
+    standalone = getattr(consistency_checks, "manifest_declares_network", None)
+    if standalone is None:
+        return
+
+    def _patched_standalone(skill: Any) -> bool:
+        if skill.manifest.compatibility:
+            compat_lower = str(skill.manifest.compatibility).lower()
+            return "network" in compat_lower or "internet" in compat_lower
+        return False
+
+    consistency_checks.manifest_declares_network = _patched_standalone  # type: ignore[assignment]
+    logger.debug("Patched consistency_checks.manifest_declares_network for dict-valued compatibility (PR #49)")
+
+
 # ---------------------------------------------------------------------------
 # Scanner result dataclass (decoupled from skill-scanner types)
 # ---------------------------------------------------------------------------
@@ -238,6 +292,7 @@ def _build_scanner(settings: Any) -> Any:
     from skill_scanner import SkillScanner
 
     _patch_gemini_schema_sanitizer()
+    _patch_dict_compatibility_crash()
     analyzers = _build_analyzers(settings)
     return SkillScanner(analyzers=analyzers)
 
