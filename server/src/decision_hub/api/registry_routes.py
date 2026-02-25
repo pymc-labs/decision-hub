@@ -296,6 +296,9 @@ class ScanReportSummaryResponse(BaseModel):
     analyzers_used: list[str]
     analyzability_score: float | None
     scan_duration_ms: int | None
+    scanner_model: str | None = None
+    scanner_version: str | None = None
+    llm_retries: int | None = None
     created_at: str | None
     findings: list[ScanFindingResponse]
     findings_total: int
@@ -941,6 +944,9 @@ def get_scan_report(
         analyzers_used=report.analyzers_used,
         analyzability_score=report.analyzability_score,
         scan_duration_ms=report.scan_duration_ms,
+        scanner_model=report.scanner_model,
+        scanner_version=report.scanner_version,
+        llm_retries=report.llm_retries,
         created_at=report.created_at.isoformat() if report.created_at else None,
         findings=[
             ScanFindingResponse(

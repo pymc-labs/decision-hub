@@ -19,6 +19,7 @@ and ``_check_llm_degradation`` (third-party library misbehavior detection).
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import io
 import os
 import sys
@@ -32,6 +33,14 @@ from typing import Any
 from loguru import logger
 
 from decision_hub.models import SafetyGrade
+
+
+def _get_scanner_version() -> str | None:
+    """Return the installed cisco-ai-skill-scanner package version, or None."""
+    try:
+        return importlib.metadata.version("cisco-ai-skill-scanner")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 def _fix_gemini_union_types(schema: Any) -> Any:
@@ -142,6 +151,8 @@ class BridgeScanResult:
     full_report: dict
     meta_analysis: dict | None
     llm_retries: int = 0
+    scanner_model: str | None = None
+    scanner_version: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +491,15 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
         break
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict, llm_retries=attempt)
+    model = getattr(settings, "gemini_model", "gemini-3-flash-preview")
+    bridge_result = _map_scan_result(
+        result,
+        elapsed_ms,
+        meta_analysis_override=meta_dict,
+        llm_retries=attempt,
+        scanner_model=model,
+        scanner_version=_get_scanner_version(),
+    )
     _log_scan_complete(bridge_result, result.is_safe)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
@@ -526,7 +545,15 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict, llm_retries=attempt)
+    model = getattr(settings, "gemini_model", "gemini-3-flash-preview")
+    bridge_result = _map_scan_result(
+        result,
+        elapsed_ms,
+        meta_analysis_override=meta_dict,
+        llm_retries=attempt,
+        scanner_model=model,
+        scanner_version=_get_scanner_version(),
+    )
     _log_scan_complete(bridge_result, result.is_safe)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
@@ -570,7 +597,13 @@ def _error_scan_result(elapsed_ms: int) -> BridgeScanResult:
 
 
 def _map_scan_result(
-    result: Any, elapsed_ms: int, *, meta_analysis_override: dict | None = None, llm_retries: int = 0
+    result: Any,
+    elapsed_ms: int,
+    *,
+    meta_analysis_override: dict | None = None,
+    llm_retries: int = 0,
+    scanner_model: str | None = None,
+    scanner_version: str | None = None,
 ) -> BridgeScanResult:
     """Convert a skill-scanner ScanResult to a BridgeScanResult."""
     result_dict = result.to_dict()
@@ -633,4 +666,6 @@ def _map_scan_result(
         full_report=result_dict,
         meta_analysis=meta_analysis,
         llm_retries=llm_retries,
+        scanner_model=scanner_model,
+        scanner_version=scanner_version,
     )

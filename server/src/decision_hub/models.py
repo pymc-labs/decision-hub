@@ -355,5 +355,8 @@ class ScanReport:
     meta_analysis: dict | None = None
     publisher: str = ""
     quarantine_s3_key: str | None = None
+    scanner_model: str | None = None
+    scanner_version: str | None = None
+    llm_retries: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

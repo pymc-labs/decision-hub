@@ -154,6 +154,9 @@ def store_scan_result(
         full_report=scan_result.full_report,
         meta_analysis=scan_result.meta_analysis,
         quarantine_s3_key=quarantine_s3_key,
+        scanner_model=scan_result.scanner_model,
+        scanner_version=scan_result.scanner_version,
+        llm_retries=scan_result.llm_retries,
     )
     insert_scan_findings(conn, report.id, scan_result.findings)
 

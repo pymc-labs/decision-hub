@@ -541,6 +541,9 @@ scan_reports_table = Table(
     Column("meta_analysis", JSONB, nullable=True),
     Column("publisher", Text, nullable=False, server_default=""),
     Column("quarantine_s3_key", Text, nullable=True),
+    Column("scanner_model", Text, nullable=True),
+    Column("scanner_version", Text, nullable=True),
+    Column("llm_retries", sa.Integer, nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -2828,6 +2831,9 @@ def _row_to_scan_report(row: sa.Row) -> ScanReport:
         meta_analysis=row.meta_analysis,
         publisher=row.publisher,
         quarantine_s3_key=row.quarantine_s3_key,
+        scanner_model=row.scanner_model,
+        scanner_version=row.scanner_version,
+        llm_retries=row.llm_retries,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -2874,6 +2880,9 @@ def insert_scan_report(
     full_report: dict | None = None,
     meta_analysis: dict | None = None,
     quarantine_s3_key: str | None = None,
+    scanner_model: str | None = None,
+    scanner_version: str | None = None,
+    llm_retries: int | None = None,
 ) -> ScanReport:
     """Insert a scan report and return the created row."""
     values: dict[str, Any] = {
@@ -2903,6 +2912,12 @@ def insert_scan_report(
         values["meta_analysis"] = meta_analysis
     if quarantine_s3_key is not None:
         values["quarantine_s3_key"] = quarantine_s3_key
+    if scanner_model is not None:
+        values["scanner_model"] = scanner_model
+    if scanner_version is not None:
+        values["scanner_version"] = scanner_version
+    if llm_retries is not None:
+        values["llm_retries"] = llm_retries
 
     stmt = sa.insert(scan_reports_table).values(**values).returning(*scan_reports_table.c)
     row = conn.execute(stmt).one()
