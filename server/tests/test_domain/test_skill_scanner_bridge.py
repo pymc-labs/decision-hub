@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import decision_hub.domain.skill_scanner_bridge as bridge_mod
 from decision_hub.domain.skill_scanner_bridge import (
     BridgeScanResult,
     _check_llm_degradation,
@@ -14,8 +15,11 @@ from decision_hub.domain.skill_scanner_bridge import (
     _find_skill_root,
     _fix_gemini_union_types,
     _map_scan_result,
+    _patch_gemini_schema_sanitizer,
     _run_meta_analysis,
     _safe_extract_zip,
+    scan_skill_dir,
+    scan_skill_zip,
     severity_to_grade,
 )
 
@@ -39,8 +43,8 @@ class TestSeverityToGrade:
     def test_safe_is_a(self):
         assert severity_to_grade("SAFE") == "A"
 
-    def test_unknown_defaults_to_a(self):
-        assert severity_to_grade("UNKNOWN") == "A"
+    def test_unknown_defaults_to_f(self):
+        assert severity_to_grade("UNKNOWN") == "F"
 
 
 class TestEffectiveMaxSeverity:
@@ -417,18 +421,20 @@ class TestRunMetaAnalysis:
         result = self._make_scan_result(findings=[MagicMock()])
         settings = self._make_settings(api_key="")
 
-        meta_dict, _findings = _run_meta_analysis(result, tmp_path, settings)
+        meta_dict, _findings, error = _run_meta_analysis(result, tmp_path, settings)
 
         assert meta_dict is None
+        assert error is None
 
     def test_skips_when_no_findings(self, tmp_path):
         result = self._make_scan_result(findings=[])
         settings = self._make_settings()
 
-        meta_dict, findings = _run_meta_analysis(result, tmp_path, settings)
+        meta_dict, findings, error = _run_meta_analysis(result, tmp_path, settings)
 
         assert meta_dict is None
         assert findings == []
+        assert error is None
 
     @patch("decision_hub.domain.skill_scanner_bridge.asyncio")
     @patch("decision_hub.domain.skill_scanner_bridge._capture_stdout_during")
@@ -458,9 +464,10 @@ class TestRunMetaAnalysis:
             MockMeta.return_value = MagicMock()
             MockLoader.return_value.load_skill.return_value = MagicMock()
 
-            meta_dict, _findings = _run_meta_analysis(result, tmp_path, settings)
+            meta_dict, _findings, error = _run_meta_analysis(result, tmp_path, settings)
 
         assert meta_dict == {"overall_risk_assessment": {"risk_level": "SAFE"}}
+        assert error is None
 
     def test_returns_none_on_import_error(self, tmp_path):
         finding = MagicMock()
@@ -468,9 +475,30 @@ class TestRunMetaAnalysis:
         settings = self._make_settings()
 
         with patch.dict("sys.modules", {"skill_scanner.core.analyzers": None}):
-            meta_dict, _findings = _run_meta_analysis(result, tmp_path, settings)
+            meta_dict, _findings, error = _run_meta_analysis(result, tmp_path, settings)
 
         assert meta_dict is None
+        assert error is None
+
+    @patch("decision_hub.domain.skill_scanner_bridge.asyncio")
+    @patch("decision_hub.domain.skill_scanner_bridge._capture_stdout_during")
+    def test_returns_error_on_runtime_failure(self, mock_capture, mock_asyncio, tmp_path):
+        finding = MagicMock()
+        result = self._make_scan_result(findings=[finding])
+        settings = self._make_settings()
+
+        mock_capture.side_effect = RuntimeError("LLM API timeout")
+
+        with (
+            patch("skill_scanner.core.analyzers.MetaAnalyzer"),
+            patch("skill_scanner.core.analyzers.meta_analyzer.apply_meta_analysis_to_results"),
+            patch("skill_scanner.core.loader.SkillLoader"),
+        ):
+            meta_dict, _findings, error = _run_meta_analysis(result, tmp_path, settings)
+
+        assert meta_dict is None
+        assert isinstance(error, RuntimeError)
+        assert "LLM API timeout" in str(error)
 
     @patch("decision_hub.domain.skill_scanner_bridge.asyncio")
     @patch("decision_hub.domain.skill_scanner_bridge._capture_stdout_during")
@@ -584,3 +612,76 @@ class TestCheckLlmDegradation:
         assert checked.policy_fingerprint == result.policy_fingerprint
         assert checked.full_report == result.full_report
         assert checked.meta_analysis == result.meta_analysis
+
+
+class TestPatchGeminiSchemaSanitizer:
+    """Tests for _patch_gemini_schema_sanitizer edge cases."""
+
+    def setup_method(self):
+        # Reset global _PATCHED before each test
+        bridge_mod._PATCHED = False
+
+    def teardown_method(self):
+        bridge_mod._PATCHED = False
+
+    def test_sets_patched_on_import_error(self):
+        with patch.dict("sys.modules", {"skill_scanner.core.analyzers.llm_request_handler": None}):
+            _patch_gemini_schema_sanitizer()
+        assert bridge_mod._PATCHED is True
+
+    def test_sets_patched_when_hasattr_fails(self):
+        mock_handler = MagicMock(spec=[])  # no attributes
+        mock_module = MagicMock()
+        mock_module.LLMRequestHandler = mock_handler
+        with patch.dict("sys.modules", {"skill_scanner.core.analyzers.llm_request_handler": mock_module}):
+            _patch_gemini_schema_sanitizer()
+        assert bridge_mod._PATCHED is True
+
+    def test_idempotent_after_first_call(self):
+        bridge_mod._PATCHED = True
+        # Should return immediately without doing anything
+        _patch_gemini_schema_sanitizer()
+        assert bridge_mod._PATCHED is True
+
+
+class TestScanExceptionPropagation:
+    """Tests that critical exceptions propagate from scan_skill_dir/scan_skill_zip."""
+
+    def _make_settings(self):
+        settings = MagicMock()
+        settings.google_api_key = ""
+        return settings
+
+    @patch("decision_hub.domain.skill_scanner_bridge._build_scanner")
+    def test_scan_skill_dir_propagates_import_error(self, mock_build, tmp_path):
+        mock_build.side_effect = ImportError("no scanner")
+        with pytest.raises(ImportError, match="no scanner"):
+            scan_skill_dir(tmp_path, self._make_settings())
+
+    @patch("decision_hub.domain.skill_scanner_bridge._build_scanner")
+    def test_scan_skill_dir_propagates_memory_error(self, mock_build, tmp_path):
+        mock_build.side_effect = MemoryError()
+        with pytest.raises(MemoryError):
+            scan_skill_dir(tmp_path, self._make_settings())
+
+    def test_scan_skill_zip_propagates_bad_zip_file(self):
+        with pytest.raises(zipfile.BadZipFile):
+            scan_skill_zip(b"not a zip", self._make_settings())
+
+    def test_scan_skill_zip_propagates_value_error(self):
+        """Path traversal in zip should raise ValueError."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("../../../etc/passwd", "malicious")
+        with pytest.raises(ValueError, match="would escape"):
+            scan_skill_zip(buf.getvalue(), self._make_settings())
+
+    @patch("decision_hub.domain.skill_scanner_bridge._build_scanner")
+    @patch("decision_hub.domain.skill_scanner_bridge._safe_extract_zip")
+    def test_scan_skill_zip_propagates_import_error(self, mock_extract, mock_build, tmp_path):
+        mock_build.side_effect = ImportError("no scanner")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: test\n---\n")
+        with pytest.raises(ImportError, match="no scanner"):
+            scan_skill_zip(buf.getvalue(), self._make_settings())

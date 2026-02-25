@@ -8,6 +8,12 @@ Includes a monkey-patch for the Cisco scanner's Google GenAI SDK
 schema sanitizer to work around upstream incompatibility with Gemini
 structured output (union types like ``["string", "null"]`` are not
 accepted by the SDK — see github.com/pymc-labs/decision-hub/issues/187).
+
+Logging policy: Domain functions in this module are pure and do NOT log.
+Logging happens in the public entry points (``scan_skill_dir``, ``scan_skill_zip``)
+and the ``_log_scan_complete`` helper.  Exceptions:
+``severity_to_grade`` (security fail-closed warning), ``_find_skill_root``
+and ``_check_llm_degradation`` (third-party library misbehavior detection).
 """
 
 from __future__ import annotations
@@ -95,7 +101,15 @@ def _patch_gemini_schema_sanitizer() -> None:
             LLMRequestHandler,
         )
     except ImportError:
-        logger.warning("skill_scanner not installed — skipping Gemini schema patch")
+        _PATCHED = True  # prevent infinite retry
+        logger.error("skill_scanner not installed — cannot apply Gemini schema patch")
+        return
+
+    if not hasattr(LLMRequestHandler, "_sanitize_schema_for_google"):
+        _PATCHED = True  # prevent infinite retry
+        logger.error(
+            "LLMRequestHandler no longer has _sanitize_schema_for_google — scanner API may have changed, patch skipped"
+        )
         return
 
     def _patched_sanitize(self: Any, schema: dict[str, Any]) -> dict[str, Any]:
@@ -145,10 +159,16 @@ _SEVERITY_TO_GRADE: dict[str, SafetyGrade] = {
 
 def severity_to_grade(max_severity: str) -> SafetyGrade:
     """Map a skill-scanner severity string to a dhub safety grade."""
-    return _SEVERITY_TO_GRADE.get(max_severity, "A")
+    grade = _SEVERITY_TO_GRADE.get(max_severity)
+    if grade is None:
+        # Security: fail-closed — unknown severities get the worst grade
+        logger.warning("Unknown severity {!r} — defaulting to grade F (fail-closed)", max_severity)
+        return "F"
+    return grade
 
 
 _SEVERITY_RANK = {"CRITICAL": 5, "HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFO": 1, "SAFE": 0}
+_UNKNOWN_SEVERITY_RANK = 6  # fail-closed: unknown severities rank above CRITICAL
 
 
 def _effective_max_severity(findings: list[dict], raw_max: str) -> str:
@@ -165,7 +185,7 @@ def _effective_max_severity(findings: list[dict], raw_max: str) -> str:
     non_fp_severities = [f["severity"] for f in findings if not f.get("metadata", {}).get("meta_false_positive", False)]
     if not non_fp_severities:
         return "SAFE"
-    return max(non_fp_severities, key=lambda s: _SEVERITY_RANK.get(s, 0))
+    return max(non_fp_severities, key=lambda s: _SEVERITY_RANK.get(s, _UNKNOWN_SEVERITY_RANK))
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +230,7 @@ def _build_scanner(settings: Any) -> Any:
     return SkillScanner(analyzers=analyzers)
 
 
-def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dict | None, list[Any]]:
+def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dict | None, list[Any], Exception | None]:
     """Run MetaAnalyzer as a post-processing step on scan findings.
 
     Follows the same pattern as the scanner's CLI (``--enable-meta``) and
@@ -220,12 +240,16 @@ def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dic
     Uses Gemini via LiteLLM (``gemini/<model>`` prefix) with the same
     Google API key used for the LLMAnalyzer.
 
-    Returns ``(meta_analysis_dict, enriched_findings)`` on success, or
-    ``(None, original_findings)`` if meta-analysis is unavailable or fails.
+    Returns ``(meta_analysis_dict, enriched_findings, error)``:
+    - On success: ``(meta_dict, enriched_findings, None)``
+    - MetaAnalyzer unavailable (ImportError): ``(None, original_findings, None)``
+    - Runtime failure: ``(None, original_findings, exc)``
+
+    Re-raises ``ImportError`` (for missing ``skill_scanner``) and ``MemoryError``.
     """
     api_key = getattr(settings, "google_api_key", None)
     if not api_key or not result.findings:
-        return None, list(result.findings)
+        return None, list(result.findings), None
 
     try:
         from skill_scanner.core.analyzers import MetaAnalyzer
@@ -234,8 +258,8 @@ def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dic
         )
         from skill_scanner.core.loader import SkillLoader
     except ImportError:
-        logger.debug("MetaAnalyzer or dependencies not available — skipping")
-        return None, list(result.findings)
+        # MetaAnalyzer is optional — not an error
+        return None, list(result.findings), None
 
     model = getattr(settings, "gemini_model", "gemini-2.0-flash")
     litellm_model = f"gemini/{model}"
@@ -244,7 +268,7 @@ def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dic
         meta = MetaAnalyzer(model=litellm_model, api_key=api_key)
         skill = SkillLoader().load_skill(skill_dir)
 
-        meta_result, stdout = _capture_stdout_during(
+        meta_result, _stdout = _capture_stdout_during(
             lambda: asyncio.run(
                 meta.analyze_with_findings(
                     skill=skill,
@@ -253,8 +277,6 @@ def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dic
                 )
             )
         )
-        if stdout:
-            logger.info("MetaAnalyzer stdout: {}", stdout[:500])
 
         enriched = apply_meta_analysis_to_results(
             original_findings=result.findings,
@@ -265,16 +287,11 @@ def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dic
         if "meta_analyzer" not in result.analyzers_used:
             result.analyzers_used.append("meta_analyzer")
 
-        logger.info(
-            "Meta-analysis complete: validated={} fp={} missed={}",
-            len(meta_result.validated_findings),
-            len(meta_result.false_positives),
-            len(meta_result.missed_threats),
-        )
-        return meta_result.to_dict(), enriched
-    except Exception:
-        logger.opt(exception=True).warning("Meta-analysis failed — using scan results as-is")
-        return None, list(result.findings)
+        return meta_result.to_dict(), enriched, None
+    except (ImportError, MemoryError):
+        raise
+    except Exception as exc:
+        return None, list(result.findings), exc
 
 
 def _find_skill_root(base: Path) -> Path:
@@ -390,7 +407,11 @@ def _check_llm_degradation(
 
 
 def _capture_stdout_during(fn: Any) -> tuple[Any, str]:
-    """Run *fn()* while capturing anything the scanner ``print()``s."""
+    """Run *fn()* while capturing anything the scanner ``print()``s.
+
+    WARNING: Replaces sys.stdout globally — NOT thread-safe.
+    Safe only in single-request Modal containers.
+    """
     buf = io.StringIO()
     old = sys.stdout
     try:
@@ -398,6 +419,20 @@ def _capture_stdout_during(fn: Any) -> tuple[Any, str]:
         return fn(), buf.getvalue()
     finally:
         sys.stdout = old
+
+
+def _log_scan_complete(bridge_result: BridgeScanResult, raw_is_safe: bool) -> None:
+    """Log the scan-complete summary (called from entry points, not domain functions)."""
+    logger.info(
+        "Scan complete: raw_safe={} max_severity={} safe={} grade={} findings={} analyzers={} duration={}ms",
+        raw_is_safe,
+        bridge_result.max_severity,
+        bridge_result.is_safe,
+        bridge_result.grade,
+        bridge_result.findings_count,
+        bridge_result.analyzers_used,
+        bridge_result.scan_duration_ms,
+    )
 
 
 def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
@@ -413,17 +448,23 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     try:
         scanner = _build_scanner(settings)
         result, stdout = _capture_stdout_during(lambda: scanner.scan_skill(skill_dir))
+    except (ImportError, MemoryError):
+        raise
     except Exception:
+        # Third-party scanner internals — fail-closed
         logger.opt(exception=True).error("skill-scanner crashed on {}", skill_dir)
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     if stdout:
         logger.info("skill-scanner stdout on {}: {}", skill_dir, stdout[:500])
 
-    meta_dict, _ = _run_meta_analysis(result, skill_dir, settings)
+    meta_dict, _, meta_error = _run_meta_analysis(result, skill_dir, settings)
+    if meta_error is not None:
+        logger.opt(exception=meta_error).error("Meta-analysis failed on {} — using scan results as-is", skill_dir)
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict)
+    _log_scan_complete(bridge_result, result.is_safe)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
 
@@ -448,13 +489,19 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
             if stdout:
                 logger.info("skill-scanner stdout on zip: {}", stdout[:500])
 
-            meta_dict, _ = _run_meta_analysis(result, skill_dir, settings)
+            meta_dict, _, meta_error = _run_meta_analysis(result, skill_dir, settings)
+            if meta_error is not None:
+                logger.opt(exception=meta_error).error("Meta-analysis failed on zip — using scan results as-is")
+    except (ImportError, MemoryError, zipfile.BadZipFile, ValueError):
+        raise
     except Exception:
+        # Third-party scanner internals — fail-closed
         logger.opt(exception=True).error("skill-scanner crashed on zip input")
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict)
+    _log_scan_complete(bridge_result, result.is_safe)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
 
@@ -540,18 +587,6 @@ def _map_scan_result(result: Any, elapsed_ms: int, *, meta_analysis_override: di
     effective_severity = _effective_max_severity(findings, max_severity)
     grade = severity_to_grade(effective_severity)
     effective_safe = effective_severity not in ("CRITICAL", "HIGH")
-
-    logger.info(
-        "Scan complete: raw_safe={} max_severity={} effective={} safe={} grade={} findings={} analyzers={} duration={}ms",
-        result.is_safe,
-        max_severity,
-        effective_severity,
-        effective_safe,
-        grade,
-        len(findings),
-        analyzers_used,
-        elapsed_ms,
-    )
 
     return BridgeScanResult(
         is_safe=effective_safe,

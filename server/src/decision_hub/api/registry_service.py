@@ -8,6 +8,7 @@ the logic, making the business rules testable without HTTP mocking.
 import tempfile
 from datetime import UTC
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -111,7 +112,7 @@ def run_scan_pipeline(
 
 
 def run_scan_pipeline_dir(
-    skill_dir,
+    skill_dir: Path,
     settings: Settings,
 ) -> BridgeScanResult:
     """Run the skill-scanner pipeline on a directory.
@@ -121,7 +122,7 @@ def run_scan_pipeline_dir(
     return scan_skill_dir(Path(skill_dir), settings)
 
 
-def _scan_result_to_audit_fields(scan_result: BridgeScanResult) -> tuple[list[dict], dict | None]:
+def scan_result_to_audit_fields(scan_result: BridgeScanResult) -> tuple[list[dict], dict | None]:
     """Convert a BridgeScanResult to legacy audit log fields.
 
     Returns (check_results, llm_reasoning) in the same format the old
@@ -151,20 +152,18 @@ def _scan_result_to_audit_fields(scan_result: BridgeScanResult) -> tuple[list[di
 
 
 def store_scan_result(
-    conn,
+    conn: Connection,
     scan_result: BridgeScanResult,
     *,
     org_slug: str,
     skill_name: str,
     semver: str,
     publisher: str,
-    version_id=None,
+    version_id: UUID | None = None,
     quarantine_s3_key: str | None = None,
 ) -> None:
     """Persist a scan result to scan_reports + scan_findings tables."""
-    from uuid import UUID as _UUID
-
-    vid = _UUID(str(version_id)) if version_id is not None else None
+    vid = UUID(str(version_id)) if version_id is not None else None
 
     report = insert_scan_report(
         conn,
@@ -189,9 +188,9 @@ def store_scan_result(
     insert_scan_findings(conn, report.id, scan_result.findings)
 
 
-def quarantine_rejected_scan(
+def quarantine_unsafe_skill(
     conn: Connection,
-    s3_client,
+    s3_client: Any,
     bucket: str,
     file_bytes: bytes,
     scan_result: BridgeScanResult,
@@ -201,9 +200,9 @@ def quarantine_rejected_scan(
     version: str,
     publisher: str,
 ) -> None:
-    """Store scan result, upload rejected zip to quarantine, log, and raise 422.
+    """Store scan result, write audit log, commit, and upload rejected zip to quarantine S3.
 
-    Used by the HTTP publish endpoint for scanner-rejected skills.
+    Does NOT raise — callers decide how to handle the rejection.
     """
     q_key = build_quarantine_s3_key(org_slug, skill_name, version)
 
@@ -217,59 +216,7 @@ def quarantine_rejected_scan(
         quarantine_s3_key=q_key,
     )
 
-    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
-
-    insert_audit_log(
-        conn,
-        org_slug=org_slug,
-        skill_name=skill_name,
-        semver=version,
-        grade=scan_result.grade,
-        check_results=check_results,
-        publisher=publisher,
-        version_id=None,
-        llm_reasoning=llm_reasoning,
-        quarantine_s3_key=q_key,
-    )
-    conn.commit()
-
-    upload_skill_zip(s3_client, bucket, q_key, file_bytes)
-
-    raise HTTPException(
-        status_code=422,
-        detail=f"Safety scan rejected: grade={scan_result.grade} max_severity={scan_result.max_severity}, {scan_result.findings_count} finding(s)",
-    )
-
-
-def quarantine_scan_rejection(
-    conn: Connection,
-    s3_client,
-    bucket: str,
-    file_bytes: bytes,
-    scan_result: BridgeScanResult,
-    *,
-    org_slug: str,
-    skill_name: str,
-    version: str,
-    publisher: str,
-) -> None:
-    """Store scan result, upload rejected zip, and log — without raising.
-
-    Used by crawler and tracker where the caller handles the rejection.
-    """
-    q_key = build_quarantine_s3_key(org_slug, skill_name, version)
-
-    store_scan_result(
-        conn,
-        scan_result,
-        org_slug=org_slug,
-        skill_name=skill_name,
-        semver=version,
-        publisher=publisher,
-        quarantine_s3_key=q_key,
-    )
-
-    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
+    check_results, llm_reasoning = scan_result_to_audit_fields(scan_result)
 
     insert_audit_log(
         conn,

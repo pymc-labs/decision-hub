@@ -20,13 +20,13 @@ from decision_hub.api.deps import (
 )
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.api.registry_service import (
-    _scan_result_to_audit_fields,
     classify_skill_category,
     maybe_trigger_agent_assessment,
     parse_manifest_from_content,
-    quarantine_rejected_scan,
+    quarantine_unsafe_skill,
     require_org_membership,
     run_scan_pipeline,
+    scan_result_to_audit_fields,
     store_scan_result,
 )
 from decision_hub.domain.publish import (
@@ -484,7 +484,7 @@ def publish_skill(
     )
 
     if not scan_result.is_safe:
-        quarantine_rejected_scan(
+        quarantine_unsafe_skill(
             conn,
             s3_client,
             settings.s3_bucket,
@@ -494,6 +494,14 @@ def publish_skill(
             skill_name=skill_name,
             version=version,
             publisher=current_user.username,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Safety scan rejected: grade={scan_result.grade} "
+                f"max_severity={scan_result.max_severity}, "
+                f"{scan_result.findings_count} finding(s)"
+            ),
         )
 
     # Classify the skill after gauntlet passes (non-critical, graceful fallback)
@@ -550,7 +558,7 @@ def publish_skill(
             detail=f"Version {version} already exists for {org_slug}/{skill_name}",
         ) from None
 
-    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
+    check_results, llm_reasoning = scan_result_to_audit_fields(scan_result)
     insert_audit_log(
         conn,
         org_slug=org_slug,

@@ -623,11 +623,11 @@ def _publish_skill_from_tracker(
     False if skipped (no content changes) or rejected by the scanner.
     """
     from decision_hub.api.registry_service import (
-        _scan_result_to_audit_fields,
         maybe_trigger_agent_assessment,
         parse_manifest_from_content,
-        quarantine_scan_rejection,
+        quarantine_unsafe_skill,
         run_scan_pipeline_dir,
+        scan_result_to_audit_fields,
         store_scan_result,
     )
     from decision_hub.domain.skill_manifest import parse_skill_md
@@ -684,7 +684,7 @@ def _publish_skill_from_tracker(
                 scan_result.grade,
                 scan_result.is_safe,
             )
-            quarantine_scan_rejection(
+            quarantine_unsafe_skill(
                 conn,
                 s3_client,
                 settings.s3_bucket,
@@ -732,7 +732,7 @@ def _publish_skill_from_tracker(
             eval_status=scan_result.grade,
         )
 
-        check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
+        check_results, llm_reasoning = scan_result_to_audit_fields(scan_result)
         insert_audit_log(
             conn,
             org_slug=org_slug,

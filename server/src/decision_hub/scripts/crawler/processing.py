@@ -244,10 +244,10 @@ def _publish_one_skill(
 ) -> None:
     """Scan, classify, and publish a single skill. Mutates result counts."""
     from decision_hub.api.registry_service import (
-        _scan_result_to_audit_fields,
         classify_skill_category,
-        quarantine_scan_rejection,
+        quarantine_unsafe_skill,
         run_scan_pipeline_dir,
+        scan_result_to_audit_fields,
         store_scan_result,
     )
     from decision_hub.infra.database import (
@@ -296,7 +296,7 @@ def _publish_one_skill(
     scan_result = run_scan_pipeline_dir(skill_dir, settings)
 
     if not scan_result.is_safe:
-        quarantine_scan_rejection(
+        quarantine_unsafe_skill(
             conn,
             s3_client,
             settings.s3_bucket,
@@ -331,7 +331,7 @@ def _publish_one_skill(
         eval_status=scan_result.grade,
     )
 
-    check_results, llm_reasoning = _scan_result_to_audit_fields(scan_result)
+    check_results, llm_reasoning = scan_result_to_audit_fields(scan_result)
     insert_audit_log(
         conn,
         org_slug=org.slug,

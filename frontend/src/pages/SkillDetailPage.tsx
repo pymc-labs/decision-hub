@@ -464,7 +464,13 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
     if (!isScanner) return;
     let cancelled = false;
     fetch(`${reportApiPath}?${semverParam}&page_size=100`)
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (!res.ok) {
+          console.warn(`Scan report fetch failed: ${res.status}`);
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => { if (!cancelled && data) setReport(data); })
       .finally(() => { if (!cancelled) setReportFetched(true); });
     return () => { cancelled = true; };
@@ -483,11 +489,16 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
     if (fullJson) return;
     try {
       const res = await fetch(`${reportApiPath}/download?${semverParam}`);
-      if (res.ok) {
-        const data = await res.json();
-        setFullJson(JSON.stringify(data, null, 2));
+      if (!res.ok) {
+        setFullJson(`Error: HTTP ${res.status}`);
+        return;
       }
-    } catch { /* non-critical */ }
+      const data = await res.json();
+      setFullJson(JSON.stringify(data, null, 2));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setFullJson(`Error: ${msg}`);
+    }
   };
 
   const rawFindings: ScanFinding[] = report?.findings ?? (inlineFindings as unknown as ScanFinding[]);

@@ -3107,7 +3107,7 @@ def find_scan_report_for_version(conn: Connection, version_id: UUID) -> ScanRepo
     stmt = (
         sa.select(scan_reports_table)
         .where(scan_reports_table.c.version_id == version_id)
-        .order_by(scan_reports_table.c.created_at.desc())
+        .order_by(scan_reports_table.c.created_at.desc(), scan_reports_table.c.id.desc())
         .limit(1)
     )
     row = conn.execute(stmt).first()
