@@ -35,6 +35,9 @@ crawl_checkpoint.json
 *.key
 *.private-key*
 
+# Modal secrets backup (contains key names, not values)
+server/modal-secrets-backup.md
+
 # Internal planning docs (keep in wiki/Notion, not in repo)
 PRD.md
 tasks.md

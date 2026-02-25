@@ -17,6 +17,12 @@ DHUB_ENV="${DHUB_ENV:-dev}"
 
 echo "=== Decision Hub deploy (env=$DHUB_ENV) ==="
 
+# --- 0. Verify .env file exists (baked into Modal image) ---
+if [ ! -f "$REPO_ROOT/server/.env.${DHUB_ENV}" ]; then
+  echo "ERROR: server/.env.${DHUB_ENV} not found. This file is required — it gets baked into the Modal image."
+  exit 1
+fi
+
 # --- 1. Build frontend ---
 echo ""
 echo ">>> Building frontend..."

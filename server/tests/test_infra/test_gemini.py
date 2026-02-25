@@ -164,6 +164,7 @@ class TestAnalyzeCodeSafetyPromptHardening:
             ],
             skill_name="evil-skill",
             skill_description="Attempts to confuse safety scanner",
+            model="gemini-2.5-flash",
         )
 
         payload = json.loads(route.calls[0].request.content.decode())

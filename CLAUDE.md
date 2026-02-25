@@ -226,17 +226,6 @@ You **may** deploy to dev when asked. Always use `make deploy-dev` — never bar
 - **Check open PRs** for overlapping work: `gh pr list --state open`
 - **Link to a GitHub issue.** If no issue exists, create one first.
 
-### Modal secret validation
-Before running any Modal function that calls `create_settings()` (crawler, tracker, eval), verify that all required `Settings` fields are present in the corresponding Modal secrets. The three dev secrets (`decision-hub-db-dev`, `decision-hub-secrets-dev`, `decision-hub-aws-dev`) must collectively cover every required field in `Settings`. Quick smoke test:
-
-```bash
-# Verify settings load inside a Modal container
-modal run --detach -q -s decision-hub-secrets-dev -s decision-hub-db-dev -s decision-hub-aws-dev \
-  -- python -c "from decision_hub.settings import create_settings; print(create_settings())"
-```
-
-When adding new required fields to `Settings`, also update the corresponding Modal secret (`modal secret create <name> --force KEY=VALUE ...`).
-
 ### Never block the conversation on long waits
 When monitoring long-running processes (crawlers, deploys, Modal logs), **never use `sleep` inside a tool call**. A `sleep 900` blocks the entire conversation for 15 minutes and makes the agent appear stuck. Instead:
 
@@ -280,7 +269,7 @@ Use the `publish-cli` target from the `Makefile`. Supports `BUMP=patch|minor|maj
 
 #### How it works
 
-The server enforces a minimum CLI version via `MIN_CLI_VERSION` in `server/.env.dev` and `server/.env.prod`. The `modal_app.py` reads this value at deploy time and injects it into the container, so a server redeploy is all that's needed — no manual Modal secret updates required. When `BREAKING=1` is passed, the script updates MIN_CLI_VERSION in both env files and redeploys both servers.
+The server enforces a minimum CLI version via `MIN_CLI_VERSION` in `server/.env.dev` and `server/.env.prod`. The `.env` file is baked into the Modal image at deploy time, so a server redeploy is all that's needed. When `BREAKING=1` is passed, the script updates MIN_CLI_VERSION in both env files and redeploys both servers.
 
 Every CLI publish automatically creates a `cli/vX.Y.Z` git tag, and every prod deploy creates a `prod/YYYYMMDD-HHMMSS` tag. GitHub Actions generates release notes from merged PRs when these tags are pushed.
 
@@ -288,13 +277,13 @@ Every CLI publish automatically creates a `cli/vX.Y.Z` git tag, and every prod d
 
 Use the deploy targets from the `Makefile`. The deploy script builds the React frontend (`frontend/dist/`) and bundles it into the Modal container alongside the server.
 
-#### Dev auto-deploy
+#### Dev deploys
 
-Merging to `main` auto-deploys dev via `.github/workflows/deploy-dev.yml` — no manual step needed. The workflow uses the `dev` GitHub Environment (secrets: `DATABASE_URL`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`; variable: `MIN_CLI_VERSION_DEV`).
+Dev deploys are manual via `make deploy-dev`. The `.env.dev` file is baked into the Modal image at deploy time, so all secrets live in that single file — no Modal secrets or GitHub Environment needed.
 
-`modal_app.py:_read_env_value()` checks `os.environ` before the local `.env` file. This is how the CI workflow passes `MIN_CLI_VERSION` without a `.env` file present. If you add new deploy-time config that the workflow needs, pass it as an env var in `deploy-dev.yml` and read it via `_read_env_value()`.
+#### Prod deploys
 
-#### Prod deploys are manual-only
+Both dev and prod deploys require the corresponding `.env` file on the deployer's machine (`server/.env.dev` or `server/.env.prod`). Rotating secrets requires updating the `.env` file and redeploying.
 
 `make deploy-prod` auto-tags `prod/YYYYMMDD-HHMMSS` and pushes the tag, which triggers `release-notes.yml` to create a GitHub Release with auto-generated notes from merged PRs. To see what's in prod: `git tag --list 'prod/*' --sort=-version:refname | head -5`.
 
@@ -323,24 +312,7 @@ Trackers (`skill_trackers` table) poll GitHub repos for new commits and republis
 
 Trackers authenticate to GitHub using **GitHub App installation tokens** instead of a personal access token (PAT). Each cron tick / Modal container mints its own short-lived token (~1 hr) from the App's private key. This gives dev and prod independent 12,500 req/hr rate-limit budgets.
 
-**Apps:** App IDs, Installation IDs, and PEM filenames are recorded in `server/.env.dev` and `server/.env.prod` (git-ignored). Look for the `# GitHub App` comment block in each file.
-
-**Modal secrets** store the credentials (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`). PEM files are at `server/decision-hub-dev.*.pem` / `server/decision-hub.*.pem` (git-ignored).
-
-**Recreating secrets:**
-```bash
-# Dev — get values from server/.env.dev
-modal secret create decision-hub-github-app-dev --force \
-  GITHUB_APP_ID="<APP_ID>" \
-  GITHUB_APP_INSTALLATION_ID="<INSTALLATION_ID>" \
-  GITHUB_APP_PRIVATE_KEY="$(cat server/<PEM_FILE>)"
-
-# Prod — get values from server/.env.prod
-modal secret create decision-hub-github-app --force \
-  GITHUB_APP_ID="<APP_ID>" \
-  GITHUB_APP_INSTALLATION_ID="<INSTALLATION_ID>" \
-  GITHUB_APP_PRIVATE_KEY="$(cat server/<PEM_FILE>)"
-```
+**Apps:** App IDs, Installation IDs, and PEM keys are stored inline in `server/.env.dev` and `server/.env.prod` (git-ignored). The PEM is embedded as a multi-line quoted value (`GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA..."`). Original PEM files are also kept at `server/decision-hub-dev.*.pem` / `server/decision-hub.*.pem` (git-ignored).
 
 **Note:** The crawler and backfill scripts still use a PAT passed via `--github-token`. Only the tracker cron uses App tokens.
 

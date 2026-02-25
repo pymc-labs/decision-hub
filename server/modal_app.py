@@ -9,22 +9,6 @@ env = os.environ.get("DHUB_ENV", "dev")
 suffix = "" if env == "prod" else f"-{env}"
 app_name = f"decision-hub{suffix}"
 
-
-def _read_env_value(key: str) -> str | None:
-    """Read a value from env var or local .env file."""
-    env_val = os.environ.get(key)
-    if env_val is not None:
-        return env_val
-    env_file = Path(f".env.{env}")
-    if not env_file.exists():
-        return None
-    for line in env_file.read_text().splitlines():
-        line = line.strip()
-        if line.startswith(f"{key}="):
-            return line.split("=", 1)[1]
-    return None
-
-
 app = modal.App(app_name)
 
 _frontend_dist = Path("../frontend/dist")
@@ -35,6 +19,8 @@ image = (
     .run_commands("pip install /tmp/dhub-core")
     .pip_install_from_pyproject("pyproject.toml")
     .add_local_dir("src/decision_hub", remote_path="/root/decision_hub", copy=True)
+    .add_local_file(f".env.{env}", remote_path=f"/root/.env.{env}", copy=True)
+    .env({"DHUB_ENV": env})
 )
 
 # Include the frontend build when it exists (produced by deploy script).
@@ -45,27 +31,10 @@ if _frontend_dist.is_dir():
         copy=True,
     )
 
-secrets = [
-    modal.Secret.from_name(f"decision-hub-db{suffix}"),
-    modal.Secret.from_name(f"decision-hub-secrets{suffix}"),
-    modal.Secret.from_name(f"decision-hub-aws{suffix}"),
-    modal.Secret.from_name(f"decision-hub-github-app{suffix}"),
-    # Inject values from the local .env file that aren't in Modal secrets.
-    # These are read at deploy time so server redeploys pick up changes
-    # without needing to update Modal secrets manually.
-    modal.Secret.from_dict(
-        {
-            "MODAL_APP_NAME": app_name,
-            **({"MIN_CLI_VERSION": v} if (v := _read_env_value("MIN_CLI_VERSION")) else {}),
-        }
-    ),
-]
-
-
 custom_domains = ["hub.decision.ai"] if env == "prod" else ["hub-dev.decision.ai"]
 
 
-@app.function(image=image, secrets=secrets, scaledown_window=300, cpu=0.5, memory=256)
+@app.function(image=image, scaledown_window=300, cpu=0.5, memory=256)
 @modal.concurrent(max_inputs=100)
 @modal.asgi_app(label=f"api{suffix}", custom_domains=custom_domains)
 def web():
@@ -75,7 +44,7 @@ def web():
     return create_app()
 
 
-@app.function(image=image, secrets=secrets, timeout=1800)
+@app.function(image=image, timeout=1800)
 def run_eval_task(
     version_id: str,
     eval_agent: str,
@@ -160,7 +129,7 @@ def run_eval_task(
 crawler_image = image.apt_install("git")
 
 
-@app.function(image=crawler_image, secrets=secrets, timeout=300, max_containers=50)
+@app.function(image=crawler_image, timeout=300, max_containers=50)
 def crawl_process_repo(
     repo_dict: dict,
     bot_user_id: str,
@@ -194,7 +163,7 @@ def crawl_process_repo(
     return process_repo_on_modal(repo_dict, bot_user_id, github_token, set_tracker=set_tracker)
 
 
-@app.function(image=crawler_image, secrets=secrets, timeout=300, max_containers=50)
+@app.function(image=crawler_image, timeout=300, max_containers=50)
 def tracker_process_repo(
     tracker_dict: dict,
     known_sha: str,
@@ -210,7 +179,7 @@ def tracker_process_repo(
     return process_tracker_remote(tracker_dict, known_sha)
 
 
-@app.function(image=crawler_image, secrets=secrets, timeout=3600, schedule=modal.Cron("0 2 * * *"))
+@app.function(image=crawler_image, timeout=3600, schedule=modal.Cron("0 2 * * *"))
 def crawl_trusted_orgs_nightly() -> None:
     """Crawl all TRUSTED_ORGS for new SKILL.md files every night at 2am UTC.
 
@@ -303,7 +272,7 @@ def crawl_trusted_orgs_nightly() -> None:
 _TRACKER_LOOP_BUDGET_SECONDS = 180
 
 
-@app.function(image=crawler_image, secrets=secrets, timeout=600, schedule=modal.Period(seconds=600))
+@app.function(image=crawler_image, timeout=600, schedule=modal.Period(seconds=600))
 def check_trackers():
     """Poll GitHub repos for skill updates every 10 minutes.
 
