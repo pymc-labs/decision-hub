@@ -1,6 +1,6 @@
 [project]
 name = "dhub-core"
-version = "0.2.1"
+version = "0.2.2"
 description = "Shared domain models and manifest parsing for Decision Hub"
 authors = [
     { name = "PyMC Labs", email = "info@pymc-labs.com" },

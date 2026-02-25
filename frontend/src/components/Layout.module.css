@@ -54,17 +54,22 @@
 
 .devBadge {
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 2px;
-  padding: 2px 8px;
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+  padding: 4px 14px;
   border-radius: 4px;
-  background: rgba(255, 45, 149, 0.15);
-  color: var(--neon-pink);
-  border: 1px solid var(--neon-pink);
-  text-shadow: var(--glow-pink);
-  box-shadow: 0 0 8px rgba(255, 45, 149, 0.3);
-  animation: pulseGlow 2s ease-in-out infinite;
+  background: rgba(255, 45, 149, 0.25);
+  color: #fff;
+  border: 2px solid var(--neon-pink);
+  text-shadow: 0 0 8px var(--neon-pink), 0 0 20px var(--neon-pink);
+  box-shadow: 0 0 12px rgba(255, 45, 149, 0.5), 0 0 30px rgba(255, 45, 149, 0.2);
+  animation: devPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes devPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 12px rgba(255, 45, 149, 0.5), 0 0 30px rgba(255, 45, 149, 0.2); }
+  50% { opacity: 0.8; box-shadow: 0 0 20px rgba(255, 45, 149, 0.7), 0 0 50px rgba(255, 45, 149, 0.3); }
 }
 
 .nav {
