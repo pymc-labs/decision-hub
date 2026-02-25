@@ -649,9 +649,6 @@ def _map_scan_result(
     grade = severity_to_grade(effective_severity)
     effective_safe = effective_severity not in ("CRITICAL", "HIGH")
 
-    if llm_retries > 0:
-        result_dict["llm_retries"] = llm_retries
-
     return BridgeScanResult(
         is_safe=effective_safe,
         max_severity=max_severity,
