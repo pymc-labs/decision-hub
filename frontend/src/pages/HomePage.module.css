@@ -191,6 +191,47 @@
   background: var(--border);
 }
 
+/* Differentiators — 3x2 grid */
+.differentiators {
+  margin: 0 0 56px;
+}
+
+.diffGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px 32px;
+}
+
+.diffItem {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.diffIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.diffTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+
+.diffDesc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
 /* Agent Section */
 .cliSection {
   max-width: 700px;
@@ -498,7 +539,8 @@
   }
 
   .skillGrid,
-  .examplesGrid {
+  .examplesGrid,
+  .diffGrid {
     grid-template-columns: 1fr;
   }
 

@@ -2,7 +2,8 @@ import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package
+  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package,
+  GitBranch, Lock, Globe, BarChart3
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -112,9 +113,9 @@ export default function HomePage() {
               </div>
               <h3 className={styles.valuePropTitle}>Proven, not promised</h3>
               <p className={styles.valuePropDesc}>
-                Every skill is tested in a sandbox before it's listed.
-                An LLM judge scores the output — you see exactly how well
-                it performs, not just that someone claims it works.
+                Every skill runs through automated evals before it's listed.
+                An LLM judge scores the output against real test cases — you
+                see exactly how well it performs, not just someone's README.
               </p>
             </div>
           </Card>
@@ -144,9 +145,10 @@ export default function HomePage() {
               </div>
               <h3 className={styles.valuePropTitle}>Your agent finds what it needs</h3>
               <p className={styles.valuePropDesc}>
-                Describe a capability in plain English. The registry
-                understands intent, not keywords — so your agent discovers,
-                evaluates, and installs without leaving the conversation.
+                Describe a capability in plain English. The semantic
+                search index understands intent, not keywords — so your
+                agent discovers, evaluates, and installs without leaving
+                the conversation.
               </p>
             </div>
           </Card>
@@ -173,6 +175,87 @@ export default function HomePage() {
         <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
           <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
           <span className={styles.statLabel}>Publishers</span>
+        </div>
+      </section>
+
+      {/* How it's different */}
+      <section className={styles.differentiators}>
+        <h2 className={styles.sectionTitle} style={{ justifyContent: "center", marginBottom: 24 }}>
+          Why Decision Hub
+        </h2>
+        <div className={styles.diffGrid}>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconBlue}`}>
+              <GitBranch size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Publish from GitHub</h4>
+              <p className={styles.diffDesc}>
+                Push to your repo, skills publish automatically. Every commit
+                syncs — no manual uploads.
+              </p>
+            </div>
+          </div>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconViolet}`}>
+              <Search size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Semantic search</h4>
+              <p className={styles.diffDesc}>
+                Embedding-based index, not keyword matching. Agents find skills
+                by describing what they need in plain English.
+              </p>
+            </div>
+          </div>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconGreen}`}>
+              <BarChart3 size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Automated evals</h4>
+              <p className={styles.diffDesc}>
+                Real test cases, sandboxed execution, LLM-judged results.
+                The eval score ships with every version.
+              </p>
+            </div>
+          </div>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconBlue}`}>
+              <Lock size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Private skills</h4>
+              <p className={styles.diffDesc}>
+                Not everything belongs in public. Publish skills scoped to
+                your org — visible only to your team.
+              </p>
+            </div>
+          </div>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconViolet}`}>
+              <Building2 size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Self-host for enterprise</h4>
+              <p className={styles.diffDesc}>
+                Run the full registry on your own infrastructure.
+                Open-source core, no vendor lock-in.
+              </p>
+            </div>
+          </div>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconGreen}`}>
+              <Globe size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Multi-marketplace</h4>
+              <p className={styles.diffDesc}>
+                Publish once, distribute everywhere. Automated syndication
+                to other skill registries is coming soon.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -322,7 +405,8 @@ Downloading anthropics/statistical-analysis@0.1.0...
           <h2 className={styles.bottomCtaTitle}>Your team's expertise, packaged for agents.</h2>
           <p className={styles.bottomCtaDesc}>
             Codify your best practices into skills. Private by default,
-            automatically evaluated, version-controlled.
+            automatically evaluated, version-controlled. Self-host it or
+            use our cloud — the code is open source.
           </p>
           <div className={styles.bottomCtaActions}>
             {SHOW_GITHUB_BUTTONS && (
