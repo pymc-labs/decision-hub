@@ -141,6 +141,7 @@ class BridgeScanResult:
     policy_fingerprint: str | None
     full_report: dict
     meta_analysis: dict | None
+    llm_retries: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +338,16 @@ def _llm_configured(settings: Any) -> bool:
     return bool(getattr(settings, "google_api_key", None))
 
 
+_LLM_RETRY_MAX = 2  # up to 2 retries (3 total attempts)
+_LLM_ERROR_SIGNALS = ("error", "exception", "failed", "traceback")
+
+
+def _has_llm_error_output(captured_stdout: str) -> bool:
+    """Return True if captured stdout contains LLM error signals."""
+    lower = captured_stdout.lower()
+    return any(s in lower for s in _LLM_ERROR_SIGNALS)
+
+
 def _check_llm_degradation(
     result: BridgeScanResult, *, llm_expected: bool, captured_stdout: str = ""
 ) -> BridgeScanResult:
@@ -354,9 +365,7 @@ def _check_llm_degradation(
     if not llm_expected:
         return result
 
-    _ERROR_SIGNALS = ("error", "exception", "failed", "traceback")
-    has_error_output = any(s in captured_stdout.lower() for s in _ERROR_SIGNALS)
-    if not has_error_output:
+    if not _has_llm_error_output(captured_stdout):
         return result
 
     logger.warning(
@@ -406,8 +415,8 @@ def _check_llm_degradation(
     )
 
 
-def _capture_stdout_during(fn: Any) -> tuple[Any, str]:
-    """Run *fn()* while capturing anything the scanner ``print()``s.
+def _capture_stdout_during(fn: Any, *args: Any) -> tuple[Any, str]:
+    """Run *fn(*args)* while capturing anything the scanner ``print()``s.
 
     WARNING: Replaces sys.stdout globally — NOT thread-safe.
     Safe only in single-request Modal containers.
@@ -416,7 +425,7 @@ def _capture_stdout_during(fn: Any) -> tuple[Any, str]:
     old = sys.stdout
     try:
         sys.stdout = buf
-        return fn(), buf.getvalue()
+        return fn(*args), buf.getvalue()
     finally:
         sys.stdout = old
 
@@ -441,29 +450,37 @@ def scan_skill_dir(skill_dir: Path, settings: Any) -> BridgeScanResult:
     Returns a BridgeScanResult with all fields populated.
     Wraps scanner errors so callers get a failing BridgeScanResult
     instead of an unhandled exception from the third-party library.
+
+    Retries up to ``_LLM_RETRY_MAX`` times when the LLM analyzer
+    fails to produce valid output (truncated JSON from Gemini).
     """
     start = time.monotonic()
     llm_expected = _llm_configured(settings)
 
-    try:
-        scanner = _build_scanner(settings)
-        result, stdout = _capture_stdout_during(lambda: scanner.scan_skill(skill_dir))
-    except (ImportError, MemoryError):
-        raise
-    except Exception:
-        # Third-party scanner internals — fail-closed
-        logger.opt(exception=True).error("skill-scanner crashed on {}", skill_dir)
-        return _error_scan_result(int((time.monotonic() - start) * 1000))
+    for attempt in range(_LLM_RETRY_MAX + 1):
+        try:
+            scanner = _build_scanner(settings)
+            result, stdout = _capture_stdout_during(scanner.scan_skill, skill_dir)
+        except (ImportError, MemoryError):
+            raise
+        except Exception:
+            logger.opt(exception=True).error("skill-scanner crashed on {}", skill_dir)
+            return _error_scan_result(int((time.monotonic() - start) * 1000))
 
-    if stdout:
-        logger.info("skill-scanner stdout on {}: {}", skill_dir, stdout[:500])
+        if stdout:
+            logger.info("skill-scanner stdout on {}: {}", skill_dir, stdout[:500])
 
-    meta_dict, _, meta_error = _run_meta_analysis(result, skill_dir, settings)
-    if meta_error is not None:
-        logger.opt(exception=meta_error).error("Meta-analysis failed on {} — using scan results as-is", skill_dir)
+        if llm_expected and _has_llm_error_output(stdout) and attempt < _LLM_RETRY_MAX:
+            logger.warning("LLM degradation on attempt {}/{}, retrying", attempt + 1, _LLM_RETRY_MAX + 1)
+            continue
+
+        meta_dict, _, meta_error = _run_meta_analysis(result, skill_dir, settings)
+        if meta_error is not None:
+            logger.opt(exception=meta_error).error("Meta-analysis failed on {} — using scan results as-is", skill_dir)
+        break
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict)
+    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict, llm_retries=attempt)
     _log_scan_complete(bridge_result, result.is_safe)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
@@ -474,6 +491,9 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
     Returns a BridgeScanResult with all fields populated.
     Wraps scanner errors so callers get a failing BridgeScanResult
     instead of an unhandled exception from the third-party library.
+
+    Retries up to ``_LLM_RETRY_MAX`` times when the LLM analyzer
+    fails to produce valid output (truncated JSON from Gemini).
     """
     start = time.monotonic()
     llm_expected = _llm_configured(settings)
@@ -483,24 +503,30 @@ def scan_skill_zip(zip_bytes: bytes, settings: Any) -> BridgeScanResult:
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
                 _safe_extract_zip(zf, tmp)
             skill_dir = _find_skill_root(Path(tmp))
-            scanner = _build_scanner(settings)
-            result, stdout = _capture_stdout_during(lambda: scanner.scan_skill(skill_dir))
 
-            if stdout:
-                logger.info("skill-scanner stdout on zip: {}", stdout[:500])
+            for attempt in range(_LLM_RETRY_MAX + 1):
+                scanner = _build_scanner(settings)
+                result, stdout = _capture_stdout_during(scanner.scan_skill, skill_dir)
 
-            meta_dict, _, meta_error = _run_meta_analysis(result, skill_dir, settings)
-            if meta_error is not None:
-                logger.opt(exception=meta_error).error("Meta-analysis failed on zip — using scan results as-is")
+                if stdout:
+                    logger.info("skill-scanner stdout on zip: {}", stdout[:500])
+
+                if llm_expected and _has_llm_error_output(stdout) and attempt < _LLM_RETRY_MAX:
+                    logger.warning("LLM degradation on attempt {}/{}, retrying", attempt + 1, _LLM_RETRY_MAX + 1)
+                    continue
+
+                meta_dict, _, meta_error = _run_meta_analysis(result, skill_dir, settings)
+                if meta_error is not None:
+                    logger.opt(exception=meta_error).error("Meta-analysis failed on zip — using scan results as-is")
+                break
     except (ImportError, MemoryError, zipfile.BadZipFile, ValueError):
         raise
     except Exception:
-        # Third-party scanner internals — fail-closed
         logger.opt(exception=True).error("skill-scanner crashed on zip input")
         return _error_scan_result(int((time.monotonic() - start) * 1000))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict)
+    bridge_result = _map_scan_result(result, elapsed_ms, meta_analysis_override=meta_dict, llm_retries=attempt)
     _log_scan_complete(bridge_result, result.is_safe)
     return _check_llm_degradation(bridge_result, llm_expected=llm_expected, captured_stdout=stdout)
 
@@ -543,7 +569,9 @@ def _error_scan_result(elapsed_ms: int) -> BridgeScanResult:
     )
 
 
-def _map_scan_result(result: Any, elapsed_ms: int, *, meta_analysis_override: dict | None = None) -> BridgeScanResult:
+def _map_scan_result(
+    result: Any, elapsed_ms: int, *, meta_analysis_override: dict | None = None, llm_retries: int = 0
+) -> BridgeScanResult:
     """Convert a skill-scanner ScanResult to a BridgeScanResult."""
     result_dict = result.to_dict()
 
@@ -588,6 +616,9 @@ def _map_scan_result(result: Any, elapsed_ms: int, *, meta_analysis_override: di
     grade = severity_to_grade(effective_severity)
     effective_safe = effective_severity not in ("CRITICAL", "HIGH")
 
+    if llm_retries > 0:
+        result_dict["llm_retries"] = llm_retries
+
     return BridgeScanResult(
         is_safe=effective_safe,
         max_severity=max_severity,
@@ -601,4 +632,5 @@ def _map_scan_result(result: Any, elapsed_ms: int, *, meta_analysis_override: di
         policy_fingerprint=scan_metadata.get("policy_fingerprint"),
         full_report=result_dict,
         meta_analysis=meta_analysis,
+        llm_retries=llm_retries,
     )
