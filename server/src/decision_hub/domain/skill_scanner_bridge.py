@@ -228,7 +228,7 @@ def _build_analyzers(settings: Any) -> list[Any]:
     ]
 
     if api_key:
-        analyzers.append(LLMAnalyzer(model=model, api_key=api_key))
+        analyzers.append(LLMAnalyzer(model=model, api_key=api_key, max_tokens=32768))
 
     return analyzers
 
@@ -277,7 +277,7 @@ def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dic
     litellm_model = f"gemini/{model}"
 
     try:
-        meta = MetaAnalyzer(model=litellm_model, api_key=api_key)
+        meta = MetaAnalyzer(model=litellm_model, api_key=api_key, max_tokens=32768)
         skill = SkillLoader().load_skill(skill_dir)
 
         meta_result, _stdout = _capture_stdout_during(

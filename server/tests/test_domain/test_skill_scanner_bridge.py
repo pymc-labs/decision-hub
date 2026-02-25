@@ -516,7 +516,7 @@ class TestRunMetaAnalysis:
         ):
             MockMeta.return_value = MagicMock()
             _run_meta_analysis(result, tmp_path, settings)
-            MockMeta.assert_called_once_with(model="gemini/gemini-3-flash-preview", api_key="fake-key")
+            MockMeta.assert_called_once_with(model="gemini/gemini-3-flash-preview", api_key="fake-key", max_tokens=32768)
 
 
 class TestCheckLlmDegradation:
