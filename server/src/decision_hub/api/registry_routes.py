@@ -299,6 +299,7 @@ class ScanReportSummaryResponse(BaseModel):
     scanner_model: str | None = None
     scanner_version: str | None = None
     llm_retries: int | None = None
+    batch_id: str | None = None
     created_at: str | None
     findings: list[ScanFindingResponse]
     findings_total: int
@@ -947,6 +948,7 @@ def get_scan_report(
         scanner_model=report.scanner_model,
         scanner_version=report.scanner_version,
         llm_retries=report.llm_retries,
+        batch_id=str(report.batch_id) if report.batch_id else None,
         created_at=report.created_at.isoformat() if report.created_at else None,
         findings=[
             ScanFindingResponse(

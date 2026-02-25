@@ -358,5 +358,6 @@ class ScanReport:
     scanner_model: str | None = None
     scanner_version: str | None = None
     llm_retries: int | None = None
+    batch_id: UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

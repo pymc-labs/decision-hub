@@ -17,6 +17,7 @@ Usage:
 import argparse
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from loguru import logger
@@ -122,7 +123,7 @@ def _count_skills_needing_scan(engine) -> int:
         return conn.execute(stmt).scalar() or 0
 
 
-def _scan_one(s3_client, bucket, settings, engine, *, version_id, s3_key, semver, org_slug, skill_name):
+def _scan_one(s3_client, bucket, settings, engine, *, version_id, s3_key, semver, org_slug, skill_name, batch_id: UUID):
     """Download, scan, and store result for a single skill version."""
     zip_bytes = download_skill_zip(s3_client, bucket, s3_key)
     scan_result = scan_skill_zip(zip_bytes, settings)
@@ -135,6 +136,7 @@ def _scan_one(s3_client, bucket, settings, engine, *, version_id, s3_key, semver
             semver=semver,
             publisher="backfill",
             version_id=version_id,
+            batch_id=batch_id,
         )
         conn.commit()
     return org_slug, skill_name, scan_result.grade
@@ -163,6 +165,9 @@ def main() -> None:
     if args.dry_run:
         logger.info("Dry run — exiting")
         return
+
+    batch_id = uuid4()
+    logger.info("Batch ID: {}", batch_id)
 
     if total_needed == 0:
         logger.info("Nothing to backfill")
@@ -202,6 +207,7 @@ def main() -> None:
                     semver=row.semver,
                     org_slug=row.org_slug,
                     skill_name=row.skill_name,
+                    batch_id=batch_id,
                 )
                 futures[future] = f"{row.org_slug}/{row.skill_name}@{row.semver}"
 

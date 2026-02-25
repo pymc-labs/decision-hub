@@ -131,6 +131,7 @@ def store_scan_result(
     publisher: str,
     version_id: UUID | None = None,
     quarantine_s3_key: str | None = None,
+    batch_id: UUID | None = None,
 ) -> None:
     """Persist a scan result to scan_reports + scan_findings tables."""
     vid = UUID(str(version_id)) if version_id is not None else None
@@ -157,6 +158,7 @@ def store_scan_result(
         scanner_model=scan_result.scanner_model,
         scanner_version=scan_result.scanner_version,
         llm_retries=scan_result.llm_retries,
+        batch_id=batch_id,
     )
     insert_scan_findings(conn, report.id, scan_result.findings)
 

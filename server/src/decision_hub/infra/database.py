@@ -544,6 +544,7 @@ scan_reports_table = Table(
     Column("scanner_model", Text, nullable=True),
     Column("scanner_version", Text, nullable=True),
     Column("llm_retries", sa.Integer, nullable=True),
+    Column("batch_id", PG_UUID(as_uuid=True), nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -2834,6 +2835,7 @@ def _row_to_scan_report(row: sa.Row) -> ScanReport:
         scanner_model=row.scanner_model,
         scanner_version=row.scanner_version,
         llm_retries=row.llm_retries,
+        batch_id=row.batch_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -2883,6 +2885,7 @@ def insert_scan_report(
     scanner_model: str | None = None,
     scanner_version: str | None = None,
     llm_retries: int | None = None,
+    batch_id: UUID | None = None,
 ) -> ScanReport:
     """Insert a scan report and return the created row."""
     values: dict[str, Any] = {
@@ -2918,6 +2921,8 @@ def insert_scan_report(
         values["scanner_version"] = scanner_version
     if llm_retries is not None:
         values["llm_retries"] = llm_retries
+    if batch_id is not None:
+        values["batch_id"] = batch_id
 
     stmt = sa.insert(scan_reports_table).values(**values).returning(*scan_reports_table.c)
     row = conn.execute(stmt).one()
