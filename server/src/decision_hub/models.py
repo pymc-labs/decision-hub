@@ -236,21 +236,6 @@ class GauntletReport:
 
 
 @dataclass(frozen=True)
-class AuditLogEntry:
-    id: UUID
-    org_slug: str
-    skill_name: str
-    semver: str
-    grade: str
-    version_id: UUID | None
-    check_results: list[dict]
-    llm_reasoning: dict | None
-    publisher: str
-    quarantine_s3_key: str | None = None
-    created_at: datetime | None = None
-
-
-@dataclass(frozen=True)
 class SkillTracker:
     """Tracks a GitHub repo for automatic skill republishing."""
 
@@ -318,3 +303,61 @@ class SkillIndexEntry:
     category: str = ""
     download_count: int = 0
     source_repo_url: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Scan report models (skill-scanner integration)
+# ---------------------------------------------------------------------------
+
+ScanSeverity = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "SAFE"]
+
+
+@dataclass(frozen=True)
+class ScanFinding:
+    """A single finding from a skill-scanner scan."""
+
+    id: UUID
+    report_id: UUID
+    rule_id: str
+    category: str
+    severity: ScanSeverity
+    title: str
+    description: str | None = None
+    file_path: str | None = None
+    line_number: int | None = None
+    snippet: str | None = None
+    remediation: str | None = None
+    analyzer: str | None = None
+    aitech_code: str | None = None
+    metadata: dict | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ScanReport:
+    """Top-level scan result from skill-scanner."""
+
+    id: UUID
+    version_id: UUID | None
+    org_slug: str
+    skill_name: str
+    semver: str
+    is_safe: bool
+    max_severity: str
+    grade: SafetyGrade
+    findings_count: int
+    analyzers_used: list[str]
+    analyzability_score: float | None = None
+    scan_duration_ms: int | None = None
+    policy_name: str | None = None
+    policy_fingerprint: str | None = None
+    full_report: dict | None = None
+    meta_analysis: dict | None = None
+    publisher: str = ""
+    quarantine_s3_key: str | None = None
+    scanner_model: str | None = None
+    scanner_version: str | None = None
+    llm_retries: int | None = None
+    batch_id: UUID | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

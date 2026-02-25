@@ -81,8 +81,12 @@ export interface AuditLogEntry {
   semver: string;
   grade: string;
   version_id: string | null;
-  check_results: Record<string, unknown>[];
-  llm_reasoning: Record<string, unknown> | null;
+  is_safe: boolean;
+  max_severity: string;
+  findings_count: number;
+  analyzers_used: string[];
+  analyzability_score: number | null;
+  scan_duration_ms: number | null;
   publisher: string;
   quarantine_s3_key: string | null;
   created_at: string | null;

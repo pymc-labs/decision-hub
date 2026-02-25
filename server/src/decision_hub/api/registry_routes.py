@@ -23,9 +23,10 @@ from decision_hub.api.registry_service import (
     classify_skill_category,
     maybe_trigger_agent_assessment,
     parse_manifest_from_content,
-    quarantine_rejected_skill,
+    quarantine_unsafe_skill,
     require_org_membership,
-    run_gauntlet_pipeline,
+    run_scan_pipeline,
+    store_scan_result,
 )
 from decision_hub.domain.publish import (
     build_s3_key,
@@ -42,17 +43,18 @@ from decision_hub.infra.database import (
     fetch_all_skills_for_index,
     fetch_registry_stats,
     find_active_eval_runs_for_user,
-    find_audit_logs,
     find_eval_report_by_skill,
     find_eval_run,
     find_eval_runs_for_version,
+    find_latest_scan_report,
     find_org_by_slug,
+    find_scan_findings_for_report,
+    find_scan_reports,
     find_skill,
     find_skill_by_slug,
     find_version,
     has_active_tracker_for_repo,
     increment_skill_downloads,
-    insert_audit_log,
     insert_skill,
     insert_skill_access_grant,
     insert_version,
@@ -232,7 +234,7 @@ class PaginatedSkillsResponse(BaseModel):
 
 
 class AuditLogResponse(BaseModel):
-    """A single audit log entry."""
+    """A single audit log entry (backed by scan_reports)."""
 
     id: str
     org_slug: str
@@ -240,8 +242,12 @@ class AuditLogResponse(BaseModel):
     semver: str
     grade: str
     version_id: str | None
-    check_results: list[dict]
-    llm_reasoning: dict | None
+    is_safe: bool
+    max_severity: str
+    findings_count: int
+    analyzers_used: list[str]
+    analyzability_score: float | None
+    scan_duration_ms: int | None
     publisher: str
     quarantine_s3_key: str | None
     created_at: str | None
@@ -255,6 +261,55 @@ class PaginatedAuditLogResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class ScanFindingResponse(BaseModel):
+    """A single scan finding."""
+
+    rule_id: str
+    category: str
+    severity: str
+    title: str
+    description: str | None
+    file_path: str | None
+    line_number: int | None
+    snippet: str | None
+    remediation: str | None
+    analyzer: str | None
+    aitech_code: str | None
+    meta_false_positive: bool | None = None
+    meta_confidence: str | None = None
+    meta_reason: str | None = None
+
+
+class ScanReportSummaryResponse(BaseModel):
+    """Scan report summary with paginated findings."""
+
+    id: str
+    org_slug: str
+    skill_name: str
+    semver: str
+    grade: str
+    is_safe: bool
+    max_severity: str
+    findings_count: int
+    analyzers_used: list[str]
+    analyzability_score: float | None
+    scan_duration_ms: int | None
+    scanner_model: str | None = None
+    scanner_version: str | None = None
+    llm_retries: int | None = None
+    batch_id: str | None = None
+    created_at: str | None
+    findings: list[ScanFindingResponse]
+    findings_total: int
+    findings_page: int
+    findings_page_size: int
+    meta_risk_level: str | None = None
+    meta_verdict: str | None = None
+    meta_verdict_reasoning: str | None = None
+    meta_validated_count: int | None = None
+    meta_false_positive_count: int | None = None
 
 
 class EvalCaseResultResponse(BaseModel):
@@ -411,12 +466,12 @@ def publish_skill(
     checksum = compute_checksum(file_bytes)
 
     try:
-        skill_md_content, source_files, lockfile_content = extract_for_evaluation(file_bytes)
+        skill_md_content, _source_files, _lockfile_content = extract_for_evaluation(file_bytes)
     except ValueError as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
+    runtime_config_dict, eval_config, eval_cases, _allowed_tools = parse_manifest_from_content(
         skill_md_content,
         file_bytes,
     )
@@ -424,40 +479,42 @@ def publish_skill(
     description = extract_description(skill_md_content)
     skill_md_body = extract_body(skill_md_content)
 
-    report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        skill_name,
-        description,
-        skill_md_body,
-        settings,
-        allowed_tools=allowed_tools,
-    )
+    scan_result = run_scan_pipeline(file_bytes, settings)
     logger.info(
-        "Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed
+        "Scan result for {}/{} v{}: grade={} safe={}",
+        org_slug,
+        skill_name,
+        version,
+        scan_result.grade,
+        scan_result.is_safe,
     )
 
-    if not report.passed:
-        quarantine_rejected_skill(
+    if not scan_result.is_safe:
+        quarantine_unsafe_skill(
             conn,
             s3_client,
             settings.s3_bucket,
             file_bytes,
+            scan_result,
             org_slug=org_slug,
             skill_name=skill_name,
             version=version,
-            report=report,
-            check_results=check_results_dicts,
-            llm_reasoning=llm_reasoning,
             publisher=current_user.username,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Safety scan rejected: grade={scan_result.grade} "
+                f"max_severity={scan_result.max_severity}, "
+                f"{scan_result.findings_count} finding(s)"
+            ),
         )
 
     # Classify the skill after gauntlet passes (non-critical, graceful fallback)
     category = classify_skill_category(skill_name, description, skill_md_body, settings)
 
     # Upsert skill record (find or create), then check for duplicate version
-    eval_status = report.grade
+    eval_status = scan_result.grade
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
         skill = insert_skill(
@@ -507,16 +564,14 @@ def publish_skill(
             detail=f"Version {version} already exists for {org_slug}/{skill_name}",
         ) from None
 
-    insert_audit_log(
+    store_scan_result(
         conn,
+        scan_result,
         org_slug=org_slug,
         skill_name=skill_name,
         semver=version,
-        grade=report.grade,
-        check_results=check_results_dicts,
         publisher=current_user.username,
         version_id=version_record.id,
-        llm_reasoning=llm_reasoning,
     )
 
     # Commit now so the version row is visible to the background eval thread.
@@ -794,29 +849,33 @@ def get_audit_log(
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedAuditLogResponse:
-    """Return evaluation audit log history for a skill."""
+    """Return scan report history for a skill."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     offset = (page - 1) * page_size
-    entries, total = find_audit_logs(conn, org_slug, skill_name, semver=semver, limit=page_size, offset=offset)
+    reports, total = find_scan_reports(conn, org_slug, skill_name, semver=semver, limit=page_size, offset=offset)
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     items = [
         AuditLogResponse(
-            id=str(entry.id),
-            org_slug=entry.org_slug,
-            skill_name=entry.skill_name,
-            semver=entry.semver,
-            grade=entry.grade,
-            version_id=str(entry.version_id) if entry.version_id else None,
-            check_results=entry.check_results,
-            llm_reasoning=entry.llm_reasoning,
-            publisher=entry.publisher,
-            quarantine_s3_key=entry.quarantine_s3_key,
-            created_at=entry.created_at.isoformat() if entry.created_at else None,
+            id=str(report.id),
+            org_slug=report.org_slug,
+            skill_name=report.skill_name,
+            semver=report.semver,
+            grade=report.grade,
+            version_id=str(report.version_id) if report.version_id else None,
+            is_safe=report.is_safe,
+            max_severity=report.max_severity,
+            findings_count=report.findings_count,
+            analyzers_used=report.analyzers_used,
+            analyzability_score=report.analyzability_score,
+            scan_duration_ms=report.scan_duration_ms,
+            publisher=report.publisher,
+            quarantine_s3_key=report.quarantine_s3_key,
+            created_at=report.created_at.isoformat() if report.created_at else None,
         )
-        for entry in entries
+        for report in reports
     ]
     return PaginatedAuditLogResponse(
         items=items,
@@ -824,6 +883,148 @@ def get_audit_log(
         page=page,
         page_size=page_size,
         total_pages=total_pages,
+    )
+
+
+def _enforce_scan_report_rate_limit(request: Request) -> None:
+    """Rate-limit the scan report endpoints."""
+    state = request.app.state
+    if not hasattr(state, "_scan_report_rate_limiter"):
+        settings: Settings = state.settings
+        state._scan_report_rate_limiter = RateLimiter(
+            max_requests=settings.scan_report_rate_limit,
+            window_seconds=settings.scan_report_rate_window,
+        )
+    state._scan_report_rate_limiter(request)
+
+
+@public_router.get(
+    "/skills/{org_slug}/{skill_name}/scan-report",
+    response_model=ScanReportSummaryResponse | None,
+    dependencies=[Depends(_enforce_scan_report_rate_limit)],
+)
+def get_scan_report(
+    org_slug: str,
+    skill_name: str,
+    semver: str | None = Query(None, max_length=50),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> ScanReportSummaryResponse | None:
+    """Return the latest scan report for a skill with paginated findings."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+
+    report = find_latest_scan_report(conn, org_slug, skill_name, semver=semver)
+    if report is None:
+        return None
+
+    offset = (page - 1) * page_size
+    findings, findings_total = find_scan_findings_for_report(conn, report.id, limit=page_size, offset=offset)
+
+    ma = report.meta_analysis or {}
+    risk = ma.get("overall_risk_assessment", {})
+    if not isinstance(risk, dict):
+        risk = {}
+    summary = ma.get("summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+
+    return ScanReportSummaryResponse(
+        id=str(report.id),
+        org_slug=report.org_slug,
+        skill_name=report.skill_name,
+        semver=report.semver,
+        grade=report.grade,
+        is_safe=report.is_safe,
+        max_severity=report.max_severity,
+        findings_count=report.findings_count,
+        analyzers_used=report.analyzers_used,
+        analyzability_score=report.analyzability_score,
+        scan_duration_ms=report.scan_duration_ms,
+        scanner_model=report.scanner_model,
+        scanner_version=report.scanner_version,
+        llm_retries=report.llm_retries,
+        batch_id=str(report.batch_id) if report.batch_id else None,
+        created_at=report.created_at.isoformat() if report.created_at else None,
+        findings=[
+            ScanFindingResponse(
+                rule_id=f.rule_id,
+                category=f.category,
+                severity=f.severity,
+                title=f.title,
+                description=f.description,
+                file_path=f.file_path,
+                line_number=f.line_number,
+                snippet=f.snippet,
+                remediation=f.remediation,
+                analyzer=f.analyzer,
+                aitech_code=f.aitech_code,
+                meta_false_positive=(f.metadata or {}).get("meta_false_positive"),
+                meta_confidence=(f.metadata or {}).get("meta_confidence"),
+                meta_reason=(f.metadata or {}).get("meta_reason") or (f.metadata or {}).get("meta_confidence_reason"),
+            )
+            for f in findings
+        ],
+        findings_total=findings_total,
+        findings_page=page,
+        findings_page_size=page_size,
+        meta_risk_level=risk.get("risk_level"),
+        meta_verdict=risk.get("skill_verdict"),
+        meta_verdict_reasoning=risk.get("verdict_reasoning"),
+        meta_validated_count=summary.get("validated_count"),
+        meta_false_positive_count=summary.get("false_positive_count"),
+    )
+
+
+@public_router.get(
+    "/skills/{org_slug}/{skill_name}/scan-report/download",
+    dependencies=[Depends(_enforce_scan_report_rate_limit)],
+)
+def download_scan_report(
+    org_slug: str,
+    skill_name: str,
+    semver: str | None = Query(None, max_length=50),
+    conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> Response:
+    """Download the full scan report as a JSON file."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+
+    report = find_latest_scan_report(conn, org_slug, skill_name, semver=semver)
+    if report is None:
+        raise HTTPException(status_code=404, detail="No scan report found")
+
+    download_body: dict = {
+        "org_slug": report.org_slug,
+        "skill_name": report.skill_name,
+        "semver": report.semver,
+        "scanned_at": report.created_at.isoformat() if report.created_at else None,
+        "grade": report.grade,
+        "is_safe": report.is_safe,
+        "max_severity": report.max_severity,
+        "findings_count": report.findings_count,
+        "analyzers_used": report.analyzers_used,
+        "analyzability_score": report.analyzability_score,
+        "scan_duration_ms": report.scan_duration_ms,
+    }
+    if report.full_report:
+        download_body["findings"] = report.full_report.get("findings", [])
+        download_body["scan_metadata"] = report.full_report.get("scan_metadata", {})
+    if report.meta_analysis:
+        download_body["meta_analysis"] = report.meta_analysis
+
+    filename = f"{org_slug}_{skill_name}_{report.semver}_scan_report.json"
+    return Response(
+        content=json.dumps(download_body, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

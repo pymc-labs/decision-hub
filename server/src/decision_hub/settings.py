@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Sprint 4: Gemini Search
     google_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3-flash-preview"
 
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     download_rate_window: int = 60  # window in seconds
     audit_log_rate_limit: int = 30  # max requests per window
     audit_log_rate_window: int = 60  # window in seconds
+    scan_report_rate_limit: int = 30  # max requests per window
+    scan_report_rate_window: int = 60  # window in seconds
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

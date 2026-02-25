@@ -23,7 +23,7 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
     parse_semver,
 )
-from decision_hub.domain.skill_manifest import extract_body, extract_description
+from decision_hub.domain.skill_manifest import extract_description
 from decision_hub.domain.tracker import has_new_commits, parse_github_repo_url
 from decision_hub.models import SkillTracker, TrackerBatchResult
 from decision_hub.settings import Settings
@@ -616,23 +616,24 @@ def _publish_skill_from_tracker(
 ) -> bool:
     """Publish a single skill directory through the full pipeline.
 
-    Mirrors the publish endpoint logic: zip -> extract -> gauntlet -> upload -> record.
+    Mirrors the publish endpoint logic: scan -> upload -> record.
     Skips republish if the zip checksum hasn't changed from the latest version.
 
     Returns True if a new version was actually published to S3,
-    False if skipped (no content changes) or rejected by the gauntlet.
+    False if skipped (no content changes) or rejected by the scanner.
     """
     from decision_hub.api.registry_service import (
         maybe_trigger_agent_assessment,
         parse_manifest_from_content,
-        quarantine_and_log_rejection,
-        run_gauntlet_pipeline,
+        quarantine_unsafe_skill,
+        run_scan_pipeline_dir,
+        store_scan_result,
     )
+    from decision_hub.domain.skill_manifest import parse_skill_md
     from decision_hub.infra.database import (
         find_org_by_slug,
         find_skill,
         find_version,
-        insert_audit_log,
         insert_skill,
         insert_version,
         resolve_latest_version,
@@ -640,10 +641,7 @@ def _publish_skill_from_tracker(
     )
     from decision_hub.infra.storage import compute_checksum, upload_skill_zip
 
-    skill_md_path = skill_dir / "SKILL.md"
-    from decision_hub.domain.skill_manifest import parse_skill_md
-
-    manifest = parse_skill_md(skill_md_path)
+    manifest = parse_skill_md(skill_dir / "SKILL.md")
     skill_name = manifest.name
 
     validate_skill_name(skill_name)
@@ -656,7 +654,6 @@ def _publish_skill_from_tracker(
         if org is None:
             raise ValueError(f"Organization '{org_slug}' not found")
 
-        # Check if latest version already has the same checksum (no changes)
         latest = resolve_latest_version(conn, org_slug, skill_name)
         if latest is not None and latest.checksum == checksum:
             logger.info(
@@ -664,7 +661,6 @@ def _publish_skill_from_tracker(
             )
             return False
 
-        # Determine version: prefer manifest version_hint if present and higher
         manifest_version = manifest.runtime.version_hint if manifest.runtime else None
         if latest is None:
             version = manifest_version or "0.1.0"
@@ -673,69 +669,53 @@ def _publish_skill_from_tracker(
         else:
             version = bump_version(latest.semver)
 
-        # Extract evaluation files and parse manifest
-        skill_md_content, source_files, lockfile_content = extract_for_evaluation(zip_data)
-        runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
-            skill_md_content,
-            zip_data,
-        )
-        description = extract_description(skill_md_content)
-        skill_md_body = extract_body(skill_md_content)
+        scan_result = run_scan_pipeline_dir(skill_dir, settings)
 
-        # Run gauntlet security checks
-        report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
-            skill_md_content,
-            lockfile_content,
-            source_files,
-            skill_name,
-            description,
-            skill_md_body,
-            settings,
-            allowed_tools=allowed_tools,
-        )
-
-        if not report.passed:
+        if not scan_result.is_safe:
             logger.warning(
-                "tracker_id={} repo={} skill={}/{}@{} status=rejected grade={}",
+                "tracker_id={} repo={} skill={}/{}@{} status=rejected grade={} safe={}",
                 tracker.id,
                 tracker.repo_url,
                 org_slug,
                 skill_name,
                 version,
-                report.grade,
+                scan_result.grade,
+                scan_result.is_safe,
             )
-            quarantine_and_log_rejection(
+            quarantine_unsafe_skill(
                 conn,
                 s3_client,
                 settings.s3_bucket,
                 zip_data,
+                scan_result,
                 org_slug=org_slug,
                 skill_name=skill_name,
                 version=version,
-                report=report,
-                check_results=check_results_dicts,
-                llm_reasoning=llm_reasoning,
                 publisher=f"tracker:{tracker.id}",
             )
             return False
 
-        # Upsert skill record
+        # Extract evaluation files and parse manifest (for eval trigger only)
+        skill_md_content, _source_files, _lockfile_content = extract_for_evaluation(zip_data)
+        runtime_config_dict, eval_config, eval_cases, _allowed_tools = parse_manifest_from_content(
+            skill_md_content,
+            zip_data,
+        )
+        description = extract_description(skill_md_content)
+
         skill = find_skill(conn, org.id, skill_name)
         if skill is None:
             skill = insert_skill(conn, org.id, skill_name, description)
         else:
             update_skill_description(conn, skill.id, description)
 
-        # Generate embedding (fail-open: never blocks publish)
         from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 
         generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, "", description, settings)
 
-        # Check duplicate version
         if find_version(conn, skill.id, version) is not None:
             version = bump_version(version)
 
-        # Upload to S3 and create version record
         s3_key = build_s3_key(org_slug, skill_name, version)
         upload_skill_zip(s3_client, settings.s3_bucket, s3_key, zip_data)
 
@@ -747,19 +727,17 @@ def _publish_skill_from_tracker(
             checksum=checksum,
             runtime_config=runtime_config_dict,
             published_by=f"tracker:{tracker.id}",
-            eval_status=report.grade,
+            eval_status=scan_result.grade,
         )
 
-        insert_audit_log(
+        store_scan_result(
             conn,
+            scan_result,
             org_slug=org_slug,
             skill_name=skill_name,
             semver=version,
-            grade=report.grade,
-            check_results=check_results_dicts,
             publisher=f"tracker:{tracker.id}",
             version_id=version_record.id,
-            llm_reasoning=llm_reasoning,
         )
 
         conn.commit()
@@ -795,7 +773,7 @@ def _publish_skill_from_tracker(
         org_slug,
         skill_name,
         version,
-        report.grade,
+        scan_result.grade,
     )
     return True
 

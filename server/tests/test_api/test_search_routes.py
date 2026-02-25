@@ -64,7 +64,7 @@ def search_settings() -> MagicMock:
     """Mocked Settings with google_api_key and gemini_model configured."""
     settings = MagicMock()
     settings.google_api_key = "test-google-api-key"
-    settings.gemini_model = "gemini-pro"
+    settings.gemini_model = "gemini-3-flash-preview"
     settings.s3_bucket = "test-bucket"
     settings.search_rate_limit = 100
     settings.search_rate_window = 60

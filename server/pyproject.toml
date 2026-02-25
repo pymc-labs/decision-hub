@@ -24,6 +24,12 @@ dependencies = [
     "loguru>=0.7.0",
     "pgvector>=0.3.0",
     "PyJWT[crypto]>=2.8.0",
+    # Pinned: we monkey-patch LLMRequestHandler._sanitize_schema_for_google
+    # to fix Gemini union-type schema incompatibility (our issue #187).
+    # Upstream fix: https://github.com/cisco-ai-defense/skill-scanner/pull/39
+    # When a release includes that PR, unpin and remove the patch in
+    # skill_scanner_bridge.py (_patch_gemini_schema_sanitizer).
+    "cisco-ai-skill-scanner==1.0.2",
     "dhub-core",
 ]
 

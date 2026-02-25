@@ -22,6 +22,7 @@ import {
   getEvalReport,
   getAuditLog,
   downloadSkillZip,
+  API_BASE,
 } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
@@ -401,6 +402,265 @@ function FilesTab({
   return <FileBrowser files={files} />;
 }
 
+const SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: "var(--neon-pink)",
+  HIGH: "var(--neon-orange)",
+  MEDIUM: "#e8c547",
+  LOW: "var(--neon-cyan)",
+  INFO: "var(--text-muted)",
+};
+
+interface ScanFinding {
+  rule_id: string;
+  category: string;
+  severity: string;
+  title: string;
+  description: string | null;
+  file_path: string | null;
+  line_number: number | null;
+  snippet: string | null;
+  remediation: string | null;
+  analyzer: string | null;
+  aitech_code: string | null;
+  meta_false_positive: boolean | null;
+  meta_confidence: string | null;
+  meta_reason: string | null;
+}
+
+interface ScanReportDetail {
+  grade: string;
+  is_safe: boolean;
+  max_severity: string;
+  findings_count: number;
+  analyzers_used: string[];
+  analyzability_score: number | null;
+  findings: ScanFinding[];
+  findings_total: number;
+  meta_risk_level: string | null;
+  meta_verdict: string | null;
+  meta_verdict_reasoning: string | null;
+  meta_validated_count: number | null;
+  meta_false_positive_count: number | null;
+}
+
+function ScanSummary({ entry }: { entry: AuditLogEntry }) {
+  const [report, setReport] = useState<ScanReportDetail | null>(null);
+  const [fullJson, setFullJson] = useState<string | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
+  const [reportFetched, setReportFetched] = useState(false);
+
+  const reportApiPath = `/v1/skills/${encodeURIComponent(entry.org_slug)}/${encodeURIComponent(entry.skill_name)}/scan-report`;
+  const semverParam = `semver=${encodeURIComponent(entry.semver)}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}${reportApiPath}?${semverParam}&page_size=100`)
+      .then((res) => {
+        if (!res.ok) {
+          console.warn(`Scan report fetch failed: ${res.status}`);
+          return null;
+        }
+        return res.json();
+      })
+      .then((data) => { if (!cancelled && data) setReport(data); })
+      .finally(() => { if (!cancelled) setReportFetched(true); });
+    return () => { cancelled = true; };
+  }, [reportApiPath, semverParam]);
+
+  const loading = !reportFetched;
+
+  const handleRawToggle = async () => {
+    if (showRaw) {
+      setShowRaw(false);
+      return;
+    }
+    setShowRaw(true);
+    if (fullJson) return;
+    try {
+      const res = await fetch(`${API_BASE}${reportApiPath}/download?${semverParam}`);
+      if (!res.ok) {
+        setFullJson(`Error: HTTP ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      setFullJson(JSON.stringify(data, null, 2));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setFullJson(`Error: ${msg}`);
+    }
+  };
+
+  const rawFindings: ScanFinding[] = report?.findings ?? [];
+  const findings = [...rawFindings].sort((a, b) => {
+    const aFp = a.meta_false_positive ? 1 : 0;
+    const bFp = b.meta_false_positive ? 1 : 0;
+    return aFp - bFp;
+  });
+
+  return (
+    <div className={styles.auditChecks}>
+      <h5 className={styles.auditCheckTitle}>Scan Report</h5>
+
+      <div className={styles.scanSummaryLine}>
+        <span>
+          {entry.analyzers_used.length} analyzer{entry.analyzers_used.length !== 1 ? "s" : ""} ran
+        </span>
+        <span className={styles.scanSummaryDot}>·</span>
+        <span>{entry.findings_count} finding{entry.findings_count !== 1 ? "s" : ""}</span>
+        {entry.max_severity && entry.max_severity !== "SAFE" && (
+          <>
+            <span className={styles.scanSummaryDot}>·</span>
+            <span
+              className={styles.severityBadge}
+              style={{ color: SEVERITY_COLORS[entry.max_severity] ?? "var(--text-muted)" }}
+            >
+              {entry.max_severity}
+            </span>
+          </>
+        )}
+      </div>
+
+      <div className={styles.scanReportDetail}>
+        {loading && <span className={styles.scanReportLoading}>Loading report…</span>}
+
+        <div className={styles.scanReportMeta}>
+          <span>Grade: <strong>{entry.grade}</strong></span>
+          <span className={styles.scanSummaryDot}>·</span>
+          <span>Safe: {entry.is_safe ? "Yes" : "No"}</span>
+          {entry.analyzability_score != null && (
+            <>
+              <span className={styles.scanSummaryDot}>·</span>
+              <span>Analyzability: {entry.analyzability_score.toFixed(0)}%</span>
+            </>
+          )}
+        </div>
+
+        {entry.analyzers_used.length > 0 && (
+          <div className={styles.analyzersList}>
+            {entry.analyzers_used.map((a) => (
+              <span key={a} className={styles.analyzerChip}>{a.replace(/_/g, " ")}</span>
+            ))}
+          </div>
+        )}
+
+        {report?.meta_verdict && (
+          <MetaVerdictLine report={report} />
+        )}
+
+        {findings.length > 0 && (
+          <div className={styles.findingsList}>
+            {findings.map((f, i) => (
+              <FindingRow key={i} finding={f} />
+            ))}
+          </div>
+        )}
+
+        {!loading && findings.length === 0 && (
+          <span className={styles.scanReportLoading}>No findings</span>
+        )}
+
+        <button
+          type="button"
+          onClick={handleRawToggle}
+          className={styles.scanReportToggle}
+        >
+          {showRaw ? "Hide full report ▴" : "Full report ▾"}
+        </button>
+
+        {showRaw && fullJson && (
+          <pre className={styles.scanReportRaw}>{fullJson}</pre>
+        )}
+
+        {showRaw && !fullJson && (
+          <span className={styles.scanReportLoading}>Loading…</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const META_VERDICT_COLORS: Record<string, string> = {
+  SAFE: "var(--neon-green, #4ade80)",
+  SUSPICIOUS: "#e8c547",
+  MALICIOUS: "var(--neon-pink, #f472b6)",
+};
+
+function MetaVerdictLine({ report }: { report: ScanReportDetail }) {
+  const verdict = report.meta_verdict;
+  if (!verdict) return null;
+
+  const color = META_VERDICT_COLORS[verdict] ?? "var(--text-muted)";
+  const vCount = report.meta_validated_count ?? 0;
+  const fpCount = report.meta_false_positive_count ?? 0;
+
+  return (
+    <div className={styles.metaVerdictLine}>
+      <span className={styles.metaVerdictLabel}>Meta verdict:</span>
+      <span className={styles.metaVerdictValue} style={{ color }}>
+        {verdict}
+      </span>
+      {(vCount > 0 || fpCount > 0) && (
+        <>
+          <span className={styles.scanSummaryDot}>·</span>
+          <span className={styles.metaVerdictCounts}>
+            {vCount} validated{fpCount > 0 ? `, ${fpCount} false positive${fpCount !== 1 ? "s" : ""}` : ""}
+          </span>
+        </>
+      )}
+      {report.meta_verdict_reasoning && (
+        <span className={styles.metaVerdictReasoning}>{report.meta_verdict_reasoning}</span>
+      )}
+    </div>
+  );
+}
+
+function FindingRow({ finding }: { finding: ScanFinding }) {
+  const severity = finding.severity ?? "INFO";
+  const title = finding.title ?? finding.rule_id ?? "Unknown";
+  const isFp = finding.meta_false_positive === true;
+
+  return (
+    <div className={`${styles.findingRow} ${isFp ? styles.findingRowFp : ""}`}>
+      <div className={styles.findingBadges}>
+        <span
+          className={styles.severityBadge}
+          style={{ color: SEVERITY_COLORS[severity] ?? "var(--text-muted)" }}
+        >
+          {severity}
+        </span>
+        {finding.analyzer && (
+          <span className={styles.analyzerTag}>{finding.analyzer}</span>
+        )}
+      </div>
+      <div className={styles.findingContent}>
+        <div className={styles.findingHeader}>
+          <span className={styles.findingTitle}>{title}</span>
+          {isFp && <span className={styles.fpBadge}>False Positive</span>}
+          {!isFp && finding.meta_confidence && (
+            <span className={styles.validatedBadge}>
+              Validated ({finding.meta_confidence})
+            </span>
+          )}
+        </div>
+        {finding.description && (
+          <span className={styles.findingDescription}>{finding.description}</span>
+        )}
+        {finding.file_path && (
+          <span className={styles.findingFile}>
+            {finding.file_path}{finding.line_number ? `:${finding.line_number}` : ""}
+          </span>
+        )}
+        {isFp && finding.meta_reason && (
+          <span className={styles.fpReason}>{finding.meta_reason}</span>
+        )}
+        {!isFp && finding.remediation && (
+          <span className={styles.findingRemediation}>{finding.remediation}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AuditTab({
   entries,
   loading,
@@ -441,18 +701,7 @@ function AuditTab({
               )}
             </div>
 
-            {entry.check_results.length > 0 && (
-              <div className={styles.auditChecks}>
-                <h5 className={styles.auditCheckTitle}>Safety Checks</h5>
-                {entry.check_results.map((check, i) => (
-                  <div key={i} className={styles.auditCheck}>
-                    <pre className={styles.auditPre}>
-                      {JSON.stringify(check, null, 2)}
-                    </pre>
-                  </div>
-                ))}
-              </div>
-            )}
+            <ScanSummary entry={entry} />
 
             {entry.quarantine_s3_key && (
               <span className={styles.auditQuarantine}>
