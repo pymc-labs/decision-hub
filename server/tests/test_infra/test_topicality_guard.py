@@ -39,7 +39,7 @@ class TestTopicalityGuard:
             )
         )
 
-        result = check_query_topicality(gemini_client, "data validation library")
+        result = check_query_topicality(gemini_client, "data validation library", model="gemini-2.5-flash")
         assert result["is_skill_query"] is True
 
     @respx.mock
@@ -60,7 +60,7 @@ class TestTopicalityGuard:
             )
         )
 
-        result = check_query_topicality(gemini_client, "chocolate cake recipe")
+        result = check_query_topicality(gemini_client, "chocolate cake recipe", model="gemini-2.5-flash")
         assert result["is_skill_query"] is False
         assert result["reason"] == "cooking recipe"
 
@@ -69,7 +69,7 @@ class TestTopicalityGuard:
         """API errors fail open -- query is allowed through."""
         respx.post(_GEMINI_URL).mock(return_value=httpx.Response(500))
 
-        result = check_query_topicality(gemini_client, "anything")
+        result = check_query_topicality(gemini_client, "anything", model="gemini-2.5-flash")
         assert result["is_skill_query"] is True
         assert result["reason"] == "guard_error"
 
@@ -83,7 +83,7 @@ class TestTopicalityGuard:
             )
         )
 
-        result = check_query_topicality(gemini_client, "anything")
+        result = check_query_topicality(gemini_client, "anything", model="gemini-2.5-flash")
         assert result["is_skill_query"] is True
         assert result["reason"] == "guard_error"
 
@@ -98,6 +98,6 @@ class TestTopicalityGuard:
             )
         )
 
-        result = check_query_topicality(gemini_client, "write me a poem")
+        result = check_query_topicality(gemini_client, "write me a poem", model="gemini-2.5-flash")
         assert result["is_skill_query"] is False
         assert result["reason"] == "poetry request"
