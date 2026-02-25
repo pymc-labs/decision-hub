@@ -2412,7 +2412,7 @@ def insert_search_log(
         query: First 500 chars of the query for previews.
         s3_key: S3 key where the full log is stored.
         results_count: Number of skills in the search index.
-        model: Model used for search (e.g. 'gemini-2.5-flash').
+        model: Model used for search (e.g. 'gemini-3-flash-preview').
         latency_ms: Total search latency in milliseconds.
         user_id: ID of the user (None for anonymous searches).
     """

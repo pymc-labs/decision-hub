@@ -208,7 +208,7 @@ def _build_analyzers(settings: Any) -> list[Any]:
     )
 
     api_key = getattr(settings, "google_api_key", None)
-    model = getattr(settings, "gemini_model", "gemini-2.0-flash")
+    model = getattr(settings, "gemini_model", "gemini-3-flash-preview")
 
     analyzers: list[Any] = [
         StaticAnalyzer(),
@@ -262,7 +262,7 @@ def _run_meta_analysis(result: Any, skill_dir: Path, settings: Any) -> tuple[dic
         # MetaAnalyzer is optional — not an error
         return None, list(result.findings), None
 
-    model = getattr(settings, "gemini_model", "gemini-2.0-flash")
+    model = getattr(settings, "gemini_model", "gemini-3-flash-preview")
     litellm_model = f"gemini/{model}"
 
     try:

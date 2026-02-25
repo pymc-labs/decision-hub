@@ -94,7 +94,7 @@ Each finding also carries AITech codes (e.g., `AITech-9.1` for command injection
 
 The LLM analyzer (`skill_scanner/core/analyzers/llm_analyzer.py`) uses **litellm** for universal provider support. It detects the provider from the model string:
 
-- `gemini-2.0-flash` or `gemini/2.0-flash` -> Google AI Studio (via `google-genai` SDK directly, or via litellm)
+- `gemini-3-flash-preview` or `gemini/3-flash-preview` -> Google AI Studio (via `google-genai` SDK directly, or via litellm)
 - `claude-3-5-sonnet-20241022` -> Anthropic
 - `gpt-4o` -> OpenAI
 - `vertex_ai/gemini-1.5-pro` -> Vertex AI
@@ -108,7 +108,7 @@ This means we can pass our existing `google_api_key` directly:
 from skill_scanner.core.analyzers.llm_analyzer import LLMAnalyzer
 
 llm_analyzer = LLMAnalyzer(
-    model="gemini-2.0-flash",
+    model="gemini-3-flash-preview",
     api_key=settings.google_api_key,
 )
 ```
@@ -295,7 +295,7 @@ from skill_scanner.core.analyzers.meta_analyzer import MetaAnalyzer
 
 # LLM analyzer — uses our existing Gemini key
 llm = LLMAnalyzer(
-    model=settings.gemini_model,  # "gemini-2.0-flash"
+    model=settings.gemini_model,  # "gemini-3-flash-preview"
     api_key=settings.google_api_key,
 )
 
@@ -626,7 +626,7 @@ This mirrors how dhub already handles agent evals. But we start synchronous — 
 
 ### Rate limit considerations for batch scanning
 
-Gemini 2.0 Flash rate limits:
+Gemini Flash rate limits (e.g. `gemini-3-flash-preview`; verify current quotas):
 - **Free tier**: 15 RPM, 1M tokens/min, 1500 req/day
 - **Pay-as-you-go**: 2000 RPM, 4M tokens/min
 

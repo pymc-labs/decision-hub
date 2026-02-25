@@ -411,7 +411,7 @@ class TestRunMetaAnalysis:
         result.analyzers_used = analyzers_used or ["static_analyzer"]
         return result
 
-    def _make_settings(self, *, api_key="fake-key", model="gemini-2.0-flash"):
+    def _make_settings(self, *, api_key="fake-key", model="gemini-3-flash-preview"):
         settings = MagicMock()
         settings.google_api_key = api_key
         settings.gemini_model = model
@@ -505,7 +505,7 @@ class TestRunMetaAnalysis:
     def test_uses_gemini_prefix_for_litellm(self, mock_capture, mock_asyncio, tmp_path):
         finding = MagicMock()
         result = self._make_scan_result(findings=[finding])
-        settings = self._make_settings(model="gemini-2.0-flash")
+        settings = self._make_settings(model="gemini-3-flash-preview")
 
         mock_capture.return_value = (MagicMock(), "")
 
@@ -516,7 +516,7 @@ class TestRunMetaAnalysis:
         ):
             MockMeta.return_value = MagicMock()
             _run_meta_analysis(result, tmp_path, settings)
-            MockMeta.assert_called_once_with(model="gemini/gemini-2.0-flash", api_key="fake-key")
+            MockMeta.assert_called_once_with(model="gemini/gemini-3-flash-preview", api_key="fake-key")
 
 
 class TestCheckLlmDegradation:
