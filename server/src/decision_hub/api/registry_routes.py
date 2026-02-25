@@ -923,7 +923,11 @@ def get_scan_report(
 
     ma = report.meta_analysis or {}
     risk = ma.get("overall_risk_assessment", {})
+    if not isinstance(risk, dict):
+        risk = {}
     summary = ma.get("summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
 
     return ScanReportSummaryResponse(
         id=str(report.id),

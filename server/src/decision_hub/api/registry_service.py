@@ -175,6 +175,15 @@ def quarantine_unsafe_skill(
     Does NOT raise — callers decide how to handle the rejection.
     """
     q_key = build_quarantine_s3_key(org_slug, skill_name, version)
+    logger.warning(
+        "Quarantining {}/{} v{} — grade={} max_severity={} findings={}",
+        org_slug,
+        skill_name,
+        version,
+        scan_result.grade,
+        scan_result.max_severity,
+        scan_result.findings_count,
+    )
 
     store_scan_result(
         conn,

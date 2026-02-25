@@ -2949,20 +2949,6 @@ def insert_scan_findings(
     return len(rows)
 
 
-def find_scan_report_for_version(conn: Connection, version_id: UUID) -> ScanReport | None:
-    """Find the most recent scan report for a version."""
-    stmt = (
-        sa.select(scan_reports_table)
-        .where(scan_reports_table.c.version_id == version_id)
-        .order_by(scan_reports_table.c.created_at.desc(), scan_reports_table.c.id.desc())
-        .limit(1)
-    )
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_scan_report(row)
-
-
 def find_latest_scan_report(
     conn: Connection,
     org_slug: str,

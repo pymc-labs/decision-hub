@@ -22,6 +22,7 @@ import {
   getEvalReport,
   getAuditLog,
   downloadSkillZip,
+  API_BASE,
 } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
@@ -453,7 +454,7 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${reportApiPath}?${semverParam}&page_size=100`)
+    fetch(`${API_BASE}${reportApiPath}?${semverParam}&page_size=100`)
       .then((res) => {
         if (!res.ok) {
           console.warn(`Scan report fetch failed: ${res.status}`);
@@ -476,7 +477,7 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
     setShowRaw(true);
     if (fullJson) return;
     try {
-      const res = await fetch(`${reportApiPath}/download?${semverParam}`);
+      const res = await fetch(`${API_BASE}${reportApiPath}/download?${semverParam}`);
       if (!res.ok) {
         setFullJson(`Error: HTTP ${res.status}`);
         return;
@@ -529,7 +530,7 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
           {entry.analyzability_score != null && (
             <>
               <span className={styles.scanSummaryDot}>·</span>
-              <span>Analyzability: {(entry.analyzability_score * 100).toFixed(0)}%</span>
+              <span>Analyzability: {entry.analyzability_score.toFixed(0)}%</span>
             </>
           )}
         </div>

@@ -16,7 +16,7 @@ Usage:
 
 import argparse
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 
 import sqlalchemy as sa
 from loguru import logger
@@ -142,7 +142,12 @@ def _scan_one(s3_client, bucket, settings, engine, *, version_id, s3_key, semver
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill scan_reports for skills without one.")
-    parser.add_argument("--workers", type=int, default=4, help="ThreadPoolExecutor concurrency")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="ThreadPoolExecutor concurrency (default 1; >1 may garble stdout capture diagnostics)",
+    )
     parser.add_argument("--batch-size", type=int, default=200, help="Skills fetched per DB query")
     parser.add_argument("--dry-run", action="store_true", help="Count only, don't scan")
     parser.add_argument("--limit", type=int, default=0, help="Stop after N skills (0 = all)")
@@ -180,7 +185,7 @@ def main() -> None:
         if not batch:
             break
 
-        futures = {}
+        futures: dict[Future, str] = {}
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             for row in batch:
                 if args.limit and processed + len(futures) >= args.limit:
