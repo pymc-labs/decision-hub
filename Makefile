@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill tracker-health
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill backfill-scan-reports tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -72,6 +72,11 @@ publish-cli: ## Publish CLI to PyPI (BUMP=patch|minor|major, BREAKING=1 to sync 
 # ---------------------------------------------------------------------------
 # Data maintenance
 # ---------------------------------------------------------------------------
+
+backfill-scan-reports: ## Re-scan all skills into scan_reports (needs DHUB_ENV, uses Gemini LLM)
+	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN && \
+		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+		python -m decision_hub.scripts.backfill_scan_reports
 
 backfill: ## Run all backfills: categories, embeddings, org metadata (needs DHUB_ENV)
 	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN && \

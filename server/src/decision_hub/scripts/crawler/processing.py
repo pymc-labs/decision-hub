@@ -247,13 +247,11 @@ def _publish_one_skill(
         classify_skill_category,
         quarantine_unsafe_skill,
         run_scan_pipeline_dir,
-        scan_result_to_audit_fields,
         store_scan_result,
     )
     from decision_hub.infra.database import (
         find_skill,
         find_version,
-        insert_audit_log,
         insert_skill,
         insert_version,
         resolve_latest_version,
@@ -331,18 +329,6 @@ def _publish_one_skill(
         eval_status=scan_result.grade,
     )
 
-    check_results, llm_reasoning = scan_result_to_audit_fields(scan_result)
-    insert_audit_log(
-        conn,
-        org_slug=org.slug,
-        skill_name=name,
-        semver=version,
-        grade=scan_result.grade,
-        check_results=check_results,
-        publisher=BOT_USERNAME,
-        version_id=version_record.id,
-        llm_reasoning=llm_reasoning,
-    )
     store_scan_result(
         conn,
         scan_result,

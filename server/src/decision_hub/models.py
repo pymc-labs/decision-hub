@@ -236,21 +236,6 @@ class GauntletReport:
 
 
 @dataclass(frozen=True)
-class AuditLogEntry:
-    id: UUID
-    org_slug: str
-    skill_name: str
-    semver: str
-    grade: str
-    version_id: UUID | None
-    check_results: list[dict]
-    llm_reasoning: dict | None
-    publisher: str
-    quarantine_s3_key: str | None = None
-    created_at: datetime | None = None
-
-
-@dataclass(frozen=True)
 class SkillTracker:
     """Tracks a GitHub repo for automatic skill republishing."""
 

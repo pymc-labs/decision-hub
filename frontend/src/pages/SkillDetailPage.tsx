@@ -448,20 +448,10 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
   const [showRaw, setShowRaw] = useState(false);
   const [reportFetched, setReportFetched] = useState(false);
 
-  const check = entry.check_results[0] as
-    | { check_name?: string; message?: string; severity?: string }
-    | undefined;
-  const reasoning = entry.llm_reasoning as
-    | { scanner_findings?: Record<string, unknown>[]; meta_analysis?: Record<string, unknown> }
-    | null;
-  const inlineFindings = reasoning?.scanner_findings ?? [];
-
-  const isScanner = check?.check_name === "skill_scanner";
   const reportApiPath = `/v1/skills/${encodeURIComponent(entry.org_slug)}/${encodeURIComponent(entry.skill_name)}/scan-report`;
   const semverParam = `semver=${encodeURIComponent(entry.semver)}`;
 
   useEffect(() => {
-    if (!isScanner) return;
     let cancelled = false;
     fetch(`${reportApiPath}?${semverParam}&page_size=100`)
       .then((res) => {
@@ -474,11 +464,9 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
       .then((data) => { if (!cancelled && data) setReport(data); })
       .finally(() => { if (!cancelled) setReportFetched(true); });
     return () => { cancelled = true; };
-  }, [isScanner, reportApiPath, semverParam]);
+  }, [reportApiPath, semverParam]);
 
-  const loading = isScanner && !reportFetched;
-
-  if (!check && inlineFindings.length === 0) return null;
+  const loading = !reportFetched;
 
   const handleRawToggle = async () => {
     if (showRaw) {
@@ -501,7 +489,7 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
     }
   };
 
-  const rawFindings: ScanFinding[] = report?.findings ?? (inlineFindings as unknown as ScanFinding[]);
+  const rawFindings: ScanFinding[] = report?.findings ?? [];
   const findings = [...rawFindings].sort((a, b) => {
     const aFp = a.meta_false_positive ? 1 : 0;
     const bFp = b.meta_false_positive ? 1 : 0;
@@ -510,120 +498,82 @@ function ScanSummary({ entry }: { entry: AuditLogEntry }) {
 
   return (
     <div className={styles.auditChecks}>
-      <h5 className={styles.auditCheckTitle}>
-        {isScanner ? "Scan Report" : "Safety Checks"}
-      </h5>
+      <h5 className={styles.auditCheckTitle}>Scan Report</h5>
 
-      {isScanner && check?.message && (
-        <ScanSummaryLine message={check.message} />
-      )}
-
-      {!isScanner && check && (
-        <div className={styles.auditCheck}>
-          <pre className={styles.auditPre}>
-            {JSON.stringify(check, null, 2)}
-          </pre>
-        </div>
-      )}
-
-      {isScanner && (
-        <div className={styles.scanReportDetail}>
-          {loading && <span className={styles.scanReportLoading}>Loading report…</span>}
-
-          {report && (
-            <div className={styles.scanReportMeta}>
-              <span>Grade: <strong>{report.grade}</strong></span>
-              <span className={styles.scanSummaryDot}>·</span>
-              <span>Safe: {report.is_safe ? "Yes" : "No"}</span>
-              {report.analyzability_score != null && (
-                <>
-                  <span className={styles.scanSummaryDot}>·</span>
-                  <span>Analyzability: {(report.analyzability_score * 100).toFixed(0)}%</span>
-                </>
-              )}
-            </div>
-          )}
-
-          {report && report.analyzers_used.length > 0 && (
-            <div className={styles.analyzersList}>
-              {report.analyzers_used.map((a) => (
-                <span key={a} className={styles.analyzerChip}>{a.replace(/_/g, " ")}</span>
-              ))}
-            </div>
-          )}
-
-          {report?.meta_verdict && (
-            <MetaVerdictLine report={report} />
-          )}
-
-          {findings.length > 0 && (
-            <div className={styles.findingsList}>
-              {findings.map((f, i) => (
-                <FindingRow key={i} finding={f} />
-              ))}
-            </div>
-          )}
-
-          {!loading && findings.length === 0 && report && (
-            <span className={styles.scanReportLoading}>No findings</span>
-          )}
-
-          {isScanner && (
-            <button
-              type="button"
-              onClick={handleRawToggle}
-              className={styles.scanReportToggle}
+      <div className={styles.scanSummaryLine}>
+        <span>
+          {entry.analyzers_used.length} analyzer{entry.analyzers_used.length !== 1 ? "s" : ""} ran
+        </span>
+        <span className={styles.scanSummaryDot}>·</span>
+        <span>{entry.findings_count} finding{entry.findings_count !== 1 ? "s" : ""}</span>
+        {entry.max_severity && entry.max_severity !== "SAFE" && (
+          <>
+            <span className={styles.scanSummaryDot}>·</span>
+            <span
+              className={styles.severityBadge}
+              style={{ color: SEVERITY_COLORS[entry.max_severity] ?? "var(--text-muted)" }}
             >
-              {showRaw ? "Hide full report ▴" : "Full report ▾"}
-            </button>
-          )}
+              {entry.max_severity}
+            </span>
+          </>
+        )}
+      </div>
 
-          {showRaw && fullJson && (
-            <pre className={styles.scanReportRaw}>{fullJson}</pre>
-          )}
+      <div className={styles.scanReportDetail}>
+        {loading && <span className={styles.scanReportLoading}>Loading report…</span>}
 
-          {showRaw && !fullJson && (
-            <span className={styles.scanReportLoading}>Loading…</span>
+        <div className={styles.scanReportMeta}>
+          <span>Grade: <strong>{entry.grade}</strong></span>
+          <span className={styles.scanSummaryDot}>·</span>
+          <span>Safe: {entry.is_safe ? "Yes" : "No"}</span>
+          {entry.analyzability_score != null && (
+            <>
+              <span className={styles.scanSummaryDot}>·</span>
+              <span>Analyzability: {(entry.analyzability_score * 100).toFixed(0)}%</span>
+            </>
           )}
         </div>
-      )}
-    </div>
-  );
-}
 
-function parseScanMessage(message: string) {
-  const grade = message.match(/grade=(\w+)/)?.[1];
-  const maxSeverity = message.match(/max_severity=(\w+)/)?.[1];
-  const findings = message.match(/findings=(\d+)/)?.[1];
-  const analyzerList = message.match(/analyzers=\[([^\]]*)\]/)?.[1];
-  const analyzers = analyzerList
-    ?.split(",")
-    .map((a) => a.trim().replace(/'/g, ""))
-    .filter(Boolean) ?? [];
-  return { grade, maxSeverity, findings, analyzers };
-}
+        {entry.analyzers_used.length > 0 && (
+          <div className={styles.analyzersList}>
+            {entry.analyzers_used.map((a) => (
+              <span key={a} className={styles.analyzerChip}>{a.replace(/_/g, " ")}</span>
+            ))}
+          </div>
+        )}
 
-function ScanSummaryLine({ message }: { message: string }) {
-  const { maxSeverity, findings, analyzers } = parseScanMessage(message);
+        {report?.meta_verdict && (
+          <MetaVerdictLine report={report} />
+        )}
 
-  return (
-    <div className={styles.scanSummaryLine}>
-      <span>
-        {analyzers.length} analyzer{analyzers.length !== 1 ? "s" : ""} ran
-      </span>
-      <span className={styles.scanSummaryDot}>·</span>
-      <span>{findings ?? "0"} finding{findings !== "1" ? "s" : ""}</span>
-      {maxSeverity && maxSeverity !== "SAFE" && (
-        <>
-          <span className={styles.scanSummaryDot}>·</span>
-          <span
-            className={styles.severityBadge}
-            style={{ color: SEVERITY_COLORS[maxSeverity] ?? "var(--text-muted)" }}
-          >
-            {maxSeverity}
-          </span>
-        </>
-      )}
+        {findings.length > 0 && (
+          <div className={styles.findingsList}>
+            {findings.map((f, i) => (
+              <FindingRow key={i} finding={f} />
+            ))}
+          </div>
+        )}
+
+        {!loading && findings.length === 0 && (
+          <span className={styles.scanReportLoading}>No findings</span>
+        )}
+
+        <button
+          type="button"
+          onClick={handleRawToggle}
+          className={styles.scanReportToggle}
+        >
+          {showRaw ? "Hide full report ▴" : "Full report ▾"}
+        </button>
+
+        {showRaw && fullJson && (
+          <pre className={styles.scanReportRaw}>{fullJson}</pre>
+        )}
+
+        {showRaw && !fullJson && (
+          <span className={styles.scanReportLoading}>Loading…</span>
+        )}
+      </div>
     </div>
   );
 }

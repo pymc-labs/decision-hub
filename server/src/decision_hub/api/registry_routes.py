@@ -26,7 +26,6 @@ from decision_hub.api.registry_service import (
     quarantine_unsafe_skill,
     require_org_membership,
     run_scan_pipeline,
-    scan_result_to_audit_fields,
     store_scan_result,
 )
 from decision_hub.domain.publish import (
@@ -44,19 +43,18 @@ from decision_hub.infra.database import (
     fetch_all_skills_for_index,
     fetch_registry_stats,
     find_active_eval_runs_for_user,
-    find_audit_logs,
     find_eval_report_by_skill,
     find_eval_run,
     find_eval_runs_for_version,
     find_latest_scan_report,
     find_org_by_slug,
     find_scan_findings_for_report,
+    find_scan_reports,
     find_skill,
     find_skill_by_slug,
     find_version,
     has_active_tracker_for_repo,
     increment_skill_downloads,
-    insert_audit_log,
     insert_skill,
     insert_skill_access_grant,
     insert_version,
@@ -236,7 +234,7 @@ class PaginatedSkillsResponse(BaseModel):
 
 
 class AuditLogResponse(BaseModel):
-    """A single audit log entry."""
+    """A single audit log entry (backed by scan_reports)."""
 
     id: str
     org_slug: str
@@ -244,8 +242,12 @@ class AuditLogResponse(BaseModel):
     semver: str
     grade: str
     version_id: str | None
-    check_results: list[dict]
-    llm_reasoning: dict | None
+    is_safe: bool
+    max_severity: str
+    findings_count: int
+    analyzers_used: list[str]
+    analyzability_score: float | None
+    scan_duration_ms: int | None
     publisher: str
     quarantine_s3_key: str | None
     created_at: str | None
@@ -558,19 +560,6 @@ def publish_skill(
             detail=f"Version {version} already exists for {org_slug}/{skill_name}",
         ) from None
 
-    check_results, llm_reasoning = scan_result_to_audit_fields(scan_result)
-    insert_audit_log(
-        conn,
-        org_slug=org_slug,
-        skill_name=skill_name,
-        semver=version,
-        grade=scan_result.grade,
-        check_results=check_results,
-        publisher=current_user.username,
-        version_id=version_record.id,
-        llm_reasoning=llm_reasoning,
-    )
-
     store_scan_result(
         conn,
         scan_result,
@@ -856,29 +845,33 @@ def get_audit_log(
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedAuditLogResponse:
-    """Return evaluation audit log history for a skill."""
+    """Return scan report history for a skill."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     offset = (page - 1) * page_size
-    entries, total = find_audit_logs(conn, org_slug, skill_name, semver=semver, limit=page_size, offset=offset)
+    reports, total = find_scan_reports(conn, org_slug, skill_name, semver=semver, limit=page_size, offset=offset)
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     items = [
         AuditLogResponse(
-            id=str(entry.id),
-            org_slug=entry.org_slug,
-            skill_name=entry.skill_name,
-            semver=entry.semver,
-            grade=entry.grade,
-            version_id=str(entry.version_id) if entry.version_id else None,
-            check_results=entry.check_results,
-            llm_reasoning=entry.llm_reasoning,
-            publisher=entry.publisher,
-            quarantine_s3_key=entry.quarantine_s3_key,
-            created_at=entry.created_at.isoformat() if entry.created_at else None,
+            id=str(report.id),
+            org_slug=report.org_slug,
+            skill_name=report.skill_name,
+            semver=report.semver,
+            grade=report.grade,
+            version_id=str(report.version_id) if report.version_id else None,
+            is_safe=report.is_safe,
+            max_severity=report.max_severity,
+            findings_count=report.findings_count,
+            analyzers_used=report.analyzers_used,
+            analyzability_score=report.analyzability_score,
+            scan_duration_ms=report.scan_duration_ms,
+            publisher=report.publisher,
+            quarantine_s3_key=report.quarantine_s3_key,
+            created_at=report.created_at.isoformat() if report.created_at else None,
         )
-        for entry in entries
+        for report in reports
     ]
     return PaginatedAuditLogResponse(
         items=items,

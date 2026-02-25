@@ -21,7 +21,6 @@ from decision_hub.domain.skill_scanner_bridge import BridgeScanResult, scan_skil
 from decision_hub.infra.database import (
     find_org_by_slug,
     find_org_member,
-    insert_audit_log,
     insert_scan_findings,
     insert_scan_report,
 )
@@ -122,35 +121,6 @@ def run_scan_pipeline_dir(
     return scan_skill_dir(Path(skill_dir), settings)
 
 
-def scan_result_to_audit_fields(scan_result: BridgeScanResult) -> tuple[list[dict], dict | None]:
-    """Convert a BridgeScanResult to legacy audit log fields.
-
-    Returns (check_results, llm_reasoning) in the same format the old
-    gauntlet pipeline produced, for backward-compatible audit log writes.
-    """
-    check_results = [
-        {
-            "check_name": "skill_scanner",
-            "severity": "pass" if scan_result.is_safe else "fail",
-            "message": (
-                f"grade={scan_result.grade} max_severity={scan_result.max_severity} "
-                f"findings={scan_result.findings_count} analyzers={scan_result.analyzers_used}"
-            ),
-        }
-    ]
-
-    llm_reasoning: dict | None = None
-    if scan_result.meta_analysis or scan_result.findings:
-        reasoning: dict = {
-            "scanner_findings": scan_result.findings[:20],
-        }
-        if scan_result.meta_analysis:
-            reasoning["meta_analysis"] = scan_result.meta_analysis
-        llm_reasoning = reasoning
-
-    return check_results, llm_reasoning
-
-
 def store_scan_result(
     conn: Connection,
     scan_result: BridgeScanResult,
@@ -200,7 +170,7 @@ def quarantine_unsafe_skill(
     version: str,
     publisher: str,
 ) -> None:
-    """Store scan result, write audit log, commit, and upload rejected zip to quarantine S3.
+    """Store scan result, commit, and upload rejected zip to quarantine S3.
 
     Does NOT raise — callers decide how to handle the rejection.
     """
@@ -213,21 +183,6 @@ def quarantine_unsafe_skill(
         skill_name=skill_name,
         semver=version,
         publisher=publisher,
-        quarantine_s3_key=q_key,
-    )
-
-    check_results, llm_reasoning = scan_result_to_audit_fields(scan_result)
-
-    insert_audit_log(
-        conn,
-        org_slug=org_slug,
-        skill_name=skill_name,
-        semver=version,
-        grade=scan_result.grade,
-        check_results=check_results,
-        publisher=publisher,
-        version_id=None,
-        llm_reasoning=llm_reasoning,
         quarantine_s3_key=q_key,
     )
     conn.commit()

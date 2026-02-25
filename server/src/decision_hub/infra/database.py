@@ -30,7 +30,6 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.pool import NullPool
 
 from decision_hub.models import (
-    AuditLogEntry,
     EvalReport,
     EvalRun,
     Organization,
@@ -335,37 +334,6 @@ user_api_keys_table = Table(
         server_default=sa.func.now(),
     ),
     sa.UniqueConstraint("user_id", "key_name"),
-)
-
-eval_audit_logs_table = Table(
-    "eval_audit_logs",
-    metadata,
-    Column(
-        "id",
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        server_default=sa.func.gen_random_uuid(),
-    ),
-    Column("org_slug", Text, nullable=False),
-    Column("skill_name", Text, nullable=False),
-    Column("semver", Text, nullable=False),
-    Column("grade", String(1), nullable=False),
-    Column(
-        "version_id",
-        PG_UUID(as_uuid=True),
-        ForeignKey("versions.id", ondelete="SET NULL"),
-        nullable=True,
-    ),
-    Column("check_results", JSONB, nullable=False),
-    Column("llm_reasoning", JSONB, nullable=True),
-    Column("publisher", Text, nullable=False, server_default=""),
-    Column("quarantine_s3_key", Text, nullable=True),
-    Column(
-        "created_at",
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=sa.func.now(),
-    ),
 )
 
 eval_reports_table = Table(
@@ -2138,127 +2106,6 @@ def get_api_keys_for_eval(conn: Connection, user_id: UUID, key_names: list[str])
 
 
 # ---------------------------------------------------------------------------
-# Audit log queries
-# ---------------------------------------------------------------------------
-
-
-def _row_to_audit_log_entry(row: sa.Row) -> AuditLogEntry:
-    """Map a database row to an AuditLogEntry model."""
-    return AuditLogEntry(
-        id=row.id,
-        org_slug=row.org_slug,
-        skill_name=row.skill_name,
-        semver=row.semver,
-        grade=row.grade,
-        version_id=row.version_id,
-        check_results=row.check_results,
-        llm_reasoning=row.llm_reasoning,
-        publisher=row.publisher,
-        quarantine_s3_key=row.quarantine_s3_key,
-        created_at=row.created_at,
-    )
-
-
-def insert_audit_log(
-    conn: Connection,
-    org_slug: str,
-    skill_name: str,
-    semver: str,
-    grade: str,
-    check_results: list[dict],
-    publisher: str,
-    version_id: UUID | None = None,
-    llm_reasoning: dict | None = None,
-    quarantine_s3_key: str | None = None,
-) -> AuditLogEntry:
-    """Insert a gauntlet evaluation audit log entry.
-
-    Called for every publish attempt (including F-grade rejections).
-
-    Args:
-        conn: Active database connection.
-        org_slug: Organization slug (denormalized).
-        skill_name: Skill name (denormalized).
-        semver: Version string.
-        grade: A/B/C/F.
-        check_results: Serialized list of EvalResult dicts.
-        publisher: GitHub username of the publisher.
-        version_id: UUID of the version record (None for F-rejected).
-        llm_reasoning: Raw LLM judge responses.
-        quarantine_s3_key: S3 key for quarantined rejected packages.
-
-    Returns:
-        The newly created AuditLogEntry.
-    """
-    values: dict[str, Any] = {
-        "org_slug": org_slug,
-        "skill_name": skill_name,
-        "semver": semver,
-        "grade": grade,
-        "check_results": check_results,
-        "publisher": publisher,
-    }
-    if version_id is not None:
-        values["version_id"] = version_id
-    if llm_reasoning is not None:
-        values["llm_reasoning"] = llm_reasoning
-    if quarantine_s3_key is not None:
-        values["quarantine_s3_key"] = quarantine_s3_key
-
-    stmt = sa.insert(eval_audit_logs_table).values(**values).returning(*eval_audit_logs_table.c)
-    row = conn.execute(stmt).one()
-    logger.debug("Audit log: {}/{} v{} grade={} by={}", org_slug, skill_name, semver, grade, publisher)
-    return _row_to_audit_log_entry(row)
-
-
-def find_audit_logs(
-    conn: Connection,
-    org_slug: str,
-    skill_name: str,
-    semver: str | None = None,
-    *,
-    limit: int | None = None,
-    offset: int = 0,
-) -> tuple[list[AuditLogEntry], int]:
-    """Find audit log entries for a skill, optionally filtered by version.
-
-    Args:
-        conn: Active database connection.
-        org_slug: Organization slug.
-        skill_name: Skill name.
-        semver: Optional version to filter by.
-        limit: Maximum number of rows to return (None = all).
-        offset: Number of rows to skip.
-
-    Returns:
-        Tuple of (entries, total_count) where entries are newest-first.
-    """
-    conditions = [
-        eval_audit_logs_table.c.org_slug == org_slug,
-        eval_audit_logs_table.c.skill_name == skill_name,
-    ]
-    if semver is not None:
-        conditions.append(eval_audit_logs_table.c.semver == semver)
-
-    where = sa.and_(*conditions)
-
-    count_stmt = sa.select(sa.func.count()).select_from(eval_audit_logs_table).where(where)
-    total = conn.execute(count_stmt).scalar() or 0
-
-    stmt = (
-        sa.select(eval_audit_logs_table)
-        .where(where)
-        .order_by(eval_audit_logs_table.c.created_at.desc(), eval_audit_logs_table.c.id.desc())
-        .offset(offset)
-    )
-    if limit is not None:
-        stmt = stmt.limit(limit)
-
-    rows = conn.execute(stmt).all()
-    return [_row_to_audit_log_entry(row) for row in rows], total
-
-
-# ---------------------------------------------------------------------------
 # Eval report queries
 # ---------------------------------------------------------------------------
 
@@ -3140,6 +2987,45 @@ def find_latest_scan_report(
     if row is None:
         return None
     return _row_to_scan_report(row)
+
+
+def find_scan_reports(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    semver: str | None = None,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[ScanReport], int]:
+    """Find scan reports for a skill, optionally filtered by version.
+
+    Returns:
+        Tuple of (reports, total_count) where reports are newest-first.
+    """
+    conditions = [
+        scan_reports_table.c.org_slug == org_slug,
+        scan_reports_table.c.skill_name == skill_name,
+    ]
+    if semver is not None:
+        conditions.append(scan_reports_table.c.semver == semver)
+
+    where = sa.and_(*conditions)
+
+    count_stmt = sa.select(sa.func.count()).select_from(scan_reports_table).where(where)
+    total = conn.execute(count_stmt).scalar() or 0
+
+    stmt = (
+        sa.select(scan_reports_table)
+        .where(where)
+        .order_by(scan_reports_table.c.created_at.desc(), scan_reports_table.c.id.desc())
+        .offset(offset)
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    rows = conn.execute(stmt).all()
+    return [_row_to_scan_report(row) for row in rows], total
 
 
 def find_scan_findings_for_report(
