@@ -1121,7 +1121,7 @@ def check_source_size(source_files: list[tuple[str, str]]) -> EvalResult:
 # If content exceeds these caps, the LLM review truncates or drops
 # files, meaning the skill was not fully scanned.
 _LLM_PER_FILE_CAP = 50_000  # gemini.py analyze_code_safety _MAX_FILE_SIZE
-_LLM_STAGE2_TOTAL_CAP = 100_000  # gemini.py analyze_code_safety _MAX_TOTAL_SIZE
+_LLM_STAGE2_TOTAL_CAP = 150_000  # gemini.py analyze_code_safety _MAX_TOTAL_SIZE
 _LLM_HOLISTIC_TOTAL_CAP = 300_000  # gemini.py review_code_body_safety _MAX_TOTAL_SIZE
 _LLM_BODY_REVIEW_CAP = 30_000  # gemini.py review_prompt_body_safety body cap
 

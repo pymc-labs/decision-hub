@@ -477,7 +477,7 @@ def analyze_code_safety(
         List of dicts with keys 'file', 'label', 'dangerous' (bool), 'reason'.
     """
     _MAX_FILE_SIZE = 50_000  # 50 KB cap per file to avoid blowing up the prompt
-    _MAX_TOTAL_SIZE = 100_000  # 100 KB total across all files
+    _MAX_TOTAL_SIZE = 150_000  # 150 KB total across all files
 
     prompt = (
         "You are a security reviewer for Decision Hub, a package registry for "
