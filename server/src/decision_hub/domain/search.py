@@ -15,6 +15,7 @@ def build_index_entry(
     category: str = "",
     download_count: int = 0,
     source_repo_url: str | None = None,
+    gauntlet_summary: str | None = None,
 ) -> SkillIndexEntry:
     """Create a search index entry from skill metadata.
 
@@ -28,6 +29,7 @@ def build_index_entry(
         category: Skill category from LLM classification.
         download_count: Number of times the skill has been downloaded.
         source_repo_url: URL of the source GitHub repository.
+        gauntlet_summary: Brief summary of non-pass gauntlet findings.
 
     Returns:
         A SkillIndexEntry with a computed trust score.
@@ -43,6 +45,7 @@ def build_index_entry(
         category=category,
         download_count=download_count,
         source_repo_url=source_repo_url,
+        gauntlet_summary=gauntlet_summary,
     )
 
 
@@ -99,5 +102,7 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
         }
         if entry.source_repo_url:
             obj["source_repo_url"] = entry.source_repo_url
+        if entry.gauntlet_summary:
+            obj["safety_notes"] = entry.gauntlet_summary
         lines.append(json.dumps(obj))
     return "\n".join(lines)

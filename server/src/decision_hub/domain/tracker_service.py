@@ -750,6 +750,7 @@ def _publish_skill_from_tracker(
             runtime_config=runtime_config_dict,
             published_by=f"tracker:{tracker.id}",
             eval_status=report.grade,
+            gauntlet_summary=report.gauntlet_summary,
         )
 
         insert_audit_log(

@@ -115,6 +115,7 @@ def _run_retrieval(
             category=row.get("category", ""),
             download_count=row.get("download_count", 0),
             source_repo_url=row.get("source_repo_url"),
+            gauntlet_summary=row.get("gauntlet_summary"),
         )
         for row in candidates
     )

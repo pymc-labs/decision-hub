@@ -501,6 +501,7 @@ def publish_skill(
             runtime_config=runtime_config_dict,
             published_by=current_user.username,
             eval_status=eval_status,
+            gauntlet_summary=report.gauntlet_summary,
         )
     except IntegrityError:
         raise HTTPException(

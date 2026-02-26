@@ -358,6 +358,7 @@ def _publish_one_skill(
         runtime_config=None,
         published_by=BOT_USERNAME,
         eval_status=report.grade,
+        gauntlet_summary=report.gauntlet_summary,
     )
     insert_audit_log(
         conn,

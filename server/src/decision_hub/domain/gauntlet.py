@@ -1145,6 +1145,32 @@ def compute_grade(
     return "A"
 
 
+def build_gauntlet_summary(
+    results: tuple[EvalResult, ...],
+    elevated_permissions: list[str],
+) -> str | None:
+    """Build a brief human-readable summary of gauntlet findings.
+
+    Returns None when all checks passed and no elevated permissions
+    were detected (grade A). For grade B+, returns a summary like:
+      "Elevated permissions: shell, network"
+    For grade C, includes the warning messages:
+      "3 unscanned files; total source exceeds LLM review cap"
+    """
+    parts: list[str] = []
+
+    for r in results:
+        if r.severity == "fail":
+            parts.append(f"[FAIL] {r.check_name}: {r.message}")
+        elif r.severity == "warn":
+            parts.append(r.message)
+
+    if elevated_permissions:
+        parts.append(f"Elevated permissions: {', '.join(elevated_permissions)}")
+
+    return "; ".join(parts) if parts else None
+
+
 # ---------------------------------------------------------------------------
 # Test case parsing and evaluation
 # ---------------------------------------------------------------------------
@@ -1330,6 +1356,7 @@ def run_static_checks(
 
     result_tuple = tuple(results)
     grade = compute_grade(result_tuple, elevated)
+    summary = build_gauntlet_summary(result_tuple, elevated)
 
     from loguru import logger
 
@@ -1340,4 +1367,4 @@ def run_static_checks(
         [name for name, _ in source_files],
     )
 
-    return GauntletReport(results=result_tuple, grade=grade)
+    return GauntletReport(results=result_tuple, grade=grade, gauntlet_summary=summary)
