@@ -10,6 +10,7 @@ from pathlib import Path
 import httpx
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
@@ -1241,3 +1242,225 @@ def visibility_command(
 
     label = "org-private" if visibility == "org" else "public"
     console.print(f"[green]Visibility for {org_slug}/{skill_name} set to {label}.[/]")
+
+
+# ---------------------------------------------------------------------------
+# Frontend URL mapping
+# ---------------------------------------------------------------------------
+
+_FRONTEND_URLS: dict[str, str] = {
+    "local": "http://localhost:5173",
+    "dev": "https://hub-dev.decision.ai",
+    "prod": "https://hub.decision.ai",
+}
+
+
+def _get_frontend_url() -> str:
+    """Return the frontend URL for the current environment."""
+    from dhub.cli.config import get_env
+
+    env = get_env()
+    return _FRONTEND_URLS.get(env, _FRONTEND_URLS["prod"])
+
+
+# ---------------------------------------------------------------------------
+# info command
+# ---------------------------------------------------------------------------
+
+
+def info_command(
+    skill_ref: str = typer.Argument(help="Skill reference (e.g. 'myorg/my-skill')"),
+) -> None:
+    """Show detailed information about a published skill."""
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.core.validation import parse_skill_ref
+
+    try:
+        org_slug, skill_name = parse_skill_ref(skill_ref)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
+
+    api_url = get_api_url()
+    headers = build_headers(get_optional_token())
+
+    # Fetch skill summary
+    with httpx.Client(timeout=60) as client:
+        resp = client.get(
+            f"{api_url}/v1/skills/{org_slug}/{skill_name}/summary",
+            headers=headers,
+        )
+        if resp.status_code == 404:
+            console.print(f"[red]Error: Skill '{org_slug}/{skill_name}' not found.[/]")
+            raise typer.Exit(1)
+        raise_for_status(resp)
+        summary = resp.json()
+
+        # Fetch latest audit log entry (best-effort)
+        audit_entry = None
+        try:
+            resp = client.get(
+                f"{api_url}/v1/skills/{org_slug}/{skill_name}/audit-log",
+                headers=headers,
+                params={"page_size": 1},
+            )
+            if resp.status_code == 200:
+                audit_data = resp.json()
+                if audit_data.get("items"):
+                    audit_entry = audit_data["items"][0]
+        except httpx.HTTPError:
+            console.print("[dim]  (could not fetch audit log)[/]")
+
+        # Fetch eval report for latest version (best-effort)
+        eval_report = None
+        latest_version = summary.get("latest_version", "")
+        if latest_version:
+            try:
+                resp = client.get(
+                    f"{api_url}/v1/skills/{org_slug}/{skill_name}/eval-report",
+                    headers=headers,
+                    params={"semver": latest_version},
+                )
+                if resp.status_code == 200:
+                    eval_report = resp.json()
+            except httpx.HTTPError:
+                console.print("[dim]  (could not fetch eval report)[/]")
+
+    _render_skill_info(org_slug, skill_name, summary, audit_entry, eval_report)
+
+
+def _render_skill_info(
+    org_slug: str,
+    skill_name: str,
+    summary: dict,
+    audit_entry: dict | None,
+    eval_report: dict | None,
+) -> None:
+    """Render a rich, well-formatted skill info panel."""
+    frontend_url = _get_frontend_url()
+    skill_url = f"{frontend_url}/skills/{org_slug}/{skill_name}"
+
+    # ── Title ──
+    console.print()
+    console.print(f"[bold cyan]{org_slug}[/]/[bold green]{skill_name}[/]", highlight=False)
+    console.print(f"[dim]{summary.get('description', '')}[/]")
+    console.print()
+
+    # ── Overview ──
+    version = summary.get("latest_version", "-")
+    updated = summary.get("updated_at", "-")
+    author = summary.get("author", "-")
+    downloads = summary.get("download_count", 0)
+    category = summary.get("category", "") or "-"
+    visibility = summary.get("visibility", "public")
+    safety = summary.get("safety_rating", "-")
+
+    vis_label = "[yellow]org-private[/]" if visibility == "org" else "[green]public[/]"
+
+    overview_lines = [
+        f"  [bold]Version:[/]     {version}",
+        f"  [bold]Safety:[/]      {safety}",
+        f"  [bold]Category:[/]    {category}",
+        f"  [bold]Visibility:[/]  {vis_label}",
+        f"  [bold]Author:[/]      {author}",
+        f"  [bold]Downloads:[/]   {downloads:,}",
+        f"  [bold]Updated:[/]     {updated}",
+    ]
+    console.print(Panel("\n".join(overview_lines), title="Overview", border_style="cyan"))
+
+    # ── GitHub ──
+    source_repo: str | None = summary.get("source_repo_url")
+    if source_repo:
+        stars = summary.get("github_stars")
+        forks = summary.get("github_forks")
+        license_name = summary.get("github_license")
+        is_archived = summary.get("github_is_archived", False)
+        is_synced = summary.get("is_auto_synced", False)
+
+        gh_lines = [f"  [bold]Repository:[/]  [link={source_repo}]{source_repo}[/link]"]
+        stats_parts = []
+        if stars is not None:
+            stats_parts.append(f"[yellow]★[/] {stars:,}")
+        if forks is not None:
+            stats_parts.append(f"⑂ {forks:,}")
+        if stats_parts:
+            gh_lines.append(f"  [bold]Stats:[/]       {' · '.join(stats_parts)}")
+        if license_name:
+            gh_lines.append(f"  [bold]License:[/]     {license_name}")
+        if is_archived:
+            gh_lines.append("  [bold]Status:[/]      [red]Archived[/]")
+        if is_synced:
+            gh_lines.append("  [bold]Auto-sync:[/]   [green]Enabled[/]")
+        console.print(Panel("\n".join(gh_lines), title="GitHub", border_style="dim"))
+
+    # ── Eval Results ──
+    if eval_report:
+        status = eval_report.get("status", "-")
+        passed = eval_report.get("passed", 0)
+        total = eval_report.get("total", 0)
+        agent = eval_report.get("agent", "-")
+        duration_ms = eval_report.get("total_duration_ms", 0)
+        duration_s = duration_ms / 1000
+
+        status_colors = {"completed": "green", "failed": "red", "error": "red", "pending": "yellow"}
+        status_color = status_colors.get(status, "white")
+        result_color = "green" if passed == total else "red" if passed == 0 else "yellow"
+
+        eval_lines = [
+            f"  [bold]Agent:[/]     {agent}",
+            f"  [bold]Status:[/]    [{status_color}]{status.upper()}[/]",
+            f"  [bold]Results:[/]   [{result_color}]{passed}/{total} passed[/]",
+            f"  [bold]Duration:[/]  {duration_s:.1f}s",
+        ]
+
+        # Show individual case results
+        case_results = eval_report.get("case_results", [])
+        if case_results:
+            eval_lines.append("")
+            for case in case_results:
+                verdict = case.get("verdict", "-")
+                name = case.get("name", "-")
+                v_color = "green" if verdict == "pass" else "red"
+                eval_lines.append(f"    [{v_color}]{'✓' if verdict == 'pass' else '✗'}[/] {name}")
+
+        console.print(Panel("\n".join(eval_lines), title="Eval Results", border_style="blue"))
+    else:
+        console.print(Panel("  [dim]No eval report available[/]", title="Eval Results", border_style="dim"))
+
+    # ── Latest Audit Log ──
+    if audit_entry:
+        grade = audit_entry.get("grade", "-")
+        semver = audit_entry.get("semver", "-")
+        publisher = audit_entry.get("publisher", "-")
+        audit_date = audit_entry.get("created_at", "-")
+        if audit_date and audit_date != "-":
+            audit_date = audit_date[:19].replace("T", " ")
+
+        grade_colors = {"A": "green", "B": "cyan", "C": "yellow", "F": "red"}
+        grade_color = grade_colors.get(grade, "white")
+
+        audit_lines = [
+            f"  [bold]Grade:[/]      [{grade_color}]{grade}[/]",
+            f"  [bold]Version:[/]    {semver}",
+            f"  [bold]Publisher:[/]  {publisher}",
+            f"  [bold]Date:[/]       {audit_date}",
+        ]
+
+        checks = audit_entry.get("check_results", [])
+        if checks:
+            audit_lines.append("")
+            for check in checks:
+                sev = check.get("severity", "-")
+                name = check.get("check_name", "-")
+                sev_color = "green" if sev == "pass" else ("yellow" if sev == "warn" else "red")
+                icon = "✓" if sev == "pass" else ("⚠" if sev == "warn" else "✗")
+                audit_lines.append(f"    [{sev_color}]{icon}[/] {name}")
+
+        console.print(Panel("\n".join(audit_lines), title="Latest Audit", border_style="magenta"))
+
+    # ── Links ──
+    console.print()
+    console.print(f"  [bold]Hub page:[/]  [link={skill_url}]{skill_url}[/link]")
+    if source_repo:
+        console.print(f"  [bold]GitHub:[/]    [link={source_repo}]{source_repo}[/link]")
+    console.print()
