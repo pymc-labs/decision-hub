@@ -20,6 +20,13 @@ function makeSkill(overrides: Partial<SkillSummary> = {}): SkillSummary {
     is_personal_org: false,
     category: "",
     source_repo_url: null,
+    source_repo_removed: false,
+    github_stars: null,
+    github_forks: null,
+    github_watchers: null,
+    github_is_archived: null,
+    github_license: null,
+    is_auto_synced: false,
     ...overrides,
   };
 }
@@ -201,6 +208,28 @@ describe("SkillsPage", () => {
     renderPage();
     await waitForSkills();
     expect(screen.getByText(/3 skills/)).toBeInTheDocument();
+  });
+
+  it("shows 'Removed from GitHub' badge when source_repo_removed is true", async () => {
+    const removedSkill = makeSkill({
+      skill_name: "removed-skill",
+      description: "This skill's repo was deleted",
+      source_repo_removed: true,
+    });
+    server.use(
+      http.get("/v1/skills", () =>
+        HttpResponse.json({
+          items: [removedSkill],
+          total: 1,
+          page: 1,
+          page_size: 12,
+          total_pages: 1,
+        }),
+      ),
+    );
+    renderPage();
+    await screen.findByText("removed-skill");
+    expect(screen.getByText("Removed from GitHub")).toBeInTheDocument();
   });
 
   it("shows no-results message when search matches nothing", async () => {

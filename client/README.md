@@ -1,6 +1,8 @@
-# dhub-cli: The AI Skill Manager for Data Science Agents
+# dhub-cli: The AI Skill Manager
 
-**Decision Hub** is a CLI-first registry for publishing, discovering, and installing *Skills* — modular packages of code and prompts that AI coding agents (Claude, Cursor, Codex, Gemini, OpenCode) can use.
+**Decision Hub** is a registry for publishing, discovering, and installing *Skills* — modular packages of code and prompts that AI coding agents (Claude, Cursor, Codex, Gemini, OpenCode) can use.
+
+**Browse the registry at [hub.decision.ai](https://hub.decision.ai)** or use the CLI below.
 
 ## Why Decision Hub?
 
@@ -54,9 +56,10 @@ Skills are installed as symlinks into each agent's skill directory, making them 
 
 - **Claude:** `~/.claude/skills`
 - **Cursor:** `~/.cursor/skills`
+- **Codex:** `~/.codex/skills`
 - **Gemini:** `~/.gemini/skills`
 - **OpenCode:** `~/.config/opencode/skills`
 
 ## Documentation
 
-For full documentation on creating skills, the `SKILL.md` format, and running your own registry server, see the [main repository](https://github.com/lfiaschi/decision-hub).
+For full documentation on creating skills, the `SKILL.md` format, and running your own registry server, see the [main repository](https://github.com/pymc-labs/decision-hub).

@@ -4,7 +4,7 @@ description: Guide for using the dhub CLI — the AI skill manager for data scie
 ---
 # dhub CLI Guide
 
-`dhub` is the AI skill manager for data science agents. It publishes, discovers, installs, and runs Skills — modular packages (code + prompts) that agents like Claude, Cursor, Codex, and Gemini can use.
+`dhub` is the AI skill manager for data science agents. It publishes, discovers, installs, and runs Skills — modular packages (code + prompts) that agents like Claude Code, Cursor, Codex, and Windsurf can use.
 
 ## Installation
 
@@ -153,8 +153,8 @@ The command detects that the argument is a git URL (HTTPS, SSH, or `.git` suffix
 ```bash
 dhub install myorg/my-skill                          # latest version
 dhub install myorg/my-skill --version 1.2.0          # specific version
-dhub install myorg/my-skill --agent claude            # install + link to Claude
-dhub install myorg/my-skill --agent all               # link to all agents
+dhub install myorg/my-skill --agent claude-code        # install + link to Claude Code
+dhub install myorg/my-skill --agent all                # link to all agents
 dhub install myorg/my-skill --allow-risky             # allow Grade C skills
 ```
 
@@ -163,13 +163,18 @@ dhub install myorg/my-skill --allow-risky             # allow Grade C skills
 - **Canonical path**: `~/.dhub/skills/{org}/{skill}/`
 - **Agent symlinks** (when using `--agent`):
 
-| Agent | Symlink Location |
-|-------|-----------------|
-| claude | `~/.claude/skills/{skill}` |
-| cursor | `~/.cursor/skills/{skill}` |
-| codex | `~/.codex/skills/{skill}` |
-| opencode | `~/.config/opencode/skills/{skill}` |
-| gemini | `~/.gemini/skills/{skill}` |
+| Agent | `--agent` | Symlink Location |
+|-------|-----------|-----------------|
+| Claude Code | `claude-code` | `~/.claude/skills/{skill}` |
+| Cursor | `cursor` | `~/.cursor/skills/{skill}` |
+| Codex | `codex` | `~/.codex/skills/{skill}` |
+| Windsurf | `windsurf` | `~/.codeium/windsurf/skills/{skill}` |
+| Gemini CLI | `gemini-cli` | `~/.gemini/skills/{skill}` |
+| GitHub Copilot | `github-copilot` | `~/.copilot/skills/{skill}` |
+| Roo Code | `roo` | `~/.roo/skills/{skill}` |
+| OpenCode | `opencode` | `~/.config/opencode/skills/{skill}` |
+
+40+ agents supported. Run `dhub install org/skill --agent all` to link to every agent. See the README for the full list.
 
 Symlinks point to the canonical `~/.dhub/skills/` path, so the skill is stored once and shared across agents.
 

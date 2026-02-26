@@ -73,6 +73,7 @@ def process_repo_on_modal(
     repo_dict: dict,
     bot_user_id_str: str,
     github_token: str | None,
+    set_tracker: bool = True,
 ) -> dict:
     """Process a single repo inside a Modal container.
 
@@ -208,6 +209,8 @@ def process_repo_on_modal(
                             skill_dir,
                             result,
                             source_repo_url=source_repo_url,
+                            bot_user_id=bot_user_id,
+                            set_tracker=set_tracker,
                         )
                         conn.commit()
                     except Exception:
@@ -230,7 +233,16 @@ def process_repo_on_modal(
 
 
 def _publish_one_skill(
-    conn, s3_client, settings, org, skill_dir: Path, result: dict, *, source_repo_url: str | None = None
+    conn,
+    s3_client,
+    settings,
+    org,
+    skill_dir: Path,
+    result: dict,
+    *,
+    source_repo_url: str | None = None,
+    bot_user_id: UUID | None = None,
+    set_tracker: bool = False,
 ) -> None:
     """Parse, gauntlet-check, and publish a single skill. Mutates result counts."""
     from decision_hub.api.registry_service import classify_skill_category, run_gauntlet_pipeline
@@ -358,3 +370,8 @@ def _publish_one_skill(
         quarantine_s3_key=None,
     )
     result["skills_published"] += 1
+
+    if set_tracker and source_repo_url and bot_user_id is not None:
+        from decision_hub.infra.database import upsert_skill_tracker
+
+        upsert_skill_tracker(conn, bot_user_id, org.slug, source_repo_url)

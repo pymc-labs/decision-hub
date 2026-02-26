@@ -710,12 +710,14 @@ class TestGetAuditLog:
     ) -> None:
         """Returns empty list when no audit logs exist."""
         mock_find_skill.return_value = _make_skill(_make_org())
-        mock_find.return_value = []
+        mock_find.return_value = ([], 0)
 
         resp = client.get("/v1/skills/test-org/my-skill/audit-log")
 
         assert resp.status_code == 200
-        assert resp.json() == []
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
 
     @patch("decision_hub.api.registry_routes.find_audit_logs")
     @patch("decision_hub.api.registry_routes.find_skill_by_slug")
@@ -744,15 +746,17 @@ class TestGetAuditLog:
             quarantine_s3_key=None,
             created_at=datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
         )
-        mock_find.return_value = [entry]
+        mock_find.return_value = ([entry], 1)
 
         resp = client.get("/v1/skills/test-org/my-skill/audit-log")
 
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 1
-        assert data[0]["grade"] == "A"
-        assert data[0]["publisher"] == "testuser"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["grade"] == "A"
+        assert data["items"][0]["publisher"] == "testuser"
+        assert data["total"] == 1
+        assert data["page"] == 1
 
     @patch("decision_hub.api.registry_routes.find_audit_logs")
     @patch("decision_hub.api.registry_routes.find_skill_by_slug")
@@ -764,7 +768,7 @@ class TestGetAuditLog:
     ) -> None:
         """Audit log endpoint works without auth for public skills."""
         mock_find_skill.return_value = _make_skill(_make_org())
-        mock_find.return_value = []
+        mock_find.return_value = ([], 0)
 
         resp = client.get("/v1/skills/test-org/my-skill/audit-log")
 
@@ -1668,3 +1672,32 @@ class TestDeleteAllVersions:
 
         assert resp.status_code == 200
         assert resp.json()["versions_deleted"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _resolve_author_display
+# ---------------------------------------------------------------------------
+
+
+class TestResolveAuthorDisplay:
+    """Unit tests for the resolve_author_display helper."""
+
+    def test_tracker_prefix_becomes_auto_sync(self):
+        from decision_hub.domain.search import resolve_author_display
+
+        assert resolve_author_display("tracker:abc-123-uuid") == "auto-sync"
+
+    def test_regular_username_unchanged(self):
+        from decision_hub.domain.search import resolve_author_display
+
+        assert resolve_author_display("jdoe") == "jdoe"
+
+    def test_empty_string_unchanged(self):
+        from decision_hub.domain.search import resolve_author_display
+
+        assert resolve_author_display("") == ""
+
+    def test_tracker_exact_prefix(self):
+        from decision_hub.domain.search import resolve_author_display
+
+        assert resolve_author_display("tracker:") == "auto-sync"

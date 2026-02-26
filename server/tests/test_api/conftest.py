@@ -42,6 +42,8 @@ def test_settings() -> MagicMock:
     settings.resolve_rate_window = 60
     settings.download_rate_limit = 10
     settings.download_rate_window = 60
+    settings.audit_log_rate_limit = 30
+    settings.audit_log_rate_window = 60
     return settings
 
 
@@ -56,12 +58,17 @@ def test_app(test_settings: MagicMock) -> FastAPI:
 
     @app.middleware("http")
     async def check_cli_version(request: Request, call_next):
-        """Reject requests from outdated CLI versions on /v1/ routes."""
+        """Reject requests from outdated CLI versions on /v1/ routes.
+
+        Mirrors production CLIVersionMiddleware behaviour: only enforce
+        when the header IS present and is outdated. Requests without
+        the header (browsers, frontend) pass through.
+        """
         if request.url.path.startswith("/v1/"):
             min_ver = test_settings.min_cli_version
             if min_ver:
                 client_ver = request.headers.get("X-DHub-Client-Version", "")
-                if not client_ver or _parse_semver(client_ver) < _parse_semver(min_ver):
+                if client_ver and _parse_semver(client_ver) < _parse_semver(min_ver):
                     return JSONResponse(
                         status_code=426,
                         content={

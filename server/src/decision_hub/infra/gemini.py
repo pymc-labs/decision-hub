@@ -132,7 +132,7 @@ _PARSE_QUERY_SCHEMA = {
 def parse_query_keywords(
     client: dict,
     query: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> list[str]:
     """Extract FTS keyword phrases from a natural-language query.
 
@@ -179,7 +179,7 @@ def parse_query_keywords(
 def check_query_topicality(
     client: dict,
     query: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> dict:
     """Classify whether a query is a legitimate skill-search request.
 
@@ -256,7 +256,7 @@ def ask_conversational(
     client: dict,
     query: str,
     index: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> dict:
     """Generate a conversational answer with structured skill references.
 
@@ -279,6 +279,12 @@ def ask_conversational(
         "Given a user's question and a set of candidate skills (JSONL format), "
         "provide a conversational answer that helps the user find the right "
         "skill(s) for their needs.\n\n"
+        "Each skill entry includes metadata: org, skill name, description, "
+        "version, eval_status, trust grade, author, category, download count, "
+        "and source_repo_url (when available). Use all available metadata to "
+        "answer the user's question thoroughly — for example, if they ask about "
+        "popularity use download counts, if they ask about the source use "
+        "source_repo_url, etc.\n\n"
         "Adapt your response depth to the query:\n"
         '- For simple lookups ("find a tool for X"), give a concise 2-3 sentence answer.\n'
         '- For analytical queries ("compare", "what are the best", "differences between"), '
@@ -343,7 +349,7 @@ def classify_skill(
     description: str,
     body: str,
     taxonomy_fragment: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> str:
     """Classify a skill into a category from the taxonomy using Gemini.
 
@@ -408,7 +414,7 @@ def analyze_code_safety(
     source_files: list[tuple[str, str]],
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> list[dict]:
     """Ask Gemini to judge whether flagged code patterns are actually dangerous.
 
@@ -529,7 +535,7 @@ def analyze_credential_entropy(
     entropy_hits: list[dict],
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> list[dict]:
     """Ask Gemini to judge whether high-entropy strings are real secrets.
 
@@ -643,7 +649,7 @@ def analyze_prompt_safety(
     prompt_hits: list[dict],
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> list[dict]:
     """Ask Gemini to judge whether flagged prompt patterns are actually dangerous.
 
@@ -756,7 +762,7 @@ def review_prompt_body_safety(
     body: str,
     skill_name: str,
     skill_description: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> dict:
     """Holistic LLM review of the full SKILL.md body for hidden dangers.
 

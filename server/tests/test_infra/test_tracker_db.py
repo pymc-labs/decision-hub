@@ -1,4 +1,4 @@
-"""Database function tests for skill trackers.
+"""Database function tests for skill trackers and tracker metrics.
 
 These tests use mocked connections since real DB tests require
 the migrate-check CI pipeline.
@@ -12,14 +12,22 @@ import pytest
 
 from decision_hub.infra.database import (
     _row_to_skill_tracker,
+    _row_to_tracker_metrics,
+    batch_clear_tracker_errors,
+    batch_defer_trackers,
+    batch_disable_trackers,
+    batch_set_tracker_errors,
     claim_due_trackers,
     delete_skill_tracker,
     find_skill_tracker,
     insert_skill_tracker,
+    insert_tracker_metrics,
     list_skill_trackers_for_user,
+    list_tracker_metrics,
+    mark_skills_source_removed,
     update_skill_tracker,
 )
-from decision_hub.models import SkillTracker
+from decision_hub.models import SkillTracker, TrackerMetrics
 
 
 def _make_tracker_row(
@@ -27,6 +35,7 @@ def _make_tracker_row(
     user_id: UUID | None = None,
     enabled: bool = True,
     last_error: str | None = None,
+    next_check_at: datetime | None = None,
 ) -> MagicMock:
     """Create a mock row that simulates a skill_trackers row."""
     row = MagicMock()
@@ -41,6 +50,7 @@ def _make_tracker_row(
     row.last_checked_at = None
     row.last_published_at = None
     row.last_error = last_error
+    row.next_check_at = next_check_at
     row.created_at = datetime.now(UTC)
     return row
 
@@ -56,6 +66,13 @@ class TestRowToSkillTracker:
         assert tracker.repo_url == "https://github.com/owner/repo"
         assert tracker.branch == "main"
         assert tracker.enabled is True
+        assert tracker.next_check_at is None
+
+    def test_maps_next_check_at(self):
+        now = datetime.now(UTC)
+        row = _make_tracker_row(next_check_at=now)
+        tracker = _row_to_skill_tracker(row)
+        assert tracker.next_check_at == now
 
 
 class TestInsertSkillTracker:
@@ -175,6 +192,30 @@ class TestClaimDueTrackers:
         result = claim_due_trackers(conn, batch_size=100)
         assert result == []
 
+    def test_jitter_adds_random_to_query(self):
+        """When jitter_seconds > 0, the SQL should include random()."""
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        claim_due_trackers(conn, batch_size=10, jitter_seconds=120)
+
+        conn.execute.assert_called_once()
+        stmt = conn.execute.call_args[0][0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "random()" in compiled
+
+    def test_no_jitter_excludes_random(self):
+        """When jitter_seconds=0, the SQL should NOT include random()."""
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        claim_due_trackers(conn, batch_size=10, jitter_seconds=0)
+
+        conn.execute.assert_called_once()
+        stmt = conn.execute.call_args[0][0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "random()" not in compiled
+
 
 class TestDeleteSkillTracker:
     def test_delete_existing(self):
@@ -190,3 +231,181 @@ class TestDeleteSkillTracker:
 
         result = delete_skill_tracker(conn, uuid4())
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Batch tracker update tests
+# ---------------------------------------------------------------------------
+
+
+class TestBatchClearTrackerErrors:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_clear_tracker_errors(conn, [])
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 3
+        ids = [uuid4() for _ in range(3)]
+
+        result = batch_clear_tracker_errors(conn, ids)
+        assert result == 3
+        conn.execute.assert_called_once()
+
+
+class TestBatchSetTrackerErrors:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_set_tracker_errors(conn, [], "some error")
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 2
+        ids = [uuid4() for _ in range(2)]
+
+        result = batch_set_tracker_errors(conn, ids, "GraphQL: repo not found")
+        assert result == 2
+        conn.execute.assert_called_once()
+
+
+class TestBatchDeferTrackers:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_defer_trackers(conn, [], "deferred")
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 4
+        ids = [uuid4() for _ in range(4)]
+
+        result = batch_defer_trackers(conn, ids, "rate_limit: deferred")
+        assert result == 4
+        conn.execute.assert_called_once()
+
+
+class TestBatchDisableTrackers:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_disable_trackers(conn, [])
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 3
+        ids = [uuid4() for _ in range(3)]
+
+        result = batch_disable_trackers(conn, ids)
+        assert result == 3
+        conn.execute.assert_called_once()
+
+
+class TestMarkSkillsSourceRemoved:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = mark_skills_source_removed(conn, [])
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_calls_execute(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 2
+        urls = ["https://github.com/owner/repo1", "https://github.com/owner/repo2"]
+
+        result = mark_skills_source_removed(conn, urls)
+        assert result == 2
+        conn.execute.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tracker metrics tests
+# ---------------------------------------------------------------------------
+
+
+def _make_metrics_row(
+    recorded_at: datetime | None = None,
+    total_checked: int = 42,
+    github_rate_remaining: int | None = 4800,
+) -> MagicMock:
+    """Create a mock row that simulates a tracker_metrics row."""
+    row = MagicMock()
+    row.id = uuid4()
+    row.recorded_at = recorded_at or datetime.now(UTC)
+    row.iterations = 2
+    row.total_checked = total_checked
+    row.trackers_due = 10
+    row.trackers_unchanged = 8
+    row.trackers_changed = 2
+    row.trackers_errored = 0
+    row.trackers_processed = 2
+    row.trackers_failed = 0
+    row.skipped_rate_limit = 0
+    row.github_rate_remaining = github_rate_remaining
+    row.batch_duration_seconds = 3.2
+    return row
+
+
+class TestRowToTrackerMetrics:
+    def test_maps_all_fields(self):
+        row = _make_metrics_row()
+        metrics = _row_to_tracker_metrics(row)
+        assert isinstance(metrics, TrackerMetrics)
+        assert metrics.id == row.id
+        assert metrics.total_checked == 42
+        assert metrics.trackers_changed == 2
+        assert metrics.github_rate_remaining == 4800
+        assert metrics.batch_duration_seconds == 3.2
+
+    def test_maps_none_rate(self):
+        row = _make_metrics_row(github_rate_remaining=None)
+        metrics = _row_to_tracker_metrics(row)
+        assert metrics.github_rate_remaining is None
+
+
+class TestInsertTrackerMetrics:
+    def test_insert_returns_metrics(self):
+        conn = MagicMock()
+        row = _make_metrics_row()
+        conn.execute.return_value.one.return_value = row
+
+        result = insert_tracker_metrics(
+            conn,
+            iterations=2,
+            total_checked=42,
+            trackers_due=10,
+            trackers_unchanged=8,
+            trackers_changed=2,
+            trackers_errored=0,
+            trackers_processed=2,
+            trackers_failed=0,
+            skipped_rate_limit=0,
+            github_rate_remaining=4800,
+            batch_duration_seconds=3.2,
+        )
+        assert isinstance(result, TrackerMetrics)
+        assert result.total_checked == 42
+        conn.execute.assert_called_once()
+
+
+class TestListTrackerMetrics:
+    def test_list_returns_metrics(self):
+        conn = MagicMock()
+        rows = [_make_metrics_row() for _ in range(3)]
+        conn.execute.return_value.all.return_value = rows
+
+        result = list_tracker_metrics(conn, limit=10)
+        assert len(result) == 3
+        assert all(isinstance(m, TrackerMetrics) for m in result)
+
+    def test_list_empty(self):
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        result = list_tracker_metrics(conn)
+        assert result == []

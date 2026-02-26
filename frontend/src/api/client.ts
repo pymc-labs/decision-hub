@@ -4,7 +4,7 @@ import type {
   PaginatedSkillsResponse,
   ResolveResponse,
   EvalReport,
-  AuditLogEntry,
+  PaginatedAuditLogResponse,
   TaxonomyResponse,
   RegistryStats,
   OrgStatsResponse,
@@ -114,9 +114,9 @@ export async function getAuditLog(
   orgSlug: string,
   skillName: string,
   semver?: string
-): Promise<AuditLogEntry[]> {
+): Promise<PaginatedAuditLogResponse> {
   const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
-  return fetchJSON<AuditLogEntry[]>(
+  return fetchJSON<PaginatedAuditLogResponse>(
     `/v1/skills/${orgSlug}/${skillName}/audit-log${qs}`
   );
 }

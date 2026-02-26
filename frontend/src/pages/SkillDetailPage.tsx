@@ -13,6 +13,7 @@ import {
   Copy,
   Check,
   Github,
+  RefreshCw,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -24,7 +25,7 @@ import {
 } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
-import type { SkillSummary, EvalReport, AuditLogEntry, SkillFile } from "../types/api";
+import type { SkillSummary, EvalReport, AuditLogEntry, PaginatedAuditLogResponse, SkillFile } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -71,13 +72,14 @@ export default function SkillDetailPage() {
   );
 
   // Fetch audit log
-  const { data: auditLog, loading: auditLoading } = useApi<AuditLogEntry[]>(
+  const { data: auditLogResponse, loading: auditLoading } = useApi<PaginatedAuditLogResponse>(
     () =>
       orgSlug && skillName
         ? getAuditLog(orgSlug, skillName)
-        : Promise.resolve([]),
+        : Promise.resolve({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 }),
     [orgSlug, skillName]
   );
+  const auditLog = auditLogResponse?.items ?? [];
 
   const seoTitle = `${orgSlug}/${skillName}`;
   const seoDescription = skill
@@ -229,6 +231,16 @@ export default function SkillDetailPage() {
               >
                 <Github size={14} /> Source
               </a>
+            )}
+            {skill.is_auto_synced && (
+              <span className={styles.metaItem}>
+                <RefreshCw size={14} /> Auto-synced
+              </span>
+            )}
+            {skill.source_repo_removed && (
+              <span className={styles.metaRemoved}>
+                Removed from GitHub
+              </span>
             )}
           </div>
         </div>

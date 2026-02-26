@@ -18,7 +18,8 @@ This is a **uv workspace monorepo** with four components:
 - **FastAPI** for REST API (server)
 - **Typer + Rich** for CLI (client)
 - **Pydantic** for data validation and settings
-- **OpenAI** for LLM
+- **Gemini** for LLM (search, classification, gauntlet safety analysis)
+- **Anthropic** for LLM (eval judging)
 - **boto3** for S3 access
 - **loguru** for server logging
 
@@ -43,8 +44,8 @@ DHUB_ENV=dev modal deploy modal_app.py          # deploy dev Modal app (from ser
 DHUB_ENV=dev uv run --package decision-hub-server uvicorn ...  # local dev server
 ```
 
-- **Dev**: `https://pymc-labs--api-dev.modal.run`, config at `~/.dhub/config.dev.json`, env file `server/.env.dev`
-- **Prod**: `https://pymc-labs--api.modal.run`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
+- **Dev**: `https://hub-dev.decision.ai`, config at `~/.dhub/config.dev.json`, env file `server/.env.dev`
+- **Prod**: `https://hub.decision.ai`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
 
 **Working directory caveat**: Always run server-package commands from `server/`. The server's `.env.dev` / `.env.prod` files live in `server/` and `pydantic-settings` resolves them relative to the current working directory. Running from the repo root will fail with missing settings errors.
 
@@ -61,7 +62,9 @@ Client-package commands (`uv run --package dhub-cli ...`) can run from anywhere.
 
 ### Quick Reference
 
-Common commands are available via `make`. Run `make help` to see all targets.
+Common commands are available via `make`. Read the `Makefile` to see all targets. **Always read the `Makefile`** for available targets and their exact recipes — do not hardcode or memorize commands that the Makefile already provides.
+
+**Important**: Always run `make` from the **repo root** (where the `Makefile` lives). If your working directory has drifted (e.g. into `server/`), use `make -C /path/to/repo-root <target>` to avoid "No rule to make target" errors.
 
 Install pre-commit hooks once after cloning: `make install-hooks`.
 
@@ -123,6 +126,7 @@ cd server && DHUB_ENV=dev uv run --package decision-hub-server \
 - **Clean up after refactors**: After every refactor, search for all references to the old function/argument and remove dead code — no orphaned functions, unused imports, or selected-but-unmapped fields
 - **Mobile-first frontend**: Design and test all UI changes for mobile viewports first (target ~400px, e.g. iPhone 17 Pro). Use CSS Modules media queries at `480px` and `768px` breakpoints. Every new page/component must include responsive styles — never ship desktop-only layouts
 - **Consistent font scale**: The site uses a fixed typographic scale (base 17px). When creating or editing pages, match the established sizes from HomePage: page titles `2rem` (detail) / `1.6rem` (listing), section headings `1.3rem`, body/descriptions `1.05rem`, secondary labels `0.9rem`, small metadata `0.8rem`. Mobile (480px) reduces by ~15–20%. Never eyeball new sizes — always reference existing pages for consistency
+- **Keep the ask pipeline in sync with skill metadata**: The `_SKILL_SUMMARY_COLUMNS` list in `database.py` is the single source of truth for which columns appear in skill list and search queries. `_row_to_skill_summary()` uses `row._mapping` to automatically capture all selected columns, so adding a column to `_SKILL_SUMMARY_COLUMNS` makes it available in both `fetch_all_skills_for_index` and `search_skills_hybrid` without manual dict updates. However, to surface a new column to the ask LLM and API consumers, you must also update: (1) `SkillIndexEntry` in `models.py`, (2) `build_index_entry()` and `serialize_index()` in `domain/search.py`, (3) `AskSkillRef` in `search_routes.py` + both enrichment paths (main + fallback), (4) frontend `AskSkillRef` in `types/api.ts` and `AskModal.tsx`
 
 ### Logging
 
@@ -142,14 +146,7 @@ logger.info("Publishing {}/{} version={}", org_slug, skill_name, version_id)
 
 ### Rate Limiting & DOS Protection
 
-Public endpoints use in-memory per-IP sliding-window rate limiters (see `rate_limit.py`). Limiters are lazily initialized on `app.state` from settings. Limits are per-container (not shared across Modal replicas).
-
-| Endpoint | Setting prefix | Default |
-|---|---|---|
-| `GET /v1/search` | `search_rate_*` | 20 req/60s |
-| `GET /v1/skills` | `list_skills_rate_*` | 120 req/60s |
-| `GET /v1/resolve/{org}/{skill}` | `resolve_rate_*` | 60 req/60s |
-| `GET /v1/skills/{org}/{skill}/download` | `download_rate_*` | 20 req/60s |
+Public endpoints use in-memory per-IP sliding-window rate limiters (see `rate_limit.py`). Limiters are lazily initialized on `app.state` from settings. Limits are per-container (not shared across Modal replicas). Defaults and setting names are defined in `server/src/decision_hub/settings.py` (`*_rate_limit` / `*_rate_window` fields). Enforcement functions (`_enforce_*_rate_limit`) live alongside their routes in `server/src/decision_hub/api/registry_routes.py` and `search_routes.py`.
 
 All DB queries have a 30s `statement_timeout` (set in engine `connect_args` in `database.py`). Query parameters on public endpoints have `max_length` constraints to prevent oversized payloads reaching the DB or LLM APIs.
 
@@ -159,24 +156,11 @@ When adding new public endpoints, always add a rate limiter following the existi
 
 ### Linting & Formatting
 
-The project uses **ruff** for linting and formatting, and **mypy** for type checking, both configured in the root `pyproject.toml`. Pre-commit hooks run ruff automatically on every commit (install once with `make install-hooks`). Mypy runs in CI only (not pre-commit).
-
-```bash
-make lint       # check only (CI runs this)
-make typecheck  # mypy type checks (CI runs this)
-make fmt        # auto-fix + format
-```
+The project uses **ruff** for linting and formatting, and **mypy** for type checking, both configured in the root `pyproject.toml`. Pre-commit hooks run ruff automatically on every commit (install once with `make install-hooks`). Mypy runs in CI only (not pre-commit). See `make help` for lint, format, and typecheck targets.
 
 ### Testing
 
-Use `pytest` with fixtures in `conftest.py`. Mock external services (S3, OpenAI, Database) in tests.
-
-```bash
-make test              # all tests
-make test-client       # client only
-make test-server       # server only
-make test-frontend     # frontend only
-```
+Use `pytest` with fixtures in `conftest.py`. Mock external services (S3, Gemini, Anthropic, Database) in tests. See `make help` for test targets (all, client, server, frontend).
 
 ### CI
 
@@ -197,12 +181,7 @@ Migrations are tracked SQL files in `server/migrations/`. The runner (`scripts/r
 
 ### Running migrations
 
-```bash
-make migrate-dev     # apply pending migrations to dev
-make migrate-prod    # apply pending migrations to prod (use with care)
-```
-
-Migrations are also applied automatically during deploys (`scripts/deploy.sh`).
+Use the migrate targets from the `Makefile`. Migrations are also applied automatically during deploys (`scripts/deploy.sh`).
 
 ### Creating a new migration
 
@@ -229,7 +208,7 @@ Legacy files use 3-digit numeric prefixes (`001_` through `011_`). Do not add ne
 - **Always update both** the SQL migration file and the SQLAlchemy table definition in `database.py` when changing the schema. CI will catch drift.
 - **Use `IF NOT EXISTS` / `IF EXISTS`** in DDL when possible for idempotency (especially for `CREATE TABLE`, `ADD COLUMN`).
 - **Keep migration PRs focused.** Prefer multiple small PRs over one large one.
-- **Test locally** before pushing: `make check-migrations` validates filenames, `make migrate-dev` applies to dev.
+- **Test locally** before pushing: use the migration-related targets from the `Makefile` to validate filenames and apply to dev.
 - **`created_at` and `updated_at` are managed by PostgreSQL.** `created_at` uses a `DEFAULT now()` server default on insert. `updated_at` is set by a `BEFORE UPDATE` trigger (`set_updated_at()`). Never set either in application code. New mutable tables must include both columns and a `BEFORE UPDATE` trigger for `updated_at`.
 - **Always enable RLS on new tables.** Every `CREATE TABLE` migration must include `ALTER TABLE <name> ENABLE ROW LEVEL SECURITY;`. This blocks Supabase PostgREST (anon/authenticated roles) from querying tables directly — all data access must go through the FastAPI API layer. The backend connects as the table owner, which bypasses RLS automatically.
 
@@ -246,6 +225,14 @@ You **may** deploy to dev when asked. Always use `make deploy-dev` — never bar
 - **Search for existing implementations** before writing new code (`grep`, `glob`, check `shared/src/`)
 - **Check open PRs** for overlapping work: `gh pr list --state open`
 - **Link to a GitHub issue.** If no issue exists, create one first.
+
+### Never block the conversation on long waits
+When monitoring long-running processes (crawlers, deploys, Modal logs), **never use `sleep` inside a tool call**. A `sleep 900` blocks the entire conversation for 15 minutes and makes the agent appear stuck. Instead:
+
+- **Run long commands in background** (`run_in_background: true`) and check output with `tail` in a separate non-blocking call
+- **Poll with short timeouts** — use quick DB count queries or `ps` checks, not embedded sleeps
+- **Let the user drive timing** — report current status and let them decide when to check again, rather than silently waiting
+- **For periodic monitoring**, write a small background script that appends status to a file, then read that file on demand
 
 ### Resolving PR review comments
 When fixing PR review comments, always complete **all three steps**:
@@ -278,34 +265,25 @@ When reviewing code (PRs, refactors, or when explicitly asked), evaluate these f
 
 #### Release commands
 
-```bash
-make publish-cli                          # patch bump, publish to PyPI
-make publish-cli BUMP=minor               # minor bump, publish to PyPI
-make publish-cli BUMP=major BREAKING=1    # major bump + update MIN_CLI_VERSION + redeploy servers
-```
+Use the `publish-cli` target from the `Makefile`. Supports `BUMP=patch|minor|major` and `BREAKING=1` to sync servers.
 
 #### How it works
 
-The server enforces a minimum CLI version via `MIN_CLI_VERSION` in `server/.env.dev` and `server/.env.prod`. The `modal_app.py` reads this value at deploy time and injects it into the container, so a server redeploy is all that's needed — no manual Modal secret updates required. When `BREAKING=1` is passed, the script updates MIN_CLI_VERSION in both env files and redeploys both servers.
+The server enforces a minimum CLI version via `MIN_CLI_VERSION` in `server/.env.dev` and `server/.env.prod`. The `.env` file is baked into the Modal image at deploy time, so a server redeploy is all that's needed. When `BREAKING=1` is passed, the script updates MIN_CLI_VERSION in both env files and redeploys both servers.
 
 Every CLI publish automatically creates a `cli/vX.Y.Z` git tag, and every prod deploy creates a `prod/YYYYMMDD-HHMMSS` tag. GitHub Actions generates release notes from merged PRs when these tags are pushed.
 
 ### Deployment
 
-```bash
-make deploy-dev    # build frontend + deploy to dev Modal
-make deploy-prod   # build frontend + deploy to prod Modal
-```
+Use the deploy targets from the `Makefile`. The deploy script builds the React frontend (`frontend/dist/`) and bundles it into the Modal container alongside the server.
 
-The deploy script builds the React frontend (`frontend/dist/`) and bundles it into the Modal container alongside the server.
+#### Dev deploys
 
-#### Dev auto-deploy
+Dev deploys are manual via `make deploy-dev`. The `.env.dev` file is baked into the Modal image at deploy time, so all secrets live in that single file — no Modal secrets or GitHub Environment needed.
 
-Merging to `main` auto-deploys dev via `.github/workflows/deploy-dev.yml` — no manual step needed. The workflow uses the `dev` GitHub Environment (secrets: `DATABASE_URL`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`; variable: `MIN_CLI_VERSION_DEV`).
+#### Prod deploys
 
-`modal_app.py:_read_env_value()` checks `os.environ` before the local `.env` file. This is how the CI workflow passes `MIN_CLI_VERSION` without a `.env` file present. If you add new deploy-time config that the workflow needs, pass it as an env var in `deploy-dev.yml` and read it via `_read_env_value()`.
-
-#### Prod deploys are manual-only
+Both dev and prod deploys require the corresponding `.env` file on the deployer's machine (`server/.env.dev` or `server/.env.prod`). Rotating secrets requires updating the `.env` file and redeploying.
 
 `make deploy-prod` auto-tags `prod/YYYYMMDD-HHMMSS` and pushes the tag, which triggers `release-notes.yml` to create a GitHub Release with auto-generated notes from merged PRs. To see what's in prod: `git tag --list 'prod/*' --sort=-version:refname | head -5`.
 
@@ -317,18 +295,28 @@ After implementing significant changes, check whether these need updating:
 
 ## Data Maintenance
 
-Run all backfills (categories, embeddings, org metadata) in one command:
-
-```bash
-make backfill                    # against dev (default)
-DHUB_ENV=prod make backfill      # against prod
-```
-
-Individual backfill scripts can also be run directly from `server/` — see `server/scripts/backfill_categories.py` and `server/src/decision_hub/scripts/backfill_embeddings.py`.
+Use the `backfill` target from the `Makefile` to run all backfills (categories, embeddings, org metadata). Defaults to dev; override with `DHUB_ENV=prod`. Individual backfill scripts can also be run directly from `server/` — see `server/scripts/backfill_categories.py` and `server/src/decision_hub/scripts/backfill_embeddings.py`.
 
 ## Monitoring Trackers
 
-Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. The `check_trackers` Modal cron runs every 5 minutes. Crawled skills are **not** auto-tracked — trackers are opt-in via `dhub track add`.
+Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. Trackers are created automatically when publishing from a GitHub URL (`dhub publish --track`, enabled by default) or via the API (`POST /v1/trackers`).
+
+**Key source files:**
+- Cron schedule & fan-out: `server/modal_app.py` (`check_trackers`, `tracker_process_repo`)
+- Orchestration & republish logic: `server/src/decision_hub/domain/tracker_service.py`
+- CRUD routes: `server/src/decision_hub/api/tracker_routes.py`
+- DB table & queries: `server/src/decision_hub/infra/database.py` (search `skill_trackers`)
+- Settings (batch size, jitter, rate-limit floor): `server/src/decision_hub/settings.py` (search `tracker_`)
+
+### GitHub App Authentication
+
+Trackers authenticate to GitHub using **GitHub App installation tokens** instead of a personal access token (PAT). Each cron tick / Modal container mints its own short-lived token (~1 hr) from the App's private key. This gives dev and prod independent 12,500 req/hr rate-limit budgets.
+
+**Apps:** App IDs, Installation IDs, and PEM keys are stored inline in `server/.env.dev` and `server/.env.prod` (git-ignored). The PEM is embedded as a multi-line quoted value (`GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA..."`). Original PEM files are also kept at `server/decision-hub-dev.*.pem` / `server/decision-hub.*.pem` (git-ignored).
+
+**Note:** The crawler and backfill scripts still use a PAT passed via `--github-token`. Only the tracker cron uses App tokens.
+
+**Quick health check:** Use the `tracker-health` target from the `Makefile`. Defaults to dev; override with `DHUB_ENV=prod`.
 
 **Check Modal logs for failures:**
 ```bash
@@ -341,6 +329,29 @@ modal app logs decision-hub-dev 2>&1 | grep -i "tracker\|check_trackers"  # dev
 -- Failed trackers
 SELECT repo_url, last_checked_at, last_error
 FROM skill_trackers WHERE last_error IS NOT NULL AND enabled = true;
+```
+
+### Tracker Metrics
+
+The `tracker_metrics` table records one row per `check_trackers` cron tick with key counters for historical observability. Metrics are written at the end of each cron invocation.
+
+**Useful queries:**
+```sql
+-- Recent cron ticks (last 24h)
+SELECT recorded_at, total_checked, trackers_changed, trackers_failed,
+       github_rate_remaining, batch_duration_seconds
+FROM tracker_metrics
+WHERE recorded_at > now() - interval '24 hours'
+ORDER BY recorded_at DESC;
+
+-- Average duration and failure rate over last 7 days
+SELECT date_trunc('day', recorded_at) AS day,
+       count(*) AS ticks,
+       avg(batch_duration_seconds)::numeric(5,1) AS avg_dur_s,
+       sum(trackers_failed) AS total_failed
+FROM tracker_metrics
+WHERE recorded_at > now() - interval '7 days'
+GROUP BY 1 ORDER BY 1 DESC;
 ```
 
 ## Troubleshooting

@@ -97,6 +97,8 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
+  display: block;
+  height: 100%;
 }
 
 .card {
@@ -104,6 +106,7 @@
   flex-direction: column;
   gap: 8px;
   min-height: 140px;
+  flex: 1;
 }
 
 .cardTop {
@@ -137,6 +140,7 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: 4.5em;
 }
 
 .cardFooter {
@@ -177,6 +181,20 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.65rem;
   color: var(--text-muted);
+  width: fit-content;
+}
+
+/* Removed from GitHub badge */
+.cardRemoved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--grade-warn);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--grade-warn);
   width: fit-content;
 }
 

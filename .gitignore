@@ -1,3 +1,4 @@
+CLAUDE.md.bkp
 server/env.dev.zip
 archive/
 __pycache__/
@@ -12,6 +13,7 @@ build/
 .env
 .env.*
 !.env.example
+!frontend/.env
 .venv/
 venv/
 
@@ -28,3 +30,18 @@ node_modules/
 
 # Crawler runtime artifacts
 crawl_checkpoint.json
+
+# Private key material
+*.pem
+*.key
+*.private-key*
+
+# Modal secrets backup (contains key names, not values)
+server/modal-secrets-backup.md
+
+# Internal planning docs (keep in wiki/Notion, not in repo)
+PRD.md
+tasks.md
+
+# Review / planning artifacts
+TRACKER_REVIEW.md

@@ -150,8 +150,49 @@ def quarantine_rejected_skill(
 ) -> None:
     """Upload rejected zip to quarantine, log the rejection, and raise 422.
 
+    Thin wrapper around ``quarantine_and_log_rejection`` that raises an
+    HTTPException afterwards.  Used by the HTTP publish endpoint.
+    """
+    quarantine_and_log_rejection(
+        conn,
+        s3_client,
+        bucket,
+        file_bytes,
+        org_slug=org_slug,
+        skill_name=skill_name,
+        version=version,
+        report=report,
+        check_results=check_results,
+        llm_reasoning=llm_reasoning,
+        publisher=publisher,
+    )
+    raise HTTPException(
+        status_code=422,
+        detail=f"Gauntlet checks failed: {report.summary}",
+    )
+
+
+def quarantine_and_log_rejection(
+    conn: Connection,
+    s3_client,
+    bucket: str,
+    file_bytes: bytes,
+    *,
+    org_slug: str,
+    skill_name: str,
+    version: str,
+    report: GauntletReport,
+    check_results: list[dict],
+    llm_reasoning: dict | None,
+    publisher: str,
+) -> None:
+    """Upload rejected zip to quarantine and log the rejection.
+
     Inserts and commits the audit log before uploading to quarantine S3,
     so the rejection record is durable even if the S3 upload fails.
+
+    Does NOT raise an exception — callers decide how to handle the rejection
+    (HTTP endpoint raises 422, tracker returns False).
     """
     logger.warning(
         "Quarantining {}/{} v{} — grade={} summary={}",
@@ -175,17 +216,12 @@ def quarantine_rejected_skill(
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=q_key,
     )
-    # Commit the audit record before raising (or uploading to S3) so it
-    # survives the transaction rollback that engine.begin() performs on
-    # exception. This ensures rejection forensics are always preserved.
+    # Commit the audit record before uploading to S3 so it survives
+    # any subsequent failure. This ensures rejection forensics are
+    # always preserved.
     conn.commit()
 
     upload_skill_zip(s3_client, bucket, q_key, file_bytes)
-
-    raise HTTPException(
-        status_code=422,
-        detail=f"Gauntlet checks failed: {report.summary}",
-    )
 
 
 def _build_analyze_fn(settings: Settings):
@@ -502,6 +538,10 @@ def run_assessment_background(
         engine = create_engine(settings.database_url)
 
         # --- Phase 1: read API keys then release the connection ---
+        # Retrieve the publishing user's own API keys for the assessment
+        # sandbox.  Keys are stored per-user in user_api_keys (encrypted with
+        # the server Fernet key) and belong to the user who triggered the
+        # assessment — no platform keys are involved.
         agent_config = get_agent_config(assessment_config.agent)
         required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
         judge_key_name = "ANTHROPIC_API_KEY"

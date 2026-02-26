@@ -66,6 +66,12 @@ class Skill:
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    source_repo_removed: bool = False
+    github_stars: int | None = None
+    github_forks: int | None = None
+    github_watchers: int | None = None
+    github_is_archived: bool | None = None
+    github_license: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -259,7 +265,43 @@ class SkillTracker:
     last_checked_at: datetime | None
     last_published_at: datetime | None
     last_error: str | None
-    created_at: datetime | None
+    next_check_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TrackerBatchResult:
+    """Metrics from a single check_all_due_trackers iteration."""
+
+    checked: int
+    due: int
+    unchanged: int
+    changed: int
+    errored: int
+    processed: int
+    failed: int
+    skipped_rate_limit: int
+    deadline_deferred: int
+    github_rate_remaining: int | None
+
+
+@dataclass(frozen=True)
+class TrackerMetrics:
+    """One row from the tracker_metrics table."""
+
+    id: UUID
+    recorded_at: datetime
+    iterations: int
+    total_checked: int
+    trackers_due: int
+    trackers_unchanged: int
+    trackers_changed: int
+    trackers_errored: int
+    trackers_processed: int
+    trackers_failed: int
+    skipped_rate_limit: int
+    github_rate_remaining: int | None
+    batch_duration_seconds: float
 
 
 @dataclass(frozen=True)
@@ -274,3 +316,5 @@ class SkillIndexEntry:
     trust_score: str
     author: str = ""
     category: str = ""
+    download_count: int = 0
+    source_repo_url: str | None = None

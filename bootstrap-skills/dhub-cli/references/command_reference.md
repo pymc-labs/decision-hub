@@ -142,7 +142,7 @@ dhub install ORG/SKILL [--version VER] [--agent AGENT] [--allow-risky]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--version`, `-v` | string | `"latest"` | Version spec |
-| `--agent` | string | none | Target agent: `claude`, `cursor`, `codex`, `opencode`, `gemini`, or `all` |
+| `--agent` | string | none | Target agent (e.g. `claude-code`, `cursor`, `codex`, `windsurf`) or `all`. See README for full list. |
 | `--allow-risky` | flag | false | Allow installing Grade C skills |
 
 **Steps:**
@@ -165,7 +165,7 @@ dhub uninstall ORG/SKILL
 ```
 
 Removes:
-1. Agent symlinks from all agent directories (claude, cursor, codex, opencode, gemini)
+1. Agent symlinks from all agent directories
 2. The canonical directory at `~/.dhub/skills/{org}/{skill}/`
 3. Empty org directory if no other skills remain
 

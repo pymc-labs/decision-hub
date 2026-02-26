@@ -94,6 +94,12 @@ sed -i '' "s/\"dhub-core==$CORE_VERSION\"/\"dhub-core==$NEW_CORE_VERSION\"/" "$C
 echo "==> Running client tests..."
 make -C "$ROOT_DIR" test-client
 
+# --- Commit the version bump ------------------------------------------------
+
+echo "==> Committing version bump..."
+git add "$CLIENT_TOML" "$SHARED_TOML"
+git commit -m "chore: bump dhub-cli $CURRENT_VERSION → $NEW_VERSION"
+
 # --- Publish to PyPI -------------------------------------------------------
 
 echo "==> Publishing to PyPI..."

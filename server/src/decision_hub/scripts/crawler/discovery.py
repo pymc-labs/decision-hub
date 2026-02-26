@@ -10,20 +10,16 @@ import re
 import time
 from collections.abc import Generator
 
-import httpx
 from loguru import logger
 
+from decision_hub.infra.github_client import GitHubClient
 from decision_hub.scripts.crawler.models import CrawlStats, DiscoveredRepo
-
-GITHUB_API = "https://api.github.com"
 
 # Organizations from major gen-AI companies and tool providers. Repos owned by
 # these orgs are tagged as trusted and processed before community repos so the
 # highest-signal skills are indexed first.
 TRUSTED_ORGS: frozenset[str] = frozenset(
     {
-        # Decision Hub
-        "pymc-labs",
         # LLM providers
         "anthropics",
         "openai",
@@ -53,6 +49,43 @@ TRUSTED_ORGS: frozenset[str] = frozenset(
         "deepmind",
         "google-deepmind",
         "stability-ai",
+        # PyData / scientific Python ecosystem
+        "marimo-team",
+        # Core scientific Python
+        "numpy",
+        "scipy",
+        "pandas-dev",
+        "scikit-learn",
+        "matplotlib",
+        "astropy",
+        # Notebooks & interactive tools
+        "jupyter",
+        "jupyterlab",
+        "ipython",
+        # Visualization
+        "holoviz",
+        "bokeh",
+        "altair-viz",
+        "plotly",
+        # Data apps & dashboards
+        "streamlit",
+        "gradio-app",
+        "evidence-dev",
+        # Data processing & compute
+        "pola-rs",
+        "dask",
+        "ray-project",
+        "duckdb",
+        "apache",
+        # MLOps & experiment tracking
+        "mlflow",
+        "wandb",
+        "prefecthq",
+        "great-expectations",
+        # Deep learning
+        "pytorch",
+        "keras-team",
+        "tensorflow",
     }
 )
 
@@ -109,6 +142,11 @@ def resolve_repos(
             continue
 
         d = resp.json()
+        if d.get("private", False):
+            logger.warning(
+                "Resolved repo {} is private — processing because it was explicitly requested via --repos",
+                full_name,
+            )
         repos[full_name] = DiscoveredRepo(
             full_name=full_name,
             owner_login=d["owner"]["login"],
@@ -250,6 +288,9 @@ def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str
             for item in items:
                 fn = item["full_name"]
                 if fn not in batch:
+                    if item.get("private", False):
+                        logger.debug("Skipping private repo {} found in topic search", fn)
+                        continue
                     batch[fn] = DiscoveredRepo(
                         full_name=fn,
                         owner_login=item["owner"]["login"],
@@ -298,6 +339,9 @@ def scan_forks(
             for fork in forks:
                 fn = fork["full_name"]
                 if fn not in batch:
+                    if fork.get("private", False):
+                        logger.debug("Skipping private repo {} found in fork scan", fn)
+                        continue
                     batch[fn] = DiscoveredRepo(
                         full_name=fn,
                         owner_login=fork["owner"]["login"],
@@ -357,6 +401,9 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict
             if dr.status_code != 200:
                 continue
             d = dr.json()
+            if d.get("private", False):
+                logger.debug("Skipping private repo {} found in curated list", ref)
+                continue
             batch[ref] = DiscoveredRepo(
                 full_name=ref,
                 owner_login=d["owner"]["login"],
@@ -400,6 +447,9 @@ def _run_code_search(
             repo = item.get("repository", {})
             fn = repo.get("full_name", "")
             if fn and fn not in repos:
+                if repo.get("private", False):
+                    logger.debug("Skipping private repo {} found in code search", fn)
+                    continue
                 repos[fn] = DiscoveredRepo(
                     full_name=fn,
                     owner_login=repo["owner"]["login"],
@@ -415,55 +465,4 @@ def _run_code_search(
     return repos
 
 
-# ---------------------------------------------------------------------------
-# GitHub API client with rate-limit tracking
-# ---------------------------------------------------------------------------
-
-
-class GitHubClient:
-    """Rate-limit-aware HTTP client for the GitHub API."""
-
-    def __init__(self, token: str | None = None):
-        headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        self._client = httpx.Client(
-            base_url=GITHUB_API,
-            headers=headers,
-            timeout=30,
-        )
-        self._rate_limit_remaining = 999
-        self._rate_limit_reset = 0.0
-
-    def close(self) -> None:
-        self._client.close()
-
-    def get(self, path: str, params: dict | None = None) -> httpx.Response:
-        self._wait_for_rate_limit()
-        resp = self._client.get(path, params=params)
-        self._update_rate_limit(resp)
-        if resp.status_code == 403 and "rate limit" in resp.text.lower():
-            wait = max(self._rate_limit_reset - time.time(), 5)
-            logger.warning("Rate limited. Waiting {:.0f}s...", wait)
-            time.sleep(wait + 1)
-            resp = self._client.get(path, params=params)
-            self._update_rate_limit(resp)
-        return resp
-
-    def _wait_for_rate_limit(self) -> None:
-        if self._rate_limit_remaining < 3:
-            wait = max(self._rate_limit_reset - time.time(), 1)
-            logger.info(
-                "Rate limit low ({}). Waiting {:.0f}s...",
-                self._rate_limit_remaining,
-                wait,
-            )
-            time.sleep(wait + 1)
-
-    def _update_rate_limit(self, resp: httpx.Response) -> None:
-        remaining = resp.headers.get("x-ratelimit-remaining")
-        reset = resp.headers.get("x-ratelimit-reset")
-        if remaining is not None:
-            self._rate_limit_remaining = int(remaining)
-        if reset is not None:
-            self._rate_limit_reset = float(reset)
+# GitHubClient is imported from decision_hub.infra.github_client

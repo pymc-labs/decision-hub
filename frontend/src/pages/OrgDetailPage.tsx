@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, Download, ArrowLeft, Globe, Github, Star } from "lucide-react";
+import { Package, Download, ArrowLeft, Globe, Github, Star, Tag } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
@@ -35,19 +35,47 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
 
   const { items: skills, total: totalSkills, loading, loadingMore, error, hasMore, sentinelRef, retry } =
     useInfiniteScroll(fetchPage, [orgSlug]);
-  const { data: profile } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
+  const { data: profile, loading: profileLoading, error: profileError } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
 
   const blogUrl = profile?.blog
     ? profile.blog.match(/^https?:\/\//) ? profile.blog : `https://${profile.blog}`
     : null;
 
-  if (loading && skills.length === 0) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
+  if ((loading || profileLoading) && skills.length === 0) return <LoadingSpinner text={`Loading ${orgSlug}...`} />;
   if (error && skills.length === 0) {
     return (
       <div className="container">
         <NeonCard glow="pink">
           <p style={{ color: "var(--grade-fail)" }}>Error: {error}</p>
         </NeonCard>
+      </div>
+    );
+  }
+  const isOrgNotFound = !loading && !profileLoading && profileError && totalSkills === 0;
+  if (isOrgNotFound) {
+    const is404 = /API 404\b/.test(profileError);
+    return (
+      <div className="container" style={{ textAlign: "center", paddingTop: "4rem" }}>
+        {is404 ? (
+          <>
+            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--grade-fail)", margin: 0 }}>404</p>
+            <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Organization not found</h1>
+            <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
+              <strong>{orgSlug}</strong> doesn&apos;t exist or has no published skills.
+            </p>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--grade-fail)", margin: 0 }}>Error</p>
+            <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Something went wrong</h1>
+            <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
+              Could not load <strong>{orgSlug}</strong>: {profileError}
+            </p>
+          </>
+        )}
+        <Link to="/orgs" style={{ color: "var(--lab-blue)" }}>
+          ← Browse all organizations
+        </Link>
       </div>
     );
   }
@@ -127,6 +155,12 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
                       <h3 className={styles.cardName}>{skill.skill_name}</h3>
                       <GradeBadge grade={skill.safety_rating} size="sm" />
                     </div>
+                    {skill.category && (
+                      <div className={styles.cardCategory}>
+                        <Tag size={10} />
+                        {skill.category}
+                      </div>
+                    )}
                     <p className={styles.cardDesc}>{skill.description}</p>
                     <div className={styles.cardFooter}>
                       <span className={styles.cardVersion}>

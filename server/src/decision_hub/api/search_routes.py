@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_s3_client, get_settings
 from decision_hub.api.rate_limit import RateLimiter
-from decision_hub.domain.search import build_index_entry, format_trust_score, serialize_index
+from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import (
@@ -111,8 +111,10 @@ def _run_retrieval(
             description=row.get("description", ""),
             latest_version=row["latest_version"],
             eval_status=row["eval_status"],
-            author=row.get("published_by", ""),
+            author=resolve_author_display(row.get("published_by", "")),
             category=row.get("category", ""),
+            download_count=row.get("download_count", 0),
+            source_repo_url=row.get("source_repo_url"),
         )
         for row in candidates
     )
@@ -150,6 +152,11 @@ class AskSkillRef(BaseModel):
     description: str
     safety_rating: str
     reason: str
+    author: str = ""
+    category: str = ""
+    download_count: int = 0
+    latest_version: str = ""
+    source_repo_url: str | None = None
 
 
 class AskResponse(BaseModel):
@@ -228,6 +235,7 @@ def ask_skills(
         llm_ms = int((time.monotonic() - llm_start) * 1000)
     except Exception:
         logger.opt(exception=True).warning("Conversational ask failed, using fallback")
+        fallback_latency_ms = int((time.monotonic() - start_time) * 1000)
         skill_refs = [
             AskSkillRef(
                 org_slug=e.org_slug,
@@ -237,9 +245,43 @@ def ask_skills(
                     candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
                 ),
                 reason="Matched your search query.",
+                author=e.author,
+                category=e.category,
+                download_count=e.download_count,
+                latest_version=e.latest_version,
+                source_repo_url=e.source_repo_url,
             )
             for e in result.entries[:5]
         ]
+        try:
+            log_id = uuid4()
+            s3_key = upload_search_log(
+                s3_client,
+                settings.s3_bucket,
+                log_id,
+                q,
+                "",
+                {
+                    "results_count": len(result.entries),
+                    "model": settings.gemini_model,
+                    "latency_ms": fallback_latency_ms,
+                    "user_id": str(current_user.id) if current_user else None,
+                    "username": current_user.username if current_user else None,
+                    "fallback": True,
+                },
+            )
+            insert_search_log(
+                conn,
+                log_id=log_id,
+                query=q,
+                s3_key=s3_key,
+                results_count=len(result.entries),
+                model=settings.gemini_model,
+                latency_ms=fallback_latency_ms,
+                user_id=current_user.id if current_user else None,
+            )
+        except Exception:
+            logger.opt(exception=True).warning("Analytics logging failed for fallback ask q='{}'", q[:80])
         return AskResponse(
             query=q,
             answer="Here are the most relevant skills I found:",
@@ -304,6 +346,11 @@ def ask_skills(
                     description=row.get("description", ""),
                     safety_rating=format_trust_score(row.get("eval_status", "")),
                     reason=ref.get("reason", ""),
+                    author=resolve_author_display(row.get("published_by", "")),
+                    category=row.get("category", ""),
+                    download_count=row.get("download_count", 0),
+                    latest_version=row.get("latest_version", ""),
+                    source_repo_url=row.get("source_repo_url"),
                 )
             )
 

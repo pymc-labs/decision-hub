@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli backfill tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -74,12 +74,23 @@ publish-cli: ## Publish CLI to PyPI (BUMP=patch|minor|major, BREAKING=1 to sync 
 # ---------------------------------------------------------------------------
 
 backfill: ## Run all backfills: categories, embeddings, org metadata (needs DHUB_ENV)
-	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN && \
+		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python scripts/backfill_categories.py
-	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN && \
+		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python -m decision_hub.scripts.backfill_embeddings
-	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN && \
+		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python -m decision_hub.scripts.backfill_org_metadata --github-token "$$(gh auth token)"
+
+# ---------------------------------------------------------------------------
+# Monitoring
+# ---------------------------------------------------------------------------
+
+tracker-health: ## Show tracker health summary (dev by default, override with DHUB_ENV=prod)
+	cd server && DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+		python -m decision_hub.scripts.tracker_health
 
 # ---------------------------------------------------------------------------
 # Setup

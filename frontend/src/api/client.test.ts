@@ -190,31 +190,31 @@ describe("getEvalReport", () => {
 
 describe("getAuditLog", () => {
   it("calls without semver param when not provided", async () => {
-    const entries = [{ id: "a1", grade: "A" }];
+    const response = { items: [{ id: "a1", grade: "A" }], total: 1, page: 1, page_size: 20, total_pages: 1 };
     server.use(
       http.get("/v1/skills/:org/:skill/audit-log", ({ request }) => {
         const url = new URL(request.url);
         expect(url.searchParams.has("semver")).toBe(false);
-        return HttpResponse.json(entries);
+        return HttpResponse.json(response);
       }),
     );
 
     const result = await getAuditLog("acme", "my-skill");
-    expect(result).toEqual(entries);
+    expect(result).toEqual(response);
   });
 
   it("includes semver param when provided", async () => {
-    const entries = [{ id: "a1", grade: "B" }];
+    const response = { items: [{ id: "a1", grade: "B" }], total: 1, page: 1, page_size: 20, total_pages: 1 };
     server.use(
       http.get("/v1/skills/:org/:skill/audit-log", ({ request }) => {
         const url = new URL(request.url);
         expect(url.searchParams.get("semver")).toBe("2.0.0");
-        return HttpResponse.json(entries);
+        return HttpResponse.json(response);
       }),
     );
 
     const result = await getAuditLog("acme", "my-skill", "2.0.0");
-    expect(result).toEqual(entries);
+    expect(result).toEqual(response);
   });
 });
 

@@ -298,12 +298,15 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
+  display: block;
+  height: 100%;
 }
 
 .skillCard {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
 }
 
 .skillHeader {
@@ -346,6 +349,8 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  flex: 1;
+  min-height: 3em;
 }
 
 .skillMeta {
@@ -558,7 +563,8 @@
     display: none;
   }
 
-  .heroCta {
+  .heroCta,
+  .bottomCtaActions {
     flex-direction: column;
     align-items: center;
   }

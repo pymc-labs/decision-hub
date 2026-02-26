@@ -32,7 +32,7 @@ def _publish_skill_directory(
     Returns True on success, False on skip (no changes).
     Raises typer.Exit on errors.
     """
-    from dhub.cli.config import build_headers
+    from dhub.cli.config import build_headers, raise_for_status
     from dhub.core.validation import (
         FIRST_VERSION,
         bump_version,
@@ -90,7 +90,7 @@ def _publish_skill_directory(
         if resp.status_code == 503:
             console.print("[red]Error: Server LLM judge not configured. Cannot publish without LLM review.[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
 
     data = resp.json()
     eval_status = data.get("eval_status", "")
@@ -373,12 +373,16 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
     - If tracker exists and is enabled: does nothing.
     - If tracker exists but disabled: only re-enables if --track was passed.
     """
+    from dhub.cli.config import raise_for_status
+
     # Check if a tracker already exists for this repo+branch
     try:
         with httpx.Client(timeout=60) as client:
             resp = client.get(f"{api_url}/v1/trackers", headers=headers)
-            resp.raise_for_status()
+            raise_for_status(resp)
             existing = resp.json()
+    except (SystemExit, typer.Exit):
+        raise  # Don't swallow typer.Exit (e.g. from 426 handler)
     except Exception:
         return  # Don't fail the publish if tracker API is unavailable
 
@@ -430,7 +434,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
     2. Cached orgs from config (if exactly one)
     3. Falls back to API call (for old configs without cached orgs)
     """
-    from dhub.cli.config import build_headers, get_default_org, load_config
+    from dhub.cli.config import build_headers, get_default_org, load_config, raise_for_status
 
     # 1. Check default org (env var takes priority over config)
     default = get_default_org()
@@ -459,7 +463,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
             f"{api_url}/v1/orgs",
             headers=build_headers(token),
         )
-        resp.raise_for_status()
+        raise_for_status(resp)
         orgs = resp.json()
 
     if len(orgs) == 0:
@@ -508,7 +512,7 @@ def _auto_bump_version(
     Returns (bumped_version, latest_checksum, current_version).
     On first publish (404), latest_checksum and current_version are None.
     """
-    from dhub.cli.config import build_headers
+    from dhub.cli.config import build_headers, raise_for_status
 
     with httpx.Client(timeout=60) as client:
         resp = client.get(
@@ -521,7 +525,7 @@ def _auto_bump_version(
         console.print(f"First publish — using version [cyan]{version}[/]")
         return version, None, None
 
-    resp.raise_for_status()
+    raise_for_status(resp)
     data = resp.json()
     current = data["version"]
     latest_checksum = data.get("checksum")
@@ -598,7 +602,7 @@ def list_command(
     import sys
 
     from dhub.cli.banner import check_and_show_update, print_banner
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
 
     print_banner(console)
 
@@ -621,7 +625,7 @@ def list_command(
                 headers=headers,
                 params=params,
             )
-            resp.raise_for_status()
+            raise_for_status(resp)
             data = resp.json()
 
             items = data["items"]
@@ -673,7 +677,7 @@ def delete_command(
     version: str = typer.Option(None, "--version", "-v", help="Version to delete (omit to delete all)"),
 ) -> None:
     """Delete a published skill version (or all versions) from the registry."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -703,7 +707,7 @@ def delete_command(
             if resp.status_code == 403:
                 console.print("[red]Error: You don't have permission to delete this skill.[/]")
                 raise typer.Exit(1)
-            resp.raise_for_status()
+            raise_for_status(resp)
 
         data = resp.json()
         count = data["versions_deleted"]
@@ -721,7 +725,7 @@ def delete_command(
             if resp.status_code == 403:
                 console.print("[red]Error: You don't have permission to delete this version.[/]")
                 raise typer.Exit(1)
-            resp.raise_for_status()
+            raise_for_status(resp)
 
         console.print(f"[green]Deleted: {org_slug}/{skill_name}@{version}[/]")
 
@@ -730,7 +734,7 @@ def eval_report_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill@1.0.0')"),
 ) -> None:
     """View the agent evaluation report for a skill version."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
 
     # Parse skill reference (org/skill@version)
     if "@" not in skill_ref:
@@ -756,7 +760,7 @@ def eval_report_command(
         if resp.status_code == 404:
             console.print(f"[red]Error: No eval report found for {org_slug}/{skill_name}@{version}[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
 
     data = resp.json()
 
@@ -800,11 +804,11 @@ def eval_report_command(
 def install_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
     version: str = typer.Option("latest", "--version", "-v", help="Version spec"),
-    agent: str = typer.Option(None, "--agent", help="Target agent (claude, cursor, etc.) or 'all'"),
+    agent: str = typer.Option(None, "--agent", help="Target agent (e.g. claude-code, cursor) or 'all'"),
     allow_risky: bool = typer.Option(False, "--allow-risky", help="Allow installing C-grade (risky) skills"),
 ) -> None:
     """Install a skill from the registry."""
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
     from dhub.core.install import (
         get_dhub_skill_path,
         link_skill_to_agent,
@@ -836,7 +840,7 @@ def install_command(
         if resp.status_code == 404:
             console.print(f"[red]Error: Skill '{skill_ref}' not found.[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
         data = resp.json()
 
     resolved_version: str = data["version"]
@@ -849,7 +853,7 @@ def install_command(
         httpx.Client(timeout=60) as client,
     ):
         resp = client.get(download_url)
-        resp.raise_for_status()
+        raise_for_status(resp)
         zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
 
@@ -1000,9 +1004,11 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
 
 def _list_recent_runs(api_url: str, headers: dict) -> None:
     """List recent eval runs for the current user."""
+    from dhub.cli.config import raise_for_status
+
     with httpx.Client(timeout=60) as client:
         resp = client.get(f"{api_url}/v1/eval-runs", headers=headers)
-        resp.raise_for_status()
+        raise_for_status(resp)
         runs = resp.json()
 
     if not runs:
@@ -1049,9 +1055,11 @@ def _list_recent_runs(api_url: str, headers: dict) -> None:
 
 def _show_run_status(api_url: str, headers: dict, run_id: str) -> None:
     """Show current status of an eval run."""
+    from dhub.cli.config import raise_for_status
+
     with httpx.Client(timeout=60) as client:
         resp = client.get(f"{api_url}/v1/eval-runs/{run_id}", headers=headers)
-        resp.raise_for_status()
+        raise_for_status(resp)
         run = resp.json()
 
     status = run["status"]
@@ -1082,6 +1090,8 @@ def _tail_eval_logs(api_url: str, headers: dict, run_id: str) -> None:
     """Tail eval run logs with polling."""
     import time
 
+    from dhub.cli.config import raise_for_status
+
     cursor = 0
     console.print(f"[dim]Tailing eval run {run_id[:8]}...[/]\n")
 
@@ -1092,7 +1102,7 @@ def _tail_eval_logs(api_url: str, headers: dict, run_id: str) -> None:
                 params={"cursor": cursor},
                 headers=headers,
             )
-            resp.raise_for_status()
+            raise_for_status(resp)
             data = resp.json()
 
         for event in data["events"]:
@@ -1195,7 +1205,7 @@ def visibility_command(
     visibility: str = typer.Argument(help="Visibility level: 'public' or 'org'"),
 ) -> None:
     """Change the visibility of a published skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     valid = {"public", "org"}
@@ -1227,7 +1237,7 @@ def visibility_command(
         if resp.status_code == 422:
             console.print(f"[red]Error: {resp.json().get('detail', 'Invalid visibility')}[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
 
     label = "org-private" if visibility == "org" else "public"
     console.print(f"[green]Visibility for {org_slug}/{skill_name} set to {label}.[/]")

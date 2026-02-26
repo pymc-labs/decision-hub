@@ -8,6 +8,7 @@ from decision_hub.domain.tracker import (
     check_repo_accessible,
     has_new_commits,
     parse_github_repo_url,
+    validate_branch_name,
 )
 
 
@@ -59,6 +60,26 @@ class TestParseGithubRepoUrl:
         owner, repo = parse_github_repo_url("git@github.com:socketio/socket.io.git")
         assert owner == "socketio"
         assert repo == "socket.io"
+
+
+class TestValidateBranchName:
+    @pytest.mark.parametrize("branch", ["main", "develop", "feature/my-branch", "release-1.0", "v2.3.4"])
+    def test_valid_branches_pass(self, branch):
+        validate_branch_name(branch)  # should not raise
+
+    @pytest.mark.parametrize(
+        "branch",
+        [
+            "",
+            'main"',
+            "branch with spaces",
+            "branch\nnewline",
+            'feat") { ref(qualifiedName: "refs/heads/main',
+        ],
+    )
+    def test_invalid_branches_raise(self, branch):
+        with pytest.raises(ValueError, match="Invalid branch name"):
+            validate_branch_name(branch)
 
 
 class TestCheckRepoAccessible:

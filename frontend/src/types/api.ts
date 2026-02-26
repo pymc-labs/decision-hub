@@ -12,6 +12,13 @@ export interface SkillSummary {
   is_personal_org: boolean;
   category: string;
   source_repo_url: string | null;
+  source_repo_removed: boolean;
+  github_stars: number | null;
+  github_forks: number | null;
+  github_watchers: number | null;
+  github_is_archived: boolean | null;
+  github_license: string | null;
+  is_auto_synced: boolean;
 }
 
 export interface PaginatedSkillsResponse {
@@ -81,6 +88,14 @@ export interface AuditLogEntry {
   created_at: string | null;
 }
 
+export interface PaginatedAuditLogResponse {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export interface SkillFile {
   path: string;
   content: string;
@@ -118,6 +133,11 @@ export interface AskSkillRef {
   description: string;
   safety_rating: string;
   reason: string;
+  author: string;
+  category: string;
+  download_count: number;
+  latest_version: string;
+  source_repo_url: string | null;
 }
 
 export interface AskResponse {

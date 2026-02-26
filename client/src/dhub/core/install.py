@@ -8,13 +8,50 @@ import hashlib
 import shutil
 from pathlib import Path
 
-# Mapping of agent names to their skill directories
+# Mapping of agent --agent flag values to their global skill directories.
+# Each key is the CLI argument for `dhub install --agent <key>`.
 AGENT_SKILL_PATHS: dict[str, Path] = {
-    "claude": Path.home() / ".claude" / "skills",
+    "adal": Path.home() / ".adal" / "skills",
+    "amp": Path.home() / ".config" / "agents" / "skills",
+    "antigravity": Path.home() / ".gemini" / "antigravity" / "skills",
+    "augment": Path.home() / ".augment" / "skills",
+    "claude-code": Path.home() / ".claude" / "skills",
+    "cline": Path.home() / ".cline" / "skills",
+    "codebuddy": Path.home() / ".codebuddy" / "skills",
     "codex": Path.home() / ".codex" / "skills",
+    "command-code": Path.home() / ".commandcode" / "skills",
+    "continue": Path.home() / ".continue" / "skills",
+    "cortex": Path.home() / ".snowflake" / "cortex" / "skills",
+    "crush": Path.home() / ".config" / "crush" / "skills",
     "cursor": Path.home() / ".cursor" / "skills",
+    "droid": Path.home() / ".factory" / "skills",
+    "gemini-cli": Path.home() / ".gemini" / "skills",
+    "github-copilot": Path.home() / ".copilot" / "skills",
+    "goose": Path.home() / ".config" / "goose" / "skills",
+    "iflow-cli": Path.home() / ".iflow" / "skills",
+    "junie": Path.home() / ".junie" / "skills",
+    "kilo": Path.home() / ".kilocode" / "skills",
+    "kimi-cli": Path.home() / ".config" / "agents" / "skills",
+    "kiro-cli": Path.home() / ".kiro" / "skills",
+    "kode": Path.home() / ".kode" / "skills",
+    "mcpjam": Path.home() / ".mcpjam" / "skills",
+    "mistral-vibe": Path.home() / ".vibe" / "skills",
+    "mux": Path.home() / ".mux" / "skills",
+    "neovate": Path.home() / ".neovate" / "skills",
+    "openclaw": Path.home() / ".openclaw" / "skills",
     "opencode": Path.home() / ".config" / "opencode" / "skills",
-    "gemini": Path.home() / ".gemini" / "skills",
+    "openhands": Path.home() / ".openhands" / "skills",
+    "pi": Path.home() / ".pi" / "agent" / "skills",
+    "pochi": Path.home() / ".pochi" / "skills",
+    "qoder": Path.home() / ".qoder" / "skills",
+    "qwen-code": Path.home() / ".qwen" / "skills",
+    "replit": Path.home() / ".config" / "agents" / "skills",
+    "roo": Path.home() / ".roo" / "skills",
+    "trae": Path.home() / ".trae" / "skills",
+    "trae-cn": Path.home() / ".trae-cn" / "skills",
+    "universal": Path.home() / ".config" / "agents" / "skills",
+    "windsurf": Path.home() / ".codeium" / "windsurf" / "skills",
+    "zencoder": Path.home() / ".zencoder" / "skills",
 }
 
 
@@ -120,6 +157,10 @@ def unlink_skill_from_agent(org: str, skill_name: str, agent: str) -> None:
 def link_skill_to_all_agents(org: str, skill_name: str) -> list[str]:
     """Symlink a skill to all known agent directories.
 
+    Multiple agents can share the same directory (e.g. amp, kimi-cli, replit,
+    universal all use ~/.config/agents/skills). Each unique physical path is
+    only symlinked once to avoid needless delete-recreate cycles.
+
     Args:
         org: The organization slug.
         skill_name: The skill name.
@@ -128,8 +169,15 @@ def link_skill_to_all_agents(org: str, skill_name: str) -> list[str]:
         List of agent names that were successfully linked.
     """
     linked: list[str] = []
+    seen_paths: set[Path] = set()
     for agent in sorted(AGENT_SKILL_PATHS):
+        agent_dir = AGENT_SKILL_PATHS[agent]
+        symlink_path = agent_dir / skill_name
+        if symlink_path in seen_paths:
+            linked.append(agent)
+            continue
         link_skill_to_agent(org, skill_name, agent)
+        seen_paths.add(symlink_path)
         linked.append(agent)
     return linked
 
@@ -175,10 +223,19 @@ def uninstall_skill(org: str, skill_name: str) -> list[str]:
     if not canonical.exists():
         raise FileNotFoundError(f"Skill not installed: {canonical}")
 
-    # Remove agent symlinks first
+    # Remove agent symlinks first.
+    # Multiple agents can share the same directory (e.g. amp, kimi-cli, replit,
+    # universal all use ~/.config/agents/skills). Track which physical symlink
+    # paths have already been removed to avoid FileNotFoundError on duplicates.
     unlinked: list[str] = []
+    removed_paths: set[Path] = set()
     for agent in list_linked_agents(org, skill_name):
+        symlink_path = AGENT_SKILL_PATHS[agent] / skill_name
+        if symlink_path in removed_paths:
+            unlinked.append(agent)
+            continue
         unlink_skill_from_agent(org, skill_name, agent)
+        removed_paths.add(symlink_path)
         unlinked.append(agent)
 
     # Remove the skill directory

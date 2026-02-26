@@ -15,7 +15,7 @@ def grant_command(
     grantee: str = typer.Argument(help="Organisation slug to grant access to"),
 ) -> None:
     """Grant an organisation access to a private skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -42,7 +42,7 @@ def grant_command(
         if resp.status_code == 409:
             console.print(f"[yellow]Access already granted to '{grantee}'.[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
 
     console.print(f"[green]Granted access to '{grantee}' for {org_slug}/{skill_name}.[/]")
 
@@ -53,7 +53,7 @@ def revoke_command(
     grantee: str = typer.Argument(help="Organisation slug to revoke access from"),
 ) -> None:
     """Revoke an organisation's access to a private skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -76,7 +76,7 @@ def revoke_command(
         if resp.status_code == 403:
             console.print("[red]Error: Only org owners and admins can manage access grants.[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
 
     console.print(f"[green]Revoked access from '{grantee}' for {org_slug}/{skill_name}.[/]")
 
@@ -86,7 +86,7 @@ def list_command(
     skill_ref: str = typer.Argument(help="Skill reference (org/skill)"),
 ) -> None:
     """List access grants for a private skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -109,7 +109,7 @@ def list_command(
         if resp.status_code == 403:
             console.print("[red]Error: Only org owners and admins can view access grants.[/]")
             raise typer.Exit(1)
-        resp.raise_for_status()
+        raise_for_status(resp)
         grants = resp.json()
 
     if not grants:

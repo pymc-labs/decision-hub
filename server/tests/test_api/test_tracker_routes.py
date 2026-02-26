@@ -93,7 +93,7 @@ class TestCreateTracker:
         data = resp.json()
         assert data["warning"] is not None
         assert "private" in data["warning"].lower()
-        assert "GITHUB_TOKEN" in data["warning"]
+        assert "system" in data["warning"].lower()
 
     def test_create_tracker_invalid_url(self, tracker_client, auth_headers):
         resp = tracker_client.post(

@@ -1,5 +1,6 @@
 """CRUD API routes for skill trackers."""
 
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,12 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_connection, get_current_user
-from decision_hub.domain.tracker import build_canonical_repo_url, check_repo_accessible, parse_github_repo_url
+from decision_hub.domain.tracker import (
+    build_canonical_repo_url,
+    check_repo_accessible,
+    parse_github_repo_url,
+    validate_branch_name,
+)
 from decision_hub.infra.database import (
     delete_skill_tracker,
     find_org_by_slug,
@@ -137,6 +143,12 @@ def create_tracker(
         raise HTTPException(status_code=422, detail=str(e)) from None
     canonical_url = build_canonical_repo_url(owner, repo)
 
+    # Validate branch name (prevents GraphQL injection via string interpolation)
+    try:
+        validate_branch_name(body.branch)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
     # Validate poll interval
     if body.poll_interval_minutes < 5:
         raise HTTPException(
@@ -168,7 +180,8 @@ def create_tracker(
     # Check if the repo is publicly accessible (best-effort, non-blocking)
     if not check_repo_accessible(owner, repo):
         response.warning = (
-            "This repo appears to be private. To enable tracking, add a GitHub token: dhub keys add GITHUB_TOKEN"
+            "This repo appears to be private. Tracker polling uses a system-level GitHub token — "
+            "private repos will only sync if the system token has access."
         )
 
     return response
@@ -211,11 +224,27 @@ def update_tracker(
     if tracker is None or tracker.user_id != user.id:
         raise HTTPException(status_code=404, detail="Tracker not found")
 
+    if body.branch is not None:
+        try:
+            validate_branch_name(body.branch)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
+
     if body.poll_interval_minutes is not None and body.poll_interval_minutes < 5:
         raise HTTPException(
             status_code=422,
             detail="poll_interval_minutes must be >= 5",
         )
+
+    # Recompute next_check_at when interval or branch changes so the
+    # new schedule takes effect immediately rather than waiting for
+    # the old next_check_at to expire.
+    recompute_next_check = body.poll_interval_minutes is not None or body.branch is not None
+    next_check_at_value: datetime | None = ...  # type: ignore[assignment]
+    if recompute_next_check:
+        effective_interval = body.poll_interval_minutes or tracker.poll_interval_minutes
+        last_checked = tracker.last_checked_at or datetime.now(UTC)
+        next_check_at_value = last_checked + timedelta(minutes=effective_interval)
 
     update_skill_tracker(
         conn,
@@ -223,6 +252,7 @@ def update_tracker(
         enabled=body.enabled,
         branch=body.branch,
         poll_interval_minutes=body.poll_interval_minutes,
+        next_check_at=next_check_at_value if recompute_next_check else ...,  # type: ignore[arg-type]
     )
 
     updated = find_skill_tracker(conn, tid)

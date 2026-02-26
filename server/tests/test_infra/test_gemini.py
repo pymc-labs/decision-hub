@@ -13,7 +13,7 @@ from decision_hub.infra.gemini import (
     create_gemini_client,
 )
 
-_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 
 @pytest.fixture
@@ -164,6 +164,7 @@ class TestAnalyzeCodeSafetyPromptHardening:
             ],
             skill_name="evil-skill",
             skill_description="Attempts to confuse safety scanner",
+            model="gemini-2.5-flash",
         )
 
         payload = json.loads(route.calls[0].request.content.decode())

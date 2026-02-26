@@ -38,6 +38,7 @@ from decision_hub.models import (
     Skill,
     SkillAccessGrant,
     SkillTracker,
+    TrackerMetrics,
     User,
     UserApiKey,
     Version,
@@ -161,6 +162,12 @@ skills_table = Table(
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
     Column("source_repo_url", Text, nullable=True),
+    Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
+    Column("github_stars", sa.Integer, nullable=True),
+    Column("github_forks", sa.Integer, nullable=True),
+    Column("github_watchers", sa.Integer, nullable=True),
+    Column("github_is_archived", Boolean, nullable=True),
+    Column("github_license", Text, nullable=True),
     Column("search_vector", TSVECTOR, nullable=True),
     Column("embedding", Vector(768), nullable=True),
     # Denormalized latest-version columns (kept in sync by _refresh_skill_latest_version)
@@ -500,6 +507,7 @@ skill_trackers_table = Table(
     Column("last_checked_at", DateTime(timezone=True), nullable=True),
     Column("last_published_at", DateTime(timezone=True), nullable=True),
     Column("last_error", Text, nullable=True),
+    Column("next_check_at", DateTime(timezone=True), nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -507,6 +515,29 @@ skill_trackers_table = Table(
         server_default=sa.func.now(),
     ),
     sa.UniqueConstraint("user_id", "repo_url", "branch"),
+)
+
+tracker_metrics_table = Table(
+    "tracker_metrics",
+    metadata,
+    Column(
+        "id",
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.func.gen_random_uuid(),
+    ),
+    Column("recorded_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("iterations", sa.Integer, nullable=False),
+    Column("total_checked", sa.Integer, nullable=False),
+    Column("trackers_due", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_unchanged", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_changed", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_errored", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_processed", sa.Integer, nullable=False, server_default="0"),
+    Column("trackers_failed", sa.Integer, nullable=False, server_default="0"),
+    Column("skipped_rate_limit", sa.Integer, nullable=False, server_default="0"),
+    Column("github_rate_remaining", sa.Integer, nullable=True),
+    Column("batch_duration_seconds", sa.REAL, nullable=False),
 )
 
 
@@ -536,6 +567,49 @@ def create_engine(database_url: str) -> Engine:
             "options": "-c statement_cache_size=0 -c statement_timeout=30000",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared skill summary columns — single source of truth for list + search
+# ---------------------------------------------------------------------------
+
+# Columns selected for all skill summary queries (list, search, ask).
+# When adding a new metadata column to the skills table, add it HERE and
+# it will automatically propagate to the list endpoint, the hybrid search,
+# the ask JSONL index, the AskSkillRef API response, and the frontend.
+_SKILL_SUMMARY_COLUMNS = [
+    organizations_table.c.slug.label("org_slug"),
+    organizations_table.c.is_personal.label("is_personal_org"),
+    skills_table.c.name.label("skill_name"),
+    skills_table.c.description,
+    skills_table.c.download_count,
+    skills_table.c.category,
+    skills_table.c.visibility,
+    skills_table.c.source_repo_url,
+    skills_table.c.source_repo_removed,
+    skills_table.c.github_stars,
+    skills_table.c.github_forks,
+    skills_table.c.github_watchers,
+    skills_table.c.github_is_archived,
+    skills_table.c.github_license,
+    skills_table.c.latest_semver.label("latest_version"),
+    skills_table.c.latest_eval_status.label("eval_status"),
+    skills_table.c.latest_published_at.label("created_at"),
+    skills_table.c.latest_published_by.label("published_by"),
+]
+
+# Keys present in every skill summary dict (used by _row_to_skill_summary).
+_SKILL_SUMMARY_KEYS = frozenset(col.key if hasattr(col, "key") else col.name for col in _SKILL_SUMMARY_COLUMNS)
+
+
+def _row_to_skill_summary(row: sa.Row) -> dict:
+    """Convert a query row to a skill summary dict.
+
+    Uses row._mapping to automatically capture all selected columns,
+    then filters to just the canonical summary keys (excluding scoring
+    columns like fts_rank or vec_dist that are query-specific).
+    """
+    return {k: v for k, v in row._mapping.items() if k in _SKILL_SUMMARY_KEYS}
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +667,12 @@ def _row_to_skill(row: sa.Row) -> Skill:
         category=row.category,
         visibility=row.visibility,
         source_repo_url=row.source_repo_url,
+        source_repo_removed=row.source_repo_removed,
+        github_stars=row.github_stars,
+        github_forks=row.github_forks,
+        github_watchers=row.github_watchers,
+        github_is_archived=row.github_is_archived,
+        github_license=row.github_license,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -708,10 +788,42 @@ def find_org_by_slug(conn: Connection, slug: str) -> Organization | None:
 
 
 def list_all_org_profiles(conn: Connection) -> list[Organization]:
-    """Return all organizations (public listing)."""
-    stmt = sa.select(organizations_table).order_by(organizations_table.c.slug)
+    """Return organizations that have at least one published public skill."""
+    stmt = (
+        sa.select(organizations_table)
+        .where(
+            organizations_table.c.id.in_(
+                sa.select(skills_table.c.org_id)
+                .where(
+                    sa.and_(
+                        skills_table.c.visibility == "public",
+                        skills_table.c.latest_semver.isnot(None),
+                    )
+                )
+                .distinct()
+            )
+        )
+        .order_by(organizations_table.c.slug)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_organization(row) for row in rows]
+
+
+def org_has_public_skills(conn: Connection, org_id: UUID) -> bool:
+    """Check whether an org has at least one published public skill."""
+    stmt = (
+        sa.select(sa.literal(1))
+        .select_from(skills_table)
+        .where(
+            sa.and_(
+                skills_table.c.org_id == org_id,
+                skills_table.c.visibility == "public",
+                skills_table.c.latest_semver.isnot(None),
+            )
+        )
+        .limit(1)
+    )
+    return conn.execute(stmt).first() is not None
 
 
 def list_user_orgs(conn: Connection, user_id: UUID) -> list[Organization]:
@@ -959,6 +1071,56 @@ def update_skill_source_repo_url(conn: Connection, skill_id: UUID, source_repo_u
     conn.execute(stmt)
 
 
+def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> None:
+    """Batch-update github_stars on the skills table by source_repo_url.
+
+    *repo_stars* maps ``"https://github.com/owner/repo"`` to the star count.
+    Updates all skills whose ``source_repo_url`` is either an exact match for
+    the repo URL or starts with the repo URL followed by ``/`` (for skills in
+    subdirectories of the same repo).
+    """
+    for repo_url, stars in repo_stars.items():
+        stmt = (
+            sa.update(skills_table)
+            .where(
+                sa.or_(
+                    skills_table.c.source_repo_url == repo_url,
+                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                )
+            )
+            .values(github_stars=stars)
+        )
+        conn.execute(stmt)
+
+
+def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str, dict]) -> None:
+    """Batch-update github_forks, github_watchers, github_is_archived, github_license on skills by source_repo_url.
+
+    *repo_metadata* maps ``"https://github.com/owner/repo"`` to a dict with keys
+    ``forks``, ``watchers``, ``is_archived``, ``license``.
+    Updates all skills whose ``source_repo_url`` is either an exact match for
+    the repo URL or starts with the repo URL followed by ``/`` (for skills in
+    subdirectories of the same repo).
+    """
+    for repo_url, meta in repo_metadata.items():
+        stmt = (
+            sa.update(skills_table)
+            .where(
+                sa.or_(
+                    skills_table.c.source_repo_url == repo_url,
+                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                )
+            )
+            .values(
+                github_forks=meta.get("forks"),
+                github_watchers=meta.get("watchers"),
+                github_is_archived=meta.get("is_archived"),
+                github_license=meta.get("license"),
+            )
+        )
+        conn.execute(stmt)
+
+
 def insert_skill_access_grant(
     conn: Connection, skill_id: UUID, grantee_org_id: UUID, granted_by: UUID
 ) -> SkillAccessGrant:
@@ -997,6 +1159,34 @@ def list_skill_access_grants(conn: Connection, skill_id: UUID) -> list[SkillAcce
     )
     rows = conn.execute(stmt).all()
     return [_row_to_skill_access_grant(row) for row in rows]
+
+
+def list_skill_access_grants_with_names(conn: Connection, skill_id: UUID) -> list[tuple[str, str, datetime | None]]:
+    """List access grants with resolved org slug and username in a single query.
+
+    Returns (grantee_org_slug, granted_by_username, created_at) tuples,
+    avoiding per-row lookups (N+1).
+    """
+    stmt = (
+        sa.select(
+            organizations_table.c.slug.label("grantee_org_slug"),
+            users_table.c.username.label("granted_by_username"),
+            skill_access_grants_table.c.created_at,
+        )
+        .select_from(
+            skill_access_grants_table.join(
+                organizations_table,
+                skill_access_grants_table.c.grantee_org_id == organizations_table.c.id,
+            ).join(
+                users_table,
+                skill_access_grants_table.c.granted_by == users_table.c.id,
+            )
+        )
+        .where(skill_access_grants_table.c.skill_id == skill_id)
+        .order_by(skill_access_grants_table.c.created_at)
+    )
+    rows = conn.execute(stmt).all()
+    return [(row.grantee_org_slug, row.granted_by_username, row.created_at) for row in rows]
 
 
 def list_granted_skill_ids(conn: Connection, org_ids: list[UUID]) -> list[UUID]:
@@ -1313,7 +1503,13 @@ def delete_all_versions(conn: Connection, skill_id: UUID) -> list[str]:
 
 
 def delete_skill(conn: Connection, skill_id: UUID) -> None:
-    """Delete a skill record (after all versions have been removed)."""
+    """Delete a skill record (after all versions have been removed).
+
+    The DB trigger ``trg_cleanup_orphaned_tracker`` automatically deletes the
+    associated skill_tracker when this is the last skill in the same org sourced
+    from that repo (scoped to org to avoid removing trackers for other orgs that
+    happen to track the same repo).
+    """
     stmt = sa.delete(skills_table).where(skills_table.c.id == skill_id)
     conn.execute(stmt)
     logger.debug("Deleted skill id={}", skill_id)
@@ -1493,21 +1689,22 @@ def fetch_all_skills_for_index(
     Supports server-side filtering by search term, org, category, grade,
     and sorting by updated/name/downloads.
     """
-    base = (
-        sa.select(
-            organizations_table.c.slug.label("org_slug"),
-            organizations_table.c.is_personal.label("is_personal_org"),
-            skills_table.c.name.label("skill_name"),
-            skills_table.c.description,
-            skills_table.c.download_count,
-            skills_table.c.category,
-            skills_table.c.visibility,
-            skills_table.c.source_repo_url,
-            skills_table.c.latest_semver.label("latest_version"),
-            skills_table.c.latest_eval_status.label("eval_status"),
-            skills_table.c.latest_published_at.label("created_at"),
-            skills_table.c.latest_published_by.label("published_by"),
+    # Subquery: does an enabled tracker exist for this skill's source repo?
+    tracker_exists = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
         )
+        .correlate(skills_table)
+        .exists()
+        .label("has_tracker")
+    )
+
+    base = (
+        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
         .select_from(
             skills_table.join(
                 organizations_table,
@@ -1556,22 +1753,7 @@ def fetch_all_skills_for_index(
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
-    items = [
-        {
-            "org_slug": row.org_slug,
-            "is_personal_org": row.is_personal_org,
-            "skill_name": row.skill_name,
-            "description": row.description,
-            "download_count": row.download_count,
-            "category": row.category,
-            "visibility": row.visibility,
-            "latest_version": row.latest_version,
-            "eval_status": row.eval_status,
-            "created_at": row.created_at,
-            "published_by": row.published_by,
-        }
-        for row in rows
-    ]
+    items = [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
     return items, total
 
 
@@ -1599,20 +1781,7 @@ def search_skills_hybrid(
 
     def _base_select(extra_columns: list):
         """Build the base SELECT reading denormalized version columns."""
-        columns = [
-            organizations_table.c.slug.label("org_slug"),
-            organizations_table.c.is_personal.label("is_personal_org"),
-            skills_table.c.name.label("skill_name"),
-            skills_table.c.description,
-            skills_table.c.download_count,
-            skills_table.c.category,
-            skills_table.c.visibility,
-            skills_table.c.latest_semver.label("latest_version"),
-            skills_table.c.latest_eval_status.label("eval_status"),
-            skills_table.c.latest_published_at.label("created_at"),
-            skills_table.c.latest_published_by.label("published_by"),
-            *extra_columns,
-        ]
+        columns = [*_SKILL_SUMMARY_COLUMNS, *extra_columns]
 
         stmt = (
             sa.select(*columns)
@@ -1664,32 +1833,17 @@ def search_skills_hybrid(
     seen: set[tuple[str, str]] = set()
     results: list[dict] = []
 
-    def _row_to_dict(row) -> dict:
-        return {
-            "org_slug": row.org_slug,
-            "is_personal_org": row.is_personal_org,
-            "skill_name": row.skill_name,
-            "description": row.description,
-            "download_count": row.download_count,
-            "category": row.category,
-            "visibility": row.visibility,
-            "latest_version": row.latest_version,
-            "eval_status": row.eval_status,
-            "created_at": row.created_at,
-            "published_by": row.published_by,
-        }
-
     for row in vec_rows:
         key = (row.org_slug, row.skill_name)
         if key not in seen:
             seen.add(key)
-            results.append(_row_to_dict(row))
+            results.append(_row_to_skill_summary(row))
 
     for row in fts_rows:
         key = (row.org_slug, row.skill_name)
         if key not in seen:
             seen.add(key)
-            results.append(_row_to_dict(row))
+            results.append(_row_to_skill_summary(row))
 
     return results
 
@@ -1973,7 +2127,10 @@ def find_audit_logs(
     org_slug: str,
     skill_name: str,
     semver: str | None = None,
-) -> list[AuditLogEntry]:
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[AuditLogEntry], int]:
     """Find audit log entries for a skill, optionally filtered by version.
 
     Args:
@@ -1981,9 +2138,11 @@ def find_audit_logs(
         org_slug: Organization slug.
         skill_name: Skill name.
         semver: Optional version to filter by.
+        limit: Maximum number of rows to return (None = all).
+        offset: Number of rows to skip.
 
     Returns:
-        List of AuditLogEntry records, newest first.
+        Tuple of (entries, total_count) where entries are newest-first.
     """
     conditions = [
         eval_audit_logs_table.c.org_slug == org_slug,
@@ -1992,11 +2151,22 @@ def find_audit_logs(
     if semver is not None:
         conditions.append(eval_audit_logs_table.c.semver == semver)
 
+    where = sa.and_(*conditions)
+
+    count_stmt = sa.select(sa.func.count()).select_from(eval_audit_logs_table).where(where)
+    total = conn.execute(count_stmt).scalar() or 0
+
     stmt = (
-        sa.select(eval_audit_logs_table).where(sa.and_(*conditions)).order_by(eval_audit_logs_table.c.created_at.desc())
+        sa.select(eval_audit_logs_table)
+        .where(where)
+        .order_by(eval_audit_logs_table.c.created_at.desc(), eval_audit_logs_table.c.id.desc())
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
     rows = conn.execute(stmt).all()
-    return [_row_to_audit_log_entry(row) for row in rows]
+    return [_row_to_audit_log_entry(row) for row in rows], total
 
 
 # ---------------------------------------------------------------------------
@@ -2306,7 +2476,7 @@ def insert_search_log(
         query: First 500 chars of the query for previews.
         s3_key: S3 key where the full log is stored.
         results_count: Number of skills in the search index.
-        model: Model used for search (e.g. 'gemini-2.0-flash').
+        model: Model used for search (e.g. 'gemini-2.5-flash').
         latency_ms: Total search latency in milliseconds.
         user_id: ID of the user (None for anonymous searches).
     """
@@ -2350,6 +2520,7 @@ def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
         last_checked_at=row.last_checked_at,
         last_published_at=row.last_published_at,
         last_error=row.last_error,
+        next_check_at=row.next_check_at,
         created_at=row.created_at,
     )
 
@@ -2380,6 +2551,44 @@ def insert_skill_tracker(
     return tracker
 
 
+def upsert_skill_tracker(
+    conn: Connection,
+    user_id: UUID,
+    org_slug: str,
+    repo_url: str,
+    branch: str = "main",
+    poll_interval_minutes: int = 60,
+) -> bool:
+    """Insert a tracker if one doesn't already exist. Returns True if created."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    stmt = (
+        pg_insert(skill_trackers_table)
+        .values(
+            user_id=user_id,
+            org_slug=org_slug,
+            repo_url=repo_url,
+            branch=branch,
+            poll_interval_minutes=poll_interval_minutes,
+        )
+        .on_conflict_do_nothing(constraint="skill_trackers_user_id_repo_url_branch_key")
+        .returning(skill_trackers_table.c.id)
+    )
+    row = conn.execute(stmt).first()
+    return row is not None
+
+
+def has_active_tracker_for_repo(conn: Connection, repo_url: str) -> bool:
+    """Return True if at least one enabled tracker exists for the given repo URL."""
+    stmt = sa.select(sa.literal(True)).where(
+        sa.and_(
+            skill_trackers_table.c.repo_url == repo_url,
+            skill_trackers_table.c.enabled.is_(True),
+        )
+    )
+    return conn.execute(stmt).first() is not None
+
+
 def find_skill_tracker(conn: Connection, tracker_id: UUID) -> SkillTracker | None:
     """Find a tracker by its ID."""
     stmt = sa.select(skill_trackers_table).where(skill_trackers_table.c.id == tracker_id)
@@ -2400,7 +2609,12 @@ def list_skill_trackers_for_user(conn: Connection, user_id: UUID) -> list[SkillT
     return [_row_to_skill_tracker(row) for row in rows]
 
 
-def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[SkillTracker]:
+def claim_due_trackers(
+    conn: Connection,
+    *,
+    batch_size: int = 5000,
+    jitter_seconds: int = 0,
+) -> list[SkillTracker]:
     """Atomically claim a batch of due trackers for processing.
 
     Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent concurrent runs
@@ -2411,6 +2625,9 @@ def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[Skill
         batch_size: Maximum number of trackers to claim per invocation.
             Prevents unbounded row locks and keeps processing within
             the DB statement timeout.
+        jitter_seconds: Random jitter window (in seconds) added to
+            next_check_at to spread tracker expirations over time
+            instead of all landing on the same instant.
 
     Returns the claimed SkillTracker objects (with their pre-claim state).
     """
@@ -2418,33 +2635,41 @@ def claim_due_trackers(conn: Connection, *, batch_size: int = 100) -> list[Skill
     due_filter = sa.and_(
         skill_trackers_table.c.enabled.is_(True),
         sa.or_(
-            skill_trackers_table.c.last_checked_at.is_(None),
-            now
-            > (
-                skill_trackers_table.c.last_checked_at
-                + skill_trackers_table.c.poll_interval_minutes * sa.text("INTERVAL '1 minute'")
-            ),
+            skill_trackers_table.c.next_check_at.is_(None),
+            skill_trackers_table.c.next_check_at <= now,
         ),
     )
 
     # Select due tracker IDs with row-level locking, skipping already-locked rows.
     # ORDER BY prioritises never-checked (NULLS FIRST) then most-overdue,
-    # which matches the ix_skill_trackers_due index.
+    # which matches the ix_skill_trackers_next_check index.
     # LIMIT prevents unbounded lock acquisition at scale.
     locked_ids_cte = (
         sa.select(skill_trackers_table.c.id)
         .where(due_filter)
-        .order_by(skill_trackers_table.c.last_checked_at.asc().nulls_first())
+        .order_by(skill_trackers_table.c.next_check_at.asc().nulls_first())
         .limit(batch_size)
         .with_for_update(skip_locked=True)
         .cte("locked_ids")
     )
 
-    # Claim by bumping last_checked_at, returning full rows
+    # Base next_check_at: now + poll_interval
+    base_next = now + skill_trackers_table.c.poll_interval_minutes * sa.text("INTERVAL '1 minute'")
+
+    # Add random jitter to spread expirations across the window
+    if jitter_seconds > 0:
+        next_check = base_next + sa.func.floor(sa.func.random() * jitter_seconds) * sa.text("INTERVAL '1 second'")
+    else:
+        next_check = base_next
+
+    # Claim by bumping last_checked_at and scheduling next check, returning full rows
     update_stmt = (
         sa.update(skill_trackers_table)
         .where(skill_trackers_table.c.id.in_(sa.select(locked_ids_cte.c.id)))
-        .values(last_checked_at=now)
+        .values(
+            last_checked_at=now,
+            next_check_at=next_check,
+        )
         .returning(*skill_trackers_table.c)
     )
     rows = conn.execute(update_stmt).all()
@@ -2462,11 +2687,12 @@ def update_skill_tracker(
     enabled: bool | None = None,
     branch: str | None = None,
     poll_interval_minutes: int | None = None,
+    next_check_at: datetime | None = ...,  # type: ignore[assignment]
 ) -> None:
     """Update tracker fields. Only non-None values are updated.
 
-    last_error uses a sentinel default (...) so that passing
-    last_error=None explicitly clears the error.
+    last_error and next_check_at use a sentinel default (...) so that
+    passing ``=None`` explicitly clears the value.
     """
     values: dict = {}
     if last_commit_sha is not None:
@@ -2483,6 +2709,8 @@ def update_skill_tracker(
         values["branch"] = branch
     if poll_interval_minutes is not None:
         values["poll_interval_minutes"] = poll_interval_minutes
+    if next_check_at is not ...:
+        values["next_check_at"] = next_check_at
 
     if not values:
         return
@@ -2496,3 +2724,143 @@ def delete_skill_tracker(conn: Connection, tracker_id: UUID) -> bool:
     stmt = sa.delete(skill_trackers_table).where(skill_trackers_table.c.id == tracker_id)
     result = conn.execute(stmt)
     return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Batch tracker updates (used by check_all_due_trackers for 10k+ scale)
+# ---------------------------------------------------------------------------
+
+
+def batch_clear_tracker_errors(conn: Connection, tracker_ids: list[UUID]) -> int:
+    """Clear last_error for multiple trackers in one UPDATE. Returns rowcount."""
+    if not tracker_ids:
+        return 0
+    stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id.in_(tracker_ids)).values(last_error=None)
+    return conn.execute(stmt).rowcount
+
+
+def batch_set_tracker_errors(conn: Connection, tracker_ids: list[UUID], error_message: str) -> int:
+    """Set same last_error on multiple trackers in one UPDATE. Returns rowcount."""
+    if not tracker_ids:
+        return 0
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(last_error=error_message)
+    )
+    return conn.execute(stmt).rowcount
+
+
+def batch_defer_trackers(conn: Connection, tracker_ids: list[UUID], error_message: str) -> int:
+    """Set last_error and clear next_check_at for multiple trackers. Returns rowcount."""
+    if not tracker_ids:
+        return 0
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(last_error=error_message, next_check_at=None)
+    )
+    return conn.execute(stmt).rowcount
+
+
+def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
+    """Disable trackers in one UPDATE. Returns rowcount.
+
+    Error message is already set by batch_set_tracker_errors before this call.
+    """
+    if not tracker_ids:
+        return 0
+    stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id.in_(tracker_ids)).values(enabled=False)
+    return conn.execute(stmt).rowcount
+
+
+def _escape_like(s: str) -> str:
+    """Escape SQL LIKE wildcards in a literal string (escape char: \\)."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
+    """Set source_repo_removed=True for skills matching any repo URL.
+
+    Matches both exact repo URLs and subdirectory URLs
+    (e.g. https://github.com/org/repo/tree/main/subdir).
+    """
+    if not repo_urls:
+        return 0
+    conditions = [
+        sa.or_(
+            skills_table.c.source_repo_url == url,
+            skills_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+        )
+        for url in repo_urls
+    ]
+    stmt = sa.update(skills_table).where(sa.or_(*conditions)).values(source_repo_removed=True)
+    return conn.execute(stmt).rowcount
+
+
+# ---------------------------------------------------------------------------
+# Tracker metrics
+# ---------------------------------------------------------------------------
+
+
+def _row_to_tracker_metrics(row: sa.Row) -> TrackerMetrics:
+    """Map a database row to a TrackerMetrics model."""
+    return TrackerMetrics(
+        id=row.id,
+        recorded_at=row.recorded_at,
+        iterations=row.iterations,
+        total_checked=row.total_checked,
+        trackers_due=row.trackers_due,
+        trackers_unchanged=row.trackers_unchanged,
+        trackers_changed=row.trackers_changed,
+        trackers_errored=row.trackers_errored,
+        trackers_processed=row.trackers_processed,
+        trackers_failed=row.trackers_failed,
+        skipped_rate_limit=row.skipped_rate_limit,
+        github_rate_remaining=row.github_rate_remaining,
+        batch_duration_seconds=row.batch_duration_seconds,
+    )
+
+
+def insert_tracker_metrics(
+    conn: Connection,
+    *,
+    iterations: int,
+    total_checked: int,
+    trackers_due: int,
+    trackers_unchanged: int,
+    trackers_changed: int,
+    trackers_errored: int,
+    trackers_processed: int,
+    trackers_failed: int,
+    skipped_rate_limit: int,
+    github_rate_remaining: int | None,
+    batch_duration_seconds: float,
+) -> TrackerMetrics:
+    """Record one row of cron-tick metrics."""
+    stmt = (
+        sa.insert(tracker_metrics_table)
+        .values(
+            iterations=iterations,
+            total_checked=total_checked,
+            trackers_due=trackers_due,
+            trackers_unchanged=trackers_unchanged,
+            trackers_changed=trackers_changed,
+            trackers_errored=trackers_errored,
+            trackers_processed=trackers_processed,
+            trackers_failed=trackers_failed,
+            skipped_rate_limit=skipped_rate_limit,
+            github_rate_remaining=github_rate_remaining,
+            batch_duration_seconds=batch_duration_seconds,
+        )
+        .returning(*tracker_metrics_table.c)
+    )
+    row = conn.execute(stmt).one()
+    return _row_to_tracker_metrics(row)
+
+
+def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
+    """Return recent tracker metrics rows, newest first."""
+    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    rows = conn.execute(stmt).all()
+    return [_row_to_tracker_metrics(row) for row in rows]

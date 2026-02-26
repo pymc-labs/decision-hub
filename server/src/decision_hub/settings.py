@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Sprint 4: Gemini Search
     google_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
 
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     # GitHub token for tracker API calls (private repos / rate limits)
     github_token: str = ""
 
+    # GitHub App credentials for tracker polling (mints installation tokens)
+    github_app_id: str = ""
+    github_app_private_key: str = ""
+    github_app_installation_id: str = ""
+
     # Rate limiting (per IP, sliding window)
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds
@@ -78,14 +83,22 @@ class Settings(BaseSettings):
     resolve_rate_window: int = 60  # window in seconds
     download_rate_limit: int = 20  # max requests per window
     download_rate_window: int = 60  # window in seconds
+    audit_log_rate_limit: int = 30  # max requests per window
+    audit_log_rate_window: int = 60  # window in seconds
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096
     sandbox_timeout_seconds: int = 900
     sandbox_cpu: float = 2.0
 
-    # Tracker batch size: max trackers claimed per scheduler tick
-    tracker_batch_size: int = 100
+    # Tracker batch size: max trackers claimed per loop iteration.
+    # The cron loops until no more are due, so this controls lock granularity
+    # rather than total throughput.
+    tracker_batch_size: int = 1000
+    # Jitter window (seconds) added to next_check_at to spread load
+    tracker_jitter_seconds: int = 120
+    # Stop processing if GitHub rate limit remaining drops below this
+    tracker_rate_limit_floor: int = 500
 
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"

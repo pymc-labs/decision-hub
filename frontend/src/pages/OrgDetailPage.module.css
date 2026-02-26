@@ -99,12 +99,15 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
+  display: block;
+  height: 100%;
 }
 
 .card {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
 }
 
 .cardTop {
@@ -120,6 +123,19 @@
   letter-spacing: -0.01em;
 }
 
+.cardCategory {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--grade-warn);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--grade-warn);
+  width: fit-content;
+}
+
 .cardDesc {
   font-size: 0.85rem;
   color: var(--text-secondary);
@@ -128,6 +144,8 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  flex: 1;
+  min-height: 3em;
 }
 
 .cardFooter {

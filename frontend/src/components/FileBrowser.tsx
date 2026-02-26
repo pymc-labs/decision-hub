@@ -162,9 +162,8 @@ const neonTheme = {
 export default function FileBrowser({ files }: FileBrowserProps) {
   const defaultSelection = files.find((f) => f.path === "SKILL.md") ?? files[0] ?? null;
 
-  // Reset selection when files change (e.g. navigating between skills).
-  // This is the React-recommended pattern for adjusting state when props change:
-  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  // Reset selection when files change (render-time adjustment per React docs:
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
   const [prevFiles, setPrevFiles] = useState(files);
   const [selected, setSelected] = useState<SkillFile | null>(defaultSelection);
   if (prevFiles !== files) {

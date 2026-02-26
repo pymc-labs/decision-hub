@@ -72,6 +72,18 @@ a.metaItem:hover {
   color: var(--lab-blue);
 }
 
+.metaRemoved {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--grade-warn);
+  border: 1px solid var(--grade-warn);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
 .headerRight {
   display: flex;
   flex-direction: column;

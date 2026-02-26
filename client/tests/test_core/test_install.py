@@ -53,7 +53,7 @@ class TestGetDhubSkillPath:
 
 class TestUninstallSkill:
     @patch("dhub.core.install.get_dhub_skill_path")
-    @patch("dhub.core.install.list_linked_agents", return_value=["claude", "cursor"])
+    @patch("dhub.core.install.list_linked_agents", return_value=["claude-code", "cursor"])
     @patch("dhub.core.install.unlink_skill_from_agent")
     def test_uninstall_removes_dir_and_symlinks(self, mock_unlink, mock_linked, mock_path, tmp_path: Path) -> None:
         """uninstall_skill removes the skill dir and all agent symlinks."""
@@ -64,7 +64,7 @@ class TestUninstallSkill:
 
         result = uninstall_skill("org", "my-skill")
 
-        assert result == ["claude", "cursor"]
+        assert result == ["claude-code", "cursor"]
         assert not skill_dir.exists()
         assert mock_unlink.call_count == 2
 

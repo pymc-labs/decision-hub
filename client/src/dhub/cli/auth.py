@@ -15,7 +15,7 @@ def login_command(
 ) -> None:
     """Authenticate with Decision Hub via GitHub."""
     from dhub.cli.banner import check_and_show_update, print_banner
-    from dhub.cli.config import CliConfig, build_headers, get_api_url, save_config
+    from dhub.cli.config import CliConfig, build_headers, get_api_url, raise_for_status, save_config
 
     print_banner(console)
 
@@ -24,7 +24,7 @@ def login_command(
     # Step 1: Request a device code from the API
     with httpx.Client(timeout=60) as client:
         resp = client.post(f"{base_url}/auth/github/code", headers=build_headers())
-        resp.raise_for_status()
+        raise_for_status(resp)
         data = resp.json()
 
     device_code: str = data["device_code"]
@@ -118,7 +118,7 @@ def _poll_for_token(
     """
     deadline = time.monotonic() + timeout_seconds
 
-    from dhub.cli.config import build_headers
+    from dhub.cli.config import build_headers, raise_for_status
 
     with httpx.Client(timeout=60) as client:
         while time.monotonic() < deadline:
@@ -137,7 +137,7 @@ def _poll_for_token(
                 continue
 
             # Any other error is fatal
-            resp.raise_for_status()
+            raise_for_status(resp)
 
     console.print("[red]Error: Login timed out. Please try again.[/]")
     raise typer.Exit(1)
