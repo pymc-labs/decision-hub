@@ -547,11 +547,13 @@ tracker_metrics_table = Table(
 
 
 def create_engine(database_url: str) -> Engine:
-    """Create a SQLAlchemy engine configured for Supabase PgBouncer compatibility.
+    """Create a SQLAlchemy engine with appropriate pooling and timeout settings.
 
-    Uses NullPool (no connection pooling on the client side, since PgBouncer
-    handles pooling) and disables the PostgreSQL statement cache to avoid
-    conflicts with PgBouncer's transaction-mode pooling.
+    When connecting through PgBouncer (detected via ``pooler.supabase.com`` in
+    the URL), disables client-side pooling and the PostgreSQL statement cache to
+    avoid conflicts with PgBouncer's transaction-mode pooling.  For direct
+    Postgres connections (e.g. local dev), these PgBouncer-specific options are
+    omitted.
 
     Args:
         database_url: PostgreSQL connection string.
@@ -559,12 +561,16 @@ def create_engine(database_url: str) -> Engine:
     Returns:
         A configured SQLAlchemy Engine instance.
     """
+    is_pgbouncer = "pooler.supabase.com" in database_url
+    options = "-c statement_timeout=30000"
+    if is_pgbouncer:
+        options = "-c statement_cache_size=0 " + options
     return sa.create_engine(
         database_url,
         poolclass=NullPool,
         connect_args={
             "connect_timeout": 10,
-            "options": "-c statement_cache_size=0 -c statement_timeout=30000",
+            "options": options,
         },
     )
 
