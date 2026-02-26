@@ -1249,6 +1249,7 @@ def visibility_command(
 # ---------------------------------------------------------------------------
 
 _FRONTEND_URLS: dict[str, str] = {
+    "local": "http://localhost:5173",
     "dev": "https://hub-dev.decision.ai",
     "prod": "https://hub.decision.ai",
 }
@@ -1307,8 +1308,8 @@ def info_command(
                 audit_data = resp.json()
                 if audit_data.get("items"):
                     audit_entry = audit_data["items"][0]
-        except Exception:
-            pass
+        except httpx.HTTPError:
+            console.print("[dim]  (could not fetch audit log)[/]")
 
         # Fetch eval report for latest version (best-effort)
         eval_report = None
@@ -1322,8 +1323,8 @@ def info_command(
                 )
                 if resp.status_code == 200:
                     eval_report = resp.json()
-            except Exception:
-                pass
+            except httpx.HTTPError:
+                console.print("[dim]  (could not fetch eval report)[/]")
 
     _render_skill_info(org_slug, skill_name, summary, audit_entry, eval_report)
 
@@ -1368,7 +1369,7 @@ def _render_skill_info(
     console.print(Panel("\n".join(overview_lines), title="Overview", border_style="cyan"))
 
     # ── GitHub ──
-    source_repo = summary.get("source_repo_url")
+    source_repo: str | None = summary.get("source_repo_url")
     if source_repo:
         stars = summary.get("github_stars")
         forks = summary.get("github_forks")
@@ -1424,7 +1425,7 @@ def _render_skill_info(
 
         console.print(Panel("\n".join(eval_lines), title="Eval Results", border_style="blue"))
     else:
-        console.print(Panel("  [dim]No evals defined[/]", title="Eval Results", border_style="dim"))
+        console.print(Panel("  [dim]No eval report available[/]", title="Eval Results", border_style="dim"))
 
     # ── Latest Audit Log ──
     if audit_entry:
