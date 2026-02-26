@@ -14,6 +14,9 @@ import {
   Check,
   Github,
   RefreshCw,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -401,6 +404,24 @@ function FilesTab({
   return <FileBrowser files={files} />;
 }
 
+const CHECK_NAME_LABELS: Record<string, string> = {
+  manifest_schema: "Manifest Schema",
+  embedded_credentials: "Credentials Scan",
+  safety_scan: "Safety Scan",
+  prompt_safety: "Prompt Safety",
+  pipeline_taint: "Pipeline Taint",
+  tool_consistency: "Tool Consistency",
+  dependency_audit: "Dependency Audit",
+  unscanned_files: "Unscanned Files",
+  source_size: "Source Size",
+  llm_coverage: "LLM Coverage",
+  functional_tests: "Functional Tests",
+};
+
+function formatCheckName(raw: string): string {
+  return CHECK_NAME_LABELS[raw] ?? raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function AuditTab({
   entries,
   loading,
@@ -444,13 +465,30 @@ function AuditTab({
             {entry.check_results.length > 0 && (
               <div className={styles.auditChecks}>
                 <h5 className={styles.auditCheckTitle}>Safety Checks</h5>
-                {entry.check_results.map((check, i) => (
-                  <div key={i} className={styles.auditCheck}>
-                    <pre className={styles.auditPre}>
-                      {JSON.stringify(check, null, 2)}
-                    </pre>
-                  </div>
-                ))}
+                {entry.check_results.map((check, i) => {
+                  const severity = String(check.severity ?? "");
+                  const checkName = String(check.check_name ?? "unknown");
+                  const message = String(check.message ?? "");
+                  const SeverityIcon =
+                    severity === "pass"
+                      ? CheckCircle
+                      : severity === "fail"
+                        ? XCircle
+                        : AlertTriangle;
+                  const severityClass =
+                    severity === "pass"
+                      ? styles.severityPass
+                      : severity === "fail"
+                        ? styles.severityFail
+                        : styles.severityWarn;
+                  return (
+                    <div key={i} className={`${styles.checkRow} ${severityClass}`}>
+                      <SeverityIcon size={14} className={styles.checkIcon} />
+                      <span className={styles.checkName}>{formatCheckName(checkName)}</span>
+                      <span className={styles.checkMessage}>{message}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
