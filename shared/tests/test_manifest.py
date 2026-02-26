@@ -303,28 +303,14 @@ class TestAllowedToolsCoercion:
 
     def test_list_coerced_to_string(self, tmp_path) -> None:
         content = (
-            "---\n"
-            "name: test-skill\n"
-            "description: A test.\n"
-            "allowed_tools:\n"
-            "  - bash\n"
-            "  - read_file\n"
-            "---\n"
-            "Body text\n"
+            "---\nname: test-skill\ndescription: A test.\nallowed_tools:\n  - bash\n  - read_file\n---\nBody text\n"
         )
         path = self._write_skill_md(tmp_path, content)
         manifest = parse_skill_md(path)
         assert manifest.allowed_tools == "bash, read_file"
 
     def test_string_preserved(self, tmp_path) -> None:
-        content = (
-            "---\n"
-            "name: test-skill\n"
-            "description: A test.\n"
-            "allowed_tools: bash, read_file\n"
-            "---\n"
-            "Body text\n"
-        )
+        content = "---\nname: test-skill\ndescription: A test.\nallowed_tools: bash, read_file\n---\nBody text\n"
         path = self._write_skill_md(tmp_path, content)
         manifest = parse_skill_md(path)
         assert manifest.allowed_tools == "bash, read_file"

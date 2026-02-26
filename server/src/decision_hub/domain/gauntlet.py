@@ -31,8 +31,8 @@ _SUSPICIOUS_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"\b__import__\s*\("), "dynamic " + "__import__"),
     (re.compile(r"(?i)(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{8,}"), "hardcoded credential"),
     (re.compile(r"\bfrom\s+subprocess\s+import\b"), "subprocess import"),
-    (re.compile(r"\bfrom\s+os\s+import\s+" + "system" + r"\b"), "os" + ".system import"),
-    (re.compile(r"\bfrom\s+os\s+import\s+" + "popen" + r"\b"), "os" + ".popen import"),
+    (re.compile(r"\bfrom\s+os\s+import\s+.*\b" + "system" + r"\b"), "os" + ".system import"),
+    (re.compile(r"\bfrom\s+os\s+import\s+.*\b" + "popen" + r"\b"), "os" + ".popen import"),
     (re.compile(r"\bimportlib\.import_module\s*\("), "dynamic importlib import"),
 )
 
@@ -225,9 +225,9 @@ _TAINT_SINK_CMDS: dict[str, Taint] = {
 # Regex to extract shell command strings from Python source
 _SHELL_CMD_RE = re.compile(
     r"""(?:subprocess\.(?:run|call|Popen|check_output|check_call)\s*\(\s*"""
-    r"""(?:f?(?:"|')(.+?)(?:"|'))|"""
+    r"""(?:f?(?:"([^"]*?)"|'([^']*?)'))|"""
     r"""os\.(?:system|popen)\s*\(\s*"""
-    r"""(?:f?(?:"|')(.+?)(?:"|')))""",
+    r"""(?:f?(?:"([^"]*?)"|'([^']*?)')))""",
     re.DOTALL,
 )
 
@@ -335,7 +335,7 @@ def _extract_shell_commands(source_files: list[tuple[str, str]], skill_md_body: 
 
     for filename, content in source_files:
         for match in _SHELL_CMD_RE.finditer(content):
-            cmd = match.group(1) or match.group(2)
+            cmd = match.group(1) or match.group(2) or match.group(3) or match.group(4)
             if cmd:
                 commands.append((filename, cmd))
         # List-form subprocess with shell interpreters: ["bash", "-c", "cmd"]
@@ -816,7 +816,7 @@ def check_safety_scan(
 
         judgment_counts: Counter[tuple[str, str]] = Counter()
         for j in judgments:
-            judgment_counts[(j.get("file"), j.get("label"))] += 1
+            judgment_counts[(j.get("file", ""), j.get("label", ""))] += 1
 
         for key, needed in hit_counts.items():
             shortfall = needed - judgment_counts.get(key, 0)
@@ -1011,7 +1011,7 @@ def detect_elevated_permissions(
     Returns a list of permission category strings (e.g. "shell", "network").
     """
     all_content = "\n".join(content for _, content in source_files)
-    if allowed_tools and isinstance(allowed_tools, str):
+    if allowed_tools:
         all_content += "\n" + allowed_tools
 
     found: list[str] = []
@@ -1037,7 +1037,7 @@ def check_tool_declaration_consistency(
     allowed_tools: str | None,
 ) -> EvalResult:
     """Flag when code uses capabilities not declared in allowed-tools."""
-    if not allowed_tools or not isinstance(allowed_tools, str) or not elevated_permissions:
+    if not allowed_tools or not elevated_permissions:
         return EvalResult(
             check_name="tool_consistency",
             severity="pass",
@@ -1145,16 +1145,18 @@ def check_llm_scan_coverage(
         issues.append(f"{len(oversized)} file(s) exceed per-file LLM cap ({_LLM_PER_FILE_CAP // 1000}KB): {names}")
 
     total_source = sum(len(c) for _, c in source_files)
+    if total_source > _LLM_STAGE2_TOTAL_CAP:
+        issues.append(
+            f"total source ({total_source:,} bytes) exceeds Stage 2 LLM cap ({_LLM_STAGE2_TOTAL_CAP // 1000}KB)"
+        )
     if total_source > _LLM_HOLISTIC_TOTAL_CAP:
         issues.append(
-            f"total source ({total_source:,} bytes) exceeds holistic review cap "
-            f"({_LLM_HOLISTIC_TOTAL_CAP // 1000}KB)"
+            f"total source ({total_source:,} bytes) exceeds holistic review cap ({_LLM_HOLISTIC_TOTAL_CAP // 1000}KB)"
         )
 
     if skill_md_body and len(skill_md_body) > _LLM_BODY_REVIEW_CAP:
         issues.append(
-            f"SKILL.md body ({len(skill_md_body):,} bytes) exceeds prompt review cap "
-            f"({_LLM_BODY_REVIEW_CAP // 1000}KB)"
+            f"SKILL.md body ({len(skill_md_body):,} bytes) exceeds prompt review cap ({_LLM_BODY_REVIEW_CAP // 1000}KB)"
         )
 
     if not issues:
@@ -1337,6 +1339,10 @@ def run_static_checks(
         analyze_credential_fn: Optional LLM callback for entropy credential review.
         unscanned_files: Filenames in the zip that could not be security-scanned.
     """
+    # Normalize: non-string allowed_tools (e.g. from malformed manifests) → None
+    if not isinstance(allowed_tools, str):
+        allowed_tools = None
+
     results = [check_manifest_schema(skill_md_content)]
 
     # Unscanned files check — warn if zip contains non-scannable file types

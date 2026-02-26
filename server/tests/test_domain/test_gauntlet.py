@@ -1222,9 +1222,9 @@ class TestToolDeclarationConsistency:
         assert "shell" in str(result.details)
         assert "network" in str(result.details)
 
-    def test_non_string_allowed_tools_passes(self):
-        """Non-string allowed_tools is handled gracefully (defense-in-depth)."""
-        result = check_tool_declaration_consistency(["shell"], ["bash", "shell"])
+    def test_none_allowed_tools_passes(self):
+        """None allowed_tools passes (normalization happens in run_static_checks)."""
+        result = check_tool_declaration_consistency(["shell"], None)
         assert result.passed is True
 
 
@@ -1234,16 +1234,21 @@ class TestToolDeclarationConsistency:
 
 
 class TestAllowedToolsTypeValidation:
-    """Tests for allowed_tools type coercion and defense-in-depth."""
+    """Tests for allowed_tools type normalization in run_static_checks."""
 
-    def test_detect_elevated_with_non_string_allowed_tools(self):
-        """detect_elevated_permissions handles non-string allowed_tools gracefully."""
-        # Should not crash — the isinstance guard ignores non-string types
-        result = detect_elevated_permissions(
+    def test_non_string_allowed_tools_normalized_to_none(self):
+        """run_static_checks normalizes non-string allowed_tools to None."""
+        # Non-string (list) should be normalized to None, not crash
+        report = run_static_checks(
+            "---\nname: test\ndescription: test\n---\nbody",
+            None,
             [("main.py", "import subprocess\n")],
             allowed_tools=["bash", "shell"],  # type: ignore[arg-type]
         )
-        assert "shell" in result
+        # Should complete without error; tool_consistency should pass
+        # because allowed_tools is normalized to None
+        tool_result = next(r for r in report.results if r.check_name == "tool_consistency")
+        assert tool_result.passed is True
 
     def test_detect_elevated_with_none_allowed_tools(self):
         """detect_elevated_permissions works with None allowed_tools."""
@@ -1819,7 +1824,7 @@ class TestDuplicateLabelBypass:
     def test_credential_duplicate_source_bypass(self):
         """Two entropy hits in same file. LLM judges only one."""
         # Two high-entropy strings in the same file — same source label
-        code = 'token_a = "aK8mP3xR7vN2qL9wF4hJ6tY1bC5eG0dZ"\n' 'token_b = "zX9nQ2wM7rT4vL8pJ3kF6hY1bC5eG0dA"\n'
+        code = 'token_a = "aK8mP3xR7vN2qL9wF4hJ6tY1bC5eG0dZ"\ntoken_b = "zX9nQ2wM7rT4vL8pJ3kF6hY1bC5eG0dA"\n'
         files = [("config.py", code)]
 
         def approve_one(entropy_hits, name, desc):

@@ -10,6 +10,7 @@ from datetime import UTC
 from pathlib import Path
 from uuid import UUID
 
+import httpx
 from fastapi import HTTPException
 from loguru import logger
 from sqlalchemy.engine import Connection
@@ -113,8 +114,6 @@ def run_gauntlet_pipeline(
     """
     if llm_required and not settings.google_api_key:
         raise RuntimeError("LLM judge required for gauntlet but GOOGLE_API_KEY is not configured")
-
-    import httpx
 
     from decision_hub.infra.gemini import create_gemini_client
 

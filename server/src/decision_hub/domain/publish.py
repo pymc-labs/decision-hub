@@ -43,10 +43,6 @@ _MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
 _SECURITY_SCAN_EXTENSIONS = frozenset({".py", ".sh", ".bash", ".zsh", ".json", ".yml", ".yaml"})
 _SECURITY_SCAN_NAMES = frozenset({"Makefile", "Dockerfile", ".env"})
 
-# Total source content cap for gauntlet feasibility — a real skill rarely
-# exceeds 50KB of source. 512KB is generous but prevents unbounded scanning.
-_MAX_SOURCE_TOTAL = 512_000
-
 
 def _is_scannable_file(basename: str) -> bool:
     """Check if a file should be extracted for security scanning."""

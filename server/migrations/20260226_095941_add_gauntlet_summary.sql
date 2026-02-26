@@ -2,7 +2,7 @@
 -- Stores a brief human-readable summary of non-pass gauntlet findings so the
 -- ask LLM can explain *why* a skill received a particular safety grade.
 
-ALTER TABLE skill_versions
+ALTER TABLE versions
     ADD COLUMN IF NOT EXISTS gauntlet_summary TEXT;
 
 ALTER TABLE skills
