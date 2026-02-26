@@ -177,11 +177,24 @@ _INSERT_SCAN_FINDING = sa.text("""
 """)
 
 
+_DELETE_OLD_FINDINGS = sa.text("""
+    DELETE FROM scan_findings WHERE report_id IN (
+        SELECT id FROM scan_reports WHERE version_id = :version_id
+    )
+""")
+_DELETE_OLD_REPORTS = sa.text("DELETE FROM scan_reports WHERE version_id = :version_id")
+
+
 def _write_scan_report(conn: sa.Connection, r: dict) -> None:
-    """Insert a scan_report + scan_findings row for one re-graded skill."""
+    """Delete old reports for this version, then insert new scan_report + findings."""
     check_dicts = r.get("check_results_dicts", [])
     llm_reasoning = r.get("llm_reasoning")
     org_slug, skill_name = r["fqn"].split("/", 1)
+    version_id = UUID(str(r["version_id"]))
+
+    # Replace previous reports for this version
+    conn.execute(_DELETE_OLD_FINDINGS, {"version_id": version_id})
+    conn.execute(_DELETE_OLD_REPORTS, {"version_id": version_id})
 
     # Determine max severity from check results
     severity_order = {"fail": 0, "warn": 1, "info": 2, "pass": 3}
@@ -200,7 +213,7 @@ def _write_scan_report(conn: sa.Connection, r: dict) -> None:
         _INSERT_SCAN_REPORT,
         {
             "id": report_id,
-            "version_id": UUID(str(r["version_id"])),
+            "version_id": version_id,
             "org_slug": org_slug,
             "skill_name": skill_name,
             "semver": r["version"],
@@ -429,11 +442,6 @@ def main() -> None:
         action="store_true",
         help="Skip skills whose grade already matches the new pipeline output",
     )
-    parser.add_argument(
-        "--clear-reports",
-        action="store_true",
-        help="Delete all existing scan_reports and scan_findings before starting",
-    )
     args = parser.parse_args()
 
     env = get_env()
@@ -449,13 +457,6 @@ def main() -> None:
         secret_access_key=settings.aws_secret_access_key,
         endpoint_url=settings.s3_endpoint_url,
     )
-
-    # Clear existing reports if requested
-    if args.clear_reports and not args.dry_run:
-        with engine.begin() as conn:
-            findings_del = conn.execute(sa.text("DELETE FROM scan_findings")).rowcount
-            reports_del = conn.execute(sa.text("DELETE FROM scan_reports")).rowcount
-        print(f"Cleared {reports_del} scan_reports and {findings_del} scan_findings")
 
     # LLM availability
     if not settings.google_api_key:
