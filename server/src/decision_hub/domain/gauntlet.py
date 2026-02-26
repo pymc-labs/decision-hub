@@ -22,17 +22,17 @@ from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCas
 
 # Regex pre-filter: detects candidate patterns.  NOT a final verdict.
 # Built via concat to avoid security-hook false positives on literal strings.
-_SUSPICIOUS_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"\bsubprocess\.(call|run|Popen|check_output|check_call)\b", "subprocess invocation"),
-    (r"\bos" + r"\.system\b", "os" + ".system call"),
-    (r"\bev" + r"al\s*\(", "ev" + "al() usage"),
-    (r"\bex" + r"ec\s*\(", "ex" + "ec() usage"),
-    (r"\b__import__\s*\(", "dynamic " + "__import__"),
-    (r"(?i)(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{8,}", "hardcoded credential"),
-    (r"\bfrom\s+subprocess\s+import\b", "subprocess import"),
-    (r"\bfrom\s+os\s+import\s+" + "system" + r"\b", "os" + ".system import"),
-    (r"\bfrom\s+os\s+import\s+" + "popen" + r"\b", "os" + ".popen import"),
-    (r"\bimportlib\.import_module\s*\(", "dynamic importlib import"),
+_SUSPICIOUS_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"\bsubprocess\.(call|run|Popen|check_output|check_call)\b"), "subprocess invocation"),
+    (re.compile(r"\bos" + r"\.system\b"), "os" + ".system call"),
+    (re.compile(r"\bev" + r"al\s*\("), "ev" + "al() usage"),
+    (re.compile(r"\bex" + r"ec\s*\("), "ex" + "ec() usage"),
+    (re.compile(r"\b__import__\s*\("), "dynamic " + "__import__"),
+    (re.compile(r"(?i)(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{8,}"), "hardcoded credential"),
+    (re.compile(r"\bfrom\s+subprocess\s+import\b"), "subprocess import"),
+    (re.compile(r"\bfrom\s+os\s+import\s+" + "system" + r"\b"), "os" + ".system import"),
+    (re.compile(r"\bfrom\s+os\s+import\s+" + "popen" + r"\b"), "os" + ".popen import"),
+    (re.compile(r"\bimportlib\.import_module\s*\("), "dynamic importlib import"),
 )
 
 # ---------------------------------------------------------------------------
@@ -40,19 +40,19 @@ _SUSPICIOUS_PATTERNS: tuple[tuple[str, str], ...] = (
 # regardless of LLM judgment (same philosophy as Layer 1 credential patterns).
 # ---------------------------------------------------------------------------
 # Built via concat to avoid triggering security-hook false positives.
-_ALWAYS_FAIL_COMBOS: tuple[tuple[tuple[str, ...], str], ...] = (
+_ALWAYS_FAIL_COMBOS: tuple[tuple[tuple[re.Pattern, ...], str], ...] = (
     # exec/eval + network = data exfiltration via code execution
     (
-        (r"\bex" + r"ec\s*\(", r"\b(requests|httpx|urllib)\.(post|put|get)\b"),
+        (re.compile(r"\bex" + r"ec\s*\("), re.compile(r"\b(requests|httpx|urllib)\.(post|put|get)\b")),
         "ex" + "ec() with network call in same file",
     ),
     (
-        (r"\bev" + r"al\s*\(", r"\b(requests|httpx|urllib)\.(post|put|get)\b"),
+        (re.compile(r"\bev" + r"al\s*\("), re.compile(r"\b(requests|httpx|urllib)\.(post|put|get)\b")),
         "ev" + "al() with network call in same file",
     ),
     # exec/eval + file read + network = read-exec-exfil chain
     (
-        (r"\bex" + r"ec\s*\(", r"\bopen\s*\(", r"\b(requests|httpx|urllib)\b"),
+        (re.compile(r"\bex" + r"ec\s*\("), re.compile(r"\bopen\s*\("), re.compile(r"\b(requests|httpx|urllib)\b")),
         "ex" + "ec() with file read and network in same file",
     ),
 )
@@ -63,21 +63,21 @@ def _check_always_fail_combos(source_files: list[tuple[str, str]]) -> list[dict]
     findings: list[dict] = []
     for filename, content in source_files:
         for patterns, label in _ALWAYS_FAIL_COMBOS:
-            if all(re.search(p, content) for p in patterns):
+            if all(p.search(content) for p in patterns):
                 findings.append({"file": filename, "label": label})
     return findings
 
 
 # Prompt injection patterns for SKILL.md body scanning
-_PROMPT_INJECTION_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"(?i)ignore\s+(all\s+)?previous\s+instructions", "instruction override"),
-    (r"(?i)you\s+are\s+now\s+(a\s+)?new\s+(ai|assistant|system)", "role hijack"),
-    (r"(?i)forget\s+(everything|all|your\s+(instructions|rules))", "memory wipe"),
-    (r"[\u200b\u200c\u200d\u2060\ufeff]", "zero-width/invisible unicode"),
-    (r"(?i)(curl|wget|fetch)\s+https?://", "exfiltration URL"),
-    (r"(?i)send\s+(the\s+)?(data|output|result|content)\s+to\s+", "exfiltration instruction"),
-    (r"(?i)tool_call|function_call|<tool>|<function>", "tool escalation markup"),
-    (r"\\x[0-9a-f]{2}|\\u[0-9a-f]{4}", "escaped unicode sequences"),
+_PROMPT_INJECTION_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"(?i)ignore\s+(all\s+)?previous\s+instructions"), "instruction override"),
+    (re.compile(r"(?i)you\s+are\s+now\s+(a\s+)?new\s+(ai|assistant|system)"), "role hijack"),
+    (re.compile(r"(?i)forget\s+(everything|all|your\s+(instructions|rules))"), "memory wipe"),
+    (re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]"), "zero-width/invisible unicode"),
+    (re.compile(r"(?i)(curl|wget|fetch)\s+https?://"), "exfiltration URL"),
+    (re.compile(r"(?i)send\s+(the\s+)?(data|output|result|content)\s+to\s+"), "exfiltration instruction"),
+    (re.compile(r"(?i)tool_call|function_call|<tool>|<function>"), "tool escalation markup"),
+    (re.compile(r"\\x[0-9a-f]{2}|\\u[0-9a-f]{4}"), "escaped unicode sequences"),
 )
 
 # ---------------------------------------------------------------------------
@@ -96,27 +96,27 @@ _PROMPT_INJECTION_PATTERNS: tuple[tuple[str, str], ...] = (
 # are never legitimate in a published skill.
 # Patterns built via concat to avoid triggering secret-scanning hooks.
 
-_CREDENTIAL_PATTERNS: tuple[tuple[str, str], ...] = (
+_CREDENTIAL_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
     # AWS access key IDs
-    ("AKI" + r"A[0-9A-Z]{16}", "AWS access key"),
+    (re.compile("AKI" + r"A[0-9A-Z]{16}"), "AWS access key"),
     # GitHub tokens (classic & fine-grained)
-    ("gh" + r"[ps]_[A-Za-z0-9_]{36,}", "GitHub token"),
-    ("github_pat" + r"_[A-Za-z0-9_]{22,}", "GitHub personal access token"),
+    (re.compile("gh" + r"[ps]_[A-Za-z0-9_]{36,}"), "GitHub token"),
+    (re.compile("github_pat" + r"_[A-Za-z0-9_]{22,}"), "GitHub personal access token"),
     # Slack tokens
-    ("xox" + r"[bpras]-[A-Za-z0-9-]{10,}", "Slack token"),
+    (re.compile("xox" + r"[bpras]-[A-Za-z0-9-]{10,}"), "Slack token"),
     # Stripe secret / restricted keys
-    ("sk_live" + r"_[A-Za-z0-9]{24,}", "Stripe secret key"),
-    ("rk_live" + r"_[A-Za-z0-9]{24,}", "Stripe restricted key"),
+    (re.compile("sk_live" + r"_[A-Za-z0-9]{24,}"), "Stripe secret key"),
+    (re.compile("rk_live" + r"_[A-Za-z0-9]{24,}"), "Stripe restricted key"),
     # Google API keys
-    ("AIza" + r"[0-9A-Za-z_-]{35}", "Google API key"),
+    (re.compile("AIza" + r"[0-9A-Za-z_-]{35}"), "Google API key"),
     # PEM private keys
-    (r"-----BEGIN[ A-Z]*PRIVATE KEY-----", "private key"),
+    (re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----"), "private key"),
     # Anthropic API keys
-    ("sk-ant" + r"-[A-Za-z0-9_-]{20,}", "Anthropic API key"),
+    (re.compile("sk-ant" + r"-[A-Za-z0-9_-]{20,}"), "Anthropic API key"),
     # OpenAI API keys (48+ chars after prefix)
-    ("sk-" + r"[A-Za-z0-9]{48,}", "OpenAI API key"),
+    (re.compile("sk-" + r"[A-Za-z0-9]{48,}"), "OpenAI API key"),
     # JWT tokens (header.payload.signature)
-    (r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", "JWT token"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "JWT token"),
 )
 
 # Entropy thresholds — charset-aware, following the trufflehog approach.
@@ -181,12 +181,12 @@ class TaintFinding:
 
 
 # Commands that produce sensitive data (taint sources)
-_TAINT_SOURCE_PATTERNS: tuple[tuple[str, Taint], ...] = (
-    (r"cat\s+(/etc/passwd|/etc/shadow)", Taint.SENSITIVE_DATA),
-    (r"cat\s+~?/?\.(ssh|aws|gnupg|env)", Taint.SENSITIVE_DATA),
-    (r"cat\s+.*\.(pem|key|crt|p12)", Taint.SENSITIVE_DATA),
-    (r"\b(printenv|env)\b", Taint.USER_INPUT),
-    (r"\$\{?\w*(KEY|TOKEN|SECRET|PASS)\w*\}?", Taint.SENSITIVE_DATA),
+_TAINT_SOURCE_PATTERNS: tuple[tuple[re.Pattern, Taint], ...] = (
+    (re.compile(r"cat\s+(/etc/passwd|/etc/shadow)"), Taint.SENSITIVE_DATA),
+    (re.compile(r"cat\s+~?/?\.(ssh|aws|gnupg|env)"), Taint.SENSITIVE_DATA),
+    (re.compile(r"cat\s+.*\.(pem|key|crt|p12)"), Taint.SENSITIVE_DATA),
+    (re.compile(r"\b(printenv|env)\b"), Taint.USER_INPUT),
+    (re.compile(r"\$\{?\w*(KEY|TOKEN|SECRET|PASS)\w*\}?"), Taint.SENSITIVE_DATA),
 )
 
 # Commands that transform data (propagate taint, may add OBFUSCATION)
@@ -252,7 +252,7 @@ def _classify_segment(segment: str) -> tuple[str, Taint | None]:
 
     # Check sources (pattern-based)
     for pattern, taint in _TAINT_SOURCE_PATTERNS:
-        if re.search(pattern, stripped):
+        if pattern.search(stripped):
             return "source", taint
 
     return "unknown", Taint.NONE
@@ -385,30 +385,30 @@ def check_pipeline_taint(
 
 
 # Permission categories that elevate a skill from A to B
-_ELEVATED_PERMISSION_PATTERNS: dict[str, list[str]] = {
+_ELEVATED_PERMISSION_PATTERNS: dict[str, list[re.Pattern]] = {
     "shell": [
-        r"\bsubprocess\b",
-        r"\bos\.system\b",
-        r"\bos\.popen\b",
-        r"\bshell\b",
-        r"\bbash\b",
+        re.compile(r"\bsubprocess\b"),
+        re.compile(r"\bos\.system\b"),
+        re.compile(r"\bos\.popen\b"),
+        re.compile(r"\bshell\b"),
+        re.compile(r"\bbash\b"),
     ],
     "network": [
-        r"\bhttpx\b",
-        r"\brequests\b",
-        r"\burllib\b",
-        r"\bsocket\b",
-        r"\baiohttp\b",
+        re.compile(r"\bhttpx\b"),
+        re.compile(r"\brequests\b"),
+        re.compile(r"\burllib\b"),
+        re.compile(r"\bsocket\b"),
+        re.compile(r"\baiohttp\b"),
     ],
     "fs_write": [
-        r"\bopen\s*\(.*['\"]w",
-        r"\bshutil\b",
-        r"\bos\.remove\b",
-        r"\bos\.unlink\b",
+        re.compile(r"\bopen\s*\(.*['\"]w"),
+        re.compile(r"\bshutil\b"),
+        re.compile(r"\bos\.remove\b"),
+        re.compile(r"\bos\.unlink\b"),
     ],
     "env_var": [
-        r"\bos\.environ\b",
-        r"\bos\.getenv\b",
+        re.compile(r"\bos\.environ\b"),
+        re.compile(r"\bos\.getenv\b"),
     ],
 }
 
@@ -568,7 +568,7 @@ def _find_credential_hits(
     for lineno, line in enumerate(content.splitlines()):
         # Layer 1: known-format patterns (high confidence, specific label)
         for pattern, label in _CREDENTIAL_PATTERNS:
-            if re.search(pattern, line):
+            if pattern.search(line):
                 known_hits.append(
                     {
                         "source": source_label,
@@ -713,7 +713,7 @@ def _find_suspicious_lines(
     for filename, content in source_files:
         for line in content.splitlines():
             for pattern, label in _SUSPICIOUS_PATTERNS:
-                if re.search(pattern, line):
+                if pattern.search(line):
                     hits.append(
                         {
                             "file": filename,
@@ -806,6 +806,21 @@ def check_safety_scan(
                 details={"judgments": judgments},
             )
 
+        # Stage 2 didn't fail — run holistic review on files that had no
+        # regex hits. This prevents the "decoy" bypass where an attacker
+        # places a benign regex trigger in one file so that malicious code
+        # in other files is never sent to the LLM for review.
+        non_hit_files = [(f, c) for f, c in source_files if f not in hit_filenames]
+        if non_hit_files and review_code_fn is not None:
+            non_hit_review = review_code_fn(non_hit_files, skill_name, skill_description)
+            if non_hit_review.get("dangerous", False):
+                return EvalResult(
+                    check_name="safety_scan",
+                    severity="fail",
+                    message=f"Holistic review of non-hit files flagged danger: {non_hit_review.get('reason', 'flagged')}",
+                    details={"judgments": judgments, "non_hit_review": non_hit_review},
+                )
+
         if ambiguous:
             amb_summary = "; ".join(f"{a['file']}: {a['label']} ({a.get('reason', 'unclear')})" for a in ambiguous)
             return EvalResult(
@@ -842,7 +857,7 @@ def _find_prompt_injection_hits(body: str) -> list[dict]:
     hits: list[dict] = []
     for line in body.splitlines():
         for pattern, label in _PROMPT_INJECTION_PATTERNS:
-            match = re.search(pattern, line)
+            match = pattern.search(line)
             if match:
                 hits.append(
                     {
@@ -951,13 +966,13 @@ def detect_elevated_permissions(
     Returns a list of permission category strings (e.g. "shell", "network").
     """
     all_content = "\n".join(content for _, content in source_files)
-    if allowed_tools:
+    if allowed_tools and isinstance(allowed_tools, str):
         all_content += "\n" + allowed_tools
 
     found: list[str] = []
     for category, patterns in _ELEVATED_PERMISSION_PATTERNS.items():
         for pattern in patterns:
-            if re.search(pattern, all_content):
+            if pattern.search(all_content):
                 found.append(category)
                 break
     return found
@@ -977,7 +992,7 @@ def check_tool_declaration_consistency(
     allowed_tools: str | None,
 ) -> EvalResult:
     """Flag when code uses capabilities not declared in allowed-tools."""
-    if not allowed_tools or not elevated_permissions:
+    if not allowed_tools or not isinstance(allowed_tools, str) or not elevated_permissions:
         return EvalResult(
             check_name="tool_consistency",
             severity="pass",
@@ -1002,6 +1017,34 @@ def check_tool_declaration_consistency(
         check_name="tool_consistency",
         severity="pass",
         message="Tool declarations are consistent with code capabilities",
+    )
+
+
+# 512KB total source cap — skills exceeding this can't be meaningfully scanned
+_MAX_SOURCE_TOTAL = 512_000
+
+
+def check_source_size(source_files: list[tuple[str, str]]) -> EvalResult:
+    """Warn if total source content exceeds the scannable limit.
+
+    Skills with more source than the cap can't be fully scanned by the
+    gauntlet pipeline. Returns warn (grade C) rather than fail so the
+    skill still publishes but is flagged as risky.
+    """
+    total = sum(len(content) for _, content in source_files)
+    if total > _MAX_SOURCE_TOTAL:
+        return EvalResult(
+            check_name="source_size",
+            severity="warn",
+            message=(
+                f"Total source content ({total:,} bytes) exceeds scan limit "
+                f"({_MAX_SOURCE_TOTAL:,} bytes) — not all files could be scanned"
+            ),
+        )
+    return EvalResult(
+        check_name="source_size",
+        severity="pass",
+        message=f"Total source content ({total:,} bytes) within scan limit",
     )
 
 
@@ -1146,6 +1189,9 @@ def run_static_checks(
     """
     results = [check_manifest_schema(skill_md_content)]
 
+    # Source size check — warn if total source exceeds scan limit
+    results.append(check_source_size(source_files))
+
     if lockfile_content is not None:
         results.append(check_dependency_audit(lockfile_content))
 
@@ -1159,13 +1205,21 @@ def run_static_checks(
         )
     )
 
+    # Fail-fast: if already failed (credential, manifest, dependency), skip
+    # expensive LLM calls but still run regex-only checks for complete findings
+    already_failed = any(r.severity == "fail" for r in results)
+    effective_analyze_fn = None if already_failed else analyze_fn
+    effective_review_code_fn = None if already_failed else review_code_fn
+    effective_analyze_prompt_fn = None if already_failed else analyze_prompt_fn
+    effective_review_body_fn = None if already_failed else review_body_fn
+
     results.append(
         check_safety_scan(
             source_files,
             skill_name=skill_name,
             skill_description=skill_description,
-            analyze_fn=analyze_fn,
-            review_code_fn=review_code_fn,
+            analyze_fn=effective_analyze_fn,
+            review_code_fn=effective_review_code_fn,
         )
     )
 
@@ -1176,8 +1230,8 @@ def run_static_checks(
                 skill_md_body,
                 skill_name=skill_name,
                 skill_description=skill_description,
-                analyze_prompt_fn=analyze_prompt_fn,
-                review_body_fn=review_body_fn,
+                analyze_prompt_fn=effective_analyze_prompt_fn,
+                review_body_fn=effective_review_body_fn,
             )
         )
 

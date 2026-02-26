@@ -13,6 +13,7 @@ from decision_hub.domain.gauntlet import (
     check_pipeline_taint,
     check_prompt_safety,
     check_safety_scan,
+    check_source_size,
     check_tool_declaration_consistency,
     compute_grade,
     detect_elevated_permissions,
@@ -905,8 +906,8 @@ class TestRunStaticChecks:
             source_files=[("main.py", "def hello(): pass\n")],
         )
         assert report.passed is True
-        # manifest + embedded_credentials + safety + pipeline_taint + tool_consistency (no dep audit)
-        assert len(report.results) == 5
+        # manifest + source_size + embedded_credentials + safety + pipeline_taint + tool_consistency (no dep audit)
+        assert len(report.results) == 6
 
     def test_with_analyze_fn_passes_through(self):
         """run_static_checks forwards analyze_fn to check_safety_scan."""
@@ -1218,3 +1219,416 @@ class TestToolDeclarationConsistency:
         assert result.severity == "warn"
         assert "shell" in str(result.details)
         assert "network" in str(result.details)
+
+    def test_non_string_allowed_tools_passes(self):
+        """Non-string allowed_tools is handled gracefully (defense-in-depth)."""
+        result = check_tool_declaration_consistency(["shell"], ["bash", "shell"])
+        assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# S5: allowed_tools type validation
+# ---------------------------------------------------------------------------
+
+
+class TestAllowedToolsTypeValidation:
+    """Tests for allowed_tools type coercion and defense-in-depth."""
+
+    def test_detect_elevated_with_non_string_allowed_tools(self):
+        """detect_elevated_permissions handles non-string allowed_tools gracefully."""
+        # Should not crash — the isinstance guard ignores non-string types
+        result = detect_elevated_permissions(
+            [("main.py", "import subprocess\n")],
+            allowed_tools=["bash", "shell"],  # type: ignore[arg-type]
+        )
+        assert "shell" in result
+
+    def test_detect_elevated_with_none_allowed_tools(self):
+        """detect_elevated_permissions works with None allowed_tools."""
+        result = detect_elevated_permissions(
+            [("main.py", "import subprocess\n")],
+            allowed_tools=None,
+        )
+        assert "shell" in result
+
+
+# ---------------------------------------------------------------------------
+# S2: Padding bypass — sort files by size
+# ---------------------------------------------------------------------------
+
+
+class TestFileSortingBySize:
+    """Tests that small files are included before large ones."""
+
+    def test_extract_sorts_by_size(self):
+        """extract_for_evaluation returns source files sorted by content length."""
+        import io
+        import zipfile
+
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: test\ndescription: test\n---\nbody")
+            zf.writestr("large.py", "x" * 10_000)
+            zf.writestr("small.py", "y" * 100)
+            zf.writestr("medium.py", "z" * 1_000)
+
+        _, source_files, _ = extract_for_evaluation(buf.getvalue())
+        sizes = [len(c) for _, c in source_files]
+        assert sizes == sorted(sizes), "Source files should be sorted by size ascending"
+
+
+# ---------------------------------------------------------------------------
+# S3: Expanded file extraction
+# ---------------------------------------------------------------------------
+
+
+class TestExpandedFileExtraction:
+    """Tests that non-.py files are now extracted for scanning."""
+
+    def _make_zip(self, files: dict[str, str]) -> bytes:
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        return buf.getvalue()
+
+    def test_json_files_extracted(self):
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": "---\nname: t\ndescription: t\n---\nbody",
+                "config.json": '{"key": "value"}',
+            }
+        )
+        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        filenames = [f for f, _ in source_files]
+        assert "config.json" in filenames
+
+    def test_shell_files_extracted(self):
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": "---\nname: t\ndescription: t\n---\nbody",
+                "setup.sh": "#!/bin/bash\necho hello",
+            }
+        )
+        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        filenames = [f for f, _ in source_files]
+        assert "setup.sh" in filenames
+
+    def test_yaml_files_extracted(self):
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": "---\nname: t\ndescription: t\n---\nbody",
+                "config.yml": "key: value",
+                "other.yaml": "key: value",
+            }
+        )
+        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        filenames = [f for f, _ in source_files]
+        assert "config.yml" in filenames
+        assert "other.yaml" in filenames
+
+    def test_makefile_extracted(self):
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": "---\nname: t\ndescription: t\n---\nbody",
+                "Makefile": "all:\n\techo hello",
+            }
+        )
+        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        filenames = [f for f, _ in source_files]
+        assert "Makefile" in filenames
+
+    def test_dockerfile_extracted(self):
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": "---\nname: t\ndescription: t\n---\nbody",
+                "Dockerfile": "FROM python:3.11",
+            }
+        )
+        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        filenames = [f for f, _ in source_files]
+        assert "Dockerfile" in filenames
+
+    def test_dotenv_extracted(self):
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": "---\nname: t\ndescription: t\n---\nbody",
+                ".env": "FOO=bar",
+            }
+        )
+        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        filenames = [f for f, _ in source_files]
+        assert ".env" in filenames
+
+    def test_unknown_extensions_not_extracted(self):
+        from decision_hub.domain.publish import extract_for_evaluation
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": "---\nname: t\ndescription: t\n---\nbody",
+                "image.png": "fake-png-data",
+                "data.bin": "binary-data",
+            }
+        )
+        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        filenames = [f for f, _ in source_files]
+        assert "image.png" not in filenames
+        assert "data.bin" not in filenames
+
+    def test_credential_detection_in_json(self):
+        """Credential patterns should catch secrets in JSON files."""
+        # A JSON file containing a hardcoded AWS key should be caught
+        json_content = '{"aws_key": "AKIAIOSFODNN7EXAMPLE1"}'
+        result = check_embedded_credentials(
+            "---\nname: t\ndescription: t\n---\nbody",
+            [("config.json", json_content)],
+        )
+        assert result.severity == "fail"
+        assert "AWS" in result.message
+
+
+# ---------------------------------------------------------------------------
+# S3: Source size cap (grade C, not F)
+# ---------------------------------------------------------------------------
+
+
+class TestSourceSizeCap:
+    """Tests for the total source content size check."""
+
+    def test_small_source_passes(self):
+        result = check_source_size([("main.py", "x" * 1000)])
+        assert result.severity == "pass"
+
+    def test_exceeds_cap_warns(self):
+        """Source exceeding 512KB should warn (grade C), not fail."""
+        result = check_source_size([("big.py", "x" * 600_000)])
+        assert result.severity == "warn"
+        assert "scan limit" in result.message
+
+    def test_multiple_files_summed(self):
+        """Total size is summed across all files."""
+        files = [(f"file{i}.py", "x" * 100_000) for i in range(6)]
+        result = check_source_size(files)
+        assert result.severity == "warn"
+
+
+# ---------------------------------------------------------------------------
+# S1: Decoy-hit holistic review bypass
+# ---------------------------------------------------------------------------
+
+
+class TestDecoyHitBypass:
+    """Tests for the non-hit file holistic review in check_safety_scan."""
+
+    def test_decoy_plus_malicious_non_hit_caught(self):
+        """Decoy file triggers regex; malicious non-hit file is caught by holistic review."""
+        # decoy.py has a subprocess call (triggers regex)
+        # malicious.py has obfuscated exfiltration (no regex hit)
+        source_files = [
+            ("decoy.py", "import subprocess\nsubprocess.run(['ls'])\n"),
+            ("malicious.py", "# This file contains obfuscated exfiltration\n"),
+        ]
+
+        def approve_decoy(snippets, hit_files, name, desc):
+            """LLM approves the decoy subprocess call."""
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "legitimate ls"} for s in snippets]
+
+        def flag_non_hits(non_hit_files, name, desc):
+            """Holistic review flags the non-hit file as dangerous."""
+            return {"dangerous": True, "reason": "obfuscated data exfiltration"}
+
+        result = check_safety_scan(
+            source_files,
+            skill_name="test",
+            skill_description="test",
+            analyze_fn=approve_decoy,
+            review_code_fn=flag_non_hits,
+        )
+        assert result.severity == "fail"
+        assert "non-hit" in result.message.lower()
+
+    def test_no_non_hit_files_no_extra_call(self):
+        """When all files have regex hits, no extra holistic review is called."""
+        call_count = 0
+
+        def count_calls(files, name, desc):
+            nonlocal call_count
+            call_count += 1
+            return {"dangerous": False, "reason": "safe"}
+
+        source_files = [("main.py", "subprocess.run(['ls'])\n")]
+
+        def approve_all(snippets, hit_files, name, desc):
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "ok"} for s in snippets]
+
+        check_safety_scan(
+            source_files,
+            skill_name="test",
+            skill_description="test",
+            analyze_fn=approve_all,
+            review_code_fn=count_calls,
+        )
+        assert call_count == 0, "Holistic review should not be called when all files have regex hits"
+
+    def test_non_hit_review_safe_overall_pass(self):
+        """If non-hit file holistic review is safe, overall result passes."""
+        source_files = [
+            ("trigger.py", "subprocess.run(['ls'])\n"),
+            ("clean.py", "def hello(): pass\n"),
+        ]
+
+        def approve_all(snippets, hit_files, name, desc):
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "ok"} for s in snippets]
+
+        def safe_review(files, name, desc):
+            return {"dangerous": False, "reason": "all clear"}
+
+        result = check_safety_scan(
+            source_files,
+            skill_name="test",
+            skill_description="test",
+            analyze_fn=approve_all,
+            review_code_fn=safe_review,
+        )
+        assert result.severity == "pass"
+
+    def test_non_hit_review_not_called_when_stage2_fails(self):
+        """Non-hit review is skipped when Stage 2 already fails."""
+        call_count = 0
+
+        def count_calls(files, name, desc):
+            nonlocal call_count
+            call_count += 1
+            return {"dangerous": True, "reason": "danger"}
+
+        source_files = [
+            ("trigger.py", "subprocess.run(['ls'])\n"),
+            ("clean.py", "def hello(): pass\n"),
+        ]
+
+        def flag_all(snippets, hit_files, name, desc):
+            return [{**s, "dangerous": True, "reason": "dangerous"} for s in snippets]
+
+        check_safety_scan(
+            source_files,
+            skill_name="test",
+            skill_description="test",
+            analyze_fn=flag_all,
+            review_code_fn=count_calls,
+        )
+        assert call_count == 0, "Non-hit review should not be called when Stage 2 already fails"
+
+
+# ---------------------------------------------------------------------------
+# S4: LLM-required gate
+# ---------------------------------------------------------------------------
+
+
+class TestLLMRequiredGate:
+    """Tests for the LLM-required gate in run_gauntlet_pipeline."""
+
+    def test_raises_when_llm_required_but_no_key(self):
+        from unittest.mock import MagicMock
+
+        from decision_hub.api.registry_service import run_gauntlet_pipeline
+
+        settings = MagicMock()
+        settings.google_api_key = ""
+
+        with pytest.raises(RuntimeError, match="LLM judge required"):
+            run_gauntlet_pipeline(
+                skill_md_content="---\nname: t\ndescription: t\n---\nbody",
+                lockfile_content=None,
+                source_files=[],
+                skill_name="t",
+                description="t",
+                skill_md_body="body",
+                settings=settings,
+            )
+
+    def test_no_raise_when_llm_not_required(self):
+        from unittest.mock import MagicMock
+
+        from decision_hub.api.registry_service import run_gauntlet_pipeline
+
+        settings = MagicMock()
+        settings.google_api_key = ""
+
+        # Should not raise — llm_required=False
+        report, _, _ = run_gauntlet_pipeline(
+            skill_md_content="---\nname: t\ndescription: t\n---\nbody",
+            lockfile_content=None,
+            source_files=[("main.py", "def hello(): pass\n")],
+            skill_name="t",
+            description="t",
+            skill_md_body="body",
+            settings=settings,
+            llm_required=False,
+        )
+        assert report is not None
+
+
+# ---------------------------------------------------------------------------
+# P3: Fail-fast skip LLM when already failed
+# ---------------------------------------------------------------------------
+
+
+class TestFailFastLLMSkip:
+    """Tests that LLM calls are skipped when early checks already fail."""
+
+    def test_llm_skipped_when_credential_found(self):
+        """When embedded credentials cause early failure, LLM callbacks are not called."""
+        llm_called = False
+
+        def track_analyze(snippets, source_files, name, desc):
+            nonlocal llm_called
+            llm_called = True
+            return []
+
+        # AKIA prefix is an always-fail credential pattern
+        report = run_static_checks(
+            skill_md_content="---\nname: foo\ndescription: bar\n---\n",
+            lockfile_content=None,
+            source_files=[("main.py", 'key = "AKIAIOSFODNN7EXAMPLE1"\nsubprocess.run(["ls"])\n')],
+            skill_name="foo",
+            skill_description="bar",
+            analyze_fn=track_analyze,
+        )
+        assert report.grade == "F"
+        assert llm_called is False, "LLM should not be called when early checks already fail"
+
+    def test_llm_called_when_no_early_failure(self):
+        """When no early failures, LLM callbacks are passed through normally."""
+        llm_called = False
+
+        def track_analyze(snippets, source_files, name, desc):
+            nonlocal llm_called
+            llm_called = True
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "ok"} for s in snippets]
+
+        run_static_checks(
+            skill_md_content="---\nname: foo\ndescription: bar\n---\n",
+            lockfile_content=None,
+            source_files=[("main.py", "subprocess.run(['ls'])\n")],
+            skill_name="foo",
+            skill_description="bar",
+            analyze_fn=track_analyze,
+        )
+        assert llm_called is True

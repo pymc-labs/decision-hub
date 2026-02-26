@@ -60,6 +60,11 @@ def parse_skill_md(path: Path) -> SkillManifest:
     compatibility = data.get("compatibility")
     metadata = data.get("metadata")
     allowed_tools = data.get("allowed_tools")
+    if allowed_tools is not None:
+        if isinstance(allowed_tools, list):
+            allowed_tools = ", ".join(str(t) for t in allowed_tools)
+        elif not isinstance(allowed_tools, str):
+            raise ValueError(f"allowed_tools must be a string or list, got {type(allowed_tools).__name__}")
 
     # Optional structured blocks
     runtime = parse_runtime(data.get("runtime"))
@@ -338,6 +343,9 @@ def validate_manifest(manifest: SkillManifest) -> list[str]:
 
     if not manifest.body:
         errors.append("Body (system prompt) must not be empty.")
+
+    if manifest.allowed_tools is not None and not isinstance(manifest.allowed_tools, str):
+        errors.append(f"allowed_tools must be a string, got {type(manifest.allowed_tools).__name__}")
 
     # Validate runtime (supports both old driver field and new language field)
     if manifest.runtime:

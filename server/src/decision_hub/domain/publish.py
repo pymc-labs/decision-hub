@@ -1,6 +1,7 @@
 """Publishing validation for skills."""
 
 import io
+import os
 import zipfile
 
 from dhub_core.validation import validate_semver, validate_skill_name
@@ -38,14 +39,31 @@ _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per extracted file
 _MAX_TOTAL_EXTRACTED = 100 * 1024 * 1024  # 100 MB total uncompressed
 _MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
 
+# File types to extract for security scanning (beyond .py)
+_SECURITY_SCAN_EXTENSIONS = frozenset({".py", ".sh", ".bash", ".zsh", ".json", ".yml", ".yaml"})
+_SECURITY_SCAN_NAMES = frozenset({"Makefile", "Dockerfile", ".env"})
+
+# Total source content cap for gauntlet feasibility — a real skill rarely
+# exceeds 50KB of source. 512KB is generous but prevents unbounded scanning.
+_MAX_SOURCE_TOTAL = 512_000
+
+
+def _is_scannable_file(basename: str) -> bool:
+    """Check if a file should be extracted for security scanning."""
+    if basename in _SECURITY_SCAN_NAMES:
+        return True
+    _, ext = os.path.splitext(basename)
+    return ext in _SECURITY_SCAN_EXTENSIONS
+
 
 def extract_for_evaluation(
     zip_bytes: bytes,
 ) -> tuple[str, list[tuple[str, str]], str | None]:
     """Extract evaluation-relevant files from a skill zip archive.
 
-    Reads SKILL.md, all .py source files, and the lockfile (if present)
-    from the in-memory zip without writing to disk.
+    Reads SKILL.md, scannable source files (.py, .sh, .json, .yml, etc.),
+    and the lockfile (if present) from the in-memory zip without writing
+    to disk.
 
     Args:
         zip_bytes: Raw bytes of the skill zip archive.
@@ -89,12 +107,16 @@ def extract_for_evaluation(
 
             if basename == "SKILL.md":
                 skill_md = zf.read(name).decode()
-            elif basename.endswith(".py"):
+            elif _is_scannable_file(basename):
                 source_files.append((name, zf.read(name).decode()))
             elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
                 lockfile_content = zf.read(name).decode()
 
     if not skill_md:
         raise ValueError("Zip archive does not contain a SKILL.md file")
+
+    # Sort smallest files first so small malicious files aren't pushed out
+    # by large benign padding files when hitting downstream size caps
+    source_files.sort(key=lambda fc: len(fc[1]))
 
     return skill_md, source_files, lockfile_content

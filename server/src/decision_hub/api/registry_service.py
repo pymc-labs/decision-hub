@@ -101,11 +101,18 @@ def run_gauntlet_pipeline(
     settings: Settings,
     *,
     allowed_tools: str | None = None,
+    llm_required: bool = True,
 ) -> tuple[GauntletReport, list[dict], dict | None]:
     """Run Gauntlet static checks and serialize results for audit logging.
 
     Returns (report, check_results_dicts, llm_reasoning).
+
+    Raises:
+        RuntimeError: If llm_required=True but no Google API key is configured.
     """
+    if llm_required and not settings.google_api_key:
+        raise RuntimeError("LLM judge required for gauntlet but GOOGLE_API_KEY is not configured")
+
     report = run_static_checks(
         skill_md_content,
         lockfile_content,
