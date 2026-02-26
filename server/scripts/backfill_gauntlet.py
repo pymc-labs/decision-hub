@@ -183,8 +183,16 @@ def flush_updates(engine: sa.Engine, results: list[dict]) -> int:
                 )
             )
 
-            # Replace old audit logs for this version with the new result
-            conn.execute(eval_audit_logs_table.delete().where(eval_audit_logs_table.c.version_id == version_id))
+            # Delete ALL old audit logs for this skill (old logs may have
+            # version_id=NULL which wouldn't match a UUID comparison)
+            conn.execute(
+                eval_audit_logs_table.delete().where(
+                    sa.and_(
+                        eval_audit_logs_table.c.org_slug == org_slug,
+                        eval_audit_logs_table.c.skill_name == skill_name,
+                    )
+                )
+            )
             insert_audit_log(
                 conn,
                 org_slug=org_slug,
