@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod publish publish-cli local-up local-down local-reset local-server local-frontend backfill tracker-health
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -73,28 +73,30 @@ publish-cli: ## Publish CLI to PyPI (BUMP=patch|minor|major, BREAKING=1 to sync 
 # Local development
 # ---------------------------------------------------------------------------
 
-local-up: ## Start local infra (Postgres + MinIO), run migrations, create bucket
+deploy-local: ## Start local stack: Postgres + MinIO + API + frontend
 	docker compose -f docker-compose-local.yml up -d
 	@echo "Waiting for Postgres..."
 	@until docker compose -f docker-compose-local.yml exec -T postgres pg_isready -U postgres > /dev/null 2>&1; do sleep 1; done
 	cd server && DHUB_ENV=local uv run --package decision-hub-server python ../scripts/run_migrations.py
 	@echo ""
-	@echo "=== Local infra ready ==="
-	@echo "  Postgres: localhost:5432"
-	@echo "  MinIO S3: localhost:9000"
-	@echo "  MinIO UI: http://localhost:9001 (minioadmin/minioadmin)"
+	@echo "=== Starting servers ==="
+	cd server && DHUB_ENV=local uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --host 0.0.0.0 --port 8000 --reload &
+	cd frontend && npm run dev &
+	@sleep 3
+	@echo ""
+	@echo "=== Local deploy ready ==="
+	@echo "    URL: http://localhost:5173"
+	@echo "    API: http://localhost:8000"
+	@echo "    MinIO: http://localhost:9001 (minioadmin/minioadmin)"
+	@wait
 
-local-down: ## Stop local infra (data preserved)
+local-down: ## Stop local stack (data preserved)
+	@-lsof -ti:8000 | xargs kill 2>/dev/null
 	docker compose -f docker-compose-local.yml down
 
-local-reset: ## Stop local infra and destroy all data
+local-reset: ## Stop local stack and destroy all data
+	@-lsof -ti:8000 | xargs kill 2>/dev/null
 	docker compose -f docker-compose-local.yml down -v
-
-local-server: ## Start local FastAPI server with hot reload
-	cd server && DHUB_ENV=local uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --host 0.0.0.0 --port 8000 --reload
-
-local-frontend: ## Start Vite dev server (proxies API to localhost:8000)
-	cd frontend && npm run dev
 
 # ---------------------------------------------------------------------------
 # Data maintenance

@@ -273,19 +273,14 @@ make fmt               # auto-fix + format
 For fully isolated local development with its own database and S3 storage:
 
 ```bash
-# Start local Postgres + MinIO, run migrations
-make local-up
-
-# Start the API server with hot reload (terminal 1)
-make local-server
-
-# Start the frontend with HMR (terminal 2)
-make local-frontend
-
+make deploy-local    # start Postgres + MinIO + API + frontend
 # Open http://localhost:5173
+
+make local-down      # stop (data preserved)
+make local-reset     # stop and destroy all data
 ```
 
-Requires Docker Desktop. Data persists across restarts — use `make local-reset` to start fresh.
+Requires Docker Desktop. Data persists across restarts.
 
 ### Configuration
 
