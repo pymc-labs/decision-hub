@@ -180,7 +180,7 @@ export default function HomePage() {
 
       {/* How it's different */}
       <section className={styles.differentiators}>
-        <h2 className={styles.sectionTitle} style={{ justifyContent: "center", marginBottom: 24 }}>
+        <h2 className={`${styles.sectionTitle} ${styles.sectionTitleCentered}`}>
           Why Decision Hub
         </h2>
         <div className={styles.diffGrid}>

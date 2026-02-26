@@ -31,10 +31,9 @@
   --neural-pink:   #f472b6;
   --neural-dim:    rgba(167, 139, 250, 0.08);
 
-  /* Legacy aliases for easier migration */
-  --border-color:  var(--border);
-  --bg-darkest:    var(--bg-primary);
-  --bg-dark:       var(--bg-surface);
+  /* Derived accent shades */
+  --lab-blue-light: #60a5fa;
+  --lab-blue-dark:  #2563eb;
 
   /* Layout */
   --max-width: 1280px;
@@ -58,7 +57,7 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.6;
-  font-size: 16px;
+  font-size: 17px;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   -webkit-font-smoothing: antialiased;
@@ -78,7 +77,7 @@ a {
 }
 
 a:hover {
-  color: #60a5fa;
+  color: var(--lab-blue-light);
 }
 
 h1, h2, h3, h4, h5, h6 {

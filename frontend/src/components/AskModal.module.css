@@ -236,7 +236,7 @@
 }
 
 .assistantMessage .messageContent a:hover {
-  color: #60a5fa;
+  color: var(--lab-blue-light);
 }
 
 .assistantMessage .messageContent table {

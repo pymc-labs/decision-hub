@@ -281,13 +281,13 @@
   color: var(--text-muted);
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 768px) {
   .grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
   .grid {
     grid-template-columns: 1fr;
   }
@@ -300,15 +300,5 @@
   }
   .title {
     font-size: 1.3rem;
-  }
-  .pagination {
-    gap: 8px;
-  }
-  .pageButton {
-    padding: 8px 10px;
-    font-size: 0.75rem;
-  }
-  .pageInfo {
-    font-size: 0.75rem;
   }
 }

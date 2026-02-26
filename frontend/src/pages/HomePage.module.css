@@ -53,7 +53,7 @@
 }
 
 .btnPrimary:hover {
-  background: #2563eb;
+  background: var(--lab-blue-dark);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
   color: #fff !important;
@@ -271,6 +271,11 @@
   color: var(--text-primary);
 }
 
+.sectionTitleCentered {
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
 .seeAll {
   display: flex;
   align-items: center;
@@ -281,7 +286,7 @@
 }
 
 .seeAll:hover {
-  color: #60a5fa !important;
+  color: var(--lab-blue-light) !important;
 }
 
 .skillGrid {
