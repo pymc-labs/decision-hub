@@ -91,11 +91,11 @@ deploy-local: ## Start local stack: Postgres + MinIO + API + frontend
 	@wait
 
 local-down: ## Stop local stack (data preserved)
-	@-lsof -ti:8000 | xargs kill 2>/dev/null
+	@-lsof -ti:8000,5173 | xargs kill 2>/dev/null
 	docker compose -f docker-compose-local.yml down
 
 local-reset: ## Stop local stack and destroy all data
-	@-lsof -ti:8000 | xargs kill 2>/dev/null
+	@-lsof -ti:8000,5173 | xargs kill 2>/dev/null
 	docker compose -f docker-compose-local.yml down -v
 
 # ---------------------------------------------------------------------------
