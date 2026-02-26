@@ -31,8 +31,8 @@ test: test-client test-server test-frontend ## Run all tests
 test-client: ## Run client tests
 	uv run --package dhub-cli --extra dev pytest client/tests/ -v
 
-test-server: ## Run server tests
-	uv run --package decision-hub-server --extra dev pytest server/tests/ -v
+test-server: ## Run server tests (excludes slow LLM regression tests)
+	uv run --package decision-hub-server --extra dev pytest server/tests/ -v -k "not FullPipeline"
 
 test-frontend: ## Run frontend tests
 	cd frontend && npx vitest run
