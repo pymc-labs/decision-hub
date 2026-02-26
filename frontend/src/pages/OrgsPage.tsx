@@ -113,7 +113,7 @@ export default function OrgsPage() {
     return (
       <div className="container">
         <NeonCard glow="pink">
-          <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+          <p style={{ color: "var(--grade-fail)" }}>Error: {error}</p>
         </NeonCard>
       </div>
     );

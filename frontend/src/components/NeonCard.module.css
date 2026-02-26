@@ -37,7 +37,7 @@
 }
 
 .cyan::before {
-  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  background: linear-gradient(90deg, transparent, #00f0ff, transparent);
 }
 
 .cyan:hover {
@@ -50,7 +50,7 @@
 }
 
 .pink::before {
-  background: linear-gradient(90deg, transparent, var(--neon-pink), transparent);
+  background: linear-gradient(90deg, transparent, #ff2d95, transparent);
 }
 
 .pink:hover {
@@ -64,7 +64,7 @@
 }
 
 .purple::before {
-  background: linear-gradient(90deg, transparent, var(--neon-purple), transparent);
+  background: linear-gradient(90deg, transparent, #b400ff, transparent);
 }
 
 .purple:hover {
@@ -76,7 +76,7 @@
 }
 
 .green::before {
-  background: linear-gradient(90deg, transparent, var(--neon-green), transparent);
+  background: linear-gradient(90deg, transparent, #39ff14, transparent);
 }
 
 .green:hover {
