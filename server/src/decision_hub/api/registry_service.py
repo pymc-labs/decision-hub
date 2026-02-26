@@ -118,6 +118,7 @@ def run_gauntlet_pipeline(
         analyze_prompt_fn=_build_analyze_prompt_fn(settings),
         review_body_fn=_build_review_body_fn(settings),
         analyze_credential_fn=_build_analyze_credential_fn(settings),
+        review_code_fn=_build_review_code_fn(settings),
     )
 
     check_results_dicts = [
@@ -297,6 +298,30 @@ def _build_review_body_fn(settings: Settings):
         )
 
     return review_body_fn
+
+
+def _build_review_code_fn(settings: Settings):
+    """Build a Gemini holistic code review callback if google_api_key is configured.
+
+    Returns None if no API key is set, disabling the holistic code review.
+    """
+    if not settings.google_api_key:
+        return None
+
+    from decision_hub.infra.gemini import create_gemini_client, review_code_body_safety
+
+    gemini_client = create_gemini_client(settings.google_api_key)
+
+    def review_code_fn(source_files, skill_name, skill_description):
+        return review_code_body_safety(
+            gemini_client,
+            source_files,
+            skill_name,
+            skill_description,
+            model=settings.gemini_model,
+        )
+
+    return review_code_fn
 
 
 def _build_analyze_credential_fn(settings: Settings):

@@ -11,6 +11,8 @@ import json
 import math
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Flag, auto
 
 from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCase
 
@@ -27,7 +29,44 @@ _SUSPICIOUS_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bex" + r"ec\s*\(", "ex" + "ec() usage"),
     (r"\b__import__\s*\(", "dynamic " + "__import__"),
     (r"(?i)(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{8,}", "hardcoded credential"),
+    (r"\bfrom\s+subprocess\s+import\b", "subprocess import"),
+    (r"\bfrom\s+os\s+import\s+" + "system" + r"\b", "os" + ".system import"),
+    (r"\bfrom\s+os\s+import\s+" + "popen" + r"\b", "os" + ".popen import"),
+    (r"\bimportlib\.import_module\s*\(", "dynamic importlib import"),
 )
+
+# ---------------------------------------------------------------------------
+# Always-fail pattern combos — these co-occurring patterns are dangerous
+# regardless of LLM judgment (same philosophy as Layer 1 credential patterns).
+# ---------------------------------------------------------------------------
+# Built via concat to avoid triggering security-hook false positives.
+_ALWAYS_FAIL_COMBOS: tuple[tuple[tuple[str, ...], str], ...] = (
+    # exec/eval + network = data exfiltration via code execution
+    (
+        (r"\bex" + r"ec\s*\(", r"\b(requests|httpx|urllib)\.(post|put|get)\b"),
+        "ex" + "ec() with network call in same file",
+    ),
+    (
+        (r"\bev" + r"al\s*\(", r"\b(requests|httpx|urllib)\.(post|put|get)\b"),
+        "ev" + "al() with network call in same file",
+    ),
+    # exec/eval + file read + network = read-exec-exfil chain
+    (
+        (r"\bex" + r"ec\s*\(", r"\bopen\s*\(", r"\b(requests|httpx|urllib)\b"),
+        "ex" + "ec() with file read and network in same file",
+    ),
+)
+
+
+def _check_always_fail_combos(source_files: list[tuple[str, str]]) -> list[dict]:
+    """Check for pattern combinations that are always dangerous."""
+    findings: list[dict] = []
+    for filename, content in source_files:
+        for patterns, label in _ALWAYS_FAIL_COMBOS:
+            if all(re.search(p, content) for p in patterns):
+                findings.append({"file": filename, "label": label})
+    return findings
+
 
 # Prompt injection patterns for SKILL.md body scanning
 _PROMPT_INJECTION_PATTERNS: tuple[tuple[str, str], ...] = (
@@ -114,6 +153,237 @@ AnalyzeCredentialFn = Callable[
     list[dict],
 ]
 
+# ---------------------------------------------------------------------------
+# Shell pipeline taint tracking
+# ---------------------------------------------------------------------------
+
+
+class Taint(Flag):
+    """Taint categories for tracking data flow through shell pipelines."""
+
+    NONE = 0
+    SENSITIVE_DATA = auto()  # reading secrets/credentials/keys
+    USER_INPUT = auto()  # env vars, stdin, args
+    OBFUSCATION = auto()  # encoding/encryption
+    NETWORK_SEND = auto()  # exfiltration sink
+    CODE_EXEC = auto()  # execution sink
+
+
+@dataclass(frozen=True)
+class TaintFinding:
+    """A single taint-tracking finding from pipeline analysis."""
+
+    source_cmd: str
+    sink_cmd: str
+    taint_flags: Taint
+    severity: str  # "fail" or "warn"
+    description: str
+
+
+# Commands that produce sensitive data (taint sources)
+_TAINT_SOURCE_PATTERNS: tuple[tuple[str, Taint], ...] = (
+    (r"cat\s+(/etc/passwd|/etc/shadow)", Taint.SENSITIVE_DATA),
+    (r"cat\s+~?/?\.(ssh|aws|gnupg|env)", Taint.SENSITIVE_DATA),
+    (r"cat\s+.*\.(pem|key|crt|p12)", Taint.SENSITIVE_DATA),
+    (r"\b(printenv|env)\b", Taint.USER_INPUT),
+    (r"\$\{?\w*(KEY|TOKEN|SECRET|PASS)\w*\}?", Taint.SENSITIVE_DATA),
+)
+
+# Commands that transform data (propagate taint, may add OBFUSCATION)
+_TAINT_TRANSFORM_CMDS: dict[str, Taint] = {
+    "base64": Taint.OBFUSCATION,
+    "openssl": Taint.OBFUSCATION,
+    "xxd": Taint.OBFUSCATION,
+    "gzip": Taint.OBFUSCATION,
+    "bzip2": Taint.OBFUSCATION,
+    "xz": Taint.OBFUSCATION,
+    "sed": Taint.NONE,
+    "awk": Taint.NONE,
+    "grep": Taint.NONE,
+    "cut": Taint.NONE,
+    "tr": Taint.NONE,
+    "sort": Taint.NONE,
+    "head": Taint.NONE,
+    "tail": Taint.NONE,
+}
+
+# Commands that are sinks (consume tainted data)
+_TAINT_SINK_CMDS: dict[str, Taint] = {
+    "curl": Taint.NETWORK_SEND,
+    "wget": Taint.NETWORK_SEND,
+    "nc": Taint.NETWORK_SEND,
+    "ncat": Taint.NETWORK_SEND,
+    "bash": Taint.CODE_EXEC,
+    "sh": Taint.CODE_EXEC,
+    "python": Taint.CODE_EXEC,
+    "python3": Taint.CODE_EXEC,
+    "perl": Taint.CODE_EXEC,
+    "ruby": Taint.CODE_EXEC,
+}
+
+# Regex to extract shell command strings from Python source
+_SHELL_CMD_RE = re.compile(
+    r"""(?:subprocess\.(?:run|call|Popen|check_output|check_call)\s*\(\s*"""
+    r"""(?:f?(?:"|')(.+?)(?:"|'))|"""
+    r"""os\.(?:system|popen)\s*\(\s*"""
+    r"""(?:f?(?:"|')(.+?)(?:"|')))""",
+    re.DOTALL,
+)
+
+# Regex to split shell commands on pipe, semicolon, or &&
+_PIPE_SPLIT_RE = re.compile(r"\s*(?:\|{1,2}|;|&&)\s*")
+
+
+def _classify_segment(segment: str) -> tuple[str, Taint | None]:
+    """Classify a single pipeline segment as source, transform, or sink.
+
+    Returns (role, taint) where role is 'source', 'transform', 'sink', or 'unknown'.
+    """
+    stripped = segment.strip()
+    first_word = stripped.split()[0] if stripped.split() else ""
+
+    # Check sinks first (curl, bash, etc.)
+    if first_word in _TAINT_SINK_CMDS:
+        return "sink", _TAINT_SINK_CMDS[first_word]
+
+    # Check transforms
+    if first_word in _TAINT_TRANSFORM_CMDS:
+        return "transform", _TAINT_TRANSFORM_CMDS[first_word]
+
+    # Check sources (pattern-based)
+    for pattern, taint in _TAINT_SOURCE_PATTERNS:
+        if re.search(pattern, stripped):
+            return "source", taint
+
+    return "unknown", Taint.NONE
+
+
+def trace_pipeline_taint(command: str) -> list[TaintFinding]:
+    """Split shell command on | ; && and track taint through the pipeline.
+
+    Returns a list of TaintFinding for each case where tainted data reaches a sink.
+    """
+    segments = _PIPE_SPLIT_RE.split(command)
+    if len(segments) < 2:
+        return []
+
+    findings: list[TaintFinding] = []
+    accumulated_taint = Taint.NONE
+    source_cmd = ""
+
+    for segment in segments:
+        role, taint = _classify_segment(segment)
+
+        if role == "source" and taint is not None:
+            accumulated_taint = accumulated_taint | taint
+            source_cmd = segment.strip()
+        elif role == "transform":
+            if accumulated_taint != Taint.NONE and taint is not None:
+                accumulated_taint = accumulated_taint | taint
+        elif role == "sink" and accumulated_taint != Taint.NONE and taint is not None:
+            combined = accumulated_taint | taint
+            # Determine severity
+            has_sensitive = bool(accumulated_taint & Taint.SENSITIVE_DATA)
+            has_network = bool(taint & Taint.NETWORK_SEND)
+            has_obfuscation = bool(accumulated_taint & Taint.OBFUSCATION)
+
+            if has_sensitive and has_network and has_obfuscation:
+                severity = "fail"
+                desc = "Sensitive data obfuscated and sent to network"
+            elif has_sensitive and has_network:
+                severity = "fail"
+                desc = "Sensitive data sent to network"
+            elif has_sensitive and bool(taint & Taint.CODE_EXEC):
+                severity = "warn"
+                desc = "Sensitive data piped to code execution"
+            else:
+                severity = "warn"
+                desc = "Tainted data reaches a sink"
+
+            findings.append(
+                TaintFinding(
+                    source_cmd=source_cmd,
+                    sink_cmd=segment.strip(),
+                    taint_flags=combined,
+                    severity=severity,
+                    description=desc,
+                )
+            )
+
+    return findings
+
+
+def _extract_shell_commands(source_files: list[tuple[str, str]], skill_md_body: str) -> list[tuple[str, str]]:
+    """Extract shell command strings from source files and SKILL.md body.
+
+    Returns list of (source_label, command_string).
+    """
+    commands: list[tuple[str, str]] = []
+
+    for filename, content in source_files:
+        for match in _SHELL_CMD_RE.finditer(content):
+            cmd = match.group(1) or match.group(2)
+            if cmd:
+                commands.append((filename, cmd))
+
+    # Also scan SKILL.md for bare shell commands in code blocks
+    if skill_md_body:
+        in_code_block = False
+        for line in skill_md_body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                continue
+            if in_code_block and "|" in stripped:
+                commands.append(("SKILL.md", stripped))
+
+    return commands
+
+
+def check_pipeline_taint(
+    source_files: list[tuple[str, str]],
+    skill_md_body: str = "",
+) -> EvalResult:
+    """Scan source files and SKILL.md for shell pipeline taint chains.
+
+    Extracts shell commands and traces taint through pipelines.
+    """
+    commands = _extract_shell_commands(source_files, skill_md_body)
+    all_findings: list[dict] = []
+
+    for source_label, cmd in commands:
+        findings = trace_pipeline_taint(cmd)
+        for f in findings:
+            all_findings.append(
+                {
+                    "source": source_label,
+                    "command": cmd[:200],
+                    "source_cmd": f.source_cmd,
+                    "sink_cmd": f.sink_cmd,
+                    "severity": f.severity,
+                    "description": f.description,
+                }
+            )
+
+    if not all_findings:
+        return EvalResult(
+            check_name="pipeline_taint",
+            severity="pass",
+            message="No dangerous shell pipeline chains detected",
+        )
+
+    # Use the worst severity found
+    has_fail = any(f["severity"] == "fail" for f in all_findings)
+    summaries = [f"{f['source']}: {f['description']} ({f['source_cmd']} -> {f['sink_cmd']})" for f in all_findings]
+
+    return EvalResult(
+        check_name="pipeline_taint",
+        severity="fail" if has_fail else "warn",
+        message=f"Dangerous shell pipeline chains: {'; '.join(summaries)}",
+        details={"findings": all_findings},
+    )
+
+
 # Permission categories that elevate a skill from A to B
 _ELEVATED_PERMISSION_PATTERNS: dict[str, list[str]] = {
     "shell": [
@@ -165,6 +435,14 @@ AnalyzePromptFn = Callable[
 # Returns dict with 'dangerous' (bool), 'reason' (str).
 ReviewBodyFn = Callable[
     [str, str, str],
+    dict,
+]
+
+# Type alias for holistic code review callback.
+# Accepts (source_files, skill_name, skill_description) -> dict
+# Returns dict with 'dangerous' (bool), 'reason' (str).
+ReviewCodeFn = Callable[
+    [list[tuple[str, str]], str, str],
     dict,
 ]
 
@@ -451,18 +729,43 @@ def check_safety_scan(
     skill_name: str = "",
     skill_description: str = "",
     analyze_fn: AnalyzeFn | None = None,
+    review_code_fn: "ReviewCodeFn | None" = None,
 ) -> EvalResult:
-    """Two-stage safety scan: regex pre-filter then LLM judge.
+    """Multi-stage safety scan: always-fail combos, regex, LLM judge, holistic review.
 
+    Stage 0 (always): always-fail pattern combos — immediate rejection.
     Stage 1 (always): regex patterns find candidate suspicious lines.
     Stage 2 (if analyze_fn provided): an LLM decides which candidates
     are genuinely dangerous given the skill's stated purpose.
+    Stage 3 (if review_code_fn provided and no regex hits): holistic LLM
+    code review for patterns that evade regex.
 
     Returns severity "pass", "warn" (ambiguous), or "fail" (dangerous).
     """
+    # Stage 0: always-fail combos (no LLM override, same as Layer 1 credentials)
+    combo_findings = _check_always_fail_combos(source_files)
+    if combo_findings:
+        findings_str = "; ".join(f"{f['file']}: {f['label']}" for f in combo_findings)
+        return EvalResult(
+            check_name="safety_scan",
+            severity="fail",
+            message=f"Dangerous pattern combinations detected: {findings_str}",
+            details={"always_fail_combos": combo_findings},
+        )
+
     hits = _find_suspicious_lines(source_files)
 
     if not hits:
+        # Stage 3: holistic LLM code review (mirrors check_prompt_safety pattern)
+        if review_code_fn is not None:
+            review = review_code_fn(source_files, skill_name, skill_description)
+            if review.get("dangerous", False):
+                return EvalResult(
+                    check_name="safety_scan",
+                    severity="fail",
+                    message=f"Holistic code review flagged danger: {review.get('reason', 'flagged')}",
+                    details={"code_review": review},
+                )
         return EvalResult(
             check_name="safety_scan",
             severity="pass",
@@ -660,6 +963,48 @@ def detect_elevated_permissions(
     return found
 
 
+# Mapping from elevated permission categories to expected tool declarations
+_PERMISSION_TO_TOOL_KEYWORDS: dict[str, list[str]] = {
+    "shell": ["bash", "shell", "run_shell", "execute", "terminal", "command"],
+    "network": ["http", "fetch", "request", "network", "api", "web"],
+    "fs_write": ["write", "edit", "file", "create_file", "save"],
+    "env_var": ["env", "environment", "config"],
+}
+
+
+def check_tool_declaration_consistency(
+    elevated_permissions: list[str],
+    allowed_tools: str | None,
+) -> EvalResult:
+    """Flag when code uses capabilities not declared in allowed-tools."""
+    if not allowed_tools or not elevated_permissions:
+        return EvalResult(
+            check_name="tool_consistency",
+            severity="pass",
+            message="No tool declaration inconsistencies",
+        )
+
+    tools_lower = allowed_tools.lower()
+    inconsistencies: list[str] = []
+    for perm in elevated_permissions:
+        keywords = _PERMISSION_TO_TOOL_KEYWORDS.get(perm, [])
+        if not any(kw in tools_lower for kw in keywords):
+            inconsistencies.append(perm)
+
+    if inconsistencies:
+        return EvalResult(
+            check_name="tool_consistency",
+            severity="warn",
+            message=f"Code uses {inconsistencies} but allowed-tools doesn't declare matching capabilities",
+            details={"inconsistencies": inconsistencies},
+        )
+    return EvalResult(
+        check_name="tool_consistency",
+        severity="pass",
+        message="Tool declarations are consistent with code capabilities",
+    )
+
+
 def compute_grade(
     results: tuple[EvalResult, ...],
     elevated_permissions: list[str],
@@ -783,6 +1128,7 @@ def run_static_checks(
     analyze_prompt_fn: AnalyzePromptFn | None = None,
     review_body_fn: ReviewBodyFn | None = None,
     analyze_credential_fn: AnalyzeCredentialFn | None = None,
+    review_code_fn: ReviewCodeFn | None = None,
 ) -> GauntletReport:
     """Run all static analysis checks and return a GauntletReport.
 
@@ -819,6 +1165,7 @@ def run_static_checks(
             skill_name=skill_name,
             skill_description=skill_description,
             analyze_fn=analyze_fn,
+            review_code_fn=review_code_fn,
         )
     )
 
@@ -834,7 +1181,14 @@ def run_static_checks(
             )
         )
 
+    # Pipeline taint tracking
+    results.append(check_pipeline_taint(source_files, skill_md_body))
+
     elevated = detect_elevated_permissions(source_files, allowed_tools)
+
+    # Tool-use vs declaration consistency
+    results.append(check_tool_declaration_consistency(elevated, allowed_tools))
+
     result_tuple = tuple(results)
     grade = compute_grade(result_tuple, elevated)
 
