@@ -2,13 +2,8 @@
 
 from __future__ import annotations
 
-import logging
-
 from rich.console import Console
-from rich.panel import Panel
 from rich.text import Text
-
-logger = logging.getLogger(__name__)
 
 # Block-letter ASCII art — DECISION HUB on a single line.
 _LOGO_LINES = (
@@ -63,48 +58,3 @@ def print_banner(console: Console) -> None:
     for line in _LOGO_LINES:
         console.print(_gradient_line(line))
     console.print()
-
-
-def _parse_semver(v: str) -> tuple[int, ...]:
-    """Parse '1.2.3' into a comparable tuple."""
-    return tuple(int(x) for x in v.split("."))
-
-
-def check_and_show_update(console: Console) -> None:
-    """Query the server for the latest CLI version and show an upgrade hint.
-
-    Fails silently — an update check should never block the user.
-    """
-    try:
-        import httpx
-
-        from dhub.cli.config import build_headers, get_api_url, get_client_version
-
-        current = get_client_version()
-        api_url = get_api_url()
-
-        with httpx.Client(timeout=5) as client:
-            resp = client.get(
-                f"{api_url}/cli/latest-version",
-                headers=build_headers(),
-            )
-            if resp.status_code != 200:
-                return
-            data = resp.json()
-
-        latest = data.get("latest_version", "")
-        if not latest:
-            return
-
-        if _parse_semver(latest) > _parse_semver(current):
-            console.print(
-                Panel(
-                    f"[bold]dhub update available![/bold] "
-                    f"[dim]{current}[/dim] -> [bold cyan]{latest}[/bold cyan]\n"
-                    f"Update with [bold]dhub upgrade[/bold]",
-                    border_style="cyan",
-                )
-            )
-    except Exception:
-        # Never let the update check crash the CLI
-        logger.debug("Version check failed", exc_info=True)
