@@ -411,7 +411,7 @@ def publish_skill(
     checksum = compute_checksum(file_bytes)
 
     try:
-        skill_md_content, source_files, lockfile_content = extract_for_evaluation(file_bytes)
+        skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(file_bytes)
     except ValueError as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -433,6 +433,7 @@ def publish_skill(
         skill_md_body,
         settings,
         allowed_tools=allowed_tools,
+        unscanned_files=unscanned_files,
     )
     logger.info(
         "Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed
@@ -500,6 +501,7 @@ def publish_skill(
             runtime_config=runtime_config_dict,
             published_by=current_user.username,
             eval_status=eval_status,
+            gauntlet_summary=report.gauntlet_summary,
         )
     except IntegrityError:
         raise HTTPException(

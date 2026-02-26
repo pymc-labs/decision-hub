@@ -49,3 +49,6 @@ dhub-core = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "slow: marks tests that hit external APIs and take minutes to run (deselect with '-m \"not slow\"')",
+]

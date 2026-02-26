@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run server tests
-        run: uv run --package decision-hub-server --extra dev pytest server/tests/ -v
+        run: uv run --package decision-hub-server --extra dev pytest server/tests/ -v -m "not slow"
 
   typecheck:
     runs-on: ubuntu-latest

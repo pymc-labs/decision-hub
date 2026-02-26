@@ -223,6 +223,7 @@ class EvalResult:
 class GauntletReport:
     results: tuple[EvalResult, ...]
     grade: SafetyGrade
+    gauntlet_summary: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -318,3 +319,4 @@ class SkillIndexEntry:
     category: str = ""
     download_count: int = 0
     source_repo_url: str | None = None
+    gauntlet_summary: str | None = None

@@ -173,6 +173,7 @@ skills_table = Table(
     # Denormalized latest-version columns (kept in sync by _refresh_skill_latest_version)
     Column("latest_semver", Text, nullable=True),
     Column("latest_eval_status", Text, nullable=True),
+    Column("latest_gauntlet_summary", Text, nullable=True),
     Column("latest_published_at", DateTime(timezone=True), nullable=True),
     Column("latest_published_by", Text, nullable=True),
     Column(
@@ -274,6 +275,7 @@ versions_table = Table(
     Column("checksum", Text, nullable=False),
     Column("runtime_config", JSONB, nullable=True),
     Column("eval_status", Text, nullable=False, server_default="pending"),
+    Column("gauntlet_summary", Text, nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -600,6 +602,7 @@ _SKILL_SUMMARY_COLUMNS = [
     skills_table.c.github_license,
     skills_table.c.latest_semver.label("latest_version"),
     skills_table.c.latest_eval_status.label("eval_status"),
+    skills_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
     skills_table.c.latest_published_at.label("created_at"),
     skills_table.c.latest_published_by.label("published_by"),
 ]
@@ -1269,6 +1272,7 @@ def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
         sa.select(
             versions_table.c.semver,
             versions_table.c.eval_status,
+            versions_table.c.gauntlet_summary,
             versions_table.c.created_at,
             versions_table.c.published_by,
         )
@@ -1285,6 +1289,7 @@ def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
         values = {
             "latest_semver": row.semver,
             "latest_eval_status": row.eval_status,
+            "latest_gauntlet_summary": row.gauntlet_summary,
             "latest_published_at": row.created_at,
             "latest_published_by": row.published_by,
         }
@@ -1292,6 +1297,7 @@ def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
         values = {
             "latest_semver": None,
             "latest_eval_status": None,
+            "latest_gauntlet_summary": None,
             "latest_published_at": None,
             "latest_published_by": None,
         }
@@ -1328,6 +1334,7 @@ def insert_version(
     runtime_config: dict | None,
     published_by: str = "",
     eval_status: str = "pending",
+    gauntlet_summary: str | None = None,
 ) -> Version:
     """Record a new published version of a skill.
 
@@ -1340,6 +1347,7 @@ def insert_version(
         runtime_config: Optional runtime configuration as a JSON-compatible dict.
         published_by: GitHub username of the publisher.
         eval_status: Evaluation result (pending/passed/failed).
+        gauntlet_summary: Brief human-readable summary of non-pass gauntlet findings.
 
     Returns:
         The newly created Version.
@@ -1358,6 +1366,7 @@ def insert_version(
             runtime_config=runtime_config,
             published_by=published_by,
             eval_status=eval_status,
+            gauntlet_summary=gauntlet_summary,
         )
         .returning(*versions_table.c)
     )

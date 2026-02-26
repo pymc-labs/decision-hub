@@ -298,7 +298,7 @@ def _publish_one_skill(
     skill_md_body = extract_body(skill_md_content)
     desc = extract_description(skill_md_content)
     try:
-        _, source_files, lockfile_content = extract_for_evaluation(zip_data)
+        _, source_files, lockfile_content, unscanned_files = extract_for_evaluation(zip_data)
     except ValueError as exc:
         logger.warning("Skipping {}/{}: extraction failed: {}", org.slug, name, exc)
         result["skills_failed"] += 1
@@ -314,6 +314,7 @@ def _publish_one_skill(
         skill_md_body,
         settings,
         allowed_tools=manifest.allowed_tools,
+        unscanned_files=unscanned_files,
     )
 
     if not report.passed:
@@ -357,6 +358,7 @@ def _publish_one_skill(
         runtime_config=None,
         published_by=BOT_USERNAME,
         eval_status=report.grade,
+        gauntlet_summary=report.gauntlet_summary,
     )
     insert_audit_log(
         conn,

@@ -675,7 +675,7 @@ def _publish_skill_from_tracker(
             version = bump_version(latest.semver)
 
         # Extract evaluation files and parse manifest
-        skill_md_content, source_files, lockfile_content = extract_for_evaluation(zip_data)
+        skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(zip_data)
         runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
             skill_md_content,
             zip_data,
@@ -693,6 +693,7 @@ def _publish_skill_from_tracker(
             skill_md_body,
             settings,
             allowed_tools=allowed_tools,
+            unscanned_files=unscanned_files,
         )
 
         if not report.passed:
@@ -749,6 +750,7 @@ def _publish_skill_from_tracker(
             runtime_config=runtime_config_dict,
             published_by=f"tracker:{tracker.id}",
             eval_status=report.grade,
+            gauntlet_summary=report.gauntlet_summary,
         )
 
         insert_audit_log(

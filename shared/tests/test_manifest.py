@@ -7,6 +7,7 @@ from dhub_core.manifest import (
     parse_evals,
     parse_frontmatter_yaml,
     parse_runtime,
+    parse_skill_md,
     parse_testing,
     split_frontmatter,
     validate_manifest,
@@ -280,3 +281,51 @@ class TestValidateManifest:
         manifest = self._make_manifest(runtime=runtime)
         errors = validate_manifest(manifest)
         assert any("ruby" in e.lower() for e in errors)
+
+    def test_non_string_allowed_tools(self) -> None:
+        manifest = self._make_manifest(allowed_tools=42)
+        errors = validate_manifest(manifest)
+        assert any("allowed_tools" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# allowed_tools type coercion in parse_skill_md
+# ---------------------------------------------------------------------------
+
+
+class TestAllowedToolsCoercion:
+    """S5: allowed_tools type validation and coercion."""
+
+    def _write_skill_md(self, tmp_path, content: str):
+        p = tmp_path / "SKILL.md"
+        p.write_text(content)
+        return p
+
+    def test_list_coerced_to_string(self, tmp_path) -> None:
+        content = (
+            "---\nname: test-skill\ndescription: A test.\nallowed_tools:\n  - bash\n  - read_file\n---\nBody text\n"
+        )
+        path = self._write_skill_md(tmp_path, content)
+        manifest = parse_skill_md(path)
+        assert manifest.allowed_tools == "bash, read_file"
+
+    def test_string_preserved(self, tmp_path) -> None:
+        content = "---\nname: test-skill\ndescription: A test.\nallowed_tools: bash, read_file\n---\nBody text\n"
+        path = self._write_skill_md(tmp_path, content)
+        manifest = parse_skill_md(path)
+        assert manifest.allowed_tools == "bash, read_file"
+
+    def test_dict_rejected(self, tmp_path) -> None:
+        content = (
+            "---\n"
+            "name: test-skill\n"
+            "description: A test.\n"
+            "allowed_tools:\n"
+            "  shell: true\n"
+            "  network: false\n"
+            "---\n"
+            "Body text\n"
+        )
+        path = self._write_skill_md(tmp_path, content)
+        with pytest.raises(ValueError, match="allowed_tools must be a string or list"):
+            parse_skill_md(path)

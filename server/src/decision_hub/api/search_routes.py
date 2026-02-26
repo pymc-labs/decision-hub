@@ -115,6 +115,7 @@ def _run_retrieval(
             category=row.get("category", ""),
             download_count=row.get("download_count", 0),
             source_repo_url=row.get("source_repo_url"),
+            gauntlet_summary=row.get("gauntlet_summary"),
         )
         for row in candidates
     )
@@ -157,6 +158,7 @@ class AskSkillRef(BaseModel):
     download_count: int = 0
     latest_version: str = ""
     source_repo_url: str | None = None
+    gauntlet_summary: str | None = None
 
 
 class AskResponse(BaseModel):
@@ -250,6 +252,7 @@ def ask_skills(
                 download_count=e.download_count,
                 latest_version=e.latest_version,
                 source_repo_url=e.source_repo_url,
+                gauntlet_summary=e.gauntlet_summary,
             )
             for e in result.entries[:5]
         ]
@@ -351,6 +354,7 @@ def ask_skills(
                     download_count=row.get("download_count", 0),
                     latest_version=row.get("latest_version", ""),
                     source_repo_url=row.get("source_repo_url"),
+                    gauntlet_summary=row.get("gauntlet_summary"),
                 )
             )
 
