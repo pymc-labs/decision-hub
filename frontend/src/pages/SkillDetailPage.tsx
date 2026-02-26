@@ -465,6 +465,7 @@ function AuditTab({
             {entry.check_results.length > 0 && (
               <div className={styles.auditChecks}>
                 <h5 className={styles.auditCheckTitle}>Safety Checks</h5>
+                <div className={styles.checkGrid}>
                 {entry.check_results.map((check, i) => {
                   const severity = String(check.severity ?? "");
                   const checkName = String(check.check_name ?? "unknown");
@@ -482,13 +483,16 @@ function AuditTab({
                         ? styles.severityFail
                         : styles.severityWarn;
                   return (
-                    <div key={i} className={`${styles.checkRow} ${severityClass}`}>
-                      <SeverityIcon size={14} className={styles.checkIcon} />
-                      <span className={styles.checkName}>{formatCheckName(checkName)}</span>
+                    <div key={i} className={`${styles.checkCard} ${severityClass}`}>
+                      <div className={styles.checkHeader}>
+                        <SeverityIcon size={14} className={styles.checkIcon} />
+                        <span className={styles.checkName}>{formatCheckName(checkName)}</span>
+                      </div>
                       <span className={styles.checkMessage}>{message}</span>
                     </div>
                   );
                 })}
+                </div>
               </div>
             )}
 
