@@ -481,12 +481,16 @@ def main() -> None:
     # Resume: filter out skills that don't need re-grading
     if args.resume:
         original_count = len(skills)
-        # We can't know the new grade without running the pipeline, but we can
-        # skip skills that were already processed by a previous (interrupted)
-        # run of this script. A simple heuristic: if a skill already has a
-        # non-null gauntlet_summary and its eval_status is a valid grade,
-        # skip it. The user can always re-run without --resume for a full pass.
-        skills = [s for s in skills if s["stored_grade"] in (None, "", "pending") or not s["stored_summary"]]
+        # Skip skills already processed by a previous (interrupted) run.
+        # Grade-A skills have gauntlet_summary=None by design (no findings),
+        # so we treat any valid grade as "done" for A, and require a non-null
+        # summary for B/C/F (which always produce one).
+        _VALID_GRADES = {"A", "B", "C", "F"}
+        skills = [
+            s
+            for s in skills
+            if s["stored_grade"] not in _VALID_GRADES or (s["stored_grade"] != "A" and not s["stored_summary"])
+        ]
         skipped = original_count - len(skills)
         if skipped:
             print(f"Resume: skipping {skipped} already-graded skills")
