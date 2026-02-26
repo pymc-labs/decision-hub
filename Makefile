@@ -80,15 +80,16 @@ deploy-local: ## Start local stack: Postgres + MinIO + API + frontend
 	cd server && DHUB_ENV=local uv run --package decision-hub-server python ../scripts/run_migrations.py
 	@echo ""
 	@echo "=== Starting servers ==="
-	cd server && DHUB_ENV=local uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --host 0.0.0.0 --port 8000 --reload &
-	cd frontend && npm run dev &
-	@sleep 3
-	@echo ""
-	@echo "=== Local deploy ready ==="
-	@echo "    URL: http://localhost:5173"
-	@echo "    API: http://localhost:8000"
-	@echo "    MinIO: http://localhost:9001 (minioadmin/minioadmin)"
-	@wait
+	@trap 'kill 0' INT TERM; \
+		(cd server && DHUB_ENV=local uv run --package decision-hub-server uvicorn decision_hub.api.app:create_app --host 0.0.0.0 --port 8000 --reload) & \
+		(cd frontend && npm run dev) & \
+		sleep 3; \
+		echo ""; \
+		echo "=== Local deploy ready ==="; \
+		echo "    URL: http://localhost:5173"; \
+		echo "    API: http://localhost:8000"; \
+		echo "    MinIO: http://localhost:9001 (minioadmin/minioadmin)"; \
+		wait
 
 local-down: ## Stop local stack (data preserved)
 	@-lsof -ti:8000,5173 | xargs kill 2>/dev/null
