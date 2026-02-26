@@ -268,9 +268,28 @@ make typecheck         # mypy
 make fmt               # auto-fix + format
 ```
 
+### Local Development
+
+For fully isolated local development with its own database and S3 storage:
+
+```bash
+# Start local Postgres + MinIO, run migrations
+make local-up
+
+# Start the API server with hot reload (terminal 1)
+make local-server
+
+# Start the frontend with HMR (terminal 2)
+make local-frontend
+
+# Open http://localhost:5173
+```
+
+Requires Docker Desktop. Data persists across restarts — use `make local-reset` to start fresh.
+
 ### Configuration
 
-Copy `server/.env.example` to `server/.env.dev` and fill in your values. The project has two independent stacks controlled by `DHUB_ENV` (`dev` | `prod`). The CLI defaults to `prod`; the server defaults to `dev` for safety.
+Copy `server/.env.example` to `server/.env.dev` (or `server/.env.local` for local development) and fill in your values. The project has three environments controlled by `DHUB_ENV` (`dev` | `prod` | `local`). The CLI defaults to `prod`; the server defaults to `dev` for safety.
 
 ### Contributing
 

@@ -32,9 +32,9 @@ This is a **uv workspace monorepo** with four components:
 
 ## Development Setup
 
-### Environments (Dev / Prod)
+### Environments (Dev / Prod / Local)
 
-The project has two independent stacks controlled by `DHUB_ENV` (`dev` | `prod`). The server defaults to `dev` for safety; the CLI defaults to `prod` for end users.
+The project has three environments controlled by `DHUB_ENV` (`dev` | `prod` | `local`). The server defaults to `dev` for safety; the CLI defaults to `prod` for end users.
 
 **Always work against dev unless explicitly told to use prod.** Prefix all CLI, server, and deploy commands with `DHUB_ENV=dev`:
 
@@ -46,6 +46,34 @@ DHUB_ENV=dev uv run --package decision-hub-server uvicorn ...  # local dev serve
 
 - **Dev**: `https://hub-dev.decision.ai`, config at `~/.dhub/config.dev.json`, env file `server/.env.dev`
 - **Prod**: `https://hub.decision.ai`, config at `~/.dhub/config.prod.json`, env file `server/.env.prod`
+- **Local**: `http://localhost:8000` (API) / `http://localhost:5173` (frontend), env file `server/.env.local`
+
+### Local Development Stack
+
+For fully isolated local development, use Docker Compose (Postgres + MinIO) with the local Make targets. This avoids touching the shared dev database and S3 bucket.
+
+```bash
+# Start infrastructure (Postgres + MinIO), run migrations
+make local-up
+
+# Start FastAPI server with hot reload (terminal 1)
+make local-server
+
+# Start Vite dev server with HMR (terminal 2)
+make local-frontend
+
+# Stop infrastructure (data preserved)
+make local-down
+
+# Stop and destroy all data
+make local-reset
+```
+
+**Prerequisites:** Docker Desktop must be running. The `server/.env.local` file must exist (not checked in — copy from `.env.example` and fill in values, or see the design doc at `docs/plans/2026-02-25-local-deployment-design.md`).
+
+**How it works:** `docker-compose-local.yml` runs Postgres (pgvector) on port 5432 and MinIO (S3-compatible) on ports 9000/9001. The Vite dev server on port 5173 proxies `/v1/`, `/cli/`, and `/auth/` requests to the FastAPI backend on port 8000. Evals spawn to the deployed dev Modal app via `modal.Function.from_name("decision-hub-dev", ...)`.
+
+**MinIO console:** `http://localhost:9001` (login: `minioadmin` / `minioadmin`).
 
 **Working directory caveat**: Always run server-package commands from `server/`. The server's `.env.dev` / `.env.prod` files live in `server/` and `pydantic-settings` resolves them relative to the current working directory. Running from the repo root will fail with missing settings errors.
 
