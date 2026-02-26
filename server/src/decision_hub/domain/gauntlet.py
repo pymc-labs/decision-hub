@@ -1020,6 +1020,30 @@ def check_tool_declaration_consistency(
     )
 
 
+def check_unscanned_files(unscanned_files: list[str]) -> EvalResult:
+    """Warn if the zip contains files that the gauntlet cannot inspect.
+
+    Files with extensions outside the scannable set (.py, .sh, .json, etc.)
+    are silently skipped during extraction. This check flags their presence
+    so the skill gets at least grade C rather than a false-clean A.
+    """
+    if not unscanned_files:
+        return EvalResult(
+            check_name="unscanned_files",
+            severity="pass",
+            message="All files in the archive are scannable",
+        )
+    return EvalResult(
+        check_name="unscanned_files",
+        severity="warn",
+        message=(
+            f"Archive contains {len(unscanned_files)} file(s) that cannot be "
+            f"security-scanned: {', '.join(unscanned_files[:10])}" + (" ..." if len(unscanned_files) > 10 else "")
+        ),
+        details={"unscanned_files": unscanned_files},
+    )
+
+
 # 512KB total source cap — skills exceeding this can't be meaningfully scanned
 _MAX_SOURCE_TOTAL = 512_000
 
@@ -1172,6 +1196,7 @@ def run_static_checks(
     review_body_fn: ReviewBodyFn | None = None,
     analyze_credential_fn: AnalyzeCredentialFn | None = None,
     review_code_fn: ReviewCodeFn | None = None,
+    unscanned_files: list[str] | None = None,
 ) -> GauntletReport:
     """Run all static analysis checks and return a GauntletReport.
 
@@ -1186,8 +1211,12 @@ def run_static_checks(
         allowed_tools: The allowed_tools field from the manifest.
         analyze_prompt_fn: Optional LLM callback for prompt safety scan.
         analyze_credential_fn: Optional LLM callback for entropy credential review.
+        unscanned_files: Filenames in the zip that could not be security-scanned.
     """
     results = [check_manifest_schema(skill_md_content)]
+
+    # Unscanned files check — warn if zip contains non-scannable file types
+    results.append(check_unscanned_files(unscanned_files or []))
 
     # Source size check — warn if total source exceeds scan limit
     results.append(check_source_size(source_files))

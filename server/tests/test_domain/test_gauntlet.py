@@ -15,6 +15,7 @@ from decision_hub.domain.gauntlet import (
     check_safety_scan,
     check_source_size,
     check_tool_declaration_consistency,
+    check_unscanned_files,
     compute_grade,
     detect_elevated_permissions,
     evaluate_assertion,
@@ -906,8 +907,8 @@ class TestRunStaticChecks:
             source_files=[("main.py", "def hello(): pass\n")],
         )
         assert report.passed is True
-        # manifest + source_size + embedded_credentials + safety + pipeline_taint + tool_consistency (no dep audit)
-        assert len(report.results) == 6
+        # manifest + unscanned_files + source_size + embedded_credentials + safety + pipeline_taint + tool_consistency (no dep audit)
+        assert len(report.results) == 7
 
     def test_with_analyze_fn_passes_through(self):
         """run_static_checks forwards analyze_fn to check_safety_scan."""
@@ -1274,7 +1275,7 @@ class TestFileSortingBySize:
             zf.writestr("small.py", "y" * 100)
             zf.writestr("medium.py", "z" * 1_000)
 
-        _, source_files, _ = extract_for_evaluation(buf.getvalue())
+        _, source_files, _, _ = extract_for_evaluation(buf.getvalue())
         sizes = [len(c) for _, c in source_files]
         assert sizes == sorted(sizes), "Source files should be sorted by size ascending"
 
@@ -1306,7 +1307,7 @@ class TestExpandedFileExtraction:
                 "config.json": '{"key": "value"}',
             }
         )
-        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        _, source_files, _, _ = extract_for_evaluation(zip_bytes)
         filenames = [f for f, _ in source_files]
         assert "config.json" in filenames
 
@@ -1319,7 +1320,7 @@ class TestExpandedFileExtraction:
                 "setup.sh": "#!/bin/bash\necho hello",
             }
         )
-        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        _, source_files, _, _ = extract_for_evaluation(zip_bytes)
         filenames = [f for f, _ in source_files]
         assert "setup.sh" in filenames
 
@@ -1333,7 +1334,7 @@ class TestExpandedFileExtraction:
                 "other.yaml": "key: value",
             }
         )
-        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        _, source_files, _, _ = extract_for_evaluation(zip_bytes)
         filenames = [f for f, _ in source_files]
         assert "config.yml" in filenames
         assert "other.yaml" in filenames
@@ -1347,7 +1348,7 @@ class TestExpandedFileExtraction:
                 "Makefile": "all:\n\techo hello",
             }
         )
-        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        _, source_files, _, _ = extract_for_evaluation(zip_bytes)
         filenames = [f for f, _ in source_files]
         assert "Makefile" in filenames
 
@@ -1360,7 +1361,7 @@ class TestExpandedFileExtraction:
                 "Dockerfile": "FROM python:3.11",
             }
         )
-        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        _, source_files, _, _ = extract_for_evaluation(zip_bytes)
         filenames = [f for f, _ in source_files]
         assert "Dockerfile" in filenames
 
@@ -1373,7 +1374,7 @@ class TestExpandedFileExtraction:
                 ".env": "FOO=bar",
             }
         )
-        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        _, source_files, _, _ = extract_for_evaluation(zip_bytes)
         filenames = [f for f, _ in source_files]
         assert ".env" in filenames
 
@@ -1387,7 +1388,7 @@ class TestExpandedFileExtraction:
                 "data.bin": "binary-data",
             }
         )
-        _, source_files, _ = extract_for_evaluation(zip_bytes)
+        _, source_files, _, _ = extract_for_evaluation(zip_bytes)
         filenames = [f for f, _ in source_files]
         assert "image.png" not in filenames
         assert "data.bin" not in filenames
@@ -1427,6 +1428,59 @@ class TestSourceSizeCap:
         files = [(f"file{i}.py", "x" * 100_000) for i in range(6)]
         result = check_source_size(files)
         assert result.severity == "warn"
+
+
+# ---------------------------------------------------------------------------
+# Unscanned files check
+# ---------------------------------------------------------------------------
+
+
+class TestUnscannedFiles:
+    """Tests for the unscanned files warning check."""
+
+    def test_no_unscanned_passes(self):
+        result = check_unscanned_files([])
+        assert result.severity == "pass"
+
+    def test_unscanned_files_warn(self):
+        """Zip containing non-scannable files should warn (grade C)."""
+        result = check_unscanned_files(["payload.exe", "lib.so"])
+        assert result.severity == "warn"
+        assert "payload.exe" in result.message
+        assert "lib.so" in result.message
+
+    def test_unscanned_files_truncated_message(self):
+        """Message truncates after 10 files."""
+        files = [f"file{i}.bin" for i in range(15)]
+        result = check_unscanned_files(files)
+        assert result.severity == "warn"
+        assert "..." in result.message
+        assert result.details is not None
+        assert len(result.details["unscanned_files"]) == 15
+
+    def test_run_static_checks_includes_unscanned(self):
+        """run_static_checks with unscanned_files produces a warn result."""
+        report = run_static_checks(
+            "---\nname: test-skill\ndescription: A test\n---\nBody",
+            None,
+            [],
+            unscanned_files=["binary.exe"],
+        )
+        unscanned_results = [r for r in report.results if r.check_name == "unscanned_files"]
+        assert len(unscanned_results) == 1
+        assert unscanned_results[0].severity == "warn"
+        assert report.grade == "C"
+
+    def test_run_static_checks_no_unscanned_passes(self):
+        """run_static_checks without unscanned_files passes the check."""
+        report = run_static_checks(
+            "---\nname: test-skill\ndescription: A test\n---\nBody",
+            None,
+            [],
+        )
+        unscanned_results = [r for r in report.results if r.check_name == "unscanned_files"]
+        assert len(unscanned_results) == 1
+        assert unscanned_results[0].severity == "pass"
 
 
 # ---------------------------------------------------------------------------

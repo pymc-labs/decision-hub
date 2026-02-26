@@ -58,20 +58,22 @@ def _is_scannable_file(basename: str) -> bool:
 
 def extract_for_evaluation(
     zip_bytes: bytes,
-) -> tuple[str, list[tuple[str, str]], str | None]:
+) -> tuple[str, list[tuple[str, str]], str | None, list[str]]:
     """Extract evaluation-relevant files from a skill zip archive.
 
     Reads SKILL.md, scannable source files (.py, .sh, .json, .yml, etc.),
     and the lockfile (if present) from the in-memory zip without writing
-    to disk.
+    to disk.  Also tracks filenames that were skipped (not scannable).
 
     Args:
         zip_bytes: Raw bytes of the skill zip archive.
 
     Returns:
-        A tuple of (skill_md_content, source_files, lockfile_content) where
-        source_files is a list of (filename, content) tuples and
-        lockfile_content is None if no lockfile was found.
+        A tuple of (skill_md_content, source_files, lockfile_content,
+        unscanned_files) where source_files is a list of (filename, content)
+        tuples, lockfile_content is None if no lockfile was found, and
+        unscanned_files is a list of filenames that were not extracted
+        for security scanning.
 
     Raises:
         ValueError: If the zip does not contain a SKILL.md file, if any
@@ -81,6 +83,7 @@ def extract_for_evaluation(
     skill_md = ""
     source_files: list[tuple[str, str]] = []
     lockfile_content: str | None = None
+    unscanned_files: list[str] = []
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         entries = zf.infolist()
@@ -111,6 +114,8 @@ def extract_for_evaluation(
                 source_files.append((name, zf.read(name).decode()))
             elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
                 lockfile_content = zf.read(name).decode()
+            else:
+                unscanned_files.append(name)
 
     if not skill_md:
         raise ValueError("Zip archive does not contain a SKILL.md file")
@@ -119,4 +124,4 @@ def extract_for_evaluation(
     # by large benign padding files when hitting downstream size caps
     source_files.sort(key=lambda fc: len(fc[1]))
 
-    return skill_md, source_files, lockfile_content
+    return skill_md, source_files, lockfile_content, unscanned_files

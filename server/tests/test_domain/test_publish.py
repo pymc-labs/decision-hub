@@ -156,7 +156,7 @@ class TestZipBombPrevention:
                 "main.py": "print('hello')",
             }
         )
-        skill_md, sources, _lockfile = extract_for_evaluation(zip_bytes)
+        skill_md, sources, _lockfile, _unscanned = extract_for_evaluation(zip_bytes)
         assert "name: s" in skill_md
         assert len(sources) == 1
 
@@ -184,7 +184,7 @@ class TestExtractForEvaluation:
                 "lib/utils.py": "def helper(): pass",
             }
         )
-        skill_md, sources, lockfile = extract_for_evaluation(zip_bytes)
+        skill_md, sources, lockfile, _unscanned = extract_for_evaluation(zip_bytes)
 
         assert "name: test" in skill_md
         assert len(sources) == 2
@@ -200,7 +200,7 @@ class TestExtractForEvaluation:
                 "requirements.txt": "requests==2.31.0\n",
             }
         )
-        _, _, lockfile = extract_for_evaluation(zip_bytes)
+        _, _, lockfile, _unscanned = extract_for_evaluation(zip_bytes)
         assert lockfile is not None
         assert "requests" in lockfile
 
@@ -212,7 +212,7 @@ class TestExtractForEvaluation:
     def test_nested_skill_md(self) -> None:
         """SKILL.md in a subdirectory should still be found."""
         zip_bytes = _make_zip(**{"subdir/SKILL.md": "---\nname: nested\ndescription: d\n---\n"})
-        skill_md, sources, lockfile = extract_for_evaluation(zip_bytes)
+        skill_md, sources, lockfile, _unscanned = extract_for_evaluation(zip_bytes)
         assert "name: nested" in skill_md
         assert sources == []
         assert lockfile is None
@@ -224,7 +224,7 @@ class TestExtractForEvaluation:
             zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
             zf.writestr("subdir/", "")  # directory entry
         zip_bytes = buf.getvalue()
-        skill_md, sources, _lockfile = extract_for_evaluation(zip_bytes)
+        skill_md, sources, _lockfile, _unscanned = extract_for_evaluation(zip_bytes)
         assert skill_md
         assert sources == []
 
@@ -235,5 +235,34 @@ class TestExtractForEvaluation:
                 "uv.lock": "some-lock-content",
             }
         )
-        _, _, lockfile = extract_for_evaluation(zip_bytes)
+        _, _, lockfile, _unscanned = extract_for_evaluation(zip_bytes)
         assert lockfile == "some-lock-content"
+
+    def test_returns_unscanned_files(self) -> None:
+        """Files with non-scannable extensions are tracked in unscanned_files."""
+        zip_bytes = _make_zip(
+            **{
+                "SKILL.md": "---\nname: s\ndescription: d\n---\n",
+                "main.py": "pass",
+                "payload.exe": "binary",
+                "image.png": "pixels",
+                "script.js": "console.log('hi')",
+            }
+        )
+        _, _, _, unscanned = extract_for_evaluation(zip_bytes)
+        assert "payload.exe" in unscanned
+        assert "image.png" in unscanned
+        assert "script.js" in unscanned
+        assert "main.py" not in unscanned
+
+    def test_no_unscanned_files_when_all_scannable(self) -> None:
+        """Zip with only scannable files returns empty unscanned list."""
+        zip_bytes = _make_zip(
+            **{
+                "SKILL.md": "---\nname: s\ndescription: d\n---\n",
+                "main.py": "pass",
+                "config.json": "{}",
+            }
+        )
+        _, _, _, unscanned = extract_for_evaluation(zip_bytes)
+        assert unscanned == []

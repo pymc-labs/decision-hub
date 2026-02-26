@@ -102,6 +102,7 @@ def run_gauntlet_pipeline(
     *,
     allowed_tools: str | None = None,
     llm_required: bool = True,
+    unscanned_files: list[str] | None = None,
 ) -> tuple[GauntletReport, list[dict], dict | None]:
     """Run Gauntlet static checks and serialize results for audit logging.
 
@@ -126,6 +127,7 @@ def run_gauntlet_pipeline(
         review_body_fn=_build_review_body_fn(settings),
         analyze_credential_fn=_build_analyze_credential_fn(settings),
         review_code_fn=_build_review_code_fn(settings),
+        unscanned_files=unscanned_files,
     )
 
     check_results_dicts = [
