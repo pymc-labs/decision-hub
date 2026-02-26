@@ -28,7 +28,6 @@ from decision_hub.domain.skill_manifest import (
 )
 from decision_hub.infra.database import (
     _refresh_skill_latest_version,
-    insert_audit_log,
     versions_table,
 )
 from decision_hub.infra.storage import create_s3_client, download_skill_zip
@@ -173,18 +172,6 @@ def flush_updates(engine: sa.Engine, results: list[dict]) -> int:
                     eval_status=r["new_grade"],
                     gauntlet_summary=r["new_summary"],
                 )
-            )
-            org_slug, skill_name = r["fqn"].split("/", 1)
-            insert_audit_log(
-                conn,
-                org_slug=org_slug,
-                skill_name=skill_name,
-                semver=r["version"],
-                grade=r["new_grade"],
-                check_results=r.get("check_results_dicts", []),
-                publisher="backfill",
-                version_id=UUID(str(r["version_id"])),
-                llm_reasoning=r.get("llm_reasoning"),
             )
             _refresh_skill_latest_version(conn, UUID(str(r["skill_id"])))
 
