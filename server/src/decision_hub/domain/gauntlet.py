@@ -19,7 +19,6 @@ from decision_hub.infra.gemini import (
     LLM_BODY_REVIEW_CAP,
     LLM_HOLISTIC_TOTAL_CAP,
     LLM_PER_FILE_CAP,
-    LLM_STAGE2_TOTAL_CAP,
 )
 from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCase
 
@@ -1146,11 +1145,11 @@ def check_llm_scan_coverage(
         names = ", ".join(oversized[:5]) + (" ..." if len(oversized) > 5 else "")
         issues.append(f"{len(oversized)} file(s) exceed per-file LLM cap ({LLM_PER_FILE_CAP // 1000}KB): {names}")
 
+    # Note: we skip checking LLM_STAGE2_TOTAL_CAP here because Stage 2 only
+    # receives files with regex hits (not all source files). Checking total
+    # source against the Stage 2 cap would produce spurious warnings for
+    # skills whose hit files are small.
     total_source = sum(len(c) for _, c in source_files)
-    if total_source > LLM_STAGE2_TOTAL_CAP:
-        issues.append(
-            f"total source ({total_source:,} bytes) exceeds Stage 2 LLM cap ({LLM_STAGE2_TOTAL_CAP // 1000}KB)"
-        )
     if total_source > LLM_HOLISTIC_TOTAL_CAP:
         issues.append(
             f"total source ({total_source:,} bytes) exceeds holistic review cap ({LLM_HOLISTIC_TOTAL_CAP // 1000}KB)"
@@ -1359,18 +1358,22 @@ def run_static_checks(
     if lockfile_content is not None:
         results.append(check_dependency_audit(lockfile_content))
 
+    # Fail-fast: if already failed (manifest, dependency), skip expensive LLM
+    # calls but still run regex-only checks for complete findings.
+    # Gate is checked in two phases: before credential LLM, and again after
+    # credential check so a credential failure also skips later LLM calls.
+    already_failed = any(r.severity == "fail" for r in results)
+
     results.append(
         check_embedded_credentials(
             skill_md_content,
             source_files,
             skill_name=skill_name,
             skill_description=skill_description,
-            analyze_credential_fn=analyze_credential_fn,
+            analyze_credential_fn=None if already_failed else analyze_credential_fn,
         )
     )
 
-    # Fail-fast: if already failed (credential, manifest, dependency), skip
-    # expensive LLM calls but still run regex-only checks for complete findings
     already_failed = any(r.severity == "fail" for r in results)
     effective_analyze_fn = None if already_failed else analyze_fn
     effective_review_code_fn = None if already_failed else review_code_fn
