@@ -2958,6 +2958,7 @@ def _print_results_table(label: str, results: list[dict]) -> None:
     return detection_rate
 
 
+@pytest.mark.slow
 class TestFullPipelineWithLLM:
     """Run all test cases through the FULL gauntlet pipeline (regex + LLM).
 
