@@ -116,6 +116,7 @@ def process_repo_on_modal(
             region=settings.aws_region,
             access_key_id=settings.aws_access_key_id,
             secret_access_key=settings.aws_secret_access_key,
+            endpoint_url=settings.s3_endpoint_url,
         )
 
         slug = repo_dict["owner_login"].lower()

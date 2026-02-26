@@ -572,6 +572,7 @@ def run_assessment_background(
                 region=settings.aws_region,
                 access_key_id=settings.aws_access_key_id,
                 secret_access_key=settings.aws_secret_access_key,
+                endpoint_url=settings.s3_endpoint_url,
             )
             log_s3_prefix = f"eval-logs/{run_id}/"
 

@@ -16,23 +16,31 @@ from botocore.client import BaseClient
 from loguru import logger
 
 
-def create_s3_client(region: str, access_key_id: str, secret_access_key: str) -> BaseClient:
+def create_s3_client(
+    region: str,
+    access_key_id: str,
+    secret_access_key: str,
+    endpoint_url: str = "",
+) -> BaseClient:
     """Create an S3 client with explicit credentials.
 
     Args:
         region: AWS region name (e.g. 'us-east-1').
         access_key_id: AWS access key ID.
         secret_access_key: AWS secret access key.
+        endpoint_url: Optional endpoint URL for S3-compatible services (e.g. MinIO).
 
     Returns:
         A configured boto3 S3 client.
     """
-    return boto3.client(
-        "s3",
-        region_name=region,
-        aws_access_key_id=access_key_id,
-        aws_secret_access_key=secret_access_key,
-    )
+    kwargs: dict = {
+        "region_name": region,
+        "aws_access_key_id": access_key_id,
+        "aws_secret_access_key": secret_access_key,
+    }
+    if endpoint_url:
+        kwargs["endpoint_url"] = endpoint_url
+    return boto3.client("s3", **kwargs)
 
 
 def upload_skill_zip(client: BaseClient, bucket: str, s3_key: str, data: bytes) -> None:
