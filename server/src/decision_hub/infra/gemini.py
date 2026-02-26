@@ -36,16 +36,37 @@ class CredentialJudgment(BaseModel):
     reason: str
 
 
-def create_gemini_client(api_key: str) -> dict:
+def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = None) -> dict:
     """Create a Gemini client configuration.
 
     Returns a dict containing the API key and base URL.
     We use a plain dict rather than a class to keep the interface simple.
+
+    When ``http_client`` is provided it is reused for all API calls,
+    avoiding repeated TCP+TLS handshakes during a gauntlet run.
     """
     return {
         "api_key": api_key,
         "base_url": _GEMINI_API_URL,
+        "http_client": http_client,
     }
+
+
+def _gemini_post(client: dict, model: str, payload: dict, *, timeout: int = 30) -> dict:
+    """POST to the Gemini API, reusing the shared http_client when available."""
+    url = f"{client['base_url']}/{model}:generateContent"
+    params = {"key": client["api_key"]}
+
+    shared = client.get("http_client")
+    if shared is not None:
+        resp = shared.post(url, params=params, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    with httpx.Client(timeout=timeout) as http_client:
+        resp = http_client.post(url, params=params, json=payload)
+        resp.raise_for_status()
+        return resp.json()
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -507,20 +528,12 @@ def analyze_code_safety(
         "Respond ONLY with the JSON array, no other text."
     )
 
-    url = f"{client['base_url']}/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},
     }
 
-    with httpx.Client(timeout=30) as http_client:
-        resp = http_client.post(
-            url,
-            params={"key": client["api_key"]},
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    data = _gemini_post(client, model, payload)
 
     text = _extract_text(data)
     if not text:
@@ -625,20 +638,12 @@ def analyze_credential_entropy(
         "Respond ONLY with the JSON array, no other text."
     )
 
-    url = f"{client['base_url']}/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},
     }
 
-    with httpx.Client(timeout=30) as http_client:
-        resp = http_client.post(
-            url,
-            params={"key": client["api_key"]},
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    data = _gemini_post(client, model, payload)
 
     text = _extract_text(data)
     if not text:
@@ -735,20 +740,12 @@ def analyze_prompt_safety(
         "Respond ONLY with the JSON array, no other text."
     )
 
-    url = f"{client['base_url']}/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},
     }
 
-    with httpx.Client(timeout=30) as http_client:
-        resp = http_client.post(
-            url,
-            params={"key": client["api_key"]},
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    data = _gemini_post(client, model, payload)
 
     text = _extract_text(data)
     if not text:
@@ -857,21 +854,13 @@ def review_code_body_safety(
         "malicious behavior — regardless of what the skill claims to do."
     )
 
-    url = f"{client['base_url']}/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},
     }
 
     try:
-        with httpx.Client(timeout=30) as http_client:
-            resp = http_client.post(
-                url,
-                params={"key": client["api_key"]},
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        data = _gemini_post(client, model, payload)
 
         text = _extract_text(data)
         if not text:
@@ -930,21 +919,13 @@ def review_prompt_body_safety(
         "Legitimate skill instructions — even complex ones — are safe."
     )
 
-    url = f"{client['base_url']}/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},
     }
 
     try:
-        with httpx.Client(timeout=30) as http_client:
-            resp = http_client.post(
-                url,
-                params={"key": client["api_key"]},
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        data = _gemini_post(client, model, payload)
 
         text = _extract_text(data)
         if not text:

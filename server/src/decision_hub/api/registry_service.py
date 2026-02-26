@@ -114,21 +114,32 @@ def run_gauntlet_pipeline(
     if llm_required and not settings.google_api_key:
         raise RuntimeError("LLM judge required for gauntlet but GOOGLE_API_KEY is not configured")
 
-    report = run_static_checks(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        skill_name=skill_name,
-        skill_description=description,
-        analyze_fn=_build_analyze_fn(settings),
-        skill_md_body=skill_md_body,
-        allowed_tools=allowed_tools,
-        analyze_prompt_fn=_build_analyze_prompt_fn(settings),
-        review_body_fn=_build_review_body_fn(settings),
-        analyze_credential_fn=_build_analyze_credential_fn(settings),
-        review_code_fn=_build_review_code_fn(settings),
-        unscanned_files=unscanned_files,
-    )
+    import httpx
+
+    from decision_hub.infra.gemini import create_gemini_client
+
+    # Reuse one HTTP client for all Gemini calls in this gauntlet run,
+    # saving ~100-200ms of TCP+TLS handshake per LLM call (2-4 calls typical).
+    with httpx.Client(timeout=30) as shared_http:
+        gemini = (
+            create_gemini_client(settings.google_api_key, http_client=shared_http) if settings.google_api_key else None
+        )
+
+        report = run_static_checks(
+            skill_md_content,
+            lockfile_content,
+            source_files,
+            skill_name=skill_name,
+            skill_description=description,
+            analyze_fn=_build_analyze_fn(settings, gemini),
+            skill_md_body=skill_md_body,
+            allowed_tools=allowed_tools,
+            analyze_prompt_fn=_build_analyze_prompt_fn(settings, gemini),
+            review_body_fn=_build_review_body_fn(settings, gemini),
+            analyze_credential_fn=_build_analyze_credential_fn(settings, gemini),
+            review_code_fn=_build_review_code_fn(settings, gemini),
+            unscanned_files=unscanned_files,
+        )
 
     check_results_dicts = [
         {
@@ -234,7 +245,7 @@ def quarantine_and_log_rejection(
     upload_skill_zip(s3_client, bucket, q_key, file_bytes)
 
 
-def _build_analyze_fn(settings: Settings):
+def _build_analyze_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini analyze callback if google_api_key is configured.
 
     Returns None if no API key is set, which causes the safety scan
@@ -245,7 +256,7 @@ def _build_analyze_fn(settings: Settings):
 
     from decision_hub.infra.gemini import analyze_code_safety, create_gemini_client
 
-    gemini_client = create_gemini_client(settings.google_api_key)
+    gemini_client = gemini or create_gemini_client(settings.google_api_key)
 
     def analyze_fn(snippets, source_files, skill_name, skill_description):
         return analyze_code_safety(
@@ -260,7 +271,7 @@ def _build_analyze_fn(settings: Settings):
     return analyze_fn
 
 
-def _build_analyze_prompt_fn(settings: Settings):
+def _build_analyze_prompt_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini prompt analyze callback if google_api_key is configured.
 
     Returns None if no API key is set, which causes the prompt safety scan
@@ -271,7 +282,7 @@ def _build_analyze_prompt_fn(settings: Settings):
 
     from decision_hub.infra.gemini import analyze_prompt_safety, create_gemini_client
 
-    gemini_client = create_gemini_client(settings.google_api_key)
+    gemini_client = gemini or create_gemini_client(settings.google_api_key)
 
     def analyze_prompt_fn(prompt_hits, skill_name, skill_description):
         return analyze_prompt_safety(
@@ -285,7 +296,7 @@ def _build_analyze_prompt_fn(settings: Settings):
     return analyze_prompt_fn
 
 
-def _build_review_body_fn(settings: Settings):
+def _build_review_body_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini holistic body review callback if google_api_key is configured.
 
     Returns None if no API key is set, disabling the holistic body review.
@@ -295,7 +306,7 @@ def _build_review_body_fn(settings: Settings):
 
     from decision_hub.infra.gemini import create_gemini_client, review_prompt_body_safety
 
-    gemini_client = create_gemini_client(settings.google_api_key)
+    gemini_client = gemini or create_gemini_client(settings.google_api_key)
 
     def review_body_fn(body, skill_name, skill_description):
         return review_prompt_body_safety(
@@ -309,7 +320,7 @@ def _build_review_body_fn(settings: Settings):
     return review_body_fn
 
 
-def _build_review_code_fn(settings: Settings):
+def _build_review_code_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini holistic code review callback if google_api_key is configured.
 
     Returns None if no API key is set, disabling the holistic code review.
@@ -319,7 +330,7 @@ def _build_review_code_fn(settings: Settings):
 
     from decision_hub.infra.gemini import create_gemini_client, review_code_body_safety
 
-    gemini_client = create_gemini_client(settings.google_api_key)
+    gemini_client = gemini or create_gemini_client(settings.google_api_key)
 
     def review_code_fn(source_files, skill_name, skill_description):
         return review_code_body_safety(
@@ -333,7 +344,7 @@ def _build_review_code_fn(settings: Settings):
     return review_code_fn
 
 
-def _build_analyze_credential_fn(settings: Settings):
+def _build_analyze_credential_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini credential entropy review callback if google_api_key is configured.
 
     Returns None if no API key is set, which causes the credential check
@@ -344,7 +355,7 @@ def _build_analyze_credential_fn(settings: Settings):
 
     from decision_hub.infra.gemini import analyze_credential_entropy, create_gemini_client
 
-    gemini_client = create_gemini_client(settings.google_api_key)
+    gemini_client = gemini or create_gemini_client(settings.google_api_key)
 
     def analyze_credential_fn(entropy_hits, skill_name, skill_description):
         return analyze_credential_entropy(
