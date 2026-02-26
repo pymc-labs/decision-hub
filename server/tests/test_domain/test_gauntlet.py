@@ -9,6 +9,7 @@ from decision_hub.domain.gauntlet import (
     _shannon_entropy,
     check_dependency_audit,
     check_embedded_credentials,
+    check_llm_scan_coverage,
     check_manifest_schema,
     check_pipeline_taint,
     check_prompt_safety,
@@ -907,8 +908,8 @@ class TestRunStaticChecks:
             source_files=[("main.py", "def hello(): pass\n")],
         )
         assert report.passed is True
-        # manifest + unscanned_files + source_size + embedded_credentials + safety + pipeline_taint + tool_consistency (no dep audit)
-        assert len(report.results) == 7
+        # manifest + unscanned_files + source_size + llm_coverage + embedded_credentials + safety + pipeline_taint + tool_consistency (no dep audit)
+        assert len(report.results) == 8
 
     def test_with_analyze_fn_passes_through(self):
         """run_static_checks forwards analyze_fn to check_safety_scan."""
@@ -1428,6 +1429,67 @@ class TestSourceSizeCap:
         files = [(f"file{i}.py", "x" * 100_000) for i in range(6)]
         result = check_source_size(files)
         assert result.severity == "warn"
+
+
+# ---------------------------------------------------------------------------
+# LLM scan coverage check
+# ---------------------------------------------------------------------------
+
+
+class TestLlmScanCoverage:
+    """Tests for the LLM review truncation warning check."""
+
+    def test_small_content_passes(self):
+        result = check_llm_scan_coverage([("main.py", "x" * 1000)])
+        assert result.severity == "pass"
+
+    def test_large_file_warns(self):
+        """A single file > 50KB triggers a per-file warning."""
+        result = check_llm_scan_coverage([("big.py", "x" * 60_000)])
+        assert result.severity == "warn"
+        assert "per-file" in result.message
+        assert "big.py" in result.message
+
+    def test_total_source_exceeds_holistic_cap(self):
+        """Total source > 50KB triggers holistic review warning."""
+        files = [(f"f{i}.py", "x" * 20_000) for i in range(4)]  # 80KB total
+        result = check_llm_scan_coverage(files)
+        assert result.severity == "warn"
+        assert "holistic review" in result.message
+
+    def test_body_exceeds_prompt_cap(self):
+        """SKILL.md body > 10KB triggers prompt review warning."""
+        result = check_llm_scan_coverage([], skill_md_body="x" * 15_000)
+        assert result.severity == "warn"
+        assert "body" in result.message
+
+    def test_multiple_issues_all_reported(self):
+        """Multiple cap violations are all listed in the message."""
+        result = check_llm_scan_coverage(
+            [("big.py", "x" * 60_000)],
+            skill_md_body="x" * 15_000,
+        )
+        assert result.severity == "warn"
+        assert "per-file" in result.message
+        assert "body" in result.message
+        assert "holistic" in result.message
+
+    def test_empty_body_not_flagged(self):
+        """Empty body should not trigger body cap warning."""
+        result = check_llm_scan_coverage([], skill_md_body="")
+        assert result.severity == "pass"
+
+    def test_run_static_checks_includes_llm_coverage(self):
+        """run_static_checks with oversized file produces llm_coverage warn."""
+        report = run_static_checks(
+            "---\nname: test-skill\ndescription: A test\n---\nBody",
+            None,
+            [("big.py", "x" * 60_000)],
+        )
+        llm_results = [r for r in report.results if r.check_name == "llm_coverage"]
+        assert len(llm_results) == 1
+        assert llm_results[0].severity == "warn"
+        assert report.grade == "C"
 
 
 # ---------------------------------------------------------------------------

@@ -1072,6 +1072,59 @@ def check_source_size(source_files: list[tuple[str, str]]) -> EvalResult:
     )
 
 
+# LLM review caps — must stay in sync with gemini.py constants.
+# If content exceeds these caps, the LLM review truncates or drops
+# files, meaning the skill was not fully scanned.
+_LLM_PER_FILE_CAP = 50_000  # gemini.py analyze_code_safety _MAX_FILE_SIZE
+_LLM_STAGE2_TOTAL_CAP = 100_000  # gemini.py analyze_code_safety _MAX_TOTAL_SIZE
+_LLM_HOLISTIC_TOTAL_CAP = 50_000  # gemini.py review_code_body_safety _MAX_TOTAL_SIZE
+_LLM_BODY_REVIEW_CAP = 10_000  # gemini.py review_prompt_body_safety body[:10000]
+
+
+def check_llm_scan_coverage(
+    source_files: list[tuple[str, str]],
+    skill_md_body: str = "",
+) -> EvalResult:
+    """Warn if source or body exceeds LLM review caps.
+
+    The LLM safety review truncates individual files, drops files past a
+    total cap, and truncates the SKILL.md body. When any of these caps
+    are hit, the skill was not fully scanned and should get at least
+    grade C.
+    """
+    issues: list[str] = []
+
+    oversized = [f for f, c in source_files if len(c) > _LLM_PER_FILE_CAP]
+    if oversized:
+        names = ", ".join(oversized[:5]) + (" ..." if len(oversized) > 5 else "")
+        issues.append(f"{len(oversized)} file(s) exceed per-file LLM cap ({_LLM_PER_FILE_CAP // 1000}KB): {names}")
+
+    total_source = sum(len(c) for _, c in source_files)
+    if total_source > _LLM_HOLISTIC_TOTAL_CAP:
+        issues.append(
+            f"total source ({total_source:,} bytes) exceeds holistic review cap "
+            f"({_LLM_HOLISTIC_TOTAL_CAP // 1000}KB)"
+        )
+
+    if skill_md_body and len(skill_md_body) > _LLM_BODY_REVIEW_CAP:
+        issues.append(
+            f"SKILL.md body ({len(skill_md_body):,} bytes) exceeds prompt review cap "
+            f"({_LLM_BODY_REVIEW_CAP // 1000}KB)"
+        )
+
+    if not issues:
+        return EvalResult(
+            check_name="llm_coverage",
+            severity="pass",
+            message="All content within LLM review limits",
+        )
+    return EvalResult(
+        check_name="llm_coverage",
+        severity="warn",
+        message=f"Content exceeds LLM review limits — partial scan only: {'; '.join(issues)}",
+    )
+
+
 def compute_grade(
     results: tuple[EvalResult, ...],
     elevated_permissions: list[str],
@@ -1220,6 +1273,9 @@ def run_static_checks(
 
     # Source size check — warn if total source exceeds scan limit
     results.append(check_source_size(source_files))
+
+    # LLM coverage check — warn if content exceeds LLM review caps
+    results.append(check_llm_scan_coverage(source_files, skill_md_body))
 
     if lockfile_content is not None:
         results.append(check_dependency_audit(lockfile_content))
