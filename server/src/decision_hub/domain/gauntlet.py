@@ -1090,7 +1090,7 @@ def check_unscanned_files(unscanned_files: list[str]) -> EvalResult:
 
 
 # 512KB total source cap — skills exceeding this can't be meaningfully scanned
-_MAX_SOURCE_TOTAL = 512_000
+_MAX_SOURCE_TOTAL = 1_000_000
 
 
 def check_source_size(source_files: list[tuple[str, str]]) -> EvalResult:
@@ -1122,8 +1122,8 @@ def check_source_size(source_files: list[tuple[str, str]]) -> EvalResult:
 # files, meaning the skill was not fully scanned.
 _LLM_PER_FILE_CAP = 50_000  # gemini.py analyze_code_safety _MAX_FILE_SIZE
 _LLM_STAGE2_TOTAL_CAP = 100_000  # gemini.py analyze_code_safety _MAX_TOTAL_SIZE
-_LLM_HOLISTIC_TOTAL_CAP = 50_000  # gemini.py review_code_body_safety _MAX_TOTAL_SIZE
-_LLM_BODY_REVIEW_CAP = 10_000  # gemini.py review_prompt_body_safety body[:10000]
+_LLM_HOLISTIC_TOTAL_CAP = 300_000  # gemini.py review_code_body_safety _MAX_TOTAL_SIZE
+_LLM_BODY_REVIEW_CAP = 30_000  # gemini.py review_prompt_body_safety body cap
 
 
 def check_llm_scan_coverage(

@@ -119,7 +119,7 @@ def run_gauntlet_pipeline(
 
     # Reuse one HTTP client for all Gemini calls in this gauntlet run,
     # saving ~100-200ms of TCP+TLS handshake per LLM call (2-4 calls typical).
-    with httpx.Client(timeout=30) as shared_http:
+    with httpx.Client(timeout=60) as shared_http:
         gemini = (
             create_gemini_client(settings.google_api_key, http_client=shared_http) if settings.google_api_key else None
         )

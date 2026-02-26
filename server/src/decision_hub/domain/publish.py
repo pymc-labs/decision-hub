@@ -40,7 +40,7 @@ _MAX_TOTAL_EXTRACTED = 100 * 1024 * 1024  # 100 MB total uncompressed
 _MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
 
 # File types to extract for security scanning (beyond .py)
-_SECURITY_SCAN_EXTENSIONS = frozenset({".py", ".sh", ".bash", ".zsh", ".json", ".yml", ".yaml"})
+_SECURITY_SCAN_EXTENSIONS = frozenset({".py", ".sh", ".bash", ".zsh", ".json", ".yml", ".yaml", ".md"})
 _SECURITY_SCAN_NAMES = frozenset({"Makefile", "Dockerfile", ".env"})
 
 
