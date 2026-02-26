@@ -1436,14 +1436,14 @@ class TestSourceSizeCap:
         assert result.severity == "pass"
 
     def test_exceeds_cap_warns(self):
-        """Source exceeding 512KB should warn (grade C), not fail."""
-        result = check_source_size([("big.py", "x" * 600_000)])
+        """Source exceeding 1MB should warn (grade C), not fail."""
+        result = check_source_size([("big.py", "x" * 1_100_000)])
         assert result.severity == "warn"
         assert "scan limit" in result.message
 
     def test_multiple_files_summed(self):
         """Total size is summed across all files."""
-        files = [(f"file{i}.py", "x" * 100_000) for i in range(6)]
+        files = [(f"file{i}.py", "x" * 200_000) for i in range(6)]  # 1.2MB total
         result = check_source_size(files)
         assert result.severity == "warn"
 
@@ -1468,23 +1468,26 @@ class TestLlmScanCoverage:
         assert "big.py" in result.message
 
     def test_total_source_exceeds_holistic_cap(self):
-        """Total source > 50KB triggers holistic review warning."""
-        files = [(f"f{i}.py", "x" * 20_000) for i in range(4)]  # 80KB total
+        """Total source > 300KB triggers holistic review warning."""
+        files = [(f"f{i}.py", "x" * 80_000) for i in range(5)]  # 400KB total
         result = check_llm_scan_coverage(files)
         assert result.severity == "warn"
         assert "holistic review" in result.message
 
     def test_body_exceeds_prompt_cap(self):
-        """SKILL.md body > 10KB triggers prompt review warning."""
-        result = check_llm_scan_coverage([], skill_md_body="x" * 15_000)
+        """SKILL.md body > 30KB triggers prompt review warning."""
+        result = check_llm_scan_coverage([], skill_md_body="x" * 35_000)
         assert result.severity == "warn"
         assert "body" in result.message
 
     def test_multiple_issues_all_reported(self):
         """Multiple cap violations are all listed in the message."""
+        # 350KB total exceeds holistic cap (300KB), big.py exceeds per-file (50KB),
+        # body exceeds prompt cap (30KB)
+        files = [("big.py", "x" * 60_000)] + [(f"f{i}.py", "x" * 49_000) for i in range(6)]
         result = check_llm_scan_coverage(
-            [("big.py", "x" * 60_000)],
-            skill_md_body="x" * 15_000,
+            files,
+            skill_md_body="x" * 35_000,
         )
         assert result.severity == "warn"
         assert "per-file" in result.message

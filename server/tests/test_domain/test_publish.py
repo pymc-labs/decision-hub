@@ -249,10 +249,13 @@ class TestExtractForEvaluation:
                 "script.js": "console.log('hi')",
             }
         )
-        _, _, _, unscanned = extract_for_evaluation(zip_bytes)
+        _, source_files, _, unscanned = extract_for_evaluation(zip_bytes)
         assert "payload.exe" in unscanned
         assert "image.png" in unscanned
-        assert "script.js" in unscanned
+        # .js is now scannable — should be in source_files, not unscanned
+        assert "script.js" not in unscanned
+        source_names = [name for name, _ in source_files]
+        assert "script.js" in source_names
         assert "main.py" not in unscanned
 
     def test_no_unscanned_files_when_all_scannable(self) -> None:

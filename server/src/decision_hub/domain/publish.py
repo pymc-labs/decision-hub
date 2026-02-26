@@ -39,9 +39,25 @@ _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per extracted file
 _MAX_TOTAL_EXTRACTED = 100 * 1024 * 1024  # 100 MB total uncompressed
 _MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
 
-# File types to extract for security scanning (beyond .py)
-_SECURITY_SCAN_EXTENSIONS = frozenset({".py", ".sh", ".bash", ".zsh", ".json", ".yml", ".yaml", ".md"})
-_SECURITY_SCAN_NAMES = frozenset({"Makefile", "Dockerfile", ".env"})
+# File types to extract for security scanning
+_SECURITY_SCAN_EXTENSIONS = frozenset(
+    {
+        ".py",
+        ".sh",
+        ".bash",
+        ".zsh",  # scripts
+        ".js",
+        ".ts",
+        ".tsx",
+        ".cs",  # compiled/transpiled code
+        ".json",
+        ".yml",
+        ".yaml",  # config
+        ".md",
+        ".txt",  # text/docs
+    }
+)
+_SECURITY_SCAN_NAMES = frozenset({"Makefile", "Dockerfile", ".env", "LICENSE"})
 
 
 def _is_scannable_file(basename: str) -> bool:
@@ -106,10 +122,10 @@ def extract_for_evaluation(
 
             if basename == "SKILL.md":
                 skill_md = zf.read(name).decode()
-            elif _is_scannable_file(basename):
-                source_files.append((name, zf.read(name).decode()))
             elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
                 lockfile_content = zf.read(name).decode()
+            elif _is_scannable_file(basename):
+                source_files.append((name, zf.read(name).decode()))
             else:
                 unscanned_files.append(name)
 
