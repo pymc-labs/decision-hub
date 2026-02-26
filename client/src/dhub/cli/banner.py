@@ -58,14 +58,3 @@ def print_banner(console: Console) -> None:
     for line in _LOGO_LINES:
         console.print(_gradient_line(line))
     console.print()
-
-
-def check_and_show_update(console: Console) -> None:
-    """Show an upgrade hint if a newer version is available on PyPI.
-
-    Delegates to :mod:`dhub.cli.version_check` which caches results for
-    24 hours.  Fails silently — an update check should never block the user.
-    """
-    from dhub.cli.version_check import show_update_notice
-
-    show_update_notice(console)

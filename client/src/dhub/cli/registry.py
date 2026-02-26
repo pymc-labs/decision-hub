@@ -602,7 +602,7 @@ def list_command(
     """List published skills on the registry."""
     import sys
 
-    from dhub.cli.banner import check_and_show_update, print_banner
+    from dhub.cli.banner import print_banner
     from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
 
     print_banner(console)
@@ -669,8 +669,6 @@ def list_command(
                 break
 
             page += 1
-
-    check_and_show_update(console)
 
 
 def delete_command(
