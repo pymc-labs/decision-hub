@@ -8,6 +8,12 @@ from pydantic import BaseModel, ValidationError
 
 _GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
+# LLM review size caps — shared with gauntlet.py for scan coverage warnings.
+LLM_PER_FILE_CAP = 50_000  # 50 KB max per file in analyze_code_safety
+LLM_STAGE2_TOTAL_CAP = 150_000  # 150 KB total in analyze_code_safety
+LLM_HOLISTIC_TOTAL_CAP = 300_000  # 300 KB total in review_code_body_safety
+LLM_BODY_REVIEW_CAP = 30_000  # body truncation in review_prompt_body_safety
+
 
 class CodeSafetyJudgment(BaseModel):
     """Schema for a single code safety judgment from the LLM."""
@@ -484,8 +490,8 @@ def analyze_code_safety(
     Returns:
         List of dicts with keys 'file', 'label', 'dangerous' (bool), 'reason'.
     """
-    _MAX_FILE_SIZE = 50_000  # 50 KB cap per file to avoid blowing up the prompt
-    _MAX_TOTAL_SIZE = 150_000  # 150 KB total across all files
+    _MAX_FILE_SIZE = LLM_PER_FILE_CAP
+    _MAX_TOTAL_SIZE = LLM_STAGE2_TOTAL_CAP
 
     prompt = (
         "You are a security reviewer for Decision Hub, a package registry for "
@@ -819,7 +825,7 @@ def review_code_body_safety(
     Returns a dict with 'dangerous' (bool), 'reason' (str).
     Fail-closed: returns dangerous=True on any error.
     """
-    _MAX_TOTAL_SIZE = 300_000  # 300 KB cap for holistic code review
+    _MAX_TOTAL_SIZE = LLM_HOLISTIC_TOTAL_CAP
 
     # Sort smallest files first so small malicious files aren't pushed out
     # by large benign padding files when hitting the size cap
@@ -945,7 +951,7 @@ def review_prompt_body_safety(
     unparseable response, validation failure).
     """
     # Sanitize backticks to prevent fence-escape injection.
-    sanitized_body = _sanitize_for_markdown_fence(body[:30000])
+    sanitized_body = _sanitize_for_markdown_fence(body[:LLM_BODY_REVIEW_CAP])
 
     prompt = (
         "You are a security reviewer for Decision Hub, a package registry for "

@@ -15,6 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import httpx
 import sqlalchemy as sa
 
 from decision_hub.api.registry_service import run_gauntlet_pipeline
@@ -131,7 +132,7 @@ def run_gauntlet_for_skill(
             manifest = parse_skill_md(tmp_path)
             allowed_tools = manifest.allowed_tools
             tmp_path.unlink()
-        except Exception:
+        except (ValueError, KeyError, OSError):
             pass
 
         result["num_source_files"] = len(source_files)
@@ -160,7 +161,7 @@ def run_gauntlet_for_skill(
         result["checks_warned"] = [f"{r.check_name}: {r.message}" for r in report.results if r.severity == "warn"]
         result["gauntlet_summary"] = report.gauntlet_summary or report.summary
 
-    except Exception as exc:
+    except (ValueError, KeyError, RuntimeError, OSError, httpx.HTTPError) as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
 
     return result

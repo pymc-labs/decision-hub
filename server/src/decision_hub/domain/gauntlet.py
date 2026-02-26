@@ -15,6 +15,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Flag, auto
 
+from decision_hub.infra.gemini import (
+    LLM_BODY_REVIEW_CAP,
+    LLM_HOLISTIC_TOTAL_CAP,
+    LLM_PER_FILE_CAP,
+    LLM_STAGE2_TOTAL_CAP,
+)
 from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCase
 
 # ---------------------------------------------------------------------------
@@ -757,7 +763,7 @@ def check_safety_scan(
     skill_name: str = "",
     skill_description: str = "",
     analyze_fn: AnalyzeFn | None = None,
-    review_code_fn: "ReviewCodeFn | None" = None,
+    review_code_fn: ReviewCodeFn | None = None,
 ) -> EvalResult:
     """Multi-stage safety scan: always-fail combos, regex, LLM judge, holistic review.
 
@@ -1089,7 +1095,7 @@ def check_unscanned_files(unscanned_files: list[str]) -> EvalResult:
     )
 
 
-# 512KB total source cap — skills exceeding this can't be meaningfully scanned
+# 1MB total source cap — skills exceeding this can't be meaningfully scanned
 _MAX_SOURCE_TOTAL = 1_000_000
 
 
@@ -1117,13 +1123,9 @@ def check_source_size(source_files: list[tuple[str, str]]) -> EvalResult:
     )
 
 
-# LLM review caps — must stay in sync with gemini.py constants.
+# LLM review caps — imported from gemini.py (single source of truth).
 # If content exceeds these caps, the LLM review truncates or drops
 # files, meaning the skill was not fully scanned.
-_LLM_PER_FILE_CAP = 50_000  # gemini.py analyze_code_safety _MAX_FILE_SIZE
-_LLM_STAGE2_TOTAL_CAP = 150_000  # gemini.py analyze_code_safety _MAX_TOTAL_SIZE
-_LLM_HOLISTIC_TOTAL_CAP = 300_000  # gemini.py review_code_body_safety _MAX_TOTAL_SIZE
-_LLM_BODY_REVIEW_CAP = 30_000  # gemini.py review_prompt_body_safety body cap
 
 
 def check_llm_scan_coverage(
@@ -1139,24 +1141,24 @@ def check_llm_scan_coverage(
     """
     issues: list[str] = []
 
-    oversized = [f for f, c in source_files if len(c) > _LLM_PER_FILE_CAP]
+    oversized = [f for f, c in source_files if len(c) > LLM_PER_FILE_CAP]
     if oversized:
         names = ", ".join(oversized[:5]) + (" ..." if len(oversized) > 5 else "")
-        issues.append(f"{len(oversized)} file(s) exceed per-file LLM cap ({_LLM_PER_FILE_CAP // 1000}KB): {names}")
+        issues.append(f"{len(oversized)} file(s) exceed per-file LLM cap ({LLM_PER_FILE_CAP // 1000}KB): {names}")
 
     total_source = sum(len(c) for _, c in source_files)
-    if total_source > _LLM_STAGE2_TOTAL_CAP:
+    if total_source > LLM_STAGE2_TOTAL_CAP:
         issues.append(
-            f"total source ({total_source:,} bytes) exceeds Stage 2 LLM cap ({_LLM_STAGE2_TOTAL_CAP // 1000}KB)"
+            f"total source ({total_source:,} bytes) exceeds Stage 2 LLM cap ({LLM_STAGE2_TOTAL_CAP // 1000}KB)"
         )
-    if total_source > _LLM_HOLISTIC_TOTAL_CAP:
+    if total_source > LLM_HOLISTIC_TOTAL_CAP:
         issues.append(
-            f"total source ({total_source:,} bytes) exceeds holistic review cap ({_LLM_HOLISTIC_TOTAL_CAP // 1000}KB)"
+            f"total source ({total_source:,} bytes) exceeds holistic review cap ({LLM_HOLISTIC_TOTAL_CAP // 1000}KB)"
         )
 
-    if skill_md_body and len(skill_md_body) > _LLM_BODY_REVIEW_CAP:
+    if skill_md_body and len(skill_md_body) > LLM_BODY_REVIEW_CAP:
         issues.append(
-            f"SKILL.md body ({len(skill_md_body):,} bytes) exceeds prompt review cap ({_LLM_BODY_REVIEW_CAP // 1000}KB)"
+            f"SKILL.md body ({len(skill_md_body):,} bytes) exceeds prompt review cap ({LLM_BODY_REVIEW_CAP // 1000}KB)"
         )
 
     if not issues:
