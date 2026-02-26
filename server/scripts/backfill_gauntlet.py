@@ -10,13 +10,12 @@ Usage (from server/):
 
 import argparse
 import csv
-import json
 import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import sqlalchemy as sa
 
@@ -155,97 +154,8 @@ def regrade_skill(
 # ---------------------------------------------------------------------------
 
 
-_INSERT_SCAN_REPORT = sa.text("""
-    INSERT INTO scan_reports (
-        id, version_id, org_slug, skill_name, semver, is_safe, max_severity,
-        grade, findings_count, analyzers_used, full_report, publisher
-    ) VALUES (
-        :id, :version_id, :org_slug, :skill_name, :semver, :is_safe,
-        :max_severity, :grade, :findings_count, :analyzers_used,
-        :full_report, 'backfill'
-    )
-""")
-
-_INSERT_SCAN_FINDING = sa.text("""
-    INSERT INTO scan_findings (
-        id, report_id, rule_id, category, severity, title, description,
-        analyzer, metadata
-    ) VALUES (
-        :id, :report_id, :rule_id, :category, :severity, :title,
-        :description, :analyzer, :metadata
-    )
-""")
-
-
-_DELETE_OLD_FINDINGS = sa.text("""
-    DELETE FROM scan_findings WHERE report_id IN (
-        SELECT id FROM scan_reports WHERE version_id = :version_id
-    )
-""")
-_DELETE_OLD_REPORTS = sa.text("DELETE FROM scan_reports WHERE version_id = :version_id")
-
-
-def _write_scan_report(conn: sa.Connection, r: dict) -> None:
-    """Delete old reports for this version, then insert new scan_report + findings."""
-    check_dicts = r.get("check_results_dicts", [])
-    llm_reasoning = r.get("llm_reasoning")
-    org_slug, skill_name = r["fqn"].split("/", 1)
-    version_id = UUID(str(r["version_id"]))
-
-    # Replace previous reports for this version
-    conn.execute(_DELETE_OLD_FINDINGS, {"version_id": version_id})
-    conn.execute(_DELETE_OLD_REPORTS, {"version_id": version_id})
-
-    # Determine max severity from check results
-    severity_order = {"fail": 0, "warn": 1, "info": 2, "pass": 3}
-    max_sev = "pass"
-    for c in check_dicts:
-        sev = c.get("severity", "pass")
-        if severity_order.get(sev, 3) < severity_order.get(max_sev, 3):
-            max_sev = sev
-
-    report_id = uuid4()
-    full_report = {"check_results": check_dicts}
-    if llm_reasoning:
-        full_report["llm_reasoning"] = llm_reasoning
-
-    conn.execute(
-        _INSERT_SCAN_REPORT,
-        {
-            "id": report_id,
-            "version_id": version_id,
-            "org_slug": org_slug,
-            "skill_name": skill_name,
-            "semver": r["version"],
-            "is_safe": r["new_grade"] != "F",
-            "max_severity": max_sev,
-            "grade": r["new_grade"],
-            "findings_count": len(check_dicts),
-            "analyzers_used": ["gauntlet-backfill"],
-            "full_report": json.dumps(full_report),
-        },
-    )
-
-    # Insert individual findings
-    for c in check_dicts:
-        conn.execute(
-            _INSERT_SCAN_FINDING,
-            {
-                "id": uuid4(),
-                "report_id": report_id,
-                "rule_id": c.get("check_name", "unknown"),
-                "category": "gauntlet",
-                "severity": c.get("severity", "info"),
-                "title": c.get("check_name", "unknown"),
-                "description": c.get("message", ""),
-                "analyzer": "gauntlet-backfill",
-                "metadata": json.dumps({"details": c.get("details")} if c.get("details") else {}),
-            },
-        )
-
-
-def flush_updates(engine: sa.Engine, results: list[dict], *, write_reports: bool = True) -> int:
-    """Write new grades, scan reports, and refresh denormalized skills columns.
+def flush_updates(engine: sa.Engine, results: list[dict]) -> int:
+    """Write new grades + summaries and refresh denormalized skills columns.
 
     Returns the number of rows updated.
     """
@@ -263,8 +173,6 @@ def flush_updates(engine: sa.Engine, results: list[dict], *, write_reports: bool
                     gauntlet_summary=r["new_summary"],
                 )
             )
-            if write_reports:
-                _write_scan_report(conn, r)
             _refresh_skill_latest_version(conn, UUID(str(r["skill_id"])))
 
     return len(updatable)
