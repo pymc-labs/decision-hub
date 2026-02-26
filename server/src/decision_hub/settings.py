@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     aws_access_key_id: str
     aws_secret_access_key: str
+    s3_endpoint_url: str = ""  # Set to MinIO URL for local dev (e.g. http://localhost:9000)
 
     # GitHub OAuth
     github_client_id: str

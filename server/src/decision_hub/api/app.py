@@ -111,6 +111,7 @@ def create_app() -> FastAPI:
         settings.aws_region,
         settings.aws_access_key_id,
         settings.aws_secret_access_key,
+        settings.s3_endpoint_url,
     )
 
     app = FastAPI(title="Decision Hub", version="0.1.0")

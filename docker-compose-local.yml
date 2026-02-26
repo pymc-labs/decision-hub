@@ -1,0 +1,54 @@
+# Local development infrastructure.
+# Start: docker compose -f docker-compose-local.yml up -d
+# Stop:  docker compose -f docker-compose-local.yml down
+# Reset: docker compose -f docker-compose-local.yml down -v
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: decision_hub
+    volumes:
+      - dhub-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - dhub-minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # One-shot init container: creates the S3 bucket if it doesn't exist.
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/decision-hub-local &&
+      echo 'Bucket ready'
+      "
+
+volumes:
+  dhub-pg-data:
+  dhub-minio-data:
