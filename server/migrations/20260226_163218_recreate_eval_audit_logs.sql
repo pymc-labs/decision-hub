@@ -1,4 +1,4 @@
--- Recreate eval_audit_logs table (previously dropped by 20260224_205716)
+-- Recreate eval_audit_logs table (was manually dropped on dev)
 CREATE TABLE IF NOT EXISTS eval_audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_slug TEXT NOT NULL,

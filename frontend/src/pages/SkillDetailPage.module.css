@@ -340,6 +340,7 @@ a.metaItem:hover {
   background: var(--bg-dark);
   border: 1px solid var(--border-color);
   overflow: hidden;
+  cursor: pointer;
 }
 
 .checkHeader {
@@ -375,7 +376,8 @@ a.metaItem:hover {
   overflow: hidden;
 }
 
-.checkCard:hover .checkMessage {
+.checkCard:hover .checkMessage,
+.checkMessageExpanded {
   -webkit-line-clamp: unset;
 }
 

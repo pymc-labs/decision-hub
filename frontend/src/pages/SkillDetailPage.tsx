@@ -28,12 +28,13 @@ import {
 } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
-import type { SkillSummary, EvalReport, AuditLogEntry, PaginatedAuditLogResponse, SkillFile } from "../types/api";
+import type { SkillSummary, EvalReport, AuditLogEntry, CheckResult, PaginatedAuditLogResponse, SkillFile } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import EvalReportView from "../components/EvalReportView";
 import FileBrowser from "../components/FileBrowser";
+import { formatCheckName } from "./auditUtils";
 import styles from "./SkillDetailPage.module.css";
 
 type Tab = "overview" | "evals" | "files" | "audit";
@@ -404,22 +405,49 @@ function FilesTab({
   return <FileBrowser files={files} />;
 }
 
-const CHECK_NAME_LABELS: Record<string, string> = {
-  manifest_schema: "Manifest Schema",
-  embedded_credentials: "Credentials Scan",
-  safety_scan: "Safety Scan",
-  prompt_safety: "Prompt Safety",
-  pipeline_taint: "Pipeline Taint",
-  tool_consistency: "Tool Consistency",
-  dependency_audit: "Dependency Audit",
-  unscanned_files: "Unscanned Files",
-  source_size: "Source Size",
-  llm_coverage: "LLM Coverage",
-  functional_tests: "Functional Tests",
-};
+export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
-function formatCheckName(raw: string): string {
-  return CHECK_NAME_LABELS[raw] ?? raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return (
+    <div className={styles.auditChecks}>
+      <h5 className={styles.auditCheckTitle}>Safety Checks</h5>
+      <div className={styles.checkGrid}>
+        {checks.map((check, i) => {
+          const severity = check.severity ?? "";
+          const checkName = check.check_name ?? "unknown";
+          const message = check.message ?? "";
+          const SeverityIcon =
+            severity === "pass"
+              ? CheckCircle
+              : severity === "fail"
+                ? XCircle
+                : AlertTriangle;
+          const severityClass =
+            severity === "pass"
+              ? styles.severityPass
+              : severity === "fail"
+                ? styles.severityFail
+                : styles.severityWarn;
+          const isExpanded = expandedIndex === i;
+          return (
+            <div
+              key={i}
+              className={`${styles.checkCard} ${severityClass}`}
+              onClick={() => setExpandedIndex(isExpanded ? null : i)}
+            >
+              <div className={styles.checkHeader}>
+                <SeverityIcon size={14} className={styles.checkIcon} />
+                <span className={styles.checkName}>{formatCheckName(checkName)}</span>
+              </div>
+              <span className={`${styles.checkMessage} ${isExpanded ? styles.checkMessageExpanded : ""}`}>
+                {message}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function AuditTab({
@@ -463,37 +491,7 @@ function AuditTab({
             </div>
 
             {entry.check_results.length > 0 && (
-              <div className={styles.auditChecks}>
-                <h5 className={styles.auditCheckTitle}>Safety Checks</h5>
-                <div className={styles.checkGrid}>
-                {entry.check_results.map((check, i) => {
-                  const severity = String(check.severity ?? "");
-                  const checkName = String(check.check_name ?? "unknown");
-                  const message = String(check.message ?? "");
-                  const SeverityIcon =
-                    severity === "pass"
-                      ? CheckCircle
-                      : severity === "fail"
-                        ? XCircle
-                        : AlertTriangle;
-                  const severityClass =
-                    severity === "pass"
-                      ? styles.severityPass
-                      : severity === "fail"
-                        ? styles.severityFail
-                        : styles.severityWarn;
-                  return (
-                    <div key={i} className={`${styles.checkCard} ${severityClass}`}>
-                      <div className={styles.checkHeader}>
-                        <SeverityIcon size={14} className={styles.checkIcon} />
-                        <span className={styles.checkName}>{formatCheckName(checkName)}</span>
-                      </div>
-                      <span className={styles.checkMessage}>{message}</span>
-                    </div>
-                  );
-                })}
-                </div>
-              </div>
+              <CheckResultsGrid checks={entry.check_results} />
             )}
 
             {entry.quarantine_s3_key && (
