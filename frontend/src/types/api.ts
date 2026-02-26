@@ -74,6 +74,13 @@ export interface EvalReport {
   created_at: string | null;
 }
 
+export interface CheckResult {
+  severity?: string;
+  check_name?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
 export interface AuditLogEntry {
   id: string;
   org_slug: string;
@@ -81,7 +88,7 @@ export interface AuditLogEntry {
   semver: string;
   grade: string;
   version_id: string | null;
-  check_results: Record<string, unknown>[];
+  check_results: CheckResult[];
   llm_reasoning: Record<string, unknown> | null;
   publisher: string;
   quarantine_s3_key: string | null;
