@@ -10,6 +10,7 @@ The safety scan uses a two-stage approach:
 import json
 import math
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Flag, auto
@@ -230,6 +231,18 @@ _SHELL_CMD_RE = re.compile(
     re.DOTALL,
 )
 
+# Regex to extract shell commands from list-form subprocess calls with
+# shell interpreters: subprocess.run(["bash", "-c", "actual command"])
+# Captures the command string (group 1) passed to the shell interpreter.
+_SHELL_LIST_CMD_RE = re.compile(
+    r"""subprocess\.(?:run|call|Popen|check_output|check_call)\s*\(\s*\["""
+    r"""\s*(?:"|')(?:bash|sh|zsh)(?:"|')"""  # ["bash" or ["sh" or ["zsh"
+    r"""\s*,\s*(?:"|')-\w*c(?:"|')"""  # , "-c" or "-lc" etc
+    r"""\s*,\s*(?:"|')(.+?)(?:"|')"""  # , "actual command"
+    r"""\s*\]""",
+    re.DOTALL,
+)
+
 # Regex to split shell commands on pipe, semicolon, or &&
 _PIPE_SPLIT_RE = re.compile(r"\s*(?:\|{1,2}|;|&&)\s*")
 
@@ -323,6 +336,11 @@ def _extract_shell_commands(source_files: list[tuple[str, str]], skill_md_body: 
     for filename, content in source_files:
         for match in _SHELL_CMD_RE.finditer(content):
             cmd = match.group(1) or match.group(2)
+            if cmd:
+                commands.append((filename, cmd))
+        # List-form subprocess with shell interpreters: ["bash", "-c", "cmd"]
+        for match in _SHELL_LIST_CMD_RE.finditer(content):
+            cmd = match.group(1)
             if cmd:
                 commands.append((filename, cmd))
 
@@ -651,15 +669,25 @@ def check_embedded_credentials(
     if analyze_credential_fn is not None:
         judgments = analyze_credential_fn(all_entropy, skill_name, skill_description)
 
-        # Fail-closed: any source file not covered by the LLM is marked dangerous
-        covered_sources = {j.get("source") for j in judgments}
+        # Fail-closed: require one judgment per entropy hit, not per unique source.
+        # Without this, two high-entropy strings in the same file would be
+        # covered by a single safe judgment — the second string goes unjudged.
+        hit_source_counts: Counter[str] = Counter()
         for h in all_entropy:
-            if h["source"] not in covered_sources:
+            hit_source_counts[h["source"]] += 1
+
+        judgment_source_counts: Counter[str] = Counter()
+        for j in judgments:
+            judgment_source_counts[j.get("source", "")] += 1
+
+        for source, needed in hit_source_counts.items():
+            shortfall = needed - judgment_source_counts.get(source, 0)
+            for _ in range(shortfall):
                 judgments.append(
                     {
-                        "source": h["source"],
-                        "label": h["label"],
-                        "line": h["line"],
+                        "source": source,
+                        "label": "high-entropy secret",
+                        "line": "",
                         "dangerous": True,
                         "reason": "LLM did not return judgment for this finding",
                     }
@@ -778,16 +806,25 @@ def check_safety_scan(
         hit_files = [(f, c) for f, c in source_files if f in hit_filenames]
         judgments = analyze_fn(hits, hit_files, skill_name, skill_description)
 
-        # Fail-closed: backfill any hits not covered by the LLM response.
-        # Run unconditionally — the LLM may return duplicates or hallucinated
-        # entries that inflate len(judgments) while leaving real hits uncovered.
-        covered_keys = {(j.get("file"), j.get("label")) for j in judgments}
+        # Fail-closed: require one judgment per hit, not per unique (file, label).
+        # Without this, two subprocess.run calls in the same file with the same
+        # regex label would be "covered" by a single safe LLM judgment — even if
+        # only the first call is benign and the second is dangerous.
+        hit_counts: Counter[tuple[str, str]] = Counter()
         for h in hits:
-            if (h["file"], h["label"]) not in covered_keys:
+            hit_counts[(h["file"], h["label"])] += 1
+
+        judgment_counts: Counter[tuple[str, str]] = Counter()
+        for j in judgments:
+            judgment_counts[(j.get("file"), j.get("label"))] += 1
+
+        for key, needed in hit_counts.items():
+            shortfall = needed - judgment_counts.get(key, 0)
+            for _ in range(shortfall):
                 judgments.append(
                     {
-                        "file": h["file"],
-                        "label": h["label"],
+                        "file": key[0],
+                        "label": key[1],
                         "dangerous": True,
                         "reason": "LLM did not return judgment for this finding",
                     }
@@ -905,15 +942,23 @@ def check_prompt_safety(
     if analyze_prompt_fn is not None:
         judgments = analyze_prompt_fn(hits, skill_name, skill_description)
 
-        # Fail-closed: backfill any hits not covered by the LLM response.
-        # Run unconditionally — the LLM may return duplicates or hallucinated
-        # entries that inflate len(judgments) while leaving real hits uncovered.
-        covered_labels = {j.get("label") for j in judgments}
+        # Fail-closed: require one judgment per hit, not per unique label.
+        # Without this, two "ignore all instructions" lines would be covered
+        # by a single safe judgment — the second line goes unjudged.
+        hit_label_counts: Counter[str] = Counter()
         for h in hits:
-            if h["label"] not in covered_labels:
+            hit_label_counts[h["label"]] += 1
+
+        judgment_label_counts: Counter[str] = Counter()
+        for j in judgments:
+            judgment_label_counts[j.get("label", "")] += 1
+
+        for label, needed in hit_label_counts.items():
+            shortfall = needed - judgment_label_counts.get(label, 0)
+            for _ in range(shortfall):
                 judgments.append(
                     {
-                        "label": h["label"],
+                        "label": label,
                         "dangerous": True,
                         "ambiguous": False,
                         "reason": "LLM did not return judgment for this finding",
