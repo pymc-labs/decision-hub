@@ -2977,9 +2977,9 @@ class TestFullPipelineWithLLM:
         """All 31 original malicious skills should be caught with full pipeline."""
         results = [_run_gauntlet_with_llm(case, self.callbacks) for case in TEST_CASES]
         detection_rate = _print_results_table("ORIGINAL TEST SET — FULL PIPELINE (REGEX + LLM)", results)
-        assert (
-            detection_rate >= 80
-        ), f"Full-pipeline detection rate {detection_rate:.1f}% is below 80% — LLM should catch what regex misses"
+        assert detection_rate >= 80, (
+            f"Full-pipeline detection rate {detection_rate:.1f}% is below 80% — LLM should catch what regex misses"
+        )
 
     def test_evaded_set_with_llm(self):
         """Evaded set should be mostly caught by holistic LLM review."""
@@ -3030,9 +3030,9 @@ class TestFullPipelineWithLLM:
         assert not regressions, f"LLM regressions (caught by regex, missed by LLM): {regressions}"
 
         # LLM should catch more than regex alone
-        assert (
-            llm_caught > regex_caught
-        ), f"Full pipeline ({llm_caught}) should catch more than regex-only ({regex_caught})"
+        assert llm_caught > regex_caught, (
+            f"Full pipeline ({llm_caught}) should catch more than regex-only ({regex_caught})"
+        )
 
 
 def generate_report() -> str:
