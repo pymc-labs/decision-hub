@@ -352,7 +352,7 @@ def _extract_shell_commands(source_files: list[tuple[str, str]], skill_md_body: 
             if stripped.startswith("```"):
                 in_code_block = not in_code_block
                 continue
-            if in_code_block and "|" in stripped:
+            if in_code_block and _PIPE_SPLIT_RE.search(stripped):
                 commands.append(("SKILL.md", stripped))
 
     return commands
