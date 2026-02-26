@@ -41,6 +41,7 @@ from dhub.cli.init import init_command  # noqa: E402
 from dhub.cli.registry import (  # noqa: E402
     delete_command,
     eval_report_command,
+    info_command,
     install_command,
     list_command,
     logs_command,
@@ -59,6 +60,7 @@ app.command("publish")(publish_command)
 app.command("install")(install_command)
 app.command("uninstall")(uninstall_command)
 app.command("list")(list_command)
+app.command("info")(info_command)
 app.command("delete")(delete_command)
 app.command("eval-report")(eval_report_command)
 app.command("logs")(logs_command)
