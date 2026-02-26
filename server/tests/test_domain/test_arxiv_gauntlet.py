@@ -42,6 +42,8 @@ import json
 import textwrap
 from dataclasses import dataclass
 
+import pytest
+
 from decision_hub.domain.gauntlet import run_static_checks
 
 # ---------------------------------------------------------------------------
@@ -2810,6 +2812,226 @@ class TestEvadedSkillsPassGauntlet:
             f"Evaded detection rate {detection_rate:.1f}% is below 10% — "
             f"hardened gauntlet should catch at least some evaded cases"
         )
+
+
+def _load_google_api_key() -> str | None:
+    """Try to load GOOGLE_API_KEY from server/.env.dev or environment.
+
+    Returns the key string, or None if unavailable.
+    """
+    import os
+    from pathlib import Path
+
+    # 1. Already in environment
+    key = os.environ.get("GOOGLE_API_KEY", "")
+    if key:
+        return key
+
+    # 2. Try server/.env.dev
+    env_dev = Path(__file__).resolve().parents[2] / ".env.dev"
+    if env_dev.exists():
+        for line in env_dev.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("GOOGLE_API_KEY="):
+                val = line.split("=", 1)[1].strip().strip("\"'")
+                if val:
+                    return val
+
+    # 3. Try server/.env.prod
+    env_prod = Path(__file__).resolve().parents[2] / ".env.prod"
+    if env_prod.exists():
+        for line in env_prod.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("GOOGLE_API_KEY="):
+                val = line.split("=", 1)[1].strip().strip("\"'")
+                if val:
+                    return val
+
+    return None
+
+
+def _build_llm_callbacks(api_key: str, model: str = "gemini-2.5-flash") -> dict:
+    """Build all LLM callback functions for the full gauntlet pipeline."""
+    from decision_hub.infra.gemini import (
+        analyze_code_safety,
+        analyze_credential_entropy,
+        analyze_prompt_safety,
+        create_gemini_client,
+        review_code_body_safety,
+        review_prompt_body_safety,
+    )
+
+    client = create_gemini_client(api_key)
+
+    return {
+        "analyze_fn": lambda snippets, source_files, name, desc: analyze_code_safety(
+            client, snippets, source_files, name, desc, model=model
+        ),
+        "analyze_prompt_fn": lambda hits, name, desc: analyze_prompt_safety(client, hits, name, desc, model=model),
+        "review_body_fn": lambda body, name, desc: review_prompt_body_safety(client, body, name, desc, model=model),
+        "review_code_fn": lambda files, name, desc: review_code_body_safety(client, files, name, desc, model=model),
+        "analyze_credential_fn": lambda hits, name, desc: analyze_credential_entropy(
+            client, hits, name, desc, model=model
+        ),
+    }
+
+
+def _run_gauntlet_with_llm(case: MaliciousSkillCase, callbacks: dict) -> dict:
+    """Run a single case through the full gauntlet pipeline (regex + LLM)."""
+    report = run_static_checks(
+        skill_md_content=case.skill_md_content,
+        lockfile_content=case.lockfile_content,
+        source_files=case.source_files,
+        skill_name=case.skill_md_content.split("name: ")[1].split("\n")[0].strip()
+        if "name: " in case.skill_md_content
+        else "",
+        skill_description=case.skill_md_content.split("description: ")[1].split("\n")[0].strip()
+        if "description: " in case.skill_md_content
+        else "",
+        skill_md_body=case.skill_md_body,
+        allowed_tools=case.allowed_tools,
+        **callbacks,
+    )
+
+    failed_checks = [r for r in report.results if r.severity == "fail"]
+    warned_checks = [r for r in report.results if r.severity == "warn"]
+
+    return {
+        "case_id": case.case_id,
+        "paper_ref": case.paper_ref,
+        "patterns": case.patterns,
+        "archetype": case.archetype,
+        "level": case.level,
+        "grade": report.grade,
+        "caught": report.grade == "F",
+        "passed_checks": sum(1 for r in report.results if r.severity == "pass"),
+        "failed_checks": [r.check_name for r in failed_checks],
+        "warned_checks": [r.check_name for r in warned_checks],
+        "total_checks": len(report.results),
+        "details": [{"check": r.check_name, "severity": r.severity, "message": r.message} for r in report.results],
+    }
+
+
+def _print_results_table(label: str, results: list[dict]) -> None:
+    """Print a summary table for a set of gauntlet results."""
+    caught = [r for r in results if r["caught"]]
+    missed = [r for r in results if not r["caught"]]
+    total = len(results)
+    caught_count = len(caught)
+    detection_rate = caught_count / total * 100 if total else 0
+
+    print(f"\n{'=' * 80}")
+    print(f"{label}")
+    print(f"{'=' * 80}")
+    print(f"Total cases: {total}")
+    print(f"Caught (Grade F): {caught_count} ({detection_rate:.1f}%)")
+    print(f"Missed: {len(missed)}")
+    print()
+
+    for level in (1, 2, 3):
+        level_results = [r for r in results if r["level"] == level]
+        level_caught = [r for r in level_results if r["caught"]]
+        if level_results:
+            rate = len(level_caught) / len(level_results) * 100
+            print(f"Level {level}: {len(level_caught)}/{len(level_results)} caught ({rate:.1f}%)")
+
+    print()
+    for archetype in ("data_thief", "agent_hijacker", "hybrid", "platform_native"):
+        arch_results = [r for r in results if r["archetype"] == archetype]
+        arch_caught = [r for r in arch_results if r["caught"]]
+        if arch_results:
+            rate = len(arch_caught) / len(arch_results) * 100
+            print(f"{archetype}: {len(arch_caught)}/{len(arch_results)} caught ({rate:.1f}%)")
+
+    if missed:
+        print(f"\n{'=' * 80}")
+        print("MISSED CASES (not Grade F):")
+        print(f"{'=' * 80}")
+        for r in missed:
+            print(f"\n  {r['case_id']} (Level {r['level']}, {r['archetype']})")
+            print(f"    Grade: {r['grade']}")
+            print(f"    Patterns: {', '.join(r['patterns'])}")
+            for d in r["details"]:
+                marker = "FAIL" if d["severity"] == "fail" else "WARN" if d["severity"] == "warn" else "PASS"
+                print(f"      [{marker}] {d['check']}: {d['message'][:120]}")
+
+    return detection_rate
+
+
+class TestFullPipelineWithLLM:
+    """Run all test cases through the FULL gauntlet pipeline (regex + LLM).
+
+    Skipped automatically when no GOOGLE_API_KEY is available.
+    These tests hit the real Gemini API and take ~30-60s per run.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_api_key(self):
+        self.api_key = _load_google_api_key()
+        if not self.api_key:
+            pytest.skip("GOOGLE_API_KEY not available (set env var or provide server/.env.dev)")
+        self.callbacks = _build_llm_callbacks(self.api_key)
+
+    def test_original_set_with_llm(self):
+        """All 31 original malicious skills should be caught with full pipeline."""
+        results = [_run_gauntlet_with_llm(case, self.callbacks) for case in TEST_CASES]
+        detection_rate = _print_results_table("ORIGINAL TEST SET — FULL PIPELINE (REGEX + LLM)", results)
+        assert (
+            detection_rate >= 80
+        ), f"Full-pipeline detection rate {detection_rate:.1f}% is below 80% — LLM should catch what regex misses"
+
+    def test_evaded_set_with_llm(self):
+        """Evaded set should be mostly caught by holistic LLM review."""
+        results = [_run_gauntlet_with_llm(case, self.callbacks) for case in EVADED_TEST_CASES]
+        detection_rate = _print_results_table("EVADED TEST SET — FULL PIPELINE (REGEX + LLM)", results)
+        # The whole point: LLM holistic review should catch what regex misses
+        assert detection_rate >= 40, (
+            f"Full-pipeline evaded detection rate {detection_rate:.1f}% is below 40% — "
+            f"holistic LLM review should catch significantly more than regex alone"
+        )
+
+    def test_comparison_regex_vs_full(self):
+        """Side-by-side comparison of regex-only vs full pipeline."""
+        regex_results = [_run_gauntlet_no_llm(case) for case in EVADED_TEST_CASES]
+        llm_results = [_run_gauntlet_with_llm(case, self.callbacks) for case in EVADED_TEST_CASES]
+
+        regex_caught = sum(1 for r in regex_results if r["caught"])
+        llm_caught = sum(1 for r in llm_results if r["caught"])
+        total = len(regex_results)
+
+        print(f"\n{'=' * 80}")
+        print("COMPARISON: REGEX-ONLY vs FULL PIPELINE (EVADED SET)")
+        print(f"{'=' * 80}")
+        print(f"Regex-only: {regex_caught}/{total} ({regex_caught / total * 100:.1f}%)")
+        print(f"Full (LLM): {llm_caught}/{total} ({llm_caught / total * 100:.1f}%)")
+        print(f"LLM uplift: +{llm_caught - regex_caught} cases")
+        print()
+
+        print(f"  {'Case ID':<45} {'Regex':>6} {'LLM':>6} {'Uplift':>8}")
+        print(f"  {'-' * 45} {'-' * 6} {'-' * 6} {'-' * 8}")
+
+        for r_regex, r_llm in zip(regex_results, llm_results, strict=True):
+            regex_mark = "F" if r_regex["caught"] else r_regex["grade"]
+            llm_mark = "F" if r_llm["caught"] else r_llm["grade"]
+            uplift = ""
+            if not r_regex["caught"] and r_llm["caught"]:
+                uplift = "CAUGHT"
+            elif r_regex["caught"] and not r_llm["caught"]:
+                uplift = "REGRESS"
+            print(f"  {r_regex['case_id']:<45} {regex_mark:>6} {llm_mark:>6} {uplift:>8}")
+
+        # LLM should never do worse than regex
+        regressions = [
+            r_llm["case_id"]
+            for r_regex, r_llm in zip(regex_results, llm_results, strict=True)
+            if r_regex["caught"] and not r_llm["caught"]
+        ]
+        assert not regressions, f"LLM regressions (caught by regex, missed by LLM): {regressions}"
+
+        # LLM should catch more than regex alone
+        assert (
+            llm_caught > regex_caught
+        ), f"Full pipeline ({llm_caught}) should catch more than regex-only ({regex_caught})"
 
 
 def generate_report() -> str:
