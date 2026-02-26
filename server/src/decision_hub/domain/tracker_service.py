@@ -624,6 +624,7 @@ def _publish_skill_from_tracker(
     False if skipped (no content changes) or rejected by the gauntlet.
     """
     from decision_hub.api.registry_service import (
+        classify_skill_category,
         maybe_trigger_agent_assessment,
         parse_manifest_from_content,
         quarantine_and_log_rejection,
@@ -637,7 +638,9 @@ def _publish_skill_from_tracker(
         insert_skill,
         insert_version,
         resolve_latest_version,
+        update_skill_category,
         update_skill_description,
+        update_skill_source_repo_url,
     )
     from decision_hub.infra.storage import compute_checksum, upload_skill_zip
 
@@ -724,14 +727,20 @@ def _publish_skill_from_tracker(
         # Upsert skill record
         skill = find_skill(conn, org.id, skill_name)
         if skill is None:
-            skill = insert_skill(conn, org.id, skill_name, description)
+            skill = insert_skill(conn, org.id, skill_name, description, source_repo_url=tracker.repo_url)
         else:
             update_skill_description(conn, skill.id, description)
+            if tracker.repo_url and skill.source_repo_url != tracker.repo_url:
+                update_skill_source_repo_url(conn, skill.id, tracker.repo_url)
+
+        # Classify category (non-critical, graceful fallback to default)
+        category = classify_skill_category(skill_name, description, skill_md_body, settings)
+        update_skill_category(conn, skill.id, category)
 
         # Generate embedding (fail-open: never blocks publish)
         from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 
-        generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, "", description, settings)
+        generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, category, description, settings)
 
         # Check duplicate version
         if find_version(conn, skill.id, version) is not None:
