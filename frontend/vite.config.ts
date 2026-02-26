@@ -19,6 +19,13 @@ function noindexPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), noindexPlugin()],
+  server: {
+    proxy: {
+      "/v1": "http://localhost:8000",
+      "/cli": "http://localhost:8000",
+      "/auth": "http://localhost:8000",
+    },
+  },
   build: {
     rollupOptions: {
       output: {
