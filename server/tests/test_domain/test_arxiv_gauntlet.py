@@ -2912,7 +2912,7 @@ def _run_gauntlet_with_llm(case: MaliciousSkillCase, callbacks: dict) -> dict:
     }
 
 
-def _print_results_table(label: str, results: list[dict]) -> None:
+def _print_results_table(label: str, results: list[dict]) -> float:
     """Print a summary table for a set of gauntlet results."""
     caught = [r for r in results if r["caught"]]
     missed = [r for r in results if not r["caught"]]

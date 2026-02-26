@@ -238,7 +238,7 @@ _SHELL_LIST_CMD_RE = re.compile(
     r"""subprocess\.(?:run|call|Popen|check_output|check_call)\s*\(\s*\["""
     r"""\s*(?:"|')(?:bash|sh|zsh)(?:"|')"""  # ["bash" or ["sh" or ["zsh"
     r"""\s*,\s*(?:"|')-\w*c(?:"|')"""  # , "-c" or "-lc" etc
-    r"""\s*,\s*(?:"|')(.+?)(?:"|')"""  # , "actual command"
+    r"""\s*,\s*(?:"([^"]*?)"|'([^']*?)')"""  # , "actual command" (matched quotes)
     r"""\s*\]""",
     re.DOTALL,
 )
@@ -340,7 +340,7 @@ def _extract_shell_commands(source_files: list[tuple[str, str]], skill_md_body: 
                 commands.append((filename, cmd))
         # List-form subprocess with shell interpreters: ["bash", "-c", "cmd"]
         for match in _SHELL_LIST_CMD_RE.finditer(content):
-            cmd = match.group(1)
+            cmd = match.group(1) or match.group(2)
             if cmd:
                 commands.append((filename, cmd))
 
