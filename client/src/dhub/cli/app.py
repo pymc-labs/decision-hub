@@ -32,6 +32,9 @@ def main(
     ),
 ) -> None:
     """Decision Hub - The AI Skill Manager for Data Science Agents."""
+    from dhub.cli.version_check import show_update_notice
+
+    show_update_notice(Console(stderr=True))
 
 
 # Register top-level commands
