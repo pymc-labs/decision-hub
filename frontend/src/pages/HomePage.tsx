@@ -1,8 +1,8 @@
 import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-  Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package,
+  Building2, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
+  ShieldCheck, FlaskConical, Search, Copy, Check, Package,
   GitBranch, Lock, Globe, BarChart3
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
