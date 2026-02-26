@@ -1,6 +1,6 @@
 .terminal {
-  background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   display: flex;
@@ -12,8 +12,8 @@
   align-items: center;
   gap: 6px;
   padding: 10px 14px;
-  background: var(--bg-darkest);
-  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
 }
 
 .dot {
@@ -23,7 +23,7 @@
 }
 
 .title {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.8rem;
   color: var(--text-muted);
   margin-left: 8px;
@@ -31,8 +31,8 @@
 
 .body {
   padding: 16px;
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 0.9rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
   color: var(--text-primary);
   line-height: 1.7;
   white-space: pre;
@@ -46,5 +46,5 @@
 }
 
 .output {
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
 }

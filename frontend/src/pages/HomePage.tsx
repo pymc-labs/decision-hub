@@ -1,14 +1,15 @@
 import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-  Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package
+  Building2, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
+  ShieldCheck, FlaskConical, Search, Copy, Check, Package,
+  GitBranch, Lock, Globe, BarChart3
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useCountUp } from "../hooks/useCountUp";
 import { useSEO } from "../hooks/useSEO";
-import NeonCard from "../components/NeonCard";
+import Card from "../components/Card";
 import GradeBadge from "../components/GradeBadge";
 import AnimatedTerminal from "../components/AnimatedTerminal";
 import TerminalBlock from "../components/TerminalBlock";
@@ -51,7 +52,7 @@ export default function HomePage() {
       name: "Decision Hub",
       url: "https://hub.decision.ai",
       description:
-        "The skill registry for AI coding agents. Every skill is automatically evaluated, security-graded, and searchable in natural language.",
+        "The trust layer for AI agent toolchains. Every skill is tested, graded, and indexed before it reaches your agent.",
     }),
     [],
   );
@@ -81,29 +82,23 @@ export default function HomePage() {
     <div className="container">
       {/* Hero */}
       <section className={styles.hero}>
-        <div className={styles.heroGrid} />
-        <h1 className={styles.heroTitle}>
-          <span className={styles.heroAccent}>DECISION</span>
-          <span className={styles.heroDivider}>//</span>
-          <span className={styles.heroMain}>HUB</span>
-        </h1>
+        <h1 className={styles.heroTitle}>Decision Hub</h1>
+        <p className={styles.heroTagline}>Trust your agent's toolchain.</p>
         <p className={styles.heroSub}>
-          The skill registry for AI coding agents.
-          Every skill is automatically evaluated, security-graded, and searchable
-          in natural language.
+          Every skill is tested, graded, and indexed before it reaches
+          your agent. Extend capabilities without extending risk.
         </p>
         <div className={styles.heroCta}>
           <button
             className={styles.btnPrimary}
             onClick={() => window.dispatchEvent(new CustomEvent("open-ask-modal"))}
           >
-            <MessageCircle size={18} />
-            Ask the Registry
-            <ArrowRight size={16} />
+            <Search size={18} />
+            Search the Registry
           </button>
           <Link to="/how-it-works" className={styles.btnSecondary}>
-            <Zap size={18} />
             How It Works
+            <ArrowRight size={16} />
           </Link>
         </div>
       </section>
@@ -111,78 +106,157 @@ export default function HomePage() {
       {/* Value Props — the three pillars */}
       <section className={styles.valueProps}>
         <div className={styles.valuePropGrid}>
-          <NeonCard glow="cyan">
+          <Card accent="blue">
             <div className={styles.valueProp}>
-              <div className={styles.valuePropIcon}>
-                <FlaskConical size={32} />
+              <div className={`${styles.valuePropIcon} ${styles.iconBlue}`}>
+                <FlaskConical size={28} />
               </div>
-              <h3 className={styles.valuePropTitle}>Automated Evals</h3>
+              <h3 className={styles.valuePropTitle}>Proven, not promised</h3>
               <p className={styles.valuePropDesc}>
-                Every skill ships with eval cases. An agent runs each skill in a
-                sandbox, and an LLM judge scores the output — so you know a skill
-                actually works before you install it.
+                Every skill runs through automated evals before it's listed.
+                An LLM judge scores the output against real test cases — you
+                see exactly how well it performs, not just someone's README.
               </p>
             </div>
-          </NeonCard>
-          <NeonCard glow="pink">
+          </Card>
+          <div className={styles.pipelineArrow}>
+            <span className={styles.arrowLine} />
+          </div>
+          <Card accent="green">
             <div className={styles.valueProp}>
-              <div className={styles.valuePropIcon}>
-                <ShieldCheck size={32} />
+              <div className={`${styles.valuePropIcon} ${styles.iconGreen}`}>
+                <ShieldCheck size={28} />
               </div>
-              <h3 className={styles.valuePropTitle}>Security Grading</h3>
+              <h3 className={styles.valuePropTitle}>Safety built in</h3>
               <p className={styles.valuePropDesc}>
-                Every submission is automatically analyzed for unsafe patterns —
-                arbitrary code execution, data exfiltration, prompt injection — and
-                graded A through F. No surprises in your agent's toolchain.
+                Every skill is scanned for unsafe patterns — code execution,
+                data exfiltration, prompt injection — and graded A through F
+                before publishing. The grade is a contract.
               </p>
             </div>
-          </NeonCard>
-          <NeonCard glow="purple">
+          </Card>
+          <div className={styles.pipelineArrow}>
+            <span className={styles.arrowLine} />
+          </div>
+          <Card accent="violet">
             <div className={styles.valueProp}>
-              <div className={styles.valuePropIcon}>
-                <Search size={32} />
+              <div className={`${styles.valuePropIcon} ${styles.iconViolet}`}>
+                <Search size={28} />
               </div>
-              <h3 className={styles.valuePropTitle}>Conversational Search</h3>
+              <h3 className={styles.valuePropTitle}>Your agent finds what it needs</h3>
               <p className={styles.valuePropDesc}>
-                Describe what you need in plain English. The index understands
-                intent, not just keywords — so your agent can find and install the
-                right skill in one command.
+                Describe a capability in plain English. The semantic
+                search index understands intent, not keywords — so your
+                agent discovers, evaluates, and installs without leaving
+                the conversation.
               </p>
             </div>
-          </NeonCard>
+          </Card>
         </div>
       </section>
 
       {/* Stats */}
       <section className={styles.stats}>
-        <NeonCard glow="cyan">
-          <div className={styles.statItem} ref={skillsRef as React.RefObject<HTMLDivElement>}>
-            <Package size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedSkills.toLocaleString()}</span>
-            <span className={styles.statLabel}>Skills Published</span>
+        <div className={styles.statItem} ref={skillsRef as React.RefObject<HTMLDivElement>}>
+          <span className={styles.statNumber}>{animatedSkills.toLocaleString()}</span>
+          <span className={styles.statLabel}>Skills Published</span>
+        </div>
+        <div className={styles.statDivider} />
+        <div className={styles.statItem} ref={orgsRef as React.RefObject<HTMLDivElement>}>
+          <span className={styles.statNumber}>{animatedOrgs.toLocaleString()}</span>
+          <span className={styles.statLabel}>Organizations</span>
+        </div>
+        <div className={styles.statDivider} />
+        <div className={styles.statItem} ref={downloadsRef as React.RefObject<HTMLDivElement>}>
+          <span className={styles.statNumber}>{animatedDownloads.toLocaleString()}</span>
+          <span className={styles.statLabel}>Downloads</span>
+        </div>
+        <div className={styles.statDivider} />
+        <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
+          <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
+          <span className={styles.statLabel}>Publishers</span>
+        </div>
+      </section>
+
+      {/* How it's different */}
+      <section className={styles.differentiators}>
+        <h2 className={`${styles.sectionTitle} ${styles.sectionTitleCentered}`}>
+          Why Decision Hub
+        </h2>
+        <div className={styles.diffGrid}>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconBlue}`}>
+              <GitBranch size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Publish from GitHub</h4>
+              <p className={styles.diffDesc}>
+                Push to your repo, skills publish automatically. Every commit
+                syncs — no manual uploads.
+              </p>
+            </div>
           </div>
-        </NeonCard>
-        <NeonCard glow="pink">
-          <div className={styles.statItem} ref={orgsRef as React.RefObject<HTMLDivElement>}>
-            <Building2 size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedOrgs.toLocaleString()}</span>
-            <span className={styles.statLabel}>Organizations</span>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconViolet}`}>
+              <Search size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Semantic search</h4>
+              <p className={styles.diffDesc}>
+                Embedding-based index, not keyword matching. Agents find skills
+                by describing what they need in plain English.
+              </p>
+            </div>
           </div>
-        </NeonCard>
-        <NeonCard glow="purple">
-          <div className={styles.statItem} ref={downloadsRef as React.RefObject<HTMLDivElement>}>
-            <Download size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedDownloads.toLocaleString()}</span>
-            <span className={styles.statLabel}>Downloads</span>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconGreen}`}>
+              <BarChart3 size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Automated evals</h4>
+              <p className={styles.diffDesc}>
+                Real test cases, sandboxed execution, LLM-judged results.
+                The eval score ships with every version.
+              </p>
+            </div>
           </div>
-        </NeonCard>
-        <NeonCard glow="green">
-          <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
-            <Users size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
-            <span className={styles.statLabel}>Publishers</span>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconBlue}`}>
+              <Lock size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Private skills</h4>
+              <p className={styles.diffDesc}>
+                Not everything belongs in public. Publish skills scoped to
+                your org — visible only to your team.
+              </p>
+            </div>
           </div>
-        </NeonCard>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconViolet}`}>
+              <Building2 size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Self-host for enterprise</h4>
+              <p className={styles.diffDesc}>
+                Run the full registry on your own infrastructure.
+                Open-source core, no vendor lock-in.
+              </p>
+            </div>
+          </div>
+          <div className={styles.diffItem}>
+            <div className={`${styles.diffIcon} ${styles.iconGreen}`}>
+              <Globe size={20} />
+            </div>
+            <div>
+              <h4 className={styles.diffTitle}>Multi-marketplace</h4>
+              <p className={styles.diffDesc}>
+                Publish once, distribute everywhere. Automated syndication
+                to other skill registries is coming soon.
+              </p>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* Agent First */}
@@ -218,7 +292,7 @@ export default function HomePage() {
                 to={`/skills/${skill.org_slug}/${skill.skill_name}`}
                 className={styles.skillLink}
               >
-                <NeonCard glow="cyan">
+                <Card>
                   <div className={styles.skillCard}>
                     <div className={styles.skillHeader}>
                       <span className={styles.skillOrg}>{skill.org_slug}</span>
@@ -242,7 +316,7 @@ export default function HomePage() {
                       </span>
                     </div>
                   </div>
-                </NeonCard>
+                </Card>
               </Link>
             ))}
           </div>
@@ -327,33 +401,31 @@ Downloading anthropics/statistical-analysis@0.1.0...
 
       {/* Bottom CTA */}
       <section className={styles.bottomCta}>
-        <NeonCard glow="pink">
-          <div className={styles.bottomCtaInner}>
-            <h2 className={styles.bottomCtaTitle}>Publish Your Skills</h2>
-            <p className={styles.bottomCtaDesc}>
-              Package your team's agent skills and get automated evals + security
-              grading for free. Private by default — only your org can see them.
-            </p>
-            <div className={styles.bottomCtaActions}>
-              {SHOW_GITHUB_BUTTONS && (
-                <a
-                  href="https://github.com/pymc-labs/decision-hub"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.btnPrimary}
-                >
-                  <Package size={18} />
-                  Get Started
-                  <ArrowRight size={16} />
-                </a>
-              )}
-              <Link to="/how-it-works" className={styles.btnSecondary}>
-                <Zap size={18} />
-                Learn More
-              </Link>
-            </div>
+        <div className={styles.bottomCtaInner}>
+          <h2 className={styles.bottomCtaTitle}>Your team's expertise, packaged for agents.</h2>
+          <p className={styles.bottomCtaDesc}>
+            Codify your best practices into skills. Private by default,
+            automatically evaluated, version-controlled. Self-host it or
+            use our cloud — the code is open source.
+          </p>
+          <div className={styles.bottomCtaActions}>
+            {SHOW_GITHUB_BUTTONS && (
+              <a
+                href="https://github.com/pymc-labs/decision-hub"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.btnPrimary}
+              >
+                <Package size={18} />
+                Get Started
+              </a>
+            )}
+            <Link to="/how-it-works" className={styles.btnSecondary}>
+              Learn More
+              <ArrowRight size={16} />
+            </Link>
           </div>
-        </NeonCard>
+        </div>
       </section>
     </div>
   );

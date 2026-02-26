@@ -46,7 +46,7 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
     return (
       <div className="container">
         <NeonCard glow="pink">
-          <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+          <p style={{ color: "var(--grade-fail)" }}>Error: {error}</p>
         </NeonCard>
       </div>
     );
@@ -58,7 +58,7 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
       <div className="container" style={{ textAlign: "center", paddingTop: "4rem" }}>
         {is404 ? (
           <>
-            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--neon-pink)", margin: 0 }}>404</p>
+            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--grade-fail)", margin: 0 }}>404</p>
             <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Organization not found</h1>
             <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
               <strong>{orgSlug}</strong> doesn&apos;t exist or has no published skills.
@@ -66,14 +66,14 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
           </>
         ) : (
           <>
-            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--neon-pink)", margin: 0 }}>Error</p>
+            <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--grade-fail)", margin: 0 }}>Error</p>
             <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Something went wrong</h1>
             <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
               Could not load <strong>{orgSlug}</strong>: {profileError}
             </p>
           </>
         )}
-        <Link to="/orgs" style={{ color: "var(--neon-cyan)" }}>
+        <Link to="/orgs" style={{ color: "var(--lab-blue)" }}>
           ← Browse all organizations
         </Link>
       </div>

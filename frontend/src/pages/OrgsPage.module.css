@@ -7,15 +7,13 @@
   align-items: center;
   gap: 12px;
   font-size: 1.6rem;
-  color: var(--neon-purple);
-  text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
+  color: var(--text-primary);
   margin-bottom: 8px;
 }
 
 .subtitle {
   font-size: 0.95rem;
   color: var(--text-secondary);
-  letter-spacing: 1px;
 }
 
 /* Filters */
@@ -45,11 +43,11 @@
   width: 100%;
   padding: 10px 14px 10px 40px;
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-primary);
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 0.9rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
   outline: none;
   transition: all 0.2s ease;
 }
@@ -59,8 +57,8 @@
 }
 
 .searchInput:focus {
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 10px rgba(180, 0, 255, 0.15);
+  border-color: var(--lab-blue);
+  box-shadow: 0 0 0 3px var(--lab-blue-dim);
 }
 
 .filterGroup {
@@ -73,12 +71,12 @@
 .select {
   padding: 10px 12px;
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-primary);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 500;
   outline: none;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -86,7 +84,7 @@
 }
 
 .select:focus {
-  border-color: var(--neon-purple);
+  border-color: var(--lab-blue);
 }
 
 .grid {
@@ -98,7 +96,6 @@
 .orgLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
 }
 
 .card {
@@ -119,12 +116,12 @@
   align-items: center;
   gap: 4px;
   font-size: 0.65rem;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.25);
+  letter-spacing: 0.5px;
+  color: var(--lab-blue);
+  background: var(--lab-blue-dim);
+  border: 1px solid rgba(59, 130, 246, 0.25);
   border-radius: 4px;
   padding: 2px 6px;
 }
@@ -133,20 +130,19 @@
   width: 60px;
   height: 60px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.25);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--neon-purple);
+  color: var(--neural-violet);
 }
 
 .cardName {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 1.1rem;
   font-weight: 400;
   color: var(--text-primary);
-  letter-spacing: 1px;
 }
 
 .cardStats {
@@ -167,13 +163,11 @@
   align-items: center;
   gap: 4px;
   font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--neon-cyan);
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--lab-blue);
   margin-top: 4px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border);
   width: 100%;
   justify-content: center;
 }
@@ -193,7 +187,6 @@
   }
 }
 
-/* Infinite scroll sentinel */
 .sentinel {
   display: flex;
   justify-content: center;
@@ -201,10 +194,9 @@
 }
 
 .loadingMore {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;
   color: var(--text-muted);
-  letter-spacing: 1px;
 }
 
 @media (max-width: 480px) {

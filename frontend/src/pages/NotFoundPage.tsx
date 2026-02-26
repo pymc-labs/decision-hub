@@ -8,14 +8,14 @@ export default function NotFoundPage() {
       className="container"
       style={{ textAlign: "center", paddingTop: "4rem", paddingBottom: "4rem" }}
     >
-      <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--neon-cyan)", margin: 0 }}>
+      <p style={{ fontSize: "4rem", fontWeight: 700, color: "var(--lab-blue)", margin: 0 }}>
         404
       </p>
       <h1 style={{ fontSize: "1.6rem", margin: "0.75rem 0 0.5rem" }}>Page not found</h1>
       <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>
         The page you&apos;re looking for doesn&apos;t exist.
       </p>
-      <Link to="/" style={{ color: "var(--neon-cyan)" }}>
+      <Link to="/" style={{ color: "var(--lab-blue)" }}>
         ← Back to home
       </Link>
     </div>

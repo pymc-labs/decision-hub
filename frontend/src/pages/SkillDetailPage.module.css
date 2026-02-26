@@ -3,9 +3,7 @@
   align-items: center;
   gap: 6px;
   font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-weight: 500;
   margin-bottom: 24px;
 }
 
@@ -32,9 +30,9 @@
 }
 
 .org {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 1rem;
-  color: var(--neon-purple) !important;
+  color: var(--text-muted) !important;
 }
 
 .slash {
@@ -44,8 +42,7 @@
 
 .name {
   font-size: 1.8rem;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+  color: var(--text-primary);
 }
 
 .desc {
@@ -67,12 +64,12 @@
   gap: 4px;
   font-size: 0.85rem;
   color: var(--text-muted);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   text-decoration: none;
 }
 
 a.metaItem:hover {
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
 }
 
 .metaRemoved {
@@ -80,9 +77,9 @@ a.metaItem:hover {
   align-items: center;
   gap: 4px;
   font-size: 0.85rem;
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-orange);
-  border: 1px solid var(--neon-orange);
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--grade-warn);
+  border: 1px solid var(--grade-warn);
   border-radius: 4px;
   padding: 2px 8px;
 }
@@ -108,7 +105,7 @@ a.metaItem:hover {
   gap: 6px;
   padding: 8px 16px;
   border-radius: 6px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -117,27 +114,25 @@ a.metaItem:hover {
 }
 
 .installBtn {
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.06);
-  border-color: rgba(0, 240, 255, 0.25);
+  color: var(--lab-blue);
+  background: var(--lab-blue-dim);
+  border-color: rgba(59, 130, 246, 0.25);
 }
 
 .installBtn:hover {
-  background: rgba(0, 240, 255, 0.12);
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--lab-blue);
 }
 
 .downloadBtn {
-  color: var(--neon-pink);
-  background: rgba(255, 45, 149, 0.06);
-  border-color: rgba(255, 45, 149, 0.25);
+  color: var(--neural-violet);
+  background: var(--neural-dim);
+  border-color: rgba(167, 139, 250, 0.25);
 }
 
 .downloadBtn:hover:not(:disabled) {
-  background: rgba(255, 45, 149, 0.12);
-  border-color: var(--neon-pink);
-  box-shadow: 0 0 15px rgba(255, 45, 149, 0.2);
+  background: rgba(167, 139, 250, 0.15);
+  border-color: var(--neural-violet);
 }
 
 .downloadBtn:disabled {
@@ -149,7 +144,7 @@ a.metaItem:hover {
 .tabs {
   display: flex;
   gap: 2px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
 }
 
@@ -162,24 +157,21 @@ a.metaItem:hover {
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .tab:hover {
   color: var(--text-primary);
-  background: rgba(0, 240, 255, 0.03);
+  background: var(--bg-elevated);
 }
 
 .tabActive {
-  color: var(--neon-cyan) !important;
-  border-bottom-color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: var(--lab-blue) !important;
+  border-bottom-color: var(--lab-blue);
 }
 
 /* Content */
@@ -201,23 +193,23 @@ a.metaItem:hover {
 
 .overviewTitle {
   font-size: 0.85rem;
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
   margin-bottom: 12px;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
 
 .codeBlock {
-  background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px 16px;
   margin-bottom: 8px;
 }
 
 .codeBlock code {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;
-  color: var(--neon-green);
+  color: var(--grade-pass);
 }
 
 .overviewHint {
@@ -233,10 +225,10 @@ a.metaItem:hover {
 }
 
 .overviewLabel {
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 2px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 8px;
@@ -254,7 +246,7 @@ a.metaItem:hover {
 }
 
 .overviewValueText {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 1.1rem;
   color: var(--text-primary);
 }
@@ -295,9 +287,9 @@ a.metaItem:hover {
 }
 
 .auditVersion {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;
-  color: var(--neon-cyan);
+  color: var(--lab-blue);
 }
 
 .auditPublisher {
@@ -306,7 +298,7 @@ a.metaItem:hover {
 }
 
 .auditDate {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   color: var(--text-muted);
 }
@@ -316,10 +308,10 @@ a.metaItem:hover {
 }
 
 .auditCheckTitle {
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 2px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 6px;
@@ -330,11 +322,11 @@ a.metaItem:hover {
 }
 
 .auditPre {
-  background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 8px 12px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   color: var(--text-secondary);
   overflow-x: auto;
@@ -343,11 +335,11 @@ a.metaItem:hover {
 }
 
 .auditQuarantine {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
-  color: var(--neon-pink);
+  color: var(--grade-fail);
   padding: 4px 8px;
-  background: rgba(255, 45, 149, 0.08);
+  background: rgba(239, 68, 68, 0.08);
   border-radius: 4px;
   align-self: flex-start;
 }

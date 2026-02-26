@@ -1,5 +1,5 @@
 import type { ReactNode, CSSProperties } from "react";
-import styles from "./NeonCard.module.css";
+import Card from "./Card";
 
 interface NeonCardProps {
   children: ReactNode;
@@ -9,6 +9,14 @@ interface NeonCardProps {
   style?: CSSProperties;
 }
 
+const GLOW_TO_ACCENT: Record<string, "blue" | "green" | "violet" | "pink" | "default"> = {
+  cyan: "blue",
+  pink: "pink",
+  purple: "violet",
+  green: "green",
+};
+
+/** @deprecated Wrapper — use Card directly */
 export default function NeonCard({
   children,
   glow = "cyan",
@@ -17,12 +25,13 @@ export default function NeonCard({
   style,
 }: NeonCardProps) {
   return (
-    <div
-      className={`${styles.card} ${styles[glow]} ${onClick ? styles.clickable : ""} ${className}`}
+    <Card
+      accent={GLOW_TO_ACCENT[glow] ?? "default"}
+      className={className}
       onClick={onClick}
       style={style}
     >
       {children}
-    </div>
+    </Card>
   );
 }
