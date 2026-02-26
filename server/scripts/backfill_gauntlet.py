@@ -28,6 +28,7 @@ from decision_hub.domain.skill_manifest import (
 )
 from decision_hub.infra.database import (
     _refresh_skill_latest_version,
+    insert_audit_log,
     versions_table,
 )
 from decision_hub.infra.storage import create_s3_client, download_skill_zip
@@ -121,7 +122,7 @@ def regrade_skill(
         result["total_source_kb"] = round(sum(len(c) for _, c in source_files) / 1024, 1)
 
         t0 = time.monotonic()
-        report, _check_dicts, _llm_reasoning = run_gauntlet_pipeline(
+        report, check_dicts, llm_reasoning = run_gauntlet_pipeline(
             skill_md_content,
             lockfile_content,
             source_files,
@@ -139,6 +140,8 @@ def regrade_skill(
         result["new_summary"] = report.gauntlet_summary or report.summary
         result["grade_changed"] = report.grade != skill["stored_grade"]
         result["duration_ms"] = elapsed_ms
+        result["check_results_dicts"] = check_dicts
+        result["llm_reasoning"] = llm_reasoning
         result["checks_failed"] = [f"{r.check_name}: {r.message}" for r in report.results if r.severity == "fail"]
         result["checks_warned"] = [f"{r.check_name}: {r.message}" for r in report.results if r.severity == "warn"]
     except Exception as exc:
@@ -153,7 +156,7 @@ def regrade_skill(
 
 
 def flush_updates(engine: sa.Engine, results: list[dict]) -> int:
-    """Write new grades to versions table and refresh denormalized skills columns.
+    """Write new grades, audit logs, and refresh denormalized skills columns.
 
     Returns the number of rows updated.
     """
@@ -170,6 +173,18 @@ def flush_updates(engine: sa.Engine, results: list[dict]) -> int:
                     eval_status=r["new_grade"],
                     gauntlet_summary=r["new_summary"],
                 )
+            )
+            org_slug, skill_name = r["fqn"].split("/", 1)
+            insert_audit_log(
+                conn,
+                org_slug=org_slug,
+                skill_name=skill_name,
+                semver=r["version"],
+                grade=r["new_grade"],
+                check_results=r.get("check_results_dicts", []),
+                publisher="backfill",
+                version_id=UUID(str(r["version_id"])),
+                llm_reasoning=r.get("llm_reasoning"),
             )
             _refresh_skill_latest_version(conn, UUID(str(r["skill_id"])))
 
