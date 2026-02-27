@@ -64,6 +64,7 @@ from decision_hub.infra.database import (
     update_eval_run_status,
     update_skill_category,
     update_skill_description,
+    update_skill_manifest_path,
     update_skill_source_repo_url,
     update_skill_visibility,
 )
@@ -212,6 +213,7 @@ class SkillSummary(BaseModel):
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    manifest_path: str | None = None
     source_repo_removed: bool = False
     github_stars: int | None = None
     github_forks: int | None = None
@@ -383,6 +385,7 @@ def publish_skill(
     org_slug, skill_name, version = meta["org_slug"], meta["skill_name"], meta["version"]
     visibility = meta.get("visibility")
     source_repo_url = meta.get("source_repo_url")
+    manifest_path = meta.get("manifest_path")
     if visibility is not None and visibility not in _VALID_VISIBILITIES:
         raise HTTPException(
             status_code=422,
@@ -469,12 +472,15 @@ def publish_skill(
             category=category,
             visibility=visibility or "public",
             source_repo_url=source_repo_url,
+            manifest_path=manifest_path,
         )
     else:
         update_skill_description(conn, skill.id, description)
         update_skill_category(conn, skill.id, category)
         if source_repo_url and skill.source_repo_url != source_repo_url:
             update_skill_source_repo_url(conn, skill.id, source_repo_url)
+        if manifest_path and skill.manifest_path != manifest_path:
+            update_skill_manifest_path(conn, skill.id, manifest_path)
         if visibility is not None:
             update_skill_visibility(conn, skill.id, visibility)
 
@@ -622,6 +628,7 @@ def list_skills(
             category=row.get("category", ""),
             visibility=row.get("visibility", "public"),
             source_repo_url=row.get("source_repo_url"),
+            manifest_path=row.get("manifest_path"),
             source_repo_removed=row.get("source_repo_removed", False),
             github_stars=row.get("github_stars"),
             github_forks=row.get("github_forks"),
@@ -674,6 +681,7 @@ def get_skill_summary(
         category=skill.category,
         visibility=skill.visibility,
         source_repo_url=skill.source_repo_url,
+        manifest_path=skill.manifest_path,
         source_repo_removed=skill.source_repo_removed,
         github_stars=skill.github_stars,
         github_forks=skill.github_forks,

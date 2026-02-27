@@ -321,6 +321,7 @@ class TestPublishSkill:
             category="Other & Utilities",
             visibility="public",
             source_repo_url=None,  # no source_repo_url in metadata
+            manifest_path=None,
         )
         assert resp.json()["skill_id"] == str(new_skill.id)
 

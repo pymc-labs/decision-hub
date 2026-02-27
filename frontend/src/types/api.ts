@@ -12,6 +12,7 @@ export interface SkillSummary {
   is_personal_org: boolean;
   category: string;
   source_repo_url: string | null;
+  manifest_path: string | null;
   source_repo_removed: boolean;
   github_stars: number | null;
   github_forks: number | null;

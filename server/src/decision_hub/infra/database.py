@@ -162,6 +162,7 @@ skills_table = Table(
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
     Column("source_repo_url", Text, nullable=True),
+    Column("manifest_path", Text, nullable=True),
     Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
     Column("github_stars", sa.Integer, nullable=True),
     Column("github_forks", sa.Integer, nullable=True),
@@ -618,6 +619,7 @@ _SKILL_SUMMARY_COLUMNS = [
     skills_table.c.category,
     skills_table.c.visibility,
     skills_table.c.source_repo_url,
+    skills_table.c.manifest_path,
     skills_table.c.source_repo_removed,
     skills_table.c.github_stars,
     skills_table.c.github_forks,
@@ -700,6 +702,7 @@ def _row_to_skill(row: sa.Row) -> Skill:
         category=row.category,
         visibility=row.visibility,
         source_repo_url=row.source_repo_url,
+        manifest_path=row.manifest_path,
         source_repo_removed=row.source_repo_removed,
         github_stars=row.github_stars,
         github_forks=row.github_forks,
@@ -970,6 +973,7 @@ def insert_skill(
     *,
     visibility: str = "public",
     source_repo_url: str | None = None,
+    manifest_path: str | None = None,
 ) -> Skill:
     """Register a new skill under an organization.
 
@@ -981,6 +985,7 @@ def insert_skill(
         category: Skill category from LLM classification.
         visibility: Skill visibility ('public' or 'org').
         source_repo_url: URL of the source GitHub repository.
+        manifest_path: Relative path to SKILL.md within the repo.
 
     Returns:
         The newly created Skill.
@@ -988,6 +993,8 @@ def insert_skill(
     values: dict = dict(org_id=org_id, name=name, description=description, category=category, visibility=visibility)
     if source_repo_url is not None:
         values["source_repo_url"] = source_repo_url
+    if manifest_path is not None:
+        values["manifest_path"] = manifest_path
     stmt = sa.insert(skills_table).values(**values).returning(*skills_table.c)
     row = conn.execute(stmt).one()
     skill = _row_to_skill(row)
@@ -1101,6 +1108,12 @@ def update_skill_visibility(conn: Connection, skill_id: UUID, visibility: str) -
 def update_skill_source_repo_url(conn: Connection, skill_id: UUID, source_repo_url: str) -> None:
     """Set or update the source GitHub repository URL for a skill."""
     stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(source_repo_url=source_repo_url)
+    conn.execute(stmt)
+
+
+def update_skill_manifest_path(conn: Connection, skill_id: UUID, manifest_path: str) -> None:
+    """Set or update the relative path to SKILL.md within the source repo."""
+    stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(manifest_path=manifest_path)
     conn.execute(stmt)
 
 
