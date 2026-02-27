@@ -1783,10 +1783,10 @@ def fetch_all_skills_for_index(
 def fetch_marketplace_skills(conn: Connection, limit: int = 1000) -> list[dict]:
     """Fetch top skills for the Claude plugin marketplace.
 
-    Returns the top N public skills by download count, excluding those
-    without a published version. Each dict contains: org_slug, skill_name,
-    description, latest_version, category, gauntlet_summary, eval_status,
-    download_count, source_repo_url, s3_key.
+    Returns the top N public skills by download count, excluding F-graded
+    skills and those without a published version. Each dict contains:
+    org_slug, skill_name, description, latest_version, category,
+    gauntlet_summary, eval_status, download_count, source_repo_url, s3_key.
     """
     j = skills_table.join(
         organizations_table,
@@ -1817,6 +1817,11 @@ def fetch_marketplace_skills(conn: Connection, limit: int = 1000) -> list[dict]:
             sa.and_(
                 skills_table.c.visibility == "public",
                 skills_table.c.latest_semver.isnot(None),
+                # Exclude F-graded skills from marketplace
+                sa.or_(
+                    skills_table.c.latest_gauntlet_summary.is_(None),
+                    ~skills_table.c.latest_gauntlet_summary.startswith("F"),
+                ),
             )
         )
         .order_by(skills_table.c.download_count.desc(), skills_table.c.name.asc())
