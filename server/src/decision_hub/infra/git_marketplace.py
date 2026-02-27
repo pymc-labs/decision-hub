@@ -211,6 +211,17 @@ def create_git_wsgi_app(
     start_response(). Starlette's WSGIMiddleware doesn't return one,
     so we wrap start_response to provide a buffered write function.
     """
+    # Cache the HTTPGitApplication alongside the repo so we don't
+    # reconstruct it on every WSGI request (a git clone is 2+ requests).
+    _cached_git_app: list = [None, None]  # [repo_id, HTTPGitApplication]
+
+    def _get_git_app(repo: MemoryRepo) -> HTTPGitApplication:
+        repo_id = id(repo)
+        if _cached_git_app[0] != repo_id:
+            backend = DictBackend({"/": repo})
+            _cached_git_app[0] = repo_id
+            _cached_git_app[1] = HTTPGitApplication(backend)
+        return _cached_git_app[1]
 
     def app(environ: dict, start_response: Callable) -> list[bytes]:
         repo = None
@@ -223,6 +234,8 @@ def create_git_wsgi_app(
             start_response("503 Service Unavailable", [("Content-Type", "text/plain")])
             return [b"Marketplace not available"]
 
+        git_app = _get_git_app(repo)
+
         # dulwich uses the legacy WSGI write() callable that start_response
         # returns. Starlette's adapter returns None, so we buffer write()
         # calls and prepend them to the response iterator.
@@ -231,9 +244,6 @@ def create_git_wsgi_app(
         def patched_start_response(status, headers, exc_info=None):
             start_response(status, headers, exc_info)
             return write_buffer.append
-
-        backend = DictBackend({"/": repo})
-        git_app = HTTPGitApplication(backend)
 
         # Consume the generator — dulwich writes data via write() during
         # iteration, not upfront. We must exhaust the iterator first.
