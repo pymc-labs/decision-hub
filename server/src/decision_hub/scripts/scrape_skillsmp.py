@@ -5,17 +5,17 @@ repo URLs. Results are deduplicated by repo and saved to a JSON file that
 can be fed directly to the crawler via ``--repos-file``.
 
 Usage:
-    # Scrape the Data & AI category
+    # Scrape the Data Engineering category
     cd server && uv run --package decision-hub-server \
       python -m decision_hub.scripts.scrape_skillsmp \
       --api-key sk_live_skillsmp_xxx \
-      --category data-ai \
-      --output skillsmp_data_ai.json
+      --category data-engineering \
+      --output skillsmp_data_engineering.json
 
     # Then publish via crawler
     cd server && DHUB_ENV=dev uv run --package decision-hub-server \
       python -m decision_hub.scripts.github_crawler \
-      --repos-file skillsmp_data_ai.json \
+      --repos-file skillsmp_data_engineering.json \
       --github-token "$(gh auth token)"
 """
 
@@ -34,42 +34,86 @@ import httpx
 
 SKILLSMP_API = "https://skillsmp.com/api/v1"
 
-# Search queries that cover the "Data & AI" category well.
-# The SkillsMP API only supports keyword search — no category filter — so we
-# use multiple domain-specific queries and deduplicate the results.
+# Search queries per category. The SkillsMP API only supports keyword search —
+# no category filter — so we use multiple domain-specific queries per category
+# and deduplicate the results.
 DATA_AI_QUERIES: dict[str, list[str]] = {
-    "data-ai": [
-        "data science",
-        "machine learning",
-        "data analysis",
-        "data engineering",
-        "deep learning",
-        "natural language processing",
-        "computer vision",
+    "data-engineering": [
         "data pipeline",
-        "LLM",
-        "pandas",
-        "pytorch",
-        "tensorflow",
-        "scikit-learn",
-        "data visualization",
-        "AI model",
-        "neural network",
-        "NLP",
-        "MLOps",
-        "embeddings",
-        "vector database",
+        "ETL",
+        "data warehouse",
+        "data lake",
+        "Apache Spark",
+        "Apache Airflow",
+        "dbt",
+        "data ingestion",
+        "stream processing",
+        "Apache Kafka",
+        "data orchestration",
+        "batch processing",
+        "data catalog",
+        "data lineage",
+        "data quality",
     ],
-    # Easy to add other categories later
-    "development": [
-        "developer tools",
-        "code generation",
-        "refactoring",
-        "debugging",
-        "testing",
-        "CI/CD",
-        "git",
-        "code review",
+    "data-science": [
+        "data science",
+        "pandas",
+        "scikit-learn",
+        "exploratory data analysis",
+        "feature engineering",
+        "statistical modeling",
+        "regression analysis",
+        "classification model",
+        "clustering",
+        "time series forecasting",
+        "A/B testing",
+        "experiment design",
+        "hypothesis testing",
+        "Bayesian statistics",
+        "causal inference",
+    ],
+    "data-analysis": [
+        "data analysis",
+        "data visualization",
+        "matplotlib",
+        "plotly",
+        "dashboard",
+        "business intelligence",
+        "SQL analytics",
+        "data storytelling",
+        "reporting automation",
+        "Excel automation",
+        "pivot table",
+        "data cleaning",
+    ],
+    "scientific-computing": [
+        "scientific computing",
+        "numerical methods",
+        "numpy",
+        "scipy",
+        "simulation",
+        "differential equations",
+        "linear algebra",
+        "optimization",
+        "Monte Carlo",
+        "finite element",
+        "computational modeling",
+        "symbolic math",
+        "Julia language",
+    ],
+    "architecture-patterns": [
+        "software architecture",
+        "design patterns",
+        "microservices",
+        "event-driven architecture",
+        "domain-driven design",
+        "clean architecture",
+        "system design",
+        "API design",
+        "distributed systems",
+        "message queue",
+        "CQRS",
+        "hexagonal architecture",
     ],
 }
 
@@ -256,8 +300,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--category",
-        default="data-ai",
-        help="Category slug to scrape (default: data-ai)",
+        default="data-engineering",
+        choices=list(DATA_AI_QUERIES.keys()),
+        help="Category slug to scrape (default: data-engineering)",
     )
     parser.add_argument(
         "--output",
