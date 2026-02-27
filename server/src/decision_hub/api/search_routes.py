@@ -5,21 +5,21 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Connection, Engine
 
-from decision_hub.api.deps import get_connection, get_current_user_optional, get_s3_client, get_settings
+from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import (
     ask_conversational,
-    check_query_topicality,
     create_gemini_client,
-    parse_query_keywords,
+    parse_query_with_guard,
 )
 from decision_hub.infra.storage import upload_search_log
 from decision_hub.models import SkillIndexEntry, User
@@ -57,37 +57,18 @@ class RetrievalResult:
 
 
 def _run_retrieval(
-    gemini: dict,
-    query: str,
+    fts_queries: list[str],
+    query_embedding: list[float] | None,
+    embed_ms: int,
     conn: Connection,
     settings: Settings,
     user_id: UUID | None,
     category: str | None = None,
 ) -> RetrievalResult | None:
-    """Parse keywords, embed query, run hybrid search, build index.
+    """Run hybrid search and build index from pre-computed FTS queries and embedding.
 
     Returns None when the candidate set is empty.
     """
-
-    # Parse keywords + embed query in parallel
-    def _do_parse() -> list[str]:
-        return parse_query_keywords(gemini, query, settings.gemini_model)
-
-    def _do_embed() -> tuple[list[float] | None, int]:
-        try:
-            t0 = time.monotonic()
-            emb = embed_query(gemini, query, settings.embedding_model, EMBEDDING_DIMENSIONS)
-            return emb, int((time.monotonic() - t0) * 1000)
-        except Exception:
-            logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")
-            return None, 0
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        parse_future = pool.submit(_do_parse)
-        embed_future = pool.submit(_do_embed)
-        fts_queries = parse_future.result()
-        query_embedding, embed_ms = embed_future.result()
-
     # Hybrid retrieval
     user_org_ids = list_user_org_ids(conn, user_id) if user_id else None
     db_start = time.monotonic()
@@ -128,6 +109,59 @@ def _run_retrieval(
         embed_ms=embed_ms,
         db_ms=db_ms,
     )
+
+
+# ---------------------------------------------------------------------------
+# Background analytics logging (non-critical, must not block the response)
+# ---------------------------------------------------------------------------
+
+
+def _log_ask_analytics(
+    engine: Engine,
+    s3_client,
+    s3_bucket: str,
+    log_id: UUID,
+    query: str,
+    answer: str,
+    results_count: int,
+    model: str,
+    latency_ms: int,
+    user_id: UUID | None,
+    username: str | None,
+    *,
+    fallback: bool = False,
+) -> None:
+    """Upload search log to S3 and insert metadata row.
+
+    Runs as a FastAPI background task with its own DB connection so the
+    request connection is already closed when this executes.
+    """
+    try:
+        metadata = {
+            "results_count": results_count,
+            "model": model,
+            "latency_ms": latency_ms,
+            "user_id": str(user_id) if user_id else None,
+            "username": username,
+        }
+        if fallback:
+            metadata["fallback"] = True
+
+        s3_key = upload_search_log(s3_client, s3_bucket, log_id, query, answer, metadata)
+
+        with engine.begin() as conn:
+            insert_search_log(
+                conn,
+                log_id=log_id,
+                query=query,
+                s3_key=s3_key,
+                results_count=results_count,
+                model=model,
+                latency_ms=latency_ms,
+                user_id=user_id,
+            )
+    except Exception:
+        logger.opt(exception=True).warning("Analytics logging failed for ask q='{}'", query[:80])
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +212,9 @@ class AskResponse(BaseModel):
 def ask_skills(
     q: str = Query(..., max_length=500),
     category: str | None = Query(None, max_length=100, description="Filter results to a specific category"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     settings: Settings = Depends(get_settings),
+    engine: Engine = Depends(get_engine),
     conn=Depends(get_connection),
     s3_client=Depends(get_s3_client),
     current_user: User | None = Depends(get_current_user_optional),
@@ -195,17 +231,63 @@ def ask_skills(
             detail="Ask is not configured (missing GOOGLE_API_KEY)",
         )
 
-    gemini = create_gemini_client(settings.google_api_key)
+    # Share a single TCP+TLS connection across all Gemini calls in this request
+    with httpx.Client(timeout=60) as shared_http:
+        return _ask_skills_inner(
+            q=q,
+            category=category,
+            background_tasks=background_tasks,
+            settings=settings,
+            engine=engine,
+            conn=conn,
+            s3_client=s3_client,
+            current_user=current_user,
+            shared_http=shared_http,
+        )
 
-    guard = check_query_topicality(gemini, q, settings.gemini_model)
-    if not guard["is_skill_query"]:
-        return AskResponse(query=q, answer=_OFF_TOPIC_ANSWER, skills=[])
 
+def _ask_skills_inner(
+    *,
+    q: str,
+    category: str | None,
+    background_tasks: BackgroundTasks,
+    settings: Settings,
+    engine: Engine,
+    conn: Connection,
+    s3_client,
+    current_user: User | None,
+    shared_http: httpx.Client,
+) -> AskResponse:
+    """Core ask logic, extracted so the shared httpx.Client context manager stays flat."""
+    gemini = create_gemini_client(settings.google_api_key, http_client=shared_http)
     start_time = time.monotonic()
 
+    # Run guard+parse and embedding in parallel to hide topicality latency
+    def _do_guard():
+        return parse_query_with_guard(gemini, q, settings.gemini_model)
+
+    def _do_embed():
+        try:
+            t0 = time.monotonic()
+            emb = embed_query(gemini, q, settings.embedding_model, EMBEDDING_DIMENSIONS)
+            return emb, int((time.monotonic() - t0) * 1000)
+        except Exception:
+            logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")
+            return None, 0
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        guard_future = pool.submit(_do_guard)
+        embed_future = pool.submit(_do_embed)
+        guard_result = guard_future.result()
+        query_embedding, embed_ms = embed_future.result()
+
+    if not guard_result.is_skill_query:
+        return AskResponse(query=q, answer=_OFF_TOPIC_ANSWER, skills=[])
+
     result = _run_retrieval(
-        gemini,
-        q,
+        guard_result.fts_queries,
+        query_embedding,
+        embed_ms,
         conn,
         settings,
         user_id=current_user.id if current_user else None,
@@ -256,35 +338,21 @@ def ask_skills(
             )
             for e in result.entries[:5]
         ]
-        try:
-            log_id = uuid4()
-            s3_key = upload_search_log(
-                s3_client,
-                settings.s3_bucket,
-                log_id,
-                q,
-                "",
-                {
-                    "results_count": len(result.entries),
-                    "model": settings.gemini_model,
-                    "latency_ms": fallback_latency_ms,
-                    "user_id": str(current_user.id) if current_user else None,
-                    "username": current_user.username if current_user else None,
-                    "fallback": True,
-                },
-            )
-            insert_search_log(
-                conn,
-                log_id=log_id,
-                query=q,
-                s3_key=s3_key,
-                results_count=len(result.entries),
-                model=settings.gemini_model,
-                latency_ms=fallback_latency_ms,
-                user_id=current_user.id if current_user else None,
-            )
-        except Exception:
-            logger.opt(exception=True).warning("Analytics logging failed for fallback ask q='{}'", q[:80])
+        background_tasks.add_task(
+            _log_ask_analytics,
+            engine=engine,
+            s3_client=s3_client,
+            s3_bucket=settings.s3_bucket,
+            log_id=uuid4(),
+            query=q,
+            answer="",
+            results_count=len(result.entries),
+            model=settings.gemini_model,
+            latency_ms=fallback_latency_ms,
+            user_id=current_user.id if current_user else None,
+            username=current_user.username if current_user else None,
+            fallback=True,
+        )
         return AskResponse(
             query=q,
             answer="Here are the most relevant skills I found:",
@@ -303,38 +371,21 @@ def ask_skills(
         latency_ms,
     )
 
-    # Log to S3 + DB (non-critical, must not block the response)
-    try:
-        log_id = uuid4()
-        log_metadata = {
-            "results_count": len(result.entries),
-            "model": settings.gemini_model,
-            "latency_ms": latency_ms,
-            "user_id": str(current_user.id) if current_user else None,
-            "username": current_user.username if current_user else None,
-        }
-
-        s3_key = upload_search_log(
-            s3_client,
-            settings.s3_bucket,
-            log_id,
-            q,
-            llm_result.get("answer", ""),
-            log_metadata,
-        )
-
-        insert_search_log(
-            conn,
-            log_id=log_id,
-            query=q,
-            s3_key=s3_key,
-            results_count=len(result.entries),
-            model=settings.gemini_model,
-            latency_ms=latency_ms,
-            user_id=current_user.id if current_user else None,
-        )
-    except Exception:
-        logger.opt(exception=True).warning("Analytics logging failed for ask q='{}'", q[:80])
+    # Log to S3 + DB in background (non-critical, must not block the response)
+    background_tasks.add_task(
+        _log_ask_analytics,
+        engine=engine,
+        s3_client=s3_client,
+        s3_bucket=settings.s3_bucket,
+        log_id=uuid4(),
+        query=q,
+        answer=llm_result.get("answer", ""),
+        results_count=len(result.entries),
+        model=settings.gemini_model,
+        latency_ms=latency_ms,
+        user_id=current_user.id if current_user else None,
+        username=current_user.username if current_user else None,
+    )
 
     # Enrich LLM skill references with metadata from DB candidates
     skill_refs = []
