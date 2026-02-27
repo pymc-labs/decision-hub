@@ -10,7 +10,7 @@
 }
 
 .pageTitle {
-  font-size: 2rem;
+  font-size: var(--text-title);
   color: var(--neon-cyan);
   text-shadow: var(--glow-text-strong);
   margin-bottom: 12px;
@@ -19,7 +19,7 @@
 .pageSubtitle {
   max-width: 600px;
   margin: 0 auto;
-  font-size: 1.15rem;
+  font-size: var(--text-body);
   color: var(--text-secondary);
   line-height: 1.7;
 }
@@ -86,7 +86,7 @@
   display: inline-block;
   font-family: "Orbitron", sans-serif;
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   letter-spacing: 3px;
   color: var(--act-color);
   text-shadow: 0 0 10px var(--act-color);
@@ -94,7 +94,7 @@
 }
 
 .actTagline {
-  font-size: 1.15rem;
+  font-size: var(--text-body);
   color: var(--text-secondary);
   line-height: 1.6;
   max-width: 600px;
@@ -147,7 +147,7 @@
 }
 
 .featureTitle {
-  font-size: 1.3rem;
+  font-size: var(--text-lg);
   color: var(--act-color);
   text-shadow: var(--glow-text-subtle);
 }
@@ -162,7 +162,7 @@
 }
 
 .featureBullet {
-  font-size: 1.05rem;
+  font-size: var(--text-body);
   color: var(--text-secondary);
   line-height: 1.7;
   padding-left: 16px;
@@ -239,20 +239,20 @@
   }
 
   .pageTitle {
-    font-size: 1.6rem;
+    font-size: var(--text-heading);
   }
 
   .pageSubtitle {
-    font-size: 1rem;
+    font-size: var(--text-body);
   }
 
   .actLabel {
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
     letter-spacing: 2px;
   }
 
   .actTagline {
-    font-size: 1rem;
+    font-size: var(--text-body);
   }
 
   .actHeader {
@@ -276,10 +276,10 @@
   }
 
   .featureTitle {
-    font-size: 1.15rem;
+    font-size: var(--text-body);
   }
 
   .featureBullet {
-    font-size: 0.95rem;
+    font-size: var(--text-sm);
   }
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Building2, Package, ArrowRight, Search, Filter, Star } from "lucide-react";
+import { Building2, Package, ArrowRight, Search, Filter, Star, ArrowUp, ArrowDown } from "lucide-react";
 import { listOrgStats } from "../api/client";
+import type { OrgSortField } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
 import type { OrgStatsResponse } from "../types/api";
@@ -26,7 +27,12 @@ export default function OrgsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<OrgType>("orgs");
+  const [sortBy, setSortBy] = useState<OrgSortField>("slug");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [visibleCount, setVisibleCount] = useState(CHUNK_SIZE);
+
+  const defaultDirFor = (field: OrgSortField): "asc" | "desc" =>
+    field === "slug" ? "asc" : "desc";
 
   // Debounce the search input
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -41,14 +47,17 @@ export default function OrgsPage() {
     return listOrgStats({
       search: debouncedSearch || undefined,
       typeFilter,
+      sort: sortBy,
+      sortDir,
     });
-  }, [debouncedSearch, typeFilter]);
+  }, [debouncedSearch, typeFilter, sortBy, sortDir]);
 
   const { data, loading, error } = useApi<OrgStatsResponse>(
     fetchOrgs,
-    [debouncedSearch, typeFilter]
+    [debouncedSearch, typeFilter, sortBy, sortDir]
   );
 
+  // Pin featured orgs to top in their defined order; server ordering applies within each group.
   const orgs = useMemo(() => {
     const items = data?.items ?? [];
     return [...items].sort((a, b) => {
@@ -56,10 +65,8 @@ export default function OrgsPage() {
       const bFeatured = FEATURED_SET.has(b.slug);
       if (aFeatured && !bFeatured) return -1;
       if (!aFeatured && bFeatured) return 1;
-      if (aFeatured && bFeatured) {
-        return FEATURED_ORGS.indexOf(a.slug) - FEATURED_ORGS.indexOf(b.slug);
-      }
-      return 0;
+      if (aFeatured && bFeatured) return FEATURED_ORGS.indexOf(a.slug) - FEATURED_ORGS.indexOf(b.slug);
+      return 0; // non-featured: preserve server order
     });
   }, [data]);
 
@@ -155,6 +162,33 @@ export default function OrgsPage() {
             <option value="users">Users</option>
             <option value="all">All</option>
           </select>
+        </div>
+
+        <div className={styles.sortGroup}>
+          <select
+            aria-label="Sort organizations by"
+            value={sortBy}
+            onChange={(e) => {
+              const field = e.target.value as OrgSortField;
+              setSortBy(field);
+              setSortDir(defaultDirFor(field));
+            }}
+            className={styles.sortSelect}
+          >
+            <option value="slug">Alphabetical</option>
+            <option value="skill_count">Most Skills</option>
+            <option value="total_downloads">Most Downloads</option>
+            <option value="latest_update">Recently Active</option>
+          </select>
+
+          <button
+            className={styles.sortDirBtn}
+            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+            title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"}
+            aria-label="Toggle sort direction"
+          >
+            {sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+          </button>
         </div>
       </div>
 
