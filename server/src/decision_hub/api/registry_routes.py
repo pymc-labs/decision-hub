@@ -561,9 +561,11 @@ def publish_skill(
     "/stats",
 )
 def get_registry_stats(
+    response: Response,
     conn: Connection = Depends(get_connection),
 ) -> dict:
     """Return aggregate registry statistics (total skills, orgs, downloads)."""
+    response.headers["Cache-Control"] = "public, max-age=300"
     return fetch_registry_stats(conn)
 
 

@@ -34,7 +34,7 @@ if _frontend_dist.is_dir():
 custom_domains = ["hub.decision.ai"] if env == "prod" else ["hub-dev.decision.ai"]
 
 
-@app.function(image=image, scaledown_window=300, cpu=0.5, memory=256)
+@app.function(image=image, scaledown_window=600, cpu=1, memory=512)
 @modal.concurrent(max_inputs=100)
 @modal.asgi_app(label=f"api{suffix}", custom_domains=custom_domains)
 def web():

@@ -215,6 +215,22 @@ sa.Index(
     postgresql_where=skills_table.c.latest_semver.isnot(None),
 )
 
+sa.Index(
+    "idx_skills_visibility",
+    skills_table.c.visibility,
+    postgresql_where=skills_table.c.latest_semver.isnot(None),
+)
+
+sa.Index(
+    "idx_skills_category",
+    skills_table.c.category,
+    postgresql_where=sa.and_(
+        skills_table.c.latest_semver.isnot(None),
+        skills_table.c.category.isnot(None),
+        skills_table.c.category != "",
+    ),
+)
+
 skill_access_grants_table = Table(
     "skill_access_grants",
     metadata,
@@ -1653,8 +1669,8 @@ def _build_skills_filters(
 ) -> sa.Select:
     """Apply optional filter predicates to a skills query.
 
-    Shared between fetch_all_skills_for_index and count_all_skills to
-    keep filter logic consistent. Grade filtering reads the denormalized
+    Used by fetch_all_skills_for_index to apply user-specified filters.
+    Grade filtering reads the denormalized
     latest_eval_status column on skills_table directly.
     """
     if search:
@@ -1704,7 +1720,7 @@ def fetch_all_skills_for_index(
     Returns a tuple of (items, total) where items is a list of dicts with
     keys: org_slug, skill_name, latest_version, eval_status, visibility, etc.
     total is the full count of matching rows (before LIMIT/OFFSET), obtained
-    via a separate count_all_skills() call.
+    via a COUNT(*) OVER() window function in the main query.
 
     Reads denormalized latest-version columns directly from the skills
     table, avoiding LATERAL subqueries. Only skills with at least one
@@ -1728,7 +1744,11 @@ def fetch_all_skills_for_index(
     )
 
     base = (
-        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
+        sa.select(
+            *_SKILL_SUMMARY_COLUMNS,
+            tracker_exists,
+            sa.func.count().over().label("_total"),
+        )
         .select_from(
             skills_table.join(
                 organizations_table,
@@ -1790,22 +1810,11 @@ def fetch_all_skills_for_index(
         col = skills_table.c.latest_published_at
         base = base.order_by(col.asc() if asc else col.desc(), *tiebreaker)
 
-    # Get total via separate count query (avoids COUNT(*) OVER() which
-    # forces full result set materialization)
-    total = count_all_skills(
-        conn,
-        user_org_ids=user_org_ids,
-        granted_skill_ids=granted_skill_ids,
-        search=search,
-        org_slug=org_slug,
-        category=category,
-        grade=grade,
-    )
-
     if limit is not None:
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
+    total = rows[0]._mapping["_total"] if rows else 0
     items = [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
     return items, total
 
@@ -1905,44 +1914,6 @@ def update_skill_embedding(conn: Connection, skill_id: UUID, embedding: list[flo
     """Store an embedding vector for a skill."""
     stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(embedding=embedding)
     conn.execute(stmt)
-
-
-def count_all_skills(
-    conn: Connection,
-    *,
-    user_org_ids: list[UUID] | None = None,
-    granted_skill_ids: list[UUID] | None = None,
-    search: str | None = None,
-    org_slug: str | None = None,
-    category: str | None = None,
-    grade: str | None = None,
-) -> int:
-    """Count total skills visible to the user (for pagination metadata).
-
-    Reads the denormalized latest_semver column to match the inner-join
-    behavior of fetch_all_skills_for_index (only skills with at least
-    one published version are counted). Accepts the same filter params
-    for consistency.
-    """
-    base = (
-        sa.select(sa.func.count())
-        .select_from(
-            skills_table.join(
-                organizations_table,
-                skills_table.c.org_id == organizations_table.c.id,
-            )
-        )
-        .where(skills_table.c.latest_semver.isnot(None))
-    )
-    base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
-    base = _build_skills_filters(
-        base,
-        search=search,
-        org_slug=org_slug,
-        category=category,
-        grade=grade,
-    )
-    return conn.execute(base).scalar_one()
 
 
 def fetch_registry_stats(conn: Connection) -> dict:
