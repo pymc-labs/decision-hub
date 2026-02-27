@@ -146,6 +146,7 @@ _ENTROPY_ALLOWLIST_RE = re.compile(
     r"|(?-i:[A-Z_]{20,})$"  # ALL_CAPS constants / env var names (case-sensitive)
     r"|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"  # UUIDs
     r"|YOUR_|CHANGE_ME|REPLACE|PLACEHOLDER|TODO|FIXME|EXAMPLE|DUMMY|FAKE|TEST"
+    r"|.*\{[a-zA-Z_]\w*\}"  # f-string/template interpolation ({var_name})
     r")",
     re.IGNORECASE,
 )
