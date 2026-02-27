@@ -4,16 +4,67 @@ Uses the SkillsMP category browsing endpoint to fetch all skills in a given
 category (or parent domain). Results are deduplicated by repo and saved to a
 JSON file that can be fed directly to the crawler via ``--repos-file``.
 
-The API distinguishes two levels:
-  - **domain**: parent group (e.g. ``data-ai``) that spans subcategories
-  - **category**: leaf category (e.g. ``data-engineering``, ``machine-learning``)
+API details (undocumented — discovered 2026-02-27)
+===================================================
 
-Pass any slug — the scraper auto-detects whether it's a domain or category.
+Endpoint: GET https://skillsmp.com/api/skills
 
-**Note:** SkillsMP uses Cloudflare Bot Management which blocks server-side HTTP
-clients (httpx, curl). This scraper sends a browser-like User-Agent which may
-work, but if you get 403 errors, use the Playwright MCP browser to fetch pages
-from the browser context instead. See the ``--playwright`` flag.
+The *documented* API (https://skillsmp.com/en/docs/api) only exposes keyword
+search at ``/api/v1/skills/search``. However, the website's category pages use
+an **undocumented** ``/api/skills`` endpoint that supports exact category
+browsing with pagination.
+
+Query parameters:
+  - ``domain=<slug>``   — for parent groups (e.g. ``data-ai``, ``tools``,
+    ``development``). Spans all subcategories underneath.
+  - ``category=<slug>`` — for leaf categories (e.g. ``data-engineering``,
+    ``machine-learning``).
+  - ``page=N``          — 1-indexed page number.
+  - ``limit=N``         — items per page, max 100.
+  - ``sortBy=stars``    — sort order (``stars`` or ``recent``).
+
+Response shape::
+
+    {
+      "skills": [{"id", "name", "author", "githubUrl", "stars", ...}],
+      "pagination": {
+        "page": 1, "limit": 100, "total": 5000, "totalPages": 50,
+        "hasNext": true, "totalAll": 39583, "isCapped": true,
+        "maxResults": 5000
+      }
+    }
+
+Results are capped at 5,000 skills per query (``isCapped: true``).
+No authentication is required.
+
+Cloudflare Bot Management
+=========================
+
+SkillsMP is behind Cloudflare which blocks all server-side HTTP clients (httpx,
+curl, requests) with a 403 + JS challenge — regardless of User-Agent or headers.
+
+**Workaround:** Use the Playwright MCP browser to navigate to any SkillsMP page
+first (which passes the Cloudflare challenge), then call ``page.evaluate()`` to
+``fetch()`` the API from the browser context. Example::
+
+    # 1. Navigate to SkillsMP (passes Cloudflare JS challenge)
+    browser_navigate("https://skillsmp.com/en/categories/data-ai")
+
+    # 2. Fetch all pages from within the browser
+    browser_evaluate('''async () => {
+      const all = [];
+      for (let p = 1; p <= 50; p++) {
+        const r = await fetch(`/api/skills?page=${p}&limit=100&sortBy=stars&domain=data-ai`);
+        const d = await r.json();
+        if (!d.skills.length) break;
+        all.push(...d.skills);
+        if (!d.pagination.hasNext) break;
+        await new Promise(r => setTimeout(r, 300));
+      }
+      return { total: all.length, skills: all };
+    }''')
+
+The httpx path below is kept as a fallback in case Cloudflare rules change.
 
 Usage:
     # Scrape the entire Data & AI domain (top 5k by stars)
