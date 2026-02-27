@@ -327,6 +327,7 @@ def parse_query_with_guard(
             "temperature": 0.0,
             "responseMimeType": "application/json",
             "responseSchema": _GUARD_AND_PARSE_SCHEMA,
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
