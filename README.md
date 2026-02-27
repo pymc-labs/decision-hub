@@ -2,6 +2,16 @@
   <img src="assets/banner.png" alt="Decision Hub — The AI Skill Manager" width="100%">
 </p>
 
+<p align="center">
+  <a href="https://pypi.org/project/dhub-cli/"><img src="https://img.shields.io/pypi/v/dhub-cli" alt="PyPI Version"></a>
+  <a href="https://pypi.org/project/dhub-cli/"><img src="https://img.shields.io/pypi/dm/dhub-cli" alt="PyPI Downloads"></a>
+  <a href="https://pypi.org/project/dhub-cli/"><img src="https://img.shields.io/pypi/pyversions/dhub-cli" alt="Python Version"></a>
+  <a href="https://github.com/pymc-labs/decision-hub/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/pymc-labs/decision-hub/ci.yml?label=CI" alt="CI Status"></a>
+  <a href="https://github.com/pymc-labs/decision-hub/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pymc-labs/decision-hub" alt="License"></a>
+  <a href="https://github.com/pymc-labs/decision-hub/stargazers"><img src="https://img.shields.io/github/stars/pymc-labs/decision-hub" alt="GitHub Stars"></a>
+  <a href="https://github.com/pymc-labs/decision-hub/commits/main"><img src="https://img.shields.io/github/last-commit/pymc-labs/decision-hub" alt="Last Updated"></a>
+</p>
+
 **Decision Hub** is a registry for publishing, discovering, and installing *Skills* — modular packages of code and prompts that AI coding agents (Claude, Cursor, Codex, Gemini, OpenCode, and 30+ others) can use. Publish a skill once, install it into any supported agent with one command.
 
 **Browse the registry at [hub.decision.ai](https://hub.decision.ai)** or use the CLI below.
