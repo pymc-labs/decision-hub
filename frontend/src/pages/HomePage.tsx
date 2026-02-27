@@ -51,7 +51,7 @@ export default function HomePage() {
       name: "Decision Hub",
       url: "https://hub.decision.ai",
       description:
-        "The skill registry for AI coding agents. Every skill is automatically evaluated, security-graded, and searchable in natural language.",
+        "Trusted Skills for AI Agents in Data Science and Beyond",
     }),
     [],
   );
@@ -88,9 +88,7 @@ export default function HomePage() {
           <span className={styles.heroMain}>HUB</span>
         </h1>
         <p className={styles.heroSub}>
-          The skill registry for AI coding agents.
-          Every skill is automatically evaluated, security-graded, and searchable
-          in natural language.
+          Trusted Skills for AI Agents in Data Science and Beyond
         </p>
         <div className={styles.heroCta}>
           <button
