@@ -191,6 +191,16 @@
   box-shadow: 0 0 10px rgba(240, 208, 0, 0.15);
 }
 
+.starCount {
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: rgba(240, 208, 0, 0.12);
+  color: #f0d000;
+}
+
 .menuToggle {
   display: none;
   align-items: center;
@@ -242,7 +252,7 @@
     position: relative;
   }
 
-  .starBtn span {
+  .starBtn span:not(.starCount) {
     display: none;
   }
 

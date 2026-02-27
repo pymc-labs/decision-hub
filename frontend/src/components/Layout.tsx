@@ -4,6 +4,7 @@ import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star, MessageCircle }
 import AskModal from "./AskModal";
 import styles from "./Layout.module.css";
 import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
+import { useGitHubStars } from "../hooks/useGitHubStars";
 
 const IS_DEV = import.meta.env.VITE_ENV !== "prod";
 
@@ -14,8 +15,14 @@ const NAV_ITEMS = [
   { path: "/how-it-works", label: "How it Works", icon: BookOpen },
 ];
 
+function formatStars(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return n.toString();
+}
+
 export default function Layout() {
   const location = useLocation();
+  const stars = useGitHubStars();
   const [mobileMenuState, setMobileMenuState] = useState({
     isOpen: false,
     openedOnPath: location.pathname,
@@ -82,7 +89,10 @@ export default function Layout() {
                 aria-label="Star on GitHub"
               >
                 <Star size={16} />
-                <span>Star on GitHub</span>
+                <span>Star</span>
+                {stars !== null && (
+                  <span className={styles.starCount}>{formatStars(stars)}</span>
+                )}
               </a>
             )}
             <button
