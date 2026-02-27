@@ -177,17 +177,6 @@ def create_app() -> FastAPI:
 
     app.include_router(seo_router)
 
-    # --- API catch-all: return JSON 404 for any unmatched /v1/ path ---
-    # Must be registered before the SPA catch-all so API clients get a proper
-    # JSON error instead of index.html when hitting a non-existent endpoint.
-    @app.api_route(
-        "/v1/{rest_path:path}",
-        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
-        include_in_schema=False,
-    )
-    def api_not_found(rest_path: str):
-        raise HTTPException(status_code=404, detail=f"API endpoint not found: /v1/{rest_path}")
-
     # --- Frontend SPA serving ---
     # If the frontend build was baked into the image, serve it from the
     # same origin.  Static assets (JS/CSS) are served from /assets/ and
@@ -205,9 +194,18 @@ def create_app() -> FastAPI:
         def favicon():
             return FileResponse(_FRONTEND_DIR / "vite.svg")
 
-        # SPA catch-all: any path not matched by API routes returns index.html
+        # SPA catch-all: any path not matched by API routes returns index.html.
+        # Paths under /v1/ are API namespace — return JSON 404 instead of HTML
+        # so API clients get a proper error.  Only GET reaches here (Starlette
+        # 0.50+ doesn't implicitly add HEAD), so 405 Method Not Allowed is
+        # preserved for real endpoints receiving unsupported methods.
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa_fallback(full_path: str):
+            if full_path.startswith("v1/") or full_path == "v1":
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"API endpoint not found: /{full_path}",
+                )
             return FileResponse(_index_html)
 
     logger.info("Decision Hub app ready (log_level={})", settings.log_level)
