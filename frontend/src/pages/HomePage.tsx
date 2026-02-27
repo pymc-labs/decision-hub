@@ -8,7 +8,7 @@ import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useCountUp } from "../hooks/useCountUp";
 import { useSEO } from "../hooks/useSEO";
-import NeonCard from "../components/NeonCard";
+import Card from "../components/Card";
 import GradeBadge from "../components/GradeBadge";
 import AnimatedTerminal from "../components/AnimatedTerminal";
 import TerminalBlock from "../components/TerminalBlock";
@@ -81,12 +81,7 @@ export default function HomePage() {
     <div className="container">
       {/* Hero */}
       <section className={styles.hero}>
-        <div className={styles.heroGrid} />
-        <h1 className={styles.heroTitle}>
-          <span className={styles.heroAccent}>DECISION</span>
-          <span className={styles.heroDivider}>//</span>
-          <span className={styles.heroMain}>HUB</span>
-        </h1>
+        <h1 className={styles.heroTitle}>Decision Hub</h1>
         <p className={styles.heroSub}>
           Trusted Skills for AI Agents in Data Science and Beyond
         </p>
@@ -106,13 +101,37 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Value Props — the three pillars */}
+      {/* Stats — clean horizontal strip, no cards */}
+      <section className={styles.stats}>
+        <div className={styles.statItem} ref={skillsRef as React.RefObject<HTMLDivElement>}>
+          <Package size={20} className={styles.statIcon} />
+          <span className={styles.statNumber}>{animatedSkills.toLocaleString()}</span>
+          <span className={styles.statLabel}>Skills</span>
+        </div>
+        <div className={styles.statItem} ref={orgsRef as React.RefObject<HTMLDivElement>}>
+          <Building2 size={20} className={styles.statIcon} />
+          <span className={styles.statNumber}>{animatedOrgs.toLocaleString()}</span>
+          <span className={styles.statLabel}>Organizations</span>
+        </div>
+        <div className={styles.statItem} ref={downloadsRef as React.RefObject<HTMLDivElement>}>
+          <Download size={20} className={styles.statIcon} />
+          <span className={styles.statNumber}>{animatedDownloads.toLocaleString()}</span>
+          <span className={styles.statLabel}>Downloads</span>
+        </div>
+        <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
+          <Users size={20} className={styles.statIcon} />
+          <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
+          <span className={styles.statLabel}>Publishers</span>
+        </div>
+      </section>
+
+      {/* Value Props — three pillars, all same card variant */}
       <section className={styles.valueProps}>
         <div className={styles.valuePropGrid}>
-          <NeonCard glow="cyan">
+          <Card>
             <div className={styles.valueProp}>
               <div className={styles.valuePropIcon}>
-                <FlaskConical size={32} />
+                <FlaskConical size={28} />
               </div>
               <h3 className={styles.valuePropTitle}>Automated Evals</h3>
               <p className={styles.valuePropDesc}>
@@ -121,11 +140,11 @@ export default function HomePage() {
                 actually works before you install it.
               </p>
             </div>
-          </NeonCard>
-          <NeonCard glow="pink">
+          </Card>
+          <Card>
             <div className={styles.valueProp}>
               <div className={styles.valuePropIcon}>
-                <ShieldCheck size={32} />
+                <ShieldCheck size={28} />
               </div>
               <h3 className={styles.valuePropTitle}>Security Grading</h3>
               <p className={styles.valuePropDesc}>
@@ -134,11 +153,11 @@ export default function HomePage() {
                 graded A through F. No surprises in your agent's toolchain.
               </p>
             </div>
-          </NeonCard>
-          <NeonCard glow="purple">
+          </Card>
+          <Card>
             <div className={styles.valueProp}>
               <div className={styles.valuePropIcon}>
-                <Search size={32} />
+                <Search size={28} />
               </div>
               <h3 className={styles.valuePropTitle}>Conversational Search</h3>
               <p className={styles.valuePropDesc}>
@@ -147,40 +166,8 @@ export default function HomePage() {
                 right skill in one command.
               </p>
             </div>
-          </NeonCard>
+          </Card>
         </div>
-      </section>
-
-      {/* Stats */}
-      <section className={styles.stats}>
-        <NeonCard glow="cyan">
-          <div className={styles.statItem} ref={skillsRef as React.RefObject<HTMLDivElement>}>
-            <Package size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedSkills.toLocaleString()}</span>
-            <span className={styles.statLabel}>Skills Published</span>
-          </div>
-        </NeonCard>
-        <NeonCard glow="pink">
-          <div className={styles.statItem} ref={orgsRef as React.RefObject<HTMLDivElement>}>
-            <Building2 size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedOrgs.toLocaleString()}</span>
-            <span className={styles.statLabel}>Organizations</span>
-          </div>
-        </NeonCard>
-        <NeonCard glow="purple">
-          <div className={styles.statItem} ref={downloadsRef as React.RefObject<HTMLDivElement>}>
-            <Download size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedDownloads.toLocaleString()}</span>
-            <span className={styles.statLabel}>Downloads</span>
-          </div>
-        </NeonCard>
-        <NeonCard glow="green">
-          <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
-            <Users size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
-            <span className={styles.statLabel}>Publishers</span>
-          </div>
-        </NeonCard>
       </section>
 
       {/* Agent First */}
@@ -216,7 +203,7 @@ export default function HomePage() {
                 to={`/skills/${skill.org_slug}/${skill.skill_name}`}
                 className={styles.skillLink}
               >
-                <NeonCard glow="cyan">
+                <Card>
                   <div className={styles.skillCard}>
                     <div className={styles.skillHeader}>
                       <span className={styles.skillOrg}>{skill.org_slug}</span>
@@ -240,7 +227,7 @@ export default function HomePage() {
                       </span>
                     </div>
                   </div>
-                </NeonCard>
+                </Card>
               </Link>
             ))}
           </div>
@@ -325,33 +312,31 @@ Downloading anthropics/statistical-analysis@0.1.0...
 
       {/* Bottom CTA */}
       <section className={styles.bottomCta}>
-        <NeonCard glow="pink">
-          <div className={styles.bottomCtaInner}>
-            <h2 className={styles.bottomCtaTitle}>Publish Your Skills</h2>
-            <p className={styles.bottomCtaDesc}>
-              Package your team's agent skills and get automated evals + security
-              grading for free. Private by default — only your org can see them.
-            </p>
-            <div className={styles.bottomCtaActions}>
-              {SHOW_GITHUB_BUTTONS && (
-                <a
-                  href="https://github.com/pymc-labs/decision-hub"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.btnPrimary}
-                >
-                  <Package size={18} />
-                  Get Started
-                  <ArrowRight size={16} />
-                </a>
-              )}
-              <Link to="/how-it-works" className={styles.btnSecondary}>
-                <Zap size={18} />
-                Learn More
-              </Link>
-            </div>
+        <div className={styles.bottomCtaInner}>
+          <h2 className={styles.bottomCtaTitle}>Publish Your Skills</h2>
+          <p className={styles.bottomCtaDesc}>
+            Package your team's agent skills and get automated evals + security
+            grading for free. Private by default — only your org can see them.
+          </p>
+          <div className={styles.bottomCtaActions}>
+            {SHOW_GITHUB_BUTTONS && (
+              <a
+                href="https://github.com/pymc-labs/decision-hub"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.btnPrimary}
+              >
+                <Package size={18} />
+                Get Started
+                <ArrowRight size={16} />
+              </a>
+            )}
+            <Link to="/how-it-works" className={styles.btnSecondary}>
+              <Zap size={18} />
+              Learn More
+            </Link>
           </div>
-        </NeonCard>
+        </div>
       </section>
     </div>
   );

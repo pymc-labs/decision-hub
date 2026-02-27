@@ -25,35 +25,37 @@
   box-shadow: var(--shadow-lg);
 }
 
-.cyan {
+/* ── Variants ─────────────────────────────────────────── */
+
+.default {
   border-color: var(--border-color);
 }
 
-.cyan:hover {
+.default:hover {
   border-color: var(--color-primary-border);
 }
 
-.pink {
+.accent {
+  border-color: var(--color-info-border);
+}
+
+.accent:hover {
+  border-color: var(--color-info);
+}
+
+.success {
+  border-color: var(--color-success-border);
+}
+
+.success:hover {
+  border-color: var(--color-success);
+}
+
+.danger {
   border-color: var(--color-danger-border);
   background: var(--color-danger-light);
 }
 
-.pink:hover {
-  border-color: var(--color-danger-border);
-}
-
-.purple {
-  border-color: var(--color-info-border);
-}
-
-.purple:hover {
-  border-color: var(--color-info-border);
-}
-
-.green {
-  border-color: var(--color-success-border);
-}
-
-.green:hover {
-  border-color: var(--color-success-border);
+.danger:hover {
+  border-color: var(--color-danger);
 }

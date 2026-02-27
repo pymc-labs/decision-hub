@@ -2,39 +2,15 @@
 .hero {
   text-align: center;
   padding: 80px 0 48px;
-  position: relative;
-}
-
-.heroGrid {
-  display: none;
 }
 
 .heroTitle {
   font-size: var(--text-hero);
   line-height: 1.08;
   margin-bottom: 20px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
   letter-spacing: -0.03em;
   font-weight: 800;
-}
-
-.heroAccent {
   color: var(--text-primary);
-}
-
-.heroDivider {
-  font-size: var(--text-display);
-  color: var(--text-muted);
-  opacity: 0.3;
-  font-weight: 300;
-}
-
-.heroMain {
-  color: var(--color-primary);
 }
 
 .heroSub {
@@ -43,14 +19,12 @@
   font-size: var(--text-lg);
   color: var(--text-secondary);
   line-height: 1.6;
-  position: relative;
 }
 
 .heroCta {
   display: flex;
   gap: 12px;
   justify-content: center;
-  position: relative;
 }
 
 .btnPrimary {
@@ -66,6 +40,7 @@
   border: none;
   transition: all 0.2s ease;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .btnPrimary:hover {
@@ -88,6 +63,7 @@
   border: 1px solid var(--color-primary-border);
   transition: all 0.2s ease;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .btnSecondary:hover {
@@ -97,48 +73,12 @@
   color: var(--color-primary) !important;
 }
 
-/* Value Props */
-.valueProps {
-  margin: 64px 0 0;
-}
-
-.valuePropGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 32px;
-}
-
-.valueProp {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.valuePropIcon {
-  color: var(--color-primary);
-  display: flex;
-  align-items: center;
-}
-
-.valuePropTitle {
-  font-size: var(--text-body);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.valuePropDesc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.65;
-}
-
-/* Stats */
+/* Stats — clean horizontal strip, no card wrapping */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin: 56px 0;
+  margin: 0 0 56px;
   padding: 32px 0;
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
@@ -167,6 +107,42 @@
 .statLabel {
   font-size: var(--text-xs);
   color: var(--text-secondary);
+}
+
+/* Value Props */
+.valueProps {
+  margin: 56px 0;
+}
+
+.valuePropGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.valueProp {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.valuePropIcon {
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+}
+
+.valuePropTitle {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.valuePropDesc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.65;
 }
 
 /* Agent Section */
@@ -304,47 +280,6 @@
   color: var(--text-muted);
 }
 
-/* How it works */
-.howItWorks {
-  margin: 64px 0;
-}
-
-.howItWorks .sectionTitle {
-  margin-bottom: 24px;
-}
-
-.stepsGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stepNumber {
-  font-size: var(--text-title);
-  font-weight: 800;
-  color: var(--color-primary);
-  opacity: 0.3;
-  letter-spacing: -0.02em;
-}
-
-.stepTitle {
-  font-size: var(--text-body);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.stepDesc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
 /* Install CTA */
 .installCta {
   margin: 64px auto;
@@ -472,6 +407,7 @@
   padding: 48px 24px;
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
 }
 
 .bottomCtaTitle {
@@ -498,12 +434,7 @@
 
 @media (max-width: 768px) {
   .heroTitle {
-    font-size: var(--text-title);
-    gap: 10px;
-  }
-
-  .heroDivider {
-    font-size: var(--text-heading);
+    font-size: var(--text-display);
   }
 
   .stats {
@@ -511,7 +442,6 @@
   }
 
   .skillGrid,
-  .stepsGrid,
   .valuePropGrid,
   .examplesGrid {
     grid-template-columns: 1fr;
@@ -537,12 +467,6 @@
 
   .heroTitle {
     font-size: var(--text-heading);
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .heroDivider {
-    font-size: var(--text-lg);
   }
 
   .heroSub {
@@ -559,18 +483,17 @@
   }
 
   .featured,
-  .howItWorks,
   .installCta,
   .quickStart {
     margin: 36px 0;
   }
 
-  .cliSection {
-    margin: 36px auto;
+  .valueProps {
+    margin: 36px 0;
   }
 
-  .stepNumber {
-    font-size: var(--text-heading);
+  .cliSection {
+    margin: 36px auto;
   }
 
   .bottomCtaInner {

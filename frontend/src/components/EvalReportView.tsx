@@ -7,7 +7,7 @@ import {
   FileText,
 } from "lucide-react";
 import type { EvalReport, EvalCaseResult } from "../types/api";
-import NeonCard from "./NeonCard";
+import Card from "./Card";
 import styles from "./EvalReportView.module.css";
 
 interface EvalReportViewProps {
@@ -32,10 +32,10 @@ function formatDuration(ms: number): string {
 }
 
 function CaseResultCard({ result }: { result: EvalCaseResult }) {
-  const glow = result.verdict === "pass" ? "green" : result.verdict === "fail" ? "pink" : "cyan";
+  const variant = result.verdict === "pass" ? "success" : result.verdict === "fail" ? "danger" : "default";
 
   return (
-    <NeonCard glow={glow}>
+    <Card variant={variant}>
       <div className={styles.caseCard}>
         <div className={styles.caseHeader}>
           <div className={styles.caseName}>
@@ -92,7 +92,7 @@ function CaseResultCard({ result }: { result: EvalCaseResult }) {
           </span>
         )}
       </div>
-    </NeonCard>
+    </Card>
   );
 }
 
@@ -106,7 +106,7 @@ export default function EvalReportView({ report }: EvalReportViewProps) {
     <div className={styles.report}>
       {/* Summary bar */}
       <div className={styles.summary}>
-        <NeonCard glow={passRate === 100 ? "green" : passRate > 50 ? "cyan" : "pink"}>
+        <Card variant={passRate === 100 ? "success" : passRate > 50 ? "default" : "danger"}>
           <div className={styles.summaryInner}>
             <div className={styles.summaryScore}>
               <span className={styles.summaryNumber}>{report.passed}</span>
@@ -136,16 +136,16 @@ export default function EvalReportView({ report }: EvalReportViewProps) {
               </div>
             </div>
           </div>
-        </NeonCard>
+        </Card>
       </div>
 
       {report.error_message && (
-        <NeonCard glow="pink">
+        <Card variant="danger">
           <div className={styles.errorMsg}>
             <AlertTriangle size={16} />
             <span>{report.error_message}</span>
           </div>
-        </NeonCard>
+        </Card>
       )}
 
       {/* Case results */}

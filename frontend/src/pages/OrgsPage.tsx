@@ -6,7 +6,7 @@ import type { OrgSortField } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
 import type { OrgStatsResponse } from "../types/api";
-import NeonCard from "../components/NeonCard";
+import Card from "../components/Card";
 import OrgAvatar from "../components/OrgAvatar";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { FEATURED_ORGS, FEATURED_SET } from "../constants/featuredOrgs";
@@ -120,9 +120,9 @@ export default function OrgsPage() {
   if (error) {
     return (
       <div className="container">
-        <NeonCard glow="pink">
+        <Card variant="danger">
           <p style={{ color: "var(--color-danger)" }}>Error: {error}</p>
-        </NeonCard>
+        </Card>
       </div>
     );
   }
@@ -206,7 +206,7 @@ export default function OrgsPage() {
                 to={`/orgs/${org.slug}`}
                 className={styles.orgLink}
               >
-                <NeonCard glow={FEATURED_SET.has(org.slug) ? "purple" : "cyan"}>
+                <Card variant={FEATURED_SET.has(org.slug) ? "accent" : "default"}>
                   <div className={styles.card}>
                     {FEATURED_SET.has(org.slug) && (
                       <div className={styles.featuredBadge}>
@@ -236,7 +236,7 @@ export default function OrgsPage() {
                       <ArrowRight size={14} />
                     </div>
                   </div>
-                </NeonCard>
+                </Card>
               </Link>
             ))}
           </div>

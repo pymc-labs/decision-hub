@@ -1,24 +1,24 @@
 import type { ReactNode, CSSProperties } from "react";
-import styles from "./NeonCard.module.css";
+import styles from "./Card.module.css";
 
-interface NeonCardProps {
+interface CardProps {
   children: ReactNode;
-  glow?: "cyan" | "pink" | "purple" | "green";
+  variant?: "default" | "accent" | "success" | "danger";
   className?: string;
   onClick?: () => void;
   style?: CSSProperties;
 }
 
-export default function NeonCard({
+export default function Card({
   children,
-  glow = "cyan",
+  variant = "default",
   className = "",
   onClick,
   style,
-}: NeonCardProps) {
+}: CardProps) {
   return (
     <div
-      className={`${styles.card} ${styles[glow]} ${onClick ? styles.clickable : ""} ${className}`}
+      className={`${styles.card} ${styles[variant]} ${onClick ? styles.clickable : ""} ${className}`}
       onClick={onClick}
       style={style}
     >

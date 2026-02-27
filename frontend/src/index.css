@@ -74,22 +74,6 @@
   --text-xs:      0.8125rem;
   --text-xxs:     0.75rem;
 
-  /* ── Legacy aliases (keeps references working during transition) */
-  --neon-pink: var(--color-danger);
-  --neon-cyan: var(--color-primary);
-  --neon-purple: var(--color-info);
-  --neon-yellow: var(--color-warning);
-  --neon-green: var(--color-success);
-  --neon-orange: var(--color-warning);
-  --glow-pink: none;
-  --glow-cyan: none;
-  --glow-purple: none;
-  --glow-green: none;
-  --glow-text-subtle: none;
-  --glow-text-strong: none;
-  --bg-darkest: var(--bg-secondary);
-  --bg-dark: var(--bg-secondary);
-  --border-glow: var(--border-color);
 }
 
 /* ── Reset ───────────────────────────────────────────────── */
