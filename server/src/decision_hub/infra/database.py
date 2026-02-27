@@ -567,7 +567,7 @@ def create_engine(database_url: str) -> Engine:
     options = "-c statement_timeout=30000"
     if is_pgbouncer:
         options = "-c statement_cache_size=0 " + options
-    return sa.create_engine(
+    engine = sa.create_engine(
         database_url,
         poolclass=NullPool,
         connect_args={
@@ -575,6 +575,14 @@ def create_engine(database_url: str) -> Engine:
             "options": options,
         },
     )
+
+    @sa.event.listens_for(engine, "connect")
+    def _set_search_path(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("SET search_path TO public")
+        cursor.close()
+
+    return engine
 
 
 # ---------------------------------------------------------------------------
