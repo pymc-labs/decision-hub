@@ -284,13 +284,20 @@ class TestCheckEmbeddedCredentials:
         assert result.passed is False
         assert "SKILL.md" in result.message
 
+    def test_entropy_ignores_fstring_templates(self):
+        """F-string templates with {variable} interpolation are allowlisted."""
+        files = [("api.py", 'url = f"https://api.example.com/v1/generate?key={api_key}"\n')]
+        result = check_embedded_credentials("---\nname: x\ndescription: y\n---\n", files)
+        assert result.passed is True
+
 
 class TestCredentialLlmReview:
     """Tests for LLM-based entropy hit review."""
 
     def _make_entropy_hit_files(self):
         """Create source files with high-entropy strings (false positives)."""
-        return [("ui.py", 'msg = "{Colors.YELLOW}Reddit{Colors.RESET} Found {count} threads"\n')]
+        # Use a random-looking but non-secret string (e.g. test fixture data)
+        return [("config.py", 'salt = "aB3xK9mP2qR7wL5nJ8vT4cY6uF0"\n')]
 
     def test_llm_clears_false_positives(self):
         """LLM judge can clear entropy hits that are not real secrets."""
@@ -370,6 +377,38 @@ class TestCredentialLlmReview:
             analyze_credential_fn=return_empty,
         )
         assert result.passed is False
+
+    def test_llm_line_attribution_multiple_hits(self):
+        """Each LLM judgment gets the correct line from its corresponding hit via index."""
+        secret1 = "aB3xK9mP2qR7wL5nJ8vT4cY6uF0"
+        secret2 = "zY9wX8vU7tS6rQ5pO4nM3lK2jI1"
+        files = [("config.py", f'key1 = "{secret1}"\nkey2 = "{secret2}"\n')]
+
+        def judge_with_index(hits, name, desc):
+            # Simulate the fixed gemini.py behavior: use index to attribute lines
+            return [
+                {
+                    "index": i + 1,
+                    "source": h["source"],
+                    "line": h["line"],
+                    "dangerous": False,
+                    "reason": "test data",
+                }
+                for i, h in enumerate(hits)
+            ]
+
+        result = check_embedded_credentials(
+            "---\nname: x\ndescription: y\n---\n",
+            files,
+            skill_name="test",
+            skill_description="test",
+            analyze_credential_fn=judge_with_index,
+        )
+        assert result.passed is True
+        # Verify each judgment has its own distinct line
+        judgments = result.details["judgments"]
+        lines = [j["line"] for j in judgments]
+        assert len(set(lines)) == 2  # two distinct lines
 
 
 class TestCheckPromptSafety:

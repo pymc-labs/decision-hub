@@ -41,6 +41,7 @@ class CredentialJudgment(BaseModel):
     source: str
     dangerous: bool
     reason: str
+    index: int | None = None  # 1-based, matches prompt numbering
 
 
 def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = None) -> dict:
@@ -724,6 +725,7 @@ def analyze_credential_entropy(
         "- Formatted text with emoji, ANSI color codes, or Unicode box-drawing\n"
         "- Shell commands or bash variables (${VAR})\n"
         "- Human-readable sentences or documentation\n"
+        "- URL query parameter templates with variable interpolation (?key={var}, &token=${TOKEN})\n"
         "- File paths, XML namespaces, or structured data formats\n\n"
         "Real secrets (mark dangerous=true):\n"
         "- API keys, tokens, passwords hardcoded as string literals\n"
@@ -742,7 +744,7 @@ def analyze_credential_entropy(
 
     prompt += (
         "\nFor each finding, respond with a JSON array. Each element must have:\n"
-        '  {"source": "<source file>", "dangerous": true/false, '
+        '  {"index": <finding number>, "source": "<source file>", "dangerous": true/false, '
         '"reason": "<brief explanation>"}\n\n'
         "Respond ONLY with the JSON array, no other text."
     )
@@ -784,9 +786,14 @@ def analyze_credential_entropy(
             for j in validated:
                 j.setdefault("label", "high-entropy secret")
                 if "line" not in j:
-                    hits_for_source = source_to_hits.get(j["source"], [])
-                    if hits_for_source:
-                        j["line"] = hits_for_source[0]["line"]
+                    idx = j.get("index")
+                    if idx is not None and 1 <= idx <= len(entropy_hits):
+                        j["line"] = entropy_hits[idx - 1]["line"]
+                    else:
+                        # Fallback: use source-based lookup (first hit for that file)
+                        hits_for_source = source_to_hits.get(j["source"], [])
+                        if hits_for_source:
+                            j["line"] = hits_for_source[0]["line"]
             return validated
     except json.JSONDecodeError:
         pass
