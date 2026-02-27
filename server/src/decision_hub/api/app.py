@@ -3,7 +3,7 @@
 import json as _json
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -176,6 +176,13 @@ def create_app() -> FastAPI:
     from decision_hub.api.seo_routes import router as seo_router
 
     app.include_router(seo_router)
+
+    # --- API catch-all: return JSON 404 for any unmatched /v1/ path ---
+    # Must be registered before the SPA catch-all so API clients get a proper
+    # JSON error instead of index.html when hitting a non-existent endpoint.
+    @app.api_route("/v1/{rest_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
+    def api_not_found(rest_path: str):
+        raise HTTPException(status_code=404, detail=f"API endpoint not found: /v1/{rest_path}")
 
     # --- Frontend SPA serving ---
     # If the frontend build was baked into the image, serve it from the
