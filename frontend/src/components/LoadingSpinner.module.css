@@ -42,7 +42,7 @@
 
 .text {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   letter-spacing: 2px;
   text-transform: uppercase;

@@ -46,7 +46,7 @@
 
 .logoText {
   font-family: 'Orbitron', sans-serif;
-  font-size: 1.25rem;
+  font-size: var(--text-lg);
   font-weight: 800;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -54,7 +54,7 @@
 
 .devBadge {
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 900;
   letter-spacing: 3px;
   padding: 4px 14px;
@@ -84,7 +84,7 @@
   padding: 8px 16px;
   border-radius: 6px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.95rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -132,7 +132,7 @@
 
 .footerGlow {
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.7rem;
+  font-size: var(--text-xxs);
   font-weight: 700;
   letter-spacing: 4px;
   color: var(--neon-purple);
@@ -147,7 +147,7 @@
 }
 
 .footerLinks a {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-muted) !important;
   text-shadow: none !important;
   letter-spacing: 0.5px;
@@ -171,7 +171,7 @@
   padding: 6px 12px;
   border-radius: 6px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -234,7 +234,7 @@
   .navLink {
     padding: 12px 16px;
     border-radius: 8px;
-    font-size: 1rem;
+    font-size: var(--text-body);
     width: 100%;
   }
 
@@ -267,7 +267,7 @@
   }
 
   .logoText {
-    font-size: 1.05rem;
+    font-size: var(--text-body);
     letter-spacing: 1px;
   }
 

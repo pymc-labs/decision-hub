@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -11,16 +11,7 @@
 
 /* Header */
 .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 24px;
   margin-bottom: 32px;
-}
-
-.headerLeft {
-  flex: 1;
-  min-width: 0;
 }
 
 .headerTitle {
@@ -33,23 +24,23 @@
 
 .org {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 1rem;
+  font-size: var(--text-body);
   color: var(--neon-purple) !important;
 }
 
 .slash {
-  font-size: 1.4rem;
+  font-size: var(--text-lg);
   color: var(--text-muted);
 }
 
 .name {
-  font-size: 1.8rem;
+  font-size: var(--text-title);
   color: var(--neon-cyan);
   text-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
 }
 
 .desc {
-  font-size: 1rem;
+  font-size: var(--text-body);
   color: var(--text-secondary);
   line-height: 1.6;
   margin-bottom: 12px;
@@ -65,7 +56,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   font-family: 'Share Tech Mono', monospace;
   text-decoration: none;
@@ -79,7 +70,7 @@ a.metaItem:hover {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-family: 'Share Tech Mono', monospace;
   color: var(--neon-orange);
   border: 1px solid var(--neon-orange);
@@ -87,12 +78,87 @@ a.metaItem:hover {
   padding: 2px 8px;
 }
 
-.headerRight {
+/* Two-column layout */
+.pageBody {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 32px;
+  align-items: start;
+}
+
+.main {
+  min-width: 0;
+}
+
+.sidebar {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 16px;
-  flex-shrink: 0;
+  gap: 12px;
+  position: sticky;
+  top: 24px;
+}
+
+.sidebarGrade {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sidebarGradeLabel {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: var(--text-xxs);
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sidebarActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebarMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebarRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebarLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: 'Share Tech Mono', monospace;
+  white-space: nowrap;
+}
+
+.sidebarValue {
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  font-family: 'Share Tech Mono', monospace;
+  text-align: right;
+}
+
+.sidebarLink {
+  font-size: var(--text-xs);
+  color: var(--neon-cyan);
+  font-family: 'Share Tech Mono', monospace;
+  text-decoration: none;
+}
+
+.sidebarLink:hover {
+  text-decoration: underline;
 }
 
 .actions {
@@ -109,7 +175,7 @@ a.metaItem:hover {
   padding: 8px 16px;
   border-radius: 6px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   cursor: pointer;
   transition: all 0.2s ease;
   border: 1px solid;
@@ -163,7 +229,7 @@ a.metaItem:hover {
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -192,7 +258,80 @@ a.metaItem:hover {
   to { opacity: 1; }
 }
 
-/* Overview tab */
+/* Overview tab — SKILL.md rendered markdown */
+.skillMd {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.skillMd > :first-child {
+  margin-top: 0;
+}
+
+.skillMd h1, .skillMd h2, .skillMd h3, .skillMd h4 {
+  color: var(--text-primary);
+  margin: 1.5em 0 0.5em;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.skillMd h1 { font-size: var(--text-heading); color: var(--neon-cyan); }
+.skillMd h2 { font-size: var(--text-lg); border-bottom: 1px solid var(--border-color); padding-bottom: 6px; }
+.skillMd h3 { font-size: var(--text-body); }
+
+.skillMd p { margin: 0 0 1em; }
+
+.skillMd ul, .skillMd ol {
+  margin: 0 0 1em 1.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skillMd code {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85em;
+  color: var(--neon-green);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.skillMd pre {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0 0 1em;
+}
+
+.skillMd pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+.skillMd blockquote {
+  border-left: 3px solid var(--neon-cyan);
+  margin: 0 0 1em;
+  padding: 4px 16px;
+  color: var(--text-muted);
+}
+
+.skillMd a { color: var(--neon-cyan); }
+.skillMd a:hover { text-decoration: underline; }
+
+.skillMd hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 1.5em 0;
+}
+
 .overview {
   display: flex;
   flex-direction: column;
@@ -200,7 +339,7 @@ a.metaItem:hover {
 }
 
 .overviewTitle {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--neon-cyan);
   margin-bottom: 12px;
   letter-spacing: 1px;
@@ -216,12 +355,12 @@ a.metaItem:hover {
 
 .codeBlock code {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--neon-green);
 }
 
 .overviewHint {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   margin: 4px 0;
 }
@@ -234,7 +373,7 @@ a.metaItem:hover {
 
 .overviewLabel {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.7rem;
+  font-size: var(--text-xxs);
   font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -249,13 +388,13 @@ a.metaItem:hover {
 }
 
 .overviewGradeText {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
 .overviewValueText {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 1.1rem;
+  font-size: var(--text-body);
   color: var(--text-primary);
 }
 
@@ -296,18 +435,18 @@ a.metaItem:hover {
 
 .auditVersion {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--neon-cyan);
 }
 
 .auditPublisher {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .auditDate {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
@@ -317,7 +456,7 @@ a.metaItem:hover {
 
 .auditCheckTitle {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.7rem;
+  font-size: var(--text-xxs);
   font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -355,7 +494,7 @@ a.metaItem:hover {
 
 .checkName {
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.6rem;
+  font-size: var(--text-xxs);
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -367,7 +506,7 @@ a.metaItem:hover {
 
 .checkMessage {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   line-height: 1.3;
   display: -webkit-box;
@@ -426,7 +565,7 @@ a.metaItem:hover {
 
 .auditQuarantine {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--neon-pink);
   padding: 4px 8px;
   background: rgba(255, 45, 149, 0.08);
@@ -435,24 +574,17 @@ a.metaItem:hover {
 }
 
 @media (max-width: 768px) {
-  .header {
-    flex-direction: column;
+  .pageBody {
+    grid-template-columns: 1fr;
   }
 
-  .headerRight {
-    align-items: flex-start;
+  .sidebar {
+    position: static;
+    order: -1;
+  }
+
+  .sidebarActions {
     flex-direction: row;
-    gap: 16px;
-    width: 100%;
-  }
-
-  .actions {
-    flex-direction: row;
-    flex: 1;
-  }
-
-  .overviewGrid {
-    grid-template-columns: repeat(2, 1fr);
   }
 
   .tabs {
@@ -471,20 +603,11 @@ a.metaItem:hover {
 
 @media (max-width: 480px) {
   .name {
-    font-size: 1.3rem;
+    font-size: var(--text-lg);
   }
 
-  .overviewGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .headerRight {
+  .sidebarActions {
     flex-direction: column;
-  }
-
-  .actions {
-    flex-direction: column;
-    width: 100%;
   }
 
   .installBtn,
@@ -495,7 +618,7 @@ a.metaItem:hover {
 
   .tab {
     padding: 10px 14px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
   }
 
   .codeBlock {
@@ -503,7 +626,7 @@ a.metaItem:hover {
   }
 
   .codeBlock code {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     word-break: break-all;
   }
 

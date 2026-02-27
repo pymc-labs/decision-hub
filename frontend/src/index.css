@@ -33,6 +33,17 @@
 
   --max-width: 1280px;
   --header-height: 72px;
+
+  /* Typography scale */
+  --text-hero:    4rem;
+  --text-display: 2.5rem;
+  --text-title:   2rem;
+  --text-heading: 1.6rem;
+  --text-lg:      1.3rem;
+  --text-body:    1.1rem;
+  --text-sm:      0.9rem;
+  --text-xs:      0.8rem;
+  --text-xxs:     0.7rem;
 }
 
 * {
@@ -52,7 +63,7 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.6;
-  font-size: 17px;
+  font-size: 18px;
   /* Horizontal safe area insets for iPhone notch/dynamic island.
      Top/bottom are handled on the sticky header and footer in Layout. */
   padding-left: env(safe-area-inset-left);

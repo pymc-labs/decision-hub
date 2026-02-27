@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import ReactMarkdown from "react-markdown";
 import {
   getSkill,
   getEvalReport,
@@ -186,9 +187,9 @@ export default function SkillDetailPage() {
 
   const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
     { id: "overview", label: "Overview", icon: FileText },
-    { id: "evals", label: "Evals", icon: Activity },
     { id: "files", label: "Files", icon: FolderOpen },
     { id: "audit", label: "Audit Log", icon: Shield },
+    { id: "evals", label: "Evals", icon: Activity },
   ];
 
   return (
@@ -200,75 +201,17 @@ export default function SkillDetailPage() {
 
       {/* Header */}
       <div className={styles.header}>
-        <div className={styles.headerLeft}>
-          <div className={styles.headerTitle}>
-            <Link to={`/orgs/${orgSlug}`} className={styles.org}>
-              {orgSlug}
-            </Link>
-            <span className={styles.slash}>/</span>
-            <h1 className={styles.name}>{skillName}</h1>
-          </div>
-          <p className={styles.desc}>{skill.description}</p>
-          <div className={styles.meta}>
-            {skill.author && (
-              <span className={styles.metaItem}>
-                <User size={14} /> {skill.author}
-              </span>
-            )}
-            <span className={styles.metaItem}>
-              v{skill.latest_version}
-            </span>
-            <span className={styles.metaItem}>
-              <Download size={14} /> {skill.download_count} downloads
-            </span>
-            {skill.updated_at && (
-              <span className={styles.metaItem}>
-                <Clock size={14} /> {skill.updated_at}
-              </span>
-            )}
-            {skill.source_repo_url && (
-              <a
-                href={skill.source_repo_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.metaItem}
-              >
-                <Github size={14} /> Source
-              </a>
-            )}
-            {skill.is_auto_synced && (
-              <span className={styles.metaItem}>
-                <RefreshCw size={14} /> Auto-synced
-              </span>
-            )}
-            {skill.source_repo_removed && (
-              <span className={styles.metaRemoved}>
-                Removed from GitHub
-              </span>
-            )}
-          </div>
+        <div className={styles.headerTitle}>
+          <Link to={`/orgs/${orgSlug}`} className={styles.org}>
+            {orgSlug}
+          </Link>
+          <span className={styles.slash}>/</span>
+          <h1 className={styles.name}>{skillName}</h1>
         </div>
-
-        <div className={styles.headerRight}>
-          <GradeBadge grade={skill.safety_rating} size="lg" />
-          <div className={styles.actions}>
-            <button onClick={handleCopyInstall} className={styles.installBtn}>
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-              {copied ? "Copied!" : "dhub install"}
-            </button>
-            <button
-              onClick={handleDownload}
-              disabled={downloading}
-              className={styles.downloadBtn}
-            >
-              <Download size={14} />
-              {downloading ? "Downloading..." : "Download .zip"}
-            </button>
-          </div>
-        </div>
+        <p className={styles.desc}>{skill.description}</p>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs row — always full width */}
       <div className={styles.tabs}>
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
@@ -282,26 +225,97 @@ export default function SkillDetailPage() {
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className={styles.content}>
-        {activeTab === "overview" && <OverviewTab skill={skill} />}
+      {/* Files tab — full width, no sidebar */}
+      {activeTab === "files" && (
+        <FilesTab files={files} loading={filesLoading} error={filesError} />
+      )}
 
-        {activeTab === "evals" && (
-          <EvalsTab report={evalReport} loading={evalLoading} />
-        )}
+      {/* Other tabs — two-column body with sidebar */}
+      {activeTab !== "files" && (
+      <div className={styles.pageBody}>
+        <div className={styles.main}>
+          <div className={styles.content}>
+            {activeTab === "overview" && <OverviewTab skill={skill} />}
+            {activeTab === "evals" && (
+              <EvalsTab report={evalReport} loading={evalLoading} />
+            )}
+            {activeTab === "audit" && (
+              <AuditTab entries={auditLog ?? []} loading={auditLoading} />
+            )}
+          </div>
+        </div>
 
-        {activeTab === "files" && (
-          <FilesTab
-            files={files}
-            loading={filesLoading}
-            error={filesError}
-          />
-        )}
+        {/* Right: sidebar */}
+        <aside className={styles.sidebar}>
+          <NeonCard glow={skill.safety_rating === "A" ? "green" : skill.safety_rating === "F" ? "pink" : "cyan"}>
+            <div className={styles.sidebarGrade}>
+              <GradeBadge grade={skill.safety_rating} size="lg" />
+              <span className={styles.sidebarGradeLabel}>Safety Grade</span>
+            </div>
+            <div className={styles.sidebarActions}>
+              <button onClick={handleCopyInstall} className={styles.installBtn}>
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? "Copied!" : "dhub install"}
+              </button>
+              <button onClick={handleDownload} disabled={downloading} className={styles.downloadBtn}>
+                <Download size={14} />
+                {downloading ? "Downloading..." : "Download .zip"}
+              </button>
+            </div>
+          </NeonCard>
 
-        {activeTab === "audit" && (
-          <AuditTab entries={auditLog ?? []} loading={auditLoading} />
-        )}
+          <NeonCard glow="cyan">
+            <div className={styles.sidebarMeta}>
+              <div className={styles.sidebarRow}>
+                <span className={styles.sidebarLabel}>Version</span>
+                <span className={styles.sidebarValue}>v{skill.latest_version}</span>
+              </div>
+              <div className={styles.sidebarRow}>
+                <span className={styles.sidebarLabel}><Download size={12} /> Downloads</span>
+                <span className={styles.sidebarValue}>{skill.download_count.toLocaleString()}</span>
+              </div>
+              {skill.author && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}><User size={12} /> Author</span>
+                  <span className={styles.sidebarValue}>{skill.author}</span>
+                </div>
+              )}
+              {skill.updated_at && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}><Clock size={12} /> Updated</span>
+                  <span className={styles.sidebarValue}>{skill.updated_at}</span>
+                </div>
+              )}
+              {skill.category && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}>Category</span>
+                  <span className={styles.sidebarValue}>{skill.category}</span>
+                </div>
+              )}
+              {skill.source_repo_url && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}><Github size={12} /> Source</span>
+                  <a href={skill.source_repo_url} target="_blank" rel="noopener noreferrer" className={styles.sidebarLink}>
+                    GitHub ↗
+                  </a>
+                </div>
+              )}
+              {skill.is_auto_synced && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}><RefreshCw size={12} /> Sync</span>
+                  <span className={styles.sidebarValue}>Auto-synced</span>
+                </div>
+              )}
+              {skill.source_repo_removed && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.metaRemoved}>Removed from GitHub</span>
+                </div>
+              )}
+            </div>
+          </NeonCard>
+        </aside>
       </div>
+      )}
     </div>
   );
 }
@@ -309,51 +323,41 @@ export default function SkillDetailPage() {
 /* --- Tab components --- */
 
 function OverviewTab({ skill }: { skill: SkillSummary }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    downloadSkillZip(skill.org_slug, skill.skill_name)
+      .then((buf) => JSZip.loadAsync(buf))
+      .then((zip) => {
+        const entry = zip.file("SKILL.md");
+        return entry ? entry.async("string") : Promise.resolve(null);
+      })
+      .then((text) => {
+          if (!cancelled) {
+            // Strip YAML frontmatter (---\n...\n---) before rendering
+            const stripped = text ? text.replace(/^---\n[\s\S]*?\n---\n?/, "") : text;
+            setContent(stripped);
+            setLoading(false);
+          }
+        })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [skill.org_slug, skill.skill_name]);
+
+  if (loading) return <LoadingSpinner text="Loading SKILL.md..." />;
+  if (!content) return (
+    <div className={styles.emptyTab}>
+      <FileText size={48} />
+      <p>SKILL.md not found in package</p>
+    </div>
+  );
+
   return (
-    <div className={styles.overview}>
-      <NeonCard glow="cyan">
-        <h3 className={styles.overviewTitle}>Installation</h3>
-        <div className={styles.codeBlock}>
-          <code>dhub install {skill.org_slug}/{skill.skill_name}</code>
-        </div>
-        <p className={styles.overviewHint}>
-          Install for a specific agent:
-        </p>
-        <div className={styles.codeBlock}>
-          <code>
-            dhub install {skill.org_slug}/{skill.skill_name} --agent claude
-          </code>
-        </div>
-      </NeonCard>
-
-      <div className={styles.overviewGrid}>
-        <NeonCard glow="green">
-          <h4 className={styles.overviewLabel}>Safety Grade</h4>
-          <div className={styles.overviewValue}>
-            <GradeBadge grade={skill.safety_rating} size="md" />
-            <span className={styles.overviewGradeText}>
-              {skill.safety_rating}
-            </span>
-          </div>
-        </NeonCard>
-
-        <NeonCard glow="purple">
-          <h4 className={styles.overviewLabel}>Version</h4>
-          <p className={styles.overviewValueText}>v{skill.latest_version}</p>
-        </NeonCard>
-
-        <NeonCard glow="pink">
-          <h4 className={styles.overviewLabel}>Downloads</h4>
-          <p className={styles.overviewValueText}>
-            {skill.download_count.toLocaleString()}
-          </p>
-        </NeonCard>
-
-        <NeonCard glow="cyan">
-          <h4 className={styles.overviewLabel}>Organization</h4>
-          <p className={styles.overviewValueText}>{skill.org_slug}</p>
-        </NeonCard>
-      </div>
+    <div className={styles.skillMd}>
+      <ReactMarkdown>{content}</ReactMarkdown>
     </div>
   );
 }
