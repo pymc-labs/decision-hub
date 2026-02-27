@@ -23,7 +23,7 @@
 
 .title {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   margin-left: 8px;
 }
@@ -31,7 +31,7 @@
 .body {
   padding: 16px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   line-height: 1.7;
   white-space: pre;
   overflow-x: auto;
@@ -69,7 +69,7 @@
 
 .replay {
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xxs);
   text-align: center;
   padding-top: 8px;
   letter-spacing: 1px;

@@ -567,7 +567,7 @@ def create_engine(database_url: str) -> Engine:
     options = "-c statement_timeout=30000"
     if is_pgbouncer:
         options = "-c statement_cache_size=0 " + options
-    return sa.create_engine(
+    engine = sa.create_engine(
         database_url,
         poolclass=NullPool,
         connect_args={
@@ -575,6 +575,14 @@ def create_engine(database_url: str) -> Engine:
             "options": options,
         },
     )
+
+    @sa.event.listens_for(engine, "connect")
+    def _set_search_path(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("SET search_path TO public")
+        cursor.close()
+
+    return engine
 
 
 # ---------------------------------------------------------------------------
@@ -1689,6 +1697,7 @@ def fetch_all_skills_for_index(
     category: str | None = None,
     grade: str | None = None,
     sort: str = "updated",
+    sort_dir: str = "desc",
 ) -> tuple[list[dict], int]:
     """Fetch skills with their latest version info, with optional filters.
 
@@ -1744,13 +1753,42 @@ def fetch_all_skills_for_index(
     # Sorting — always include (org.slug, skill.name) as tiebreaker for
     # deterministic pagination when the primary sort column has duplicates.
     tiebreaker = (organizations_table.c.slug, skills_table.c.name)
+    asc = sort_dir == "asc"
     if sort == "name":
-        base = base.order_by(skills_table.c.name.asc(), *tiebreaker)
+        col = skills_table.c.name
+        base = base.order_by(col.asc() if asc else col.desc(), *tiebreaker)
     elif sort == "downloads":
-        base = base.order_by(skills_table.c.download_count.desc(), *tiebreaker)
+        col = skills_table.c.download_count
+        base = base.order_by(col.asc() if asc else col.desc(), *tiebreaker)
+    elif sort == "github_stars":
+        col = skills_table.c.github_stars
+        order = col.asc().nulls_last() if asc else col.desc().nulls_last()
+        base = base.order_by(order, *tiebreaker)
+    elif sort == "safety_rating":
+        # Sort by latest_eval_status, which stores both current letter grades
+        # (A-F) and legacy values ("passed" = A).  Map to a numeric rank so
+        # the ordering is deterministic. Keep unrated skills (NULL or unknown)
+        # at the bottom regardless of direction by sorting the is_unrated flag
+        # ASC first, then the rank in the requested direction.
+        col = skills_table.c.latest_eval_status
+        is_unrated = sa.case((col.is_(None), 1), else_=0)
+        rank = sa.case(
+            (col.in_(["A", "passed"]), 1),
+            (col == "B", 2),
+            (col == "C", 3),
+            (col == "D", 4),
+            (col == "F", 5),
+            else_=6,
+        )
+        base = base.order_by(
+            is_unrated.asc(),
+            rank.asc() if asc else rank.desc(),
+            *tiebreaker,
+        )
     else:
         # "updated" — most recently published version first
-        base = base.order_by(skills_table.c.latest_published_at.desc(), *tiebreaker)
+        col = skills_table.c.latest_published_at
+        base = base.order_by(col.asc() if asc else col.desc(), *tiebreaker)
 
     # Get total via separate count query (avoids COUNT(*) OVER() which
     # forces full result set materialization)
@@ -1977,6 +2015,8 @@ def fetch_org_stats(
     *,
     search: str | None = None,
     type_filter: str = "all",
+    sort: str = "slug",
+    sort_dir: str = "asc",
 ) -> list[dict]:
     """Fetch aggregated org statistics for the orgs listing page.
 
@@ -2016,11 +2056,21 @@ def fetch_org_stats(
     elif type_filter == "users":
         stmt = stmt.where(organizations_table.c.is_personal == sa.true())
 
+    asc = sort_dir == "asc"
+    if sort == "skill_count":
+        order_col = sa.func.count(skills_table.c.id)
+    elif sort == "total_downloads":
+        order_col = sa.func.coalesce(sa.func.sum(skills_table.c.download_count), 0)
+    elif sort == "latest_update":
+        order_col = sa.func.max(skills_table.c.latest_published_at)
+    else:
+        order_col = organizations_table.c.slug
+
     stmt = stmt.group_by(
         organizations_table.c.slug,
         organizations_table.c.is_personal,
         organizations_table.c.avatar_url,
-    ).order_by(organizations_table.c.slug)
+    ).order_by(order_col.asc() if asc else order_col.desc())
 
     rows = conn.execute(stmt).all()
     return [

@@ -21,6 +21,7 @@ import sqlalchemy as sa
 from decision_hub.api.registry_service import run_gauntlet_pipeline
 from decision_hub.domain.publish import extract_for_evaluation
 from decision_hub.domain.skill_manifest import extract_body, extract_description
+from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client, download_skill_zip
 from decision_hub.settings import create_settings
 
@@ -267,7 +268,7 @@ def main():
     args = parser.parse_args()
 
     settings = create_settings()
-    engine = sa.create_engine(settings.database_url, connect_args={"options": "-c statement_timeout=30000"})
+    engine = create_engine(settings.database_url)
 
     s3_client = create_s3_client(
         region=settings.aws_region,
