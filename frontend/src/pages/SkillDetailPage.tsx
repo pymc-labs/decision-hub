@@ -46,16 +46,20 @@ export default function SkillDetailPage() {
     skillName: string;
   }>();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [zipData, setZipData] = useState<ArrayBuffer | null>(null);
+  const [zipLoading, setZipLoading] = useState(false);
+  const [zipError, setZipError] = useState<string | null>(null);
   const [files, setFiles] = useState<SkillFile[]>([]);
-  const [filesLoading, setFilesLoading] = useState(false);
-  const [filesError, setFilesError] = useState<string | null>(null);
+  const [skillMdContent, setSkillMdContent] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Reset files when navigating to a different skill
+  // Reset state when navigating to a different skill
   useEffect(() => {
+    setZipData(null);
+    setZipError(null);
     setFiles([]);
-    setFilesError(null);
+    setSkillMdContent(null);
   }, [orgSlug, skillName]);
 
   // Fetch single skill
@@ -115,39 +119,45 @@ export default function SkillDetailPage() {
     jsonLd,
   });
 
-  // Load files from zip when "files" tab is selected
-  const loadFiles = useCallback(async () => {
-    if (!orgSlug || !skillName) return;
-    setFilesLoading(true);
-    setFilesError(null);
+  // Download zip once, extract SKILL.md and file list from it
+  const loadZip = useCallback(async () => {
+    if (!orgSlug || !skillName || zipData || zipLoading) return;
+    setZipLoading(true);
+    setZipError(null);
     try {
-      const zipData = await downloadSkillZip(orgSlug, skillName);
-      const zip = await JSZip.loadAsync(zipData);
-      const fileList: SkillFile[] = [];
+      const buf = await downloadSkillZip(orgSlug, skillName);
+      setZipData(buf);
+      const zip = await JSZip.loadAsync(buf);
 
+      // Extract SKILL.md for the overview tab
+      const skillMdEntry = zip.file("SKILL.md");
+      if (skillMdEntry) {
+        const raw = await skillMdEntry.async("string");
+        const stripped = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+        setSkillMdContent(stripped);
+      }
+
+      // Extract all files for the files tab
+      const fileList: SkillFile[] = [];
       for (const [path, entry] of Object.entries(zip.files)) {
         if (entry.dir) continue;
         const content = await entry.async("string");
-        fileList.push({
-          path,
-          content,
-          size: content.length,
-        });
+        fileList.push({ path, content, size: content.length });
       }
-
       setFiles(fileList);
     } catch (err) {
-      setFilesError(err instanceof Error ? err.message : "Failed to load files");
+      setZipError(err instanceof Error ? err.message : "Failed to load package");
     } finally {
-      setFilesLoading(false);
+      setZipLoading(false);
     }
-  }, [orgSlug, skillName]);
+  }, [orgSlug, skillName, zipData, zipLoading]);
 
+  // Trigger zip download when overview or files tab is first visited
   useEffect(() => {
-    if (activeTab === "files" && files.length === 0 && !filesLoading) {
-      loadFiles();
+    if ((activeTab === "overview" || activeTab === "files") && !zipData && !zipLoading) {
+      loadZip();
     }
-  }, [activeTab, files.length, filesLoading, loadFiles]);
+  }, [activeTab, zipData, zipLoading, loadZip]);
 
   const handleDownload = async () => {
     if (!orgSlug || !skillName) return;
@@ -227,7 +237,7 @@ export default function SkillDetailPage() {
 
       {/* Files tab — full width, no sidebar */}
       {activeTab === "files" && (
-        <FilesTab files={files} loading={filesLoading} error={filesError} />
+        <FilesTab files={files} loading={zipLoading} error={zipError} />
       )}
 
       {/* Other tabs — two-column body with sidebar */}
@@ -235,7 +245,7 @@ export default function SkillDetailPage() {
       <div className={styles.pageBody}>
         <div className={styles.main}>
           <div className={styles.content}>
-            {activeTab === "overview" && <OverviewTab skill={skill} />}
+            {activeTab === "overview" && <OverviewTab content={skillMdContent} loading={zipLoading} error={zipError} />}
             {activeTab === "evals" && (
               <EvalsTab report={evalReport} loading={evalLoading} />
             )}
@@ -322,32 +332,13 @@ export default function SkillDetailPage() {
 
 /* --- Tab components --- */
 
-function OverviewTab({ skill }: { skill: SkillSummary }) {
-  const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    downloadSkillZip(skill.org_slug, skill.skill_name)
-      .then((buf) => JSZip.loadAsync(buf))
-      .then((zip) => {
-        const entry = zip.file("SKILL.md");
-        return entry ? entry.async("string") : Promise.resolve(null);
-      })
-      .then((text) => {
-          if (!cancelled) {
-            // Strip YAML frontmatter (---\n...\n---) before rendering
-            const stripped = text ? text.replace(/^---\n[\s\S]*?\n---\n?/, "") : text;
-            setContent(stripped);
-            setLoading(false);
-          }
-        })
-      .catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [skill.org_slug, skill.skill_name]);
-
+function OverviewTab({ content, loading, error }: { content: string | null; loading: boolean; error: string | null }) {
   if (loading) return <LoadingSpinner text="Loading SKILL.md..." />;
+  if (error) return (
+    <NeonCard glow="pink">
+      <p style={{ color: "var(--neon-pink)" }}>Failed to load package: {error}</p>
+    </NeonCard>
+  );
   if (!content) return (
     <div className={styles.emptyTab}>
       <FileText size={48} />

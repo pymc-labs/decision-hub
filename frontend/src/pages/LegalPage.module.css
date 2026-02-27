@@ -18,7 +18,7 @@
 }
 
 .legal h2 {
-  font-size: var(--text-body);
+  font-size: var(--text-lg);
   color: var(--text-primary);
   margin-top: 32px;
   margin-bottom: 12px;
