@@ -579,7 +579,8 @@ def list_skills(
     org: str | None = Query(None, max_length=100),
     category: str | None = Query(None, max_length=100),
     grade: str | None = Query(None, max_length=1),
-    sort: str = Query("updated", pattern="^(updated|name|downloads)$"),
+    sort: str = Query("updated", pattern="^(updated|name|downloads|github_stars|safety_rating)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedSkillsResponse:
@@ -602,6 +603,7 @@ def list_skills(
         limit=page_size,
         offset=offset,
         sort=sort,
+        sort_dir=sort_dir,
     )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     items = [

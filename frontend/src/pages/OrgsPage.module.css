@@ -89,6 +89,24 @@
   border-color: var(--neon-purple);
 }
 
+.viewToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.viewToggle:hover {
+  border-color: var(--neon-purple);
+  color: var(--neon-purple);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
