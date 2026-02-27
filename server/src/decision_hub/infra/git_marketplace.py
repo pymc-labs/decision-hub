@@ -206,6 +206,10 @@ def create_git_wsgi_app(
 
     Uses dulwich's HTTPGitApplication to handle the Git Smart HTTP protocol.
     Either provide a `cache` (production) or a `repo_builder` (testing).
+
+    Dulwich uses the deprecated WSGI write() callback returned by
+    start_response(). Starlette's WSGIMiddleware doesn't return one,
+    so we wrap start_response to provide a buffered write function.
     """
 
     def app(environ: dict, start_response: Callable) -> list[bytes]:
@@ -219,9 +223,21 @@ def create_git_wsgi_app(
             start_response("503 Service Unavailable", [("Content-Type", "text/plain")])
             return [b"Marketplace not available"]
 
-        # dulwich HTTPGitApplication expects a DictBackend that maps paths to repos.
+        # dulwich uses the legacy WSGI write() callable that start_response
+        # returns. Starlette's adapter returns None, so we buffer write()
+        # calls and prepend them to the response iterator.
+        write_buffer: list[bytes] = []
+
+        def patched_start_response(status, headers, exc_info=None):
+            start_response(status, headers, exc_info)
+            return write_buffer.append
+
         backend = DictBackend({"/": repo})
         git_app = HTTPGitApplication(backend)
-        return git_app(environ, start_response)
+
+        # Consume the generator — dulwich writes data via write() during
+        # iteration, not upfront. We must exhaust the iterator first.
+        response_chunks = list(git_app(environ, patched_start_response))
+        return write_buffer + response_chunks
 
     return app
