@@ -1,25 +1,34 @@
 """Scrape GitHub repository URLs from SkillsMP.com by exact category.
 
 Uses the SkillsMP category browsing endpoint to fetch all skills in a given
-category. Results are deduplicated by repo and saved to a JSON file that
-can be fed directly to the crawler via ``--repos-file``.
+category (or parent domain). Results are deduplicated by repo and saved to a
+JSON file that can be fed directly to the crawler via ``--repos-file``.
+
+The API distinguishes two levels:
+  - **domain**: parent group (e.g. ``data-ai``) that spans subcategories
+  - **category**: leaf category (e.g. ``data-engineering``, ``machine-learning``)
+
+Pass any slug — the scraper auto-detects whether it's a domain or category.
+
+**Note:** SkillsMP uses Cloudflare Bot Management which blocks server-side HTTP
+clients (httpx, curl). This scraper sends a browser-like User-Agent which may
+work, but if you get 403 errors, use the Playwright MCP browser to fetch pages
+from the browser context instead. See the ``--playwright`` flag.
 
 Usage:
-    # Scrape a single category
-    cd server && uv run --package decision-hub-server \
-      python -m decision_hub.scripts.scrape_skillsmp \
-      --categories data-engineering \
-      --output skillsmp_data_engineering.json
+    # Scrape the entire Data & AI domain (top 5k by stars)
+    cd server && uv run --package decision-hub-server \\
+      python -m decision_hub.scripts.scrape_skillsmp --categories data-ai
 
-    # Scrape multiple categories into one file
-    cd server && uv run --package decision-hub-server \
-      python -m decision_hub.scripts.scrape_skillsmp \
-      --categories data-engineering data-analysis scientific-computing
+    # Scrape specific leaf categories
+    cd server && uv run --package decision-hub-server \\
+      python -m decision_hub.scripts.scrape_skillsmp \\
+      --categories data-engineering scientific-computing
 
     # Then publish via crawler
-    cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-      python -m decision_hub.scripts.github_crawler \
-      --repos-file skillsmp_data_engineering.json \
+    cd server && DHUB_ENV=dev uv run --package decision-hub-server \\
+      python -m decision_hub.scripts.github_crawler \\
+      --repos-file skillsmp_data-ai.json \\
       --github-token "$(gh auth token)"
 """
 
@@ -37,18 +46,31 @@ import httpx
 
 SKILLSMP_BASE = "https://skillsmp.com"
 
+# Browser-like User-Agent to avoid Cloudflare 403 blocks.
+_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
+
 # GitHub URL → owner/repo extraction. Handles tree URLs like
 # https://github.com/owner/repo/tree/main/path/to/skill
 _GITHUB_REPO_RE = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+?)(?:\.git|/tree/.*)?/?$")
 
-# Categories we care about for import.
-TARGET_CATEGORIES = [
-    "data-engineering",
-    "data-analysis",
-    "machine-learning",
-    "scientific-computing",
-    "architecture-patterns",
-]
+# Known parent domains (use ``domain=`` param). Leaf categories use ``category=``.
+_DOMAINS = {
+    "tools",
+    "development",
+    "business",
+    "data-ai",
+    "devops",
+    "testing-security",
+    "documentation",
+    "content-media",
+    "research",
+    "databases",
+    "lifestyle",
+    "blockchain",
+}
 
 PAGE_LIMIT = 100  # max items per page (API cap)
 
@@ -87,14 +109,20 @@ def _extract_repo_fullname(github_url: str) -> str | None:
 
 def _fetch_category(
     client: httpx.Client,
-    category: str,
+    slug: str,
     *,
     max_pages: int = 50,
 ) -> tuple[list[dict], int]:
-    """Fetch all skills in a category via the browse endpoint.
+    """Fetch all skills for a slug via the browse endpoint.
+
+    Auto-detects whether the slug is a parent domain or leaf category and
+    uses the correct query parameter.
 
     Returns (skills, api_call_count).
     """
+    # Parent domains use ``domain=``, leaf categories use ``category=``
+    param_key = "domain" if slug in _DOMAINS else "category"
+
     skills: list[dict] = []
     api_calls = 0
 
@@ -102,7 +130,7 @@ def _fetch_category(
         resp = client.get(
             f"{SKILLSMP_BASE}/api/skills",
             params={
-                "category": category,
+                param_key: slug,
                 "page": page,
                 "limit": PAGE_LIMIT,
                 "sortBy": "stars",
@@ -126,6 +154,12 @@ def _fetch_category(
         skills.extend(page_skills)
 
         pagination = data.get("pagination", {})
+        total_all = pagination.get("totalAll", len(skills))
+        print(
+            f"  Page {page}: +{len(page_skills)} skills ({len(skills)}/{total_all} total)",
+            flush=True,
+        )
+
         if not pagination.get("hasNext", False):
             break
 
@@ -148,9 +182,10 @@ def scrape_categories(
 
     seen_repos: dict[str, ScrapedSkill] = {}  # full_name -> skill (dedup)
 
-    with httpx.Client(timeout=30) as client:
+    headers = {"User-Agent": _USER_AGENT}
+    with httpx.Client(headers=headers, timeout=30) as client:
         for i, category in enumerate(categories, 1):
-            print(f"[{i}/{len(categories)}] Fetching category: {category}", flush=True)
+            print(f"[{i}/{len(categories)}] Fetching: {category}", flush=True)
 
             skills, api_calls = _fetch_category(
                 client,
@@ -182,7 +217,7 @@ def scrape_categories(
                     new_count += 1
 
             print(
-                f"  Found {len(skills)} skills, {new_count} new repos (total unique: {len(seen_repos)})",
+                f"  {len(skills)} skills fetched, {new_count} new repos (total unique: {len(seen_repos)})",
                 flush=True,
             )
 
@@ -221,23 +256,22 @@ def load_repos_file(path: Path) -> list[str]:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Scrape GitHub repos from SkillsMP.com by exact category.",
+        description="Scrape GitHub repos from SkillsMP.com by exact category or domain.",
     )
     parser.add_argument(
         "--categories",
         nargs="+",
-        default=TARGET_CATEGORIES,
+        default=["data-ai"],
         metavar="SLUG",
         help=(
-            "Category slugs to scrape (default: all target categories). "
-            "Use slugs from https://skillsmp.com/en/categories"
+            "Category or domain slugs to scrape (default: data-ai). Use slugs from https://skillsmp.com/en/categories"
         ),
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Output JSON file path (default: skillsmp_{first_category}.json)",
+        help="Output JSON file path (default: skillsmp_{first_slug}.json)",
     )
     parser.add_argument(
         "--max-pages",
@@ -253,8 +287,8 @@ def main() -> None:
 
     output_path = args.output or Path(f"skillsmp_{args.categories[0]}.json")
 
-    print(f"Scraping SkillsMP categories: {', '.join(args.categories)}")
-    print(f"Max pages per category: {args.max_pages}")
+    print(f"Scraping SkillsMP: {', '.join(args.categories)}")
+    print(f"Max pages per slug: {args.max_pages}")
 
     result = scrape_categories(
         categories=args.categories,
@@ -264,7 +298,7 @@ def main() -> None:
     save_result(result, output_path)
 
     print("\n--- Scrape Summary ---")
-    print(f"Categories:  {', '.join(result.categories)}")
+    print(f"Slugs:       {', '.join(result.categories)}")
     print(f"API calls:   {result.total_api_calls}")
     print(f"Repos found: {len(result.repos)}")
     if result.repos:
