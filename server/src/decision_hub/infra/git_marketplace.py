@@ -17,7 +17,7 @@ from collections.abc import Callable
 
 from dulwich.objects import Blob, Commit, Tree
 from dulwich.repo import MemoryRepo
-from dulwich.web import HTTPGitApplication
+from dulwich.web import DictBackend, HTTPGitApplication
 
 from decision_hub.domain.marketplace import (
     SkillPluginEntry,
@@ -219,8 +219,9 @@ def create_git_wsgi_app(
             start_response("503 Service Unavailable", [("Content-Type", "text/plain")])
             return [b"Marketplace not available"]
 
-        # dulwich HTTPGitApplication expects a backend that maps paths to repos.
-        git_app = HTTPGitApplication({"/": repo})
+        # dulwich HTTPGitApplication expects a DictBackend that maps paths to repos.
+        backend = DictBackend({"/": repo})
+        git_app = HTTPGitApplication(backend)
         return git_app(environ, start_response)
 
     return app
