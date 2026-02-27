@@ -1895,22 +1895,26 @@ def search_skills_hybrid(
 
         return stmt
 
-    # --- 1. FTS queries (loop over extracted keyword phrases) ---
+    # --- 1. FTS query (combine all keyword phrases with OR via ||) ---
     fts_rows: list = []
-    for fts_query in fts_queries:
+    if fts_queries:
+        # Combine multiple keyword phrases into a single tsquery using || (OR).
+        # This replaces the previous loop of N sequential DB queries with one.
+        combined_tsquery = sa.func.websearch_to_tsquery("english", fts_queries[0])
+        for fts_q in fts_queries[1:]:
+            combined_tsquery = combined_tsquery.op("||")(sa.func.websearch_to_tsquery("english", fts_q))
+
         fts_stmt = _base_select(
             [
                 sa.func.ts_rank_cd(
                     skills_table.c.search_vector,
-                    sa.func.websearch_to_tsquery("english", fts_query),
+                    combined_tsquery,
                 ).label("fts_rank"),
             ]
         )
-        fts_stmt = fts_stmt.where(
-            skills_table.c.search_vector.op("@@")(sa.func.websearch_to_tsquery("english", fts_query))
-        )
+        fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
         fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
-        fts_rows.extend(conn.execute(fts_stmt).all())
+        fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
     vec_rows: list = []

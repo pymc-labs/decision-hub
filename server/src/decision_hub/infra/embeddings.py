@@ -61,15 +61,18 @@ def embed_query(
         "content": {"parts": [{"text": text}]},
         "outputDimensionality": dimensions,
     }
-    with httpx.Client(timeout=10) as http_client:
-        resp = http_client.post(
-            url,
-            params={"key": client["api_key"]},
-            json=payload,
-        )
+    params = {"key": client["api_key"]}
+
+    shared = client.get("http_client")
+    if shared is not None:
+        resp = shared.post(url, params=params, json=payload, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
-    return data["embedding"]["values"]
+        return resp.json()["embedding"]["values"]
+
+    with httpx.Client(timeout=10) as http_client:
+        resp = http_client.post(url, params=params, json=payload)
+        resp.raise_for_status()
+        return resp.json()["embedding"]["values"]
 
 
 def embed_texts_batch(
