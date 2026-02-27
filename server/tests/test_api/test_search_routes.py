@@ -268,3 +268,86 @@ class TestAskSkills:
             resp = client.get("/v1/ask", params={"q": "cake"})
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/ask
+# ---------------------------------------------------------------------------
+
+
+class TestAskSkillsPost:
+    """POST /v1/ask -- multi-turn conversational skill discovery."""
+
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_post_ask_success(
+        self,
+        mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """POST with history passes conversation context to LLM."""
+        mock_hybrid.return_value = _SAMPLE_CANDIDATES
+        mock_llm.return_value = _LLM_RESULT
+
+        resp = search_client.post(
+            "/v1/ask",
+            json={
+                "query": "I need the drafting one",
+                "history": [
+                    {"role": "user", "content": "linkedin post tools"},
+                    {"role": "assistant", "content": "Here are my top picks..."},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["query"] == "I need the drafting one"
+        assert len(data["skills"]) == 2
+        # Verify history was passed to ask_conversational
+        call_kwargs = mock_llm.call_args
+        assert call_kwargs[1]["history"] is not None
+        assert len(call_kwargs[1]["history"]) == 2
+
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_post_ask_empty_history(
+        self,
+        mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """POST with empty history works like GET (single-shot)."""
+        mock_hybrid.return_value = _SAMPLE_CANDIDATES
+        mock_llm.return_value = _LLM_RESULT
+
+        resp = search_client.post(
+            "/v1/ask",
+            json={
+                "query": "weather forecast",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["query"] == "weather forecast"
+        assert len(data["skills"]) == 2
+
+    def test_post_ask_validates_query_length(self, search_client: TestClient) -> None:
+        """Query longer than 500 chars is rejected."""
+        resp = search_client.post(
+            "/v1/ask",
+            json={
+                "query": "x" * 501,
+            },
+        )
+        assert resp.status_code == 422

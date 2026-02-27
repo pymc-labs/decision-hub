@@ -320,3 +320,5 @@ class SkillIndexEntry:
     download_count: int = 0
     source_repo_url: str | None = None
     gauntlet_summary: str | None = None
+    github_stars: int | None = None
+    github_forks: int | None = None
