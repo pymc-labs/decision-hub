@@ -180,7 +180,11 @@ def create_app() -> FastAPI:
     # --- API catch-all: return JSON 404 for any unmatched /v1/ path ---
     # Must be registered before the SPA catch-all so API clients get a proper
     # JSON error instead of index.html when hitting a non-existent endpoint.
-    @app.api_route("/v1/{rest_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
+    @app.api_route(
+        "/v1/{rest_path:path}",
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+        include_in_schema=False,
+    )
     def api_not_found(rest_path: str):
         raise HTTPException(status_code=404, detail=f"API endpoint not found: /v1/{rest_path}")
 

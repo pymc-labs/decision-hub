@@ -88,6 +88,11 @@ class TestApiCatchallReturnsJson:
         body = resp.json()
         assert "API endpoint not found" in body["detail"]
 
+    def test_nonexistent_v1_head_returns_404(self) -> None:
+        client = _make_client()
+        resp = client.head("/v1/nonexistent")
+        assert resp.status_code == 404
+
     def test_existing_api_route_still_works(self) -> None:
         """Verify that the catch-all doesn't shadow real API endpoints."""
         client = _make_client()
