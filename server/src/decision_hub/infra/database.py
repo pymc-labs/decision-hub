@@ -1765,15 +1765,19 @@ def fetch_all_skills_for_index(
         order = col.asc().nulls_last() if asc else col.desc().nulls_last()
         base = base.order_by(order, *tiebreaker)
     elif sort == "safety_rating":
-        # Map A→1 … F→5; unrated→6. Keep unrated at the bottom regardless
-        # of direction by sorting the is_unrated flag ASC first.
-        is_unrated = sa.case((skills_table.c.safety_rating.is_(None), 1), else_=0)
+        # Sort by latest_eval_status, which stores both current letter grades
+        # (A-F) and legacy values ("passed" = A).  Map to a numeric rank so
+        # the ordering is deterministic. Keep unrated skills (NULL or unknown)
+        # at the bottom regardless of direction by sorting the is_unrated flag
+        # ASC first, then the rank in the requested direction.
+        col = skills_table.c.latest_eval_status
+        is_unrated = sa.case((col.is_(None), 1), else_=0)
         rank = sa.case(
-            (skills_table.c.safety_rating == "A", 1),
-            (skills_table.c.safety_rating == "B", 2),
-            (skills_table.c.safety_rating == "C", 3),
-            (skills_table.c.safety_rating == "D", 4),
-            (skills_table.c.safety_rating == "F", 5),
+            (col.in_(["A", "passed"]), 1),
+            (col == "B", 2),
+            (col == "C", 3),
+            (col == "D", 4),
+            (col == "F", 5),
             else_=6,
         )
         base = base.order_by(

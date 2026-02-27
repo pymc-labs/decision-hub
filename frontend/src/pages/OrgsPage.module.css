@@ -267,6 +267,17 @@
     min-width: 0;
     width: 100%;
   }
+  .sortGroup {
+    border-left: none;
+    padding-left: 0;
+    margin-left: 0;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+    width: 100%;
+  }
+  .sortSelect {
+    flex: 1;
+  }
   .title {
     font-size: 1.3rem;
   }
