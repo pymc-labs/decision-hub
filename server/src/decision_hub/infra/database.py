@@ -542,6 +542,14 @@ tracker_metrics_table = Table(
     Column("batch_duration_seconds", sa.REAL, nullable=False),
 )
 
+server_config_table = Table(
+    "server_config",
+    metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", Text, nullable=False, server_default="0"),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+)
+
 
 # ---------------------------------------------------------------------------
 # Engine factory
@@ -2879,3 +2887,29 @@ def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMe
     stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Marketplace generation counter
+# ---------------------------------------------------------------------------
+
+
+def bump_marketplace_generation(conn: Connection) -> None:
+    """Increment the marketplace generation counter.
+
+    Called after publish, delete, or any operation that changes
+    the set of skills visible in the Claude marketplace.
+    """
+    conn.execute(
+        sa.text(
+            "UPDATE server_config "
+            "SET value = (value::int + 1)::text, updated_at = now() "
+            "WHERE key = 'marketplace_generation'"
+        )
+    )
+
+
+def get_marketplace_generation(conn: Connection) -> int:
+    """Read the current marketplace generation counter."""
+    row = conn.execute(sa.text("SELECT value FROM server_config WHERE key = 'marketplace_generation'")).fetchone()
+    return int(row[0]) if row else 0
