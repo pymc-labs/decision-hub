@@ -11,10 +11,13 @@ via the Git Smart HTTP protocol. The repo contains:
 
 from __future__ import annotations
 
+import threading
 import time
+from collections.abc import Callable
 
 from dulwich.objects import Blob, Commit, Tree
 from dulwich.repo import MemoryRepo
+from dulwich.web import HTTPGitApplication
 
 from decision_hub.domain.marketplace import (
     SkillPluginEntry,
@@ -144,3 +147,80 @@ def _build_tree_from_paths(repo: MemoryRepo, blobs: dict[str, Blob]) -> Tree:
     root = Tree()
     repo.object_store.add_object(root)
     return root
+
+
+# ---------------------------------------------------------------------------
+# Cache and WSGI handler
+# ---------------------------------------------------------------------------
+
+
+class MarketplaceCache:
+    """Thread-safe cache for the marketplace MemoryRepo.
+
+    Rebuilds the repo when the generation counter changes.
+    Checks the counter at most once per `ttl_seconds`.
+    """
+
+    def __init__(
+        self,
+        build_fn: Callable[[], MemoryRepo],
+        generation_fn: Callable[[], int],
+        ttl_seconds: int = 300,
+    ) -> None:
+        self._build_fn = build_fn
+        self._generation_fn = generation_fn
+        self._ttl_seconds = ttl_seconds
+        self._lock = threading.Lock()
+        self._repo: MemoryRepo | None = None
+        self._generation: int = -1
+        self._last_check: float = 0.0
+
+    def get_repo(self) -> MemoryRepo:
+        """Return the cached repo, rebuilding if stale."""
+        now = time.time()
+        if self._repo is not None and (now - self._last_check) < self._ttl_seconds:
+            return self._repo
+
+        with self._lock:
+            # Double-check after acquiring lock
+            now = time.time()
+            if self._repo is not None and (now - self._last_check) < self._ttl_seconds:
+                return self._repo
+
+            current_gen = self._generation_fn()
+            self._last_check = time.time()
+
+            if self._repo is not None and current_gen == self._generation:
+                return self._repo
+
+            self._repo = self._build_fn()
+            self._generation = current_gen
+            return self._repo
+
+
+def create_git_wsgi_app(
+    repo_builder: Callable[[], MemoryRepo | None] | None = None,
+    cache: MarketplaceCache | None = None,
+) -> Callable:
+    """Create a WSGI app that serves the marketplace as a git repo.
+
+    Uses dulwich's HTTPGitApplication to handle the Git Smart HTTP protocol.
+    Either provide a `cache` (production) or a `repo_builder` (testing).
+    """
+
+    def app(environ: dict, start_response: Callable) -> list[bytes]:
+        repo = None
+        if cache is not None:
+            repo = cache.get_repo()
+        elif repo_builder is not None:
+            repo = repo_builder()
+
+        if repo is None:
+            start_response("503 Service Unavailable", [("Content-Type", "text/plain")])
+            return [b"Marketplace not available"]
+
+        # dulwich HTTPGitApplication expects a backend that maps paths to repos.
+        git_app = HTTPGitApplication({"/": repo})
+        return git_app(environ, start_response)
+
+    return app
