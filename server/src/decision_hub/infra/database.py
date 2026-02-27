@@ -1720,7 +1720,9 @@ def fetch_all_skills_for_index(
     Returns a tuple of (items, total) where items is a list of dicts with
     keys: org_slug, skill_name, latest_version, eval_status, visibility, etc.
     total is the full count of matching rows (before LIMIT/OFFSET), obtained
-    via a COUNT(*) OVER() window function in the main query.
+    via a COUNT(*) OVER() window function in the main query.  When the
+    requested page is past the end of results (zero rows returned), a
+    lightweight fallback count query runs to return the correct total.
 
     Reads denormalized latest-version columns directly from the skills
     table, avoiding LATERAL subqueries. Only skills with at least one
@@ -1814,7 +1816,25 @@ def fetch_all_skills_for_index(
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
-    total = rows[0]._mapping["_total"] if rows else 0
+    if rows:
+        total = rows[0]._mapping["_total"]
+    elif limit is not None:
+        # Out-of-range page — window function unavailable, run count fallback
+        count_q = (
+            sa.select(sa.func.count())
+            .select_from(
+                skills_table.join(
+                    organizations_table,
+                    skills_table.c.org_id == organizations_table.c.id,
+                )
+            )
+            .where(skills_table.c.latest_semver.isnot(None))
+        )
+        count_q = _apply_visibility_filter(count_q, user_org_ids, granted_skill_ids)
+        count_q = _build_skills_filters(count_q, search=search, org_slug=org_slug, category=category, grade=grade)
+        total = conn.execute(count_q).scalar_one()
+    else:
+        total = 0
     items = [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
     return items, total
 
