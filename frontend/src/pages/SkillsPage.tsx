@@ -172,7 +172,9 @@ export default function SkillsPage() {
               );
             })}
           </select>
+        </div>
 
+        <div className={styles.sortGroup}>
           <select
             aria-label="Sort skills by"
             value={sortBy}
@@ -181,7 +183,7 @@ export default function SkillsPage() {
               setSortBy(field);
               setSortDir(defaultDirFor(field));
             }}
-            className={styles.select}
+            className={styles.sortSelect}
           >
             <option value="updated">Latest</option>
             <option value="name">Name</option>
@@ -191,12 +193,12 @@ export default function SkillsPage() {
           </select>
 
           <button
-            className={styles.viewToggle}
+            className={styles.sortDirBtn}
             onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
             title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"}
             aria-label="Toggle sort direction"
           >
-            {sortDir === "asc" ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+            {sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
           </button>
 
           <button

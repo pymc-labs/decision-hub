@@ -89,22 +89,53 @@
   border-color: var(--neon-purple);
 }
 
-.viewToggle {
+.sortGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 12px;
+  margin-left: 4px;
+}
+
+.sortSelect {
+  padding: 10px 12px;
+  background: rgba(180, 0, 255, 0.06);
+  border: 1px solid rgba(180, 0, 255, 0.3);
+  border-radius: 8px;
+  color: var(--neon-purple);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: auto;
+}
+
+.sortSelect:focus,
+.sortSelect:hover {
+  border-color: var(--neon-purple);
+  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+}
+
+.sortDirBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  padding: 7px 8px;
+  background: rgba(180, 0, 255, 0.06);
+  border: 1px solid rgba(180, 0, 255, 0.3);
   border-radius: 8px;
-  color: var(--text-muted);
+  color: var(--neon-purple);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
-.viewToggle:hover {
+.sortDirBtn:hover {
+  background: rgba(180, 0, 255, 0.12);
   border-color: var(--neon-purple);
-  color: var(--neon-purple);
+  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
 }
 
 .grid {

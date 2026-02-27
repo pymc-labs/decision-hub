@@ -162,7 +162,9 @@ export default function OrgsPage() {
             <option value="users">Users</option>
             <option value="all">All</option>
           </select>
+        </div>
 
+        <div className={styles.sortGroup}>
           <select
             aria-label="Sort organizations by"
             value={sortBy}
@@ -171,7 +173,7 @@ export default function OrgsPage() {
               setSortBy(field);
               setSortDir(defaultDirFor(field));
             }}
-            className={styles.select}
+            className={styles.sortSelect}
           >
             <option value="slug">Alphabetical</option>
             <option value="skill_count">Most Skills</option>
@@ -180,12 +182,12 @@ export default function OrgsPage() {
           </select>
 
           <button
-            className={styles.viewToggle}
+            className={styles.sortDirBtn}
             onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
             title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"}
             aria-label="Toggle sort direction"
           >
-            {sortDir === "asc" ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+            {sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
           </button>
         </div>
       </div>
