@@ -1,16 +1,20 @@
-"""Scrape GitHub repository URLs from SkillsMP.com for a given category.
+"""Scrape GitHub repository URLs from SkillsMP.com by exact category.
 
-Uses the SkillsMP REST API to search for skills and extract their GitHub
-repo URLs. Results are deduplicated by repo and saved to a JSON file that
+Uses the SkillsMP category browsing endpoint to fetch all skills in a given
+category. Results are deduplicated by repo and saved to a JSON file that
 can be fed directly to the crawler via ``--repos-file``.
 
 Usage:
-    # Scrape the Data Engineering category
+    # Scrape a single category
     cd server && uv run --package decision-hub-server \
       python -m decision_hub.scripts.scrape_skillsmp \
-      --api-key sk_live_skillsmp_xxx \
-      --category data-engineering \
+      --categories data-engineering \
       --output skillsmp_data_engineering.json
+
+    # Scrape multiple categories into one file
+    cd server && uv run --package decision-hub-server \
+      python -m decision_hub.scripts.scrape_skillsmp \
+      --categories data-engineering data-analysis scientific-computing
 
     # Then publish via crawler
     cd server && DHUB_ENV=dev uv run --package decision-hub-server \
@@ -24,7 +28,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -32,92 +35,22 @@ from pathlib import Path
 
 import httpx
 
-SKILLSMP_API = "https://skillsmp.com/api/v1"
+SKILLSMP_BASE = "https://skillsmp.com"
 
-# Search queries per category. The SkillsMP API only supports keyword search —
-# no category filter — so we use multiple domain-specific queries per category
-# and deduplicate the results.
-DATA_AI_QUERIES: dict[str, list[str]] = {
-    "data-engineering": [
-        "data pipeline",
-        "ETL",
-        "data warehouse",
-        "data lake",
-        "Apache Spark",
-        "Apache Airflow",
-        "dbt",
-        "data ingestion",
-        "stream processing",
-        "Apache Kafka",
-        "data orchestration",
-        "batch processing",
-        "data catalog",
-        "data lineage",
-        "data quality",
-    ],
-    "data-science": [
-        "data science",
-        "pandas",
-        "scikit-learn",
-        "exploratory data analysis",
-        "feature engineering",
-        "statistical modeling",
-        "regression analysis",
-        "classification model",
-        "clustering",
-        "time series forecasting",
-        "A/B testing",
-        "experiment design",
-        "hypothesis testing",
-        "Bayesian statistics",
-        "causal inference",
-    ],
-    "data-analysis": [
-        "data analysis",
-        "data visualization",
-        "matplotlib",
-        "plotly",
-        "dashboard",
-        "business intelligence",
-        "SQL analytics",
-        "data storytelling",
-        "reporting automation",
-        "Excel automation",
-        "pivot table",
-        "data cleaning",
-    ],
-    "scientific-computing": [
-        "scientific computing",
-        "numerical methods",
-        "numpy",
-        "scipy",
-        "simulation",
-        "differential equations",
-        "linear algebra",
-        "optimization",
-        "Monte Carlo",
-        "finite element",
-        "computational modeling",
-        "symbolic math",
-        "Julia language",
-    ],
-    "architecture-patterns": [
-        "software architecture",
-        "design patterns",
-        "microservices",
-        "event-driven architecture",
-        "domain-driven design",
-        "clean architecture",
-        "system design",
-        "API design",
-        "distributed systems",
-        "message queue",
-        "CQRS",
-        "hexagonal architecture",
-    ],
-}
+# GitHub URL → owner/repo extraction. Handles tree URLs like
+# https://github.com/owner/repo/tree/main/path/to/skill
+_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+?)(?:\.git|/tree/.*)?/?$")
 
-_GITHUB_URL_RE = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+?)(?:\.git)?/?$")
+# Categories we care about for import.
+TARGET_CATEGORIES = [
+    "data-engineering",
+    "data-analysis",
+    "machine-learning",
+    "scientific-computing",
+    "architecture-patterns",
+]
+
+PAGE_LIMIT = 100  # max items per page (API cap)
 
 
 @dataclass
@@ -130,7 +63,7 @@ class ScrapedSkill:
     author: str = ""
     description: str = ""
     stars: int = 0
-    matched_query: str = ""
+    category: str = ""
 
 
 @dataclass
@@ -138,58 +71,62 @@ class ScrapeResult:
     """Container for all scraped results."""
 
     source: str = "skillsmp.com"
-    category: str = ""
+    categories: list[str] = field(default_factory=list)
     scraped_at: str = ""
     total_api_calls: int = 0
     repos: list[ScrapedSkill] = field(default_factory=list)
 
 
 def _extract_repo_fullname(github_url: str) -> str | None:
-    """Extract 'owner/repo' from a GitHub URL."""
-    m = _GITHUB_URL_RE.match(github_url.rstrip("/"))
+    """Extract 'owner/repo' from a GitHub URL (including /tree/... paths)."""
+    m = _GITHUB_REPO_RE.match(github_url.rstrip("/"))
     if m:
         return m.group(1)
     return None
 
 
-def _search_skills(
+def _fetch_category(
     client: httpx.Client,
-    query: str,
+    category: str,
     *,
-    max_pages: int = 5,
-    limit: int = 20,
-    sort_by: str = "stars",
+    max_pages: int = 50,
 ) -> tuple[list[dict], int]:
-    """Search SkillsMP for skills matching a query. Returns (skills, api_calls)."""
+    """Fetch all skills in a category via the browse endpoint.
+
+    Returns (skills, api_call_count).
+    """
     skills: list[dict] = []
     api_calls = 0
 
     for page in range(1, max_pages + 1):
         resp = client.get(
-            f"{SKILLSMP_API}/skills/search",
-            params={"q": query, "page": page, "limit": limit, "sortBy": sort_by},
+            f"{SKILLSMP_BASE}/api/skills",
+            params={
+                "category": category,
+                "page": page,
+                "limit": PAGE_LIMIT,
+                "sortBy": "stars",
+            },
         )
         api_calls += 1
 
         if resp.status_code == 429:
-            print(f"  Rate limited on query '{query}' page {page}. Stopping pagination.", flush=True)
+            print(f"  Rate limited on page {page}. Stopping.", flush=True)
             break
 
         if resp.status_code != 200:
-            print(f"  HTTP {resp.status_code} for query '{query}' page {page}", flush=True)
+            print(f"  HTTP {resp.status_code} on page {page}", flush=True)
             break
 
         data = resp.json()
-        page_skills = data.get("skills", data.get("results", []))
+        page_skills = data.get("skills", [])
         if not page_skills:
             break
 
         skills.extend(page_skills)
 
-        # Stop if we've fetched all pages
-        has_next = data.get("hasNext", data.get("has_next", False))
-        total_pages = data.get("totalPages", data.get("total_pages"))
-        if not has_next or (total_pages and page >= total_pages):
+        pagination = data.get("pagination", {})
+        if not pagination.get("hasNext", False):
             break
 
         # Polite pause between pages
@@ -198,44 +135,33 @@ def _search_skills(
     return skills, api_calls
 
 
-def scrape_category(
-    api_key: str,
-    category: str,
+def scrape_categories(
+    categories: list[str],
     *,
-    max_pages_per_query: int = 5,
-    queries: list[str] | None = None,
+    max_pages: int = 50,
 ) -> ScrapeResult:
-    """Scrape all skills for a category using the SkillsMP search API."""
-    if queries is None:
-        queries = DATA_AI_QUERIES.get(category)
-        if queries is None:
-            print(f"No predefined queries for category '{category}'.")
-            print(f"Available categories: {', '.join(DATA_AI_QUERIES)}")
-            print("Use --queries to provide custom search terms.")
-            sys.exit(1)
-
+    """Scrape all skills for the given categories, deduplicating by repo."""
     result = ScrapeResult(
-        category=category,
+        categories=categories,
         scraped_at=datetime.now(UTC).isoformat(),
     )
 
     seen_repos: dict[str, ScrapedSkill] = {}  # full_name -> skill (dedup)
 
-    headers = {"Authorization": f"Bearer {api_key}"}
-    with httpx.Client(headers=headers, timeout=30) as client:
-        for i, query in enumerate(queries, 1):
-            print(f"[{i}/{len(queries)}] Searching: '{query}'", flush=True)
+    with httpx.Client(timeout=30) as client:
+        for i, category in enumerate(categories, 1):
+            print(f"[{i}/{len(categories)}] Fetching category: {category}", flush=True)
 
-            skills, api_calls = _search_skills(
+            skills, api_calls = _fetch_category(
                 client,
-                query,
-                max_pages=max_pages_per_query,
+                category,
+                max_pages=max_pages,
             )
             result.total_api_calls += api_calls
 
             new_count = 0
             for skill in skills:
-                github_url = skill.get("githubUrl", skill.get("github_url", ""))
+                github_url = skill.get("githubUrl", "")
                 if not github_url:
                     continue
 
@@ -251,14 +177,18 @@ def scrape_category(
                         author=skill.get("author", ""),
                         description=skill.get("description", ""),
                         stars=skill.get("stars", 0),
-                        matched_query=query,
+                        category=category,
                     )
                     new_count += 1
 
-            print(f"  Found {len(skills)} skills, {new_count} new repos (total: {len(seen_repos)})", flush=True)
+            print(
+                f"  Found {len(skills)} skills, {new_count} new repos (total unique: {len(seen_repos)})",
+                flush=True,
+            )
 
-            # Polite pause between queries
-            time.sleep(0.5)
+            # Polite pause between categories
+            if i < len(categories):
+                time.sleep(0.5)
 
     # Sort by stars descending
     result.repos = sorted(seen_repos.values(), key=lambda s: s.stars, reverse=True)
@@ -269,7 +199,7 @@ def save_result(result: ScrapeResult, output_path: Path) -> None:
     """Save scrape results to a JSON file."""
     data = {
         "source": result.source,
-        "category": result.category,
+        "categories": result.categories,
         "scraped_at": result.scraped_at,
         "total_api_calls": result.total_api_calls,
         "total_repos": len(result.repos),
@@ -291,36 +221,29 @@ def load_repos_file(path: Path) -> list[str]:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Scrape GitHub repos from SkillsMP.com categories.",
+        description="Scrape GitHub repos from SkillsMP.com by exact category.",
     )
     parser.add_argument(
-        "--api-key",
-        required=True,
-        help="SkillsMP API key (starts with sk_live_skillsmp_)",
-    )
-    parser.add_argument(
-        "--category",
-        default="data-engineering",
-        choices=list(DATA_AI_QUERIES.keys()),
-        help="Category slug to scrape (default: data-engineering)",
+        "--categories",
+        nargs="+",
+        default=TARGET_CATEGORIES,
+        metavar="SLUG",
+        help=(
+            "Category slugs to scrape (default: all target categories). "
+            "Use slugs from https://skillsmp.com/en/categories"
+        ),
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Output JSON file path (default: skillsmp_{category}.json)",
+        help="Output JSON file path (default: skillsmp_{first_category}.json)",
     )
     parser.add_argument(
         "--max-pages",
         type=int,
-        default=5,
-        help="Max pages to fetch per search query (default: 5)",
-    )
-    parser.add_argument(
-        "--queries",
-        nargs="+",
-        default=None,
-        help="Custom search queries (overrides built-in queries for the category)",
+        default=50,
+        help="Max pages to fetch per category (default: 50, 100 items/page)",
     )
     return parser.parse_args(argv)
 
@@ -328,28 +251,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    output_path = args.output or Path(f"skillsmp_{args.category}.json")
+    output_path = args.output or Path(f"skillsmp_{args.categories[0]}.json")
 
-    print(f"Scraping SkillsMP category: {args.category}")
-    print(f"Max pages per query: {args.max_pages}")
+    print(f"Scraping SkillsMP categories: {', '.join(args.categories)}")
+    print(f"Max pages per category: {args.max_pages}")
 
-    result = scrape_category(
-        api_key=args.api_key,
-        category=args.category,
-        max_pages_per_query=args.max_pages,
-        queries=args.queries,
+    result = scrape_categories(
+        categories=args.categories,
+        max_pages=args.max_pages,
     )
 
     save_result(result, output_path)
 
     print("\n--- Scrape Summary ---")
-    print(f"Category:    {result.category}")
+    print(f"Categories:  {', '.join(result.categories)}")
     print(f"API calls:   {result.total_api_calls}")
     print(f"Repos found: {len(result.repos)}")
     if result.repos:
         print("\nTop 10 repos by stars:")
         for r in result.repos[:10]:
-            print(f"  {r.full_name} ({r.stars}★) — {r.skill_name}")
+            print(f"  {r.full_name} ({r.stars}★) — {r.skill_name} [{r.category}]")
 
     print("\nTo publish via crawler:")
     print("  cd server && DHUB_ENV=dev uv run --package decision-hub-server \\")
