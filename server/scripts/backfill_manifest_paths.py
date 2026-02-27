@@ -64,21 +64,26 @@ def main() -> None:
     engine = create_engine(settings.database_url)
 
     # Fetch skills that need manifest_path, grouped by source_repo_url
-    stmt = sa.select(
-        skills_table.c.id.label("skill_id"),
-        skills_table.c.name.label("skill_name"),
-        skills_table.c.source_repo_url,
-        organizations_table.c.slug.label("org_slug"),
-    ).select_from(
-        skills_table.join(
-            organizations_table,
-            skills_table.c.org_id == organizations_table.c.id,
+    stmt = (
+        sa.select(
+            skills_table.c.id.label("skill_id"),
+            skills_table.c.name.label("skill_name"),
+            skills_table.c.source_repo_url,
+            organizations_table.c.slug.label("org_slug"),
         )
-    ).where(
-        skills_table.c.source_repo_url.isnot(None),
-    ).order_by(
-        skills_table.c.source_repo_url,
-        skills_table.c.name,
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            )
+        )
+        .where(
+            skills_table.c.source_repo_url.isnot(None),
+        )
+        .order_by(
+            skills_table.c.source_repo_url,
+            skills_table.c.name,
+        )
     )
 
     if not args.reset:
