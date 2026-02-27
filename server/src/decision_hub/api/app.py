@@ -3,7 +3,7 @@
 import json as _json
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -194,9 +194,18 @@ def create_app() -> FastAPI:
         def favicon():
             return FileResponse(_FRONTEND_DIR / "vite.svg")
 
-        # SPA catch-all: any path not matched by API routes returns index.html
+        # SPA catch-all: any path not matched by API routes returns index.html.
+        # Paths under /v1/ are API namespace — return JSON 404 instead of HTML
+        # so API clients get a proper error.  Only GET reaches here (Starlette
+        # 0.50+ doesn't implicitly add HEAD), so 405 Method Not Allowed is
+        # preserved for real endpoints receiving unsupported methods.
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa_fallback(full_path: str):
+            if full_path.startswith("v1/") or full_path == "v1":
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"API endpoint not found: /{full_path}",
+                )
             return FileResponse(_index_html)
 
     logger.info("Decision Hub app ready (log_level={})", settings.log_level)
