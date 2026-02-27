@@ -1780,6 +1780,53 @@ def fetch_all_skills_for_index(
     return items, total
 
 
+def fetch_marketplace_skills(conn: Connection, limit: int = 1000) -> list[dict]:
+    """Fetch top skills for the Claude plugin marketplace.
+
+    Returns the top N public skills by download count, excluding those
+    without a published version. Each dict contains: org_slug, skill_name,
+    description, latest_version, category, gauntlet_summary, eval_status,
+    download_count, source_repo_url, s3_key.
+    """
+    j = skills_table.join(
+        organizations_table,
+        skills_table.c.org_id == organizations_table.c.id,
+    ).join(
+        versions_table,
+        sa.and_(
+            versions_table.c.skill_id == skills_table.c.id,
+            versions_table.c.semver == skills_table.c.latest_semver,
+        ),
+    )
+
+    stmt = (
+        sa.select(
+            organizations_table.c.slug.label("org_slug"),
+            skills_table.c.name.label("skill_name"),
+            skills_table.c.description,
+            skills_table.c.latest_semver.label("latest_version"),
+            skills_table.c.category,
+            skills_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
+            skills_table.c.latest_eval_status.label("eval_status"),
+            skills_table.c.download_count,
+            skills_table.c.source_repo_url,
+            versions_table.c.s3_key,
+        )
+        .select_from(j)
+        .where(
+            sa.and_(
+                skills_table.c.visibility == "public",
+                skills_table.c.latest_semver.isnot(None),
+            )
+        )
+        .order_by(skills_table.c.download_count.desc(), skills_table.c.name.asc())
+        .limit(limit)
+    )
+
+    rows = conn.execute(stmt).fetchall()
+    return [dict(row._mapping) for row in rows]
+
+
 def search_skills_hybrid(
     conn: Connection,
     fts_queries: list[str],
