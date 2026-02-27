@@ -9,8 +9,8 @@
 
 .spinner {
   position: relative;
-  width: 60px;
-  height: 60px;
+  width: 36px;
+  height: 36px;
 }
 
 .ring {
@@ -21,39 +21,27 @@
 }
 
 .ring:nth-child(1) {
-  border-top-color: var(--neon-cyan);
-  animation: spin 1.2s linear infinite;
-  filter: drop-shadow(0 0 6px var(--neon-cyan));
+  border-top-color: var(--color-primary);
+  animation: spin 1s linear infinite;
 }
 
 .ring:nth-child(2) {
-  border-right-color: var(--neon-pink);
-  animation: spin 1.6s linear infinite reverse;
-  filter: drop-shadow(0 0 6px var(--neon-pink));
-  inset: 6px;
+  border-right-color: var(--border-color);
+  animation: spin 1.4s linear infinite reverse;
+  inset: 4px;
 }
 
 .ring:nth-child(3) {
-  border-bottom-color: var(--neon-purple);
-  animation: spin 2s linear infinite;
-  filter: drop-shadow(0 0 6px var(--neon-purple));
-  inset: 12px;
+  border-bottom-color: var(--text-muted);
+  animation: spin 1.8s linear infinite;
+  inset: 8px;
 }
 
 .text {
-  font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  animation: blink 1.5s ease-in-out infinite;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
 }

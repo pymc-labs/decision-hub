@@ -2,16 +2,17 @@
   display: grid;
   grid-template-columns: 260px 1fr;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg-card);
   min-height: 600px;
   height: calc(100vh - 320px);
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar {
   border-right: 1px solid var(--border-color);
-  background: var(--bg-dark);
+  background: var(--bg-secondary);
   overflow-y: auto;
 }
 
@@ -21,22 +22,19 @@
   gap: 6px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
-  font-family: 'Orbitron', sans-serif;
-  font-size: var(--text-xxs);
+  font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: var(--neon-cyan);
+  color: var(--text-secondary);
 }
 
 .fileCount {
   margin-left: auto;
-  background: rgba(0, 240, 255, 0.1);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary-border);
   border-radius: 10px;
   padding: 1px 8px;
   font-size: var(--text-xxs);
-  color: var(--neon-cyan);
+  color: var(--color-primary);
 }
 
 .tree {
@@ -52,26 +50,26 @@
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.1s ease;
   text-align: left;
 }
 
 .treeItem:hover {
-  background: rgba(0, 240, 255, 0.05);
+  background: rgba(0, 0, 0, 0.03);
   color: var(--text-primary);
 }
 
 .treeItemActive {
-  background: rgba(0, 240, 255, 0.1) !important;
-  color: var(--neon-cyan) !important;
-  border-right: 2px solid var(--neon-cyan);
+  background: var(--color-primary-light) !important;
+  color: var(--color-primary) !important;
+  border-right: 2px solid var(--color-primary);
 }
 
 .folderIcon {
-  color: var(--neon-yellow);
+  color: var(--color-warning);
   flex-shrink: 0;
 }
 
@@ -92,17 +90,18 @@
   justify-content: space-between;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--bg-dark);
+  background: var(--bg-secondary);
 }
 
 .editorPath {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--neon-cyan);
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .editorSize {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-muted);
 }

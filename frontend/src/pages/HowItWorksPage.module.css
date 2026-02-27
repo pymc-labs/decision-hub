@@ -11,9 +11,10 @@
 
 .pageTitle {
   font-size: var(--text-title);
-  color: var(--neon-cyan);
-  text-shadow: var(--glow-text-strong);
+  font-weight: 700;
+  color: var(--text-primary);
   margin-bottom: 12px;
+  letter-spacing: -0.02em;
 }
 
 .pageSubtitle {
@@ -30,26 +31,26 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  max-width: 1280px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
 /* ── Single act ───────────────────────────────────────── */
 
 .act {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--color-primary);
 }
 
 .act[data-act-color="cyan"] {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--color-primary);
 }
 
 .act[data-act-color="pink"] {
-  --act-color: var(--neon-pink);
+  --act-color: var(--color-danger);
 }
 
 .act[data-act-color="green"] {
-  --act-color: var(--neon-green);
+  --act-color: var(--color-success);
 }
 
 /* ── Act divider between acts ─────────────────────────── */
@@ -71,7 +72,6 @@
   width: 60px;
   height: 3px;
   background: var(--act-color);
-  box-shadow: 0 0 12px var(--act-color);
   border-radius: 2px;
 }
 
@@ -84,12 +84,10 @@
 
 .actLabel {
   display: inline-block;
-  font-family: "Orbitron", sans-serif;
-  font-weight: 700;
+  font-weight: 600;
   font-size: var(--text-sm);
-  letter-spacing: 3px;
+  letter-spacing: 0.05em;
   color: var(--act-color);
-  text-shadow: 0 0 10px var(--act-color);
   margin-bottom: 8px;
 }
 
@@ -118,7 +116,6 @@
   align-items: center;
 }
 
-/* Alternated: terminal on left, text on right */
 .featureRowAlt .featureText {
   order: 2;
 }
@@ -148,8 +145,9 @@
 
 .featureTitle {
   font-size: var(--text-lg);
-  color: var(--act-color);
-  text-shadow: var(--glow-text-subtle);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .featureBullets {
@@ -170,7 +168,7 @@
 }
 
 .featureBullet::before {
-  content: "›";
+  content: "\203A";
   position: absolute;
   left: 0;
   color: var(--act-color);
@@ -209,7 +207,6 @@
     gap: 24px;
   }
 
-  /* Reset alternating order — text always on top */
   .featureRowAlt .featureText {
     order: unset;
   }
@@ -248,7 +245,6 @@
 
   .actLabel {
     font-size: var(--text-xs);
-    letter-spacing: 2px;
   }
 
   .actTagline {

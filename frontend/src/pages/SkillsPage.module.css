@@ -7,21 +7,21 @@
   align-items: center;
   gap: 12px;
   font-size: var(--text-heading);
-  color: var(--neon-cyan);
-  text-shadow: var(--glow-text-subtle);
+  font-weight: 700;
+  color: var(--text-primary);
   margin-bottom: 8px;
+  letter-spacing: -0.02em;
 }
 
 .subtitle {
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  letter-spacing: 1px;
 }
 
 /* Filters */
 .filters {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
   margin-bottom: 28px;
   flex-wrap: wrap;
@@ -44,14 +44,14 @@
 .searchInput {
   width: 100%;
   padding: 10px 14px 10px 40px;
-  background: var(--bg-card);
+  background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-sm);
   outline: none;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .searchInput::placeholder {
@@ -59,8 +59,8 @@
 }
 
 .searchInput:focus {
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
 .filterGroup {
@@ -72,24 +72,23 @@
 
 .select {
   padding: 10px 12px;
-  background: var(--bg-card);
+  background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-sm);
-  font-weight: 600;
   outline: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   appearance: auto;
 }
 
 .select:focus {
-  border-color: var(--neon-cyan);
+  border-color: var(--color-primary);
 }
 
-/* Sort controls — visually distinct from filters */
+/* Sort controls */
 .sortGroup {
   display: flex;
   align-items: center;
@@ -101,23 +100,21 @@
 
 .sortSelect {
   padding: 10px 12px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
-  border-radius: 8px;
-  color: var(--neon-purple);
-  font-family: 'Rajdhani', sans-serif;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-sm);
-  font-weight: 600;
   outline: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   appearance: auto;
 }
 
 .sortSelect:focus,
 .sortSelect:hover {
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  border-color: var(--color-primary);
 }
 
 .sortDirBtn {
@@ -125,18 +122,17 @@
   align-items: center;
   justify-content: center;
   padding: 7px 8px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
-  border-radius: 8px;
-  color: var(--neon-purple);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .sortDirBtn:hover {
-  background: rgba(180, 0, 255, 0.12);
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 /* Grid */
@@ -149,7 +145,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
   display: block;
   height: 100%;
 }
@@ -172,17 +167,15 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-purple);
-  letter-spacing: 1px;
+  color: var(--text-secondary);
 }
 
 .cardName {
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 0;
 }
 
 .cardDesc {
@@ -207,8 +200,8 @@
 }
 
 .cardVersion {
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-cyan);
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary);
 }
 
 .cardAuthor {
@@ -220,7 +213,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   color: var(--text-muted);
 }
 
@@ -230,11 +223,10 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--neon-pink);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-pink);
+  color: var(--text-secondary);
   width: fit-content;
 }
 
@@ -244,11 +236,10 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--neon-orange);
+  border: 1px solid var(--color-warning-border);
   border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-orange);
+  color: var(--color-warning);
   width: fit-content;
 }
 
@@ -258,23 +249,23 @@
   align-items: center;
   justify-content: center;
   padding: 8px;
-  background: var(--bg-card);
+  background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .viewToggle:hover {
-  border-color: var(--neon-cyan);
-  color: var(--neon-cyan);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .viewToggleActive {
-  border-color: var(--neon-cyan);
-  color: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
 }
 
 /* Grouped view */
@@ -295,13 +286,14 @@
   align-items: center;
   gap: 8px;
   font-size: var(--text-body);
-  color: var(--neon-pink);
+  font-weight: 600;
+  color: var(--text-primary);
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border-color);
 }
 
 .categoryCount {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-muted);
   margin-left: 4px;
@@ -317,32 +309,27 @@
 }
 
 .loadingMore {
-  font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-sm);
   color: var(--text-muted);
-  letter-spacing: 1px;
 }
 
 .loadMoreError {
-  font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-sm);
-  color: var(--neon-pink);
-  letter-spacing: 1px;
+  color: var(--color-danger);
 }
 
 .retryBtn {
-  font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--neon-cyan);
+  color: var(--color-primary);
   background: transparent;
-  border: 1px solid var(--neon-cyan);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
   padding: 4px 12px;
   cursor: pointer;
-  letter-spacing: 1px;
 }
 
 .retryBtn:hover {
-  background: rgba(0, 255, 255, 0.1);
+  background: var(--color-primary-light);
 }
 
 /* Empty */

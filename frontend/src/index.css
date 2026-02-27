@@ -1,50 +1,98 @@
-/* === NEON 80s RETRO THEME === */
+/* === ENTERPRISE TRUST THEME === */
+/* Centralized design tokens — single source of truth for all styling. */
+/* Every component CSS module references these variables for 100% consistency. */
 
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
-  --neon-pink: #ff2d95;
-  --neon-cyan: #00f0ff;
-  --neon-purple: #b400ff;
-  --neon-yellow: #ffe600;
-  --neon-green: #39ff14;
-  --neon-orange: #ff6a00;
+  /* ── Primary brand ─────────────────────────────────────── */
+  --color-primary: #0071e3;
+  --color-primary-hover: #0077ed;
+  --color-primary-light: rgba(0, 113, 227, 0.06);
+  --color-primary-border: rgba(0, 113, 227, 0.2);
 
-  --glow-pink: 0 0 10px #ff2d95, 0 0 20px #ff2d9580, 0 0 40px #ff2d9540;
-  --glow-cyan: 0 0 10px #00f0ff, 0 0 20px #00f0ff80, 0 0 40px #00f0ff40;
-  --glow-purple: 0 0 10px #b400ff, 0 0 20px #b400ff80, 0 0 40px #b400ff40;
-  --glow-green: 0 0 10px #39ff14, 0 0 20px #39ff1480, 0 0 40px #39ff1440;
+  /* ── Semantic colors ───────────────────────────────────── */
+  --color-success: #248a3d;
+  --color-success-light: rgba(36, 138, 61, 0.06);
+  --color-success-border: rgba(36, 138, 61, 0.2);
 
-  --glow-text-subtle: 0 0 8px rgba(0, 240, 255, 0.15);
-  --glow-text-strong: 0 0 10px rgba(0, 240, 255, 0.3);
+  --color-warning: #e87400;
+  --color-warning-light: rgba(232, 116, 0, 0.06);
+  --color-warning-border: rgba(232, 116, 0, 0.2);
 
-  --bg-darkest: #0a0a12;
-  --bg-dark: #12121f;
-  --bg-card: #1a1a2e;
-  --bg-card-hover: #22223a;
-  --bg-elevated: #252540;
+  --color-danger: #d70015;
+  --color-danger-light: rgba(215, 0, 21, 0.06);
+  --color-danger-border: rgba(215, 0, 21, 0.2);
 
-  --text-primary: #e8e8f0;
-  --text-secondary: #8888aa;
-  --text-muted: #555577;
+  --color-info: #5856d6;
+  --color-info-light: rgba(88, 86, 214, 0.06);
+  --color-info-border: rgba(88, 86, 214, 0.15);
 
-  --border-color: #2a2a45;
-  --border-glow: #00f0ff30;
+  /* ── Backgrounds ───────────────────────────────────────── */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #fbfbfd;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-elevated: #ffffff;
+  --bg-code: #f5f5f7;
+  --bg-overlay: rgba(0, 0, 0, 0.35);
 
-  --max-width: 1280px;
-  --header-height: 72px;
+  /* ── Text ──────────────────────────────────────────────── */
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #aeaeb2;
+  --text-inverse: #ffffff;
 
-  /* Typography scale */
-  --text-hero:    4rem;
-  --text-display: 2.5rem;
-  --text-title:   2rem;
-  --text-heading: 1.6rem;
-  --text-lg:      1.3rem;
-  --text-body:    1.1rem;
-  --text-sm:      0.9rem;
-  --text-xs:      0.8rem;
-  --text-xxs:     0.7rem;
+  /* ── Borders ───────────────────────────────────────────── */
+  --border-color: #e5e5ea;
+  --border-color-light: #f2f2f7;
+  --border-color-focus: var(--color-primary);
+
+  /* ── Shadows ───────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 48px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.06);
+
+  /* ── Layout ────────────────────────────────────────────── */
+  --max-width: 1200px;
+  --header-height: 52px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /* ── Typography scale ──────────────────────────────────── */
+  --text-hero:    3.25rem;
+  --text-display: 2.25rem;
+  --text-title:   1.75rem;
+  --text-heading: 1.375rem;
+  --text-lg:      1.125rem;
+  --text-body:    1rem;
+  --text-sm:      0.875rem;
+  --text-xs:      0.8125rem;
+  --text-xxs:     0.75rem;
+
+  /* ── Legacy aliases (keeps references working during transition) */
+  --neon-pink: var(--color-danger);
+  --neon-cyan: var(--color-primary);
+  --neon-purple: var(--color-info);
+  --neon-yellow: var(--color-warning);
+  --neon-green: var(--color-success);
+  --neon-orange: var(--color-warning);
+  --glow-pink: none;
+  --glow-cyan: none;
+  --glow-purple: none;
+  --glow-green: none;
+  --glow-text-subtle: none;
+  --glow-text-strong: none;
+  --bg-darkest: var(--bg-secondary);
+  --bg-dark: var(--bg-secondary);
+  --border-glow: var(--border-color);
 }
+
+/* ── Reset ───────────────────────────────────────────────── */
 
 * {
   margin: 0;
@@ -57,52 +105,17 @@ html {
 }
 
 body {
-  font-family: 'Rajdhani', sans-serif;
-  background: var(--bg-darkest);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.6;
-  font-size: 18px;
-  /* Horizontal safe area insets for iPhone notch/dynamic island.
-     Top/bottom are handled on the sticky header and footer in Layout. */
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
-}
-
-/* Subtle scanline overlay */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 9999;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
-}
-
-/* Grid background */
-body::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
 }
 
 #root {
@@ -111,45 +124,50 @@ body::after {
   flex-direction: column;
 }
 
+/* ── Global element styles ───────────────────────────────── */
+
 a {
-  color: var(--neon-cyan);
+  color: var(--color-primary);
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: color 0.15s ease;
 }
 
 a:hover {
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
+  color: var(--color-primary-hover);
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Orbitron', sans-serif;
-  font-weight: 700;
-  letter-spacing: 1px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 code, pre {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 }
 
+/* ── Scrollbar ───────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-darkest);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neon-cyan);
-  box-shadow: var(--glow-cyan);
+  background: var(--text-muted);
 }
+
+/* ── Container utility ───────────────────────────────────── */
 
 .container {
   max-width: var(--max-width);
@@ -164,29 +182,17 @@ code, pre {
   }
 }
 
-@keyframes neonFlicker {
-  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
-    text-shadow:
-      0 0 4px #fff,
-      0 0 11px #fff,
-      0 0 19px #fff,
-      0 0 40px var(--neon-cyan),
-      0 0 80px var(--neon-cyan);
-  }
-  20%, 24%, 55% {
-    text-shadow: none;
-  }
-}
+/* ── Shared keyframes ────────────────────────────────────── */
 
-@keyframes pulseGlow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -194,7 +200,6 @@ code, pre {
   }
 }
 
-@keyframes gridScroll {
-  0% { background-position: 0 0, 0 0; }
-  100% { background-position: 60px 60px, 60px 60px; }
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

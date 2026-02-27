@@ -23,21 +23,18 @@
 }
 
 .summaryNumber {
-  font-family: 'Orbitron', sans-serif;
   font-size: var(--text-display);
-  font-weight: 900;
-  color: var(--neon-green);
-  text-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
+  font-weight: 800;
+  color: var(--color-success);
+  letter-spacing: -0.03em;
 }
 
 .summarySlash {
-  font-family: 'Orbitron', sans-serif;
   font-size: var(--text-heading);
   color: var(--text-muted);
 }
 
 .summaryTotal {
-  font-family: 'Orbitron', sans-serif;
   font-size: var(--text-heading);
   color: var(--text-secondary);
 }
@@ -48,19 +45,18 @@
 }
 
 .summaryBar {
-  height: 8px;
-  background: var(--bg-dark);
-  border-radius: 4px;
+  height: 6px;
+  background: var(--bg-secondary);
+  border-radius: 3px;
   overflow: hidden;
   margin-bottom: 10px;
 }
 
 .summaryBarFill {
   height: 100%;
-  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
-  border-radius: 4px;
+  background: var(--color-primary);
+  border-radius: 3px;
   transition: width 0.5s ease;
-  box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
 }
 
 .summaryMeta {
@@ -78,22 +74,21 @@
 }
 
 .summaryStatus {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-size: var(--text-xs);
 }
 
 .summaryStatus.completed {
-  color: var(--neon-green);
+  color: var(--color-success);
 }
 
 .summaryStatus.failed {
-  color: var(--neon-pink);
+  color: var(--color-danger);
 }
 
 .summaryStatus.pending {
-  color: var(--neon-yellow);
+  color: var(--color-warning);
 }
 
 /* Error */
@@ -101,7 +96,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--neon-pink);
+  color: var(--color-danger);
   font-size: var(--text-sm);
 }
 
@@ -131,9 +126,9 @@
 }
 
 .caseName h4 {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
-  font-weight: 400;
+  font-weight: 500;
   color: var(--text-primary);
   letter-spacing: 0;
 }
@@ -148,42 +143,40 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .caseVerdict {
-  font-family: 'Orbitron', sans-serif;
   font-size: var(--text-xxs);
-  font-weight: 700;
-  letter-spacing: 1px;
+  font-weight: 600;
   padding: 2px 10px;
   border-radius: 4px;
   border: 1px solid;
 }
 
 .caseVerdict.pass {
-  color: var(--neon-green);
-  border-color: rgba(57, 255, 20, 0.3);
-  background: rgba(57, 255, 20, 0.08);
+  color: var(--color-success);
+  border-color: var(--color-success-border);
+  background: var(--color-success-light);
 }
 
 .caseVerdict.fail {
-  color: var(--neon-pink);
-  border-color: rgba(255, 45, 149, 0.3);
-  background: rgba(255, 45, 149, 0.08);
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-light);
 }
 
 .caseVerdict.error {
-  color: var(--neon-yellow);
-  border-color: rgba(255, 230, 0, 0.3);
-  background: rgba(255, 230, 0, 0.08);
+  color: var(--color-warning);
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-light);
 }
 
-.pass { color: var(--neon-green); }
-.fail { color: var(--neon-pink); }
-.error { color: var(--neon-yellow); }
+.pass { color: var(--color-success); }
+.fail { color: var(--color-danger); }
+.error { color: var(--color-warning); }
 
 .caseDesc {
   font-size: var(--text-sm);
@@ -199,25 +192,22 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Rajdhani', sans-serif;
   font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 6px;
 }
 
 .stderrTitle {
-  color: var(--neon-pink);
+  color: var(--color-danger);
 }
 
 .casePre {
-  background: var(--bg-dark);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 12px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-secondary);
   overflow-x: auto;
@@ -229,17 +219,17 @@
 }
 
 .stderr {
-  border-color: rgba(255, 45, 149, 0.15);
-  color: var(--neon-pink);
-  opacity: 0.8;
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
+  background: var(--color-danger-light);
 }
 
 .exitCode {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--neon-pink);
+  color: var(--color-danger);
   padding: 2px 8px;
-  background: rgba(255, 45, 149, 0.08);
+  background: var(--color-danger-light);
   border-radius: 4px;
   align-self: flex-start;
 }

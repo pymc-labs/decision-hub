@@ -1,7 +1,7 @@
 .terminal {
-  background: var(--bg-dark);
+  background: #1e1e2e;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -12,8 +12,8 @@
   align-items: center;
   gap: 6px;
   padding: 10px 14px;
-  background: var(--bg-darkest);
-  border-bottom: 1px solid var(--border-color);
+  background: #181825;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .dot {
@@ -23,17 +23,17 @@
 }
 
 .title {
-  font-family: 'Share Tech Mono', monospace;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: var(--text-xxs);
+  color: rgba(255, 255, 255, 0.4);
   margin-left: 8px;
 }
 
 .body {
   padding: 16px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
-  color: var(--text-primary);
+  color: #cdd6f4;
   line-height: 1.7;
   white-space: pre;
   overflow-x: auto;
@@ -42,9 +42,9 @@
 }
 
 .command {
-  color: var(--text-primary);
+  color: #cdd6f4;
 }
 
 .output {
-  color: var(--neon-cyan);
+  color: #89b4fa;
 }

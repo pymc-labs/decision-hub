@@ -8,9 +8,10 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: linear-gradient(180deg, var(--bg-darkest) 0%, rgba(10, 10, 18, 0.95) 100%);
+  background: rgba(255, 255, 255, 0.8);
   border-bottom: 1px solid var(--border-color);
-  backdrop-filter: blur(12px);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
   padding-top: env(safe-area-inset-top);
 }
 
@@ -27,86 +28,68 @@
 .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: var(--neon-cyan) !important;
-  text-shadow: var(--glow-cyan);
-  transition: all 0.3s ease;
+  gap: 8px;
+  color: var(--text-primary) !important;
+  transition: opacity 0.15s ease;
 }
 
 .logo:hover {
-  color: var(--neon-pink) !important;
-  text-shadow: var(--glow-pink);
+  opacity: 0.7;
+  color: var(--text-primary) !important;
 }
 
 .logoIcon {
-  width: 28px;
-  height: 28px;
-  filter: drop-shadow(0 0 8px var(--neon-cyan));
+  width: 24px;
+  height: 24px;
+  color: var(--color-primary);
 }
 
 .logoText {
-  font-family: 'Orbitron', sans-serif;
-  font-size: var(--text-lg);
-  font-weight: 800;
-  letter-spacing: 2px;
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .devBadge {
-  font-family: 'Orbitron', sans-serif;
-  font-size: var(--text-sm);
-  font-weight: 900;
-  letter-spacing: 3px;
-  padding: 4px 14px;
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(255, 45, 149, 0.25);
-  color: #fff;
-  border: 2px solid var(--neon-pink);
-  text-shadow: 0 0 8px var(--neon-pink), 0 0 20px var(--neon-pink);
-  box-shadow: 0 0 12px rgba(255, 45, 149, 0.5), 0 0 30px rgba(255, 45, 149, 0.2);
-  animation: devPulse 1.2s ease-in-out infinite;
-}
-
-@keyframes devPulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 12px rgba(255, 45, 149, 0.5), 0 0 30px rgba(255, 45, 149, 0.2); }
-  50% { opacity: 0.8; box-shadow: 0 0 20px rgba(255, 45, 149, 0.7), 0 0 50px rgba(255, 45, 149, 0.3); }
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning-border);
 }
 
 .nav {
   display: flex;
-  gap: 4px;
+  gap: 1px;
 }
 
 .navLink {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-family: 'Rajdhani', sans-serif;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
   font-size: var(--text-sm);
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--text-secondary) !important;
-  text-shadow: none !important;
-  transition: all 0.2s ease;
-  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  border: none;
   background: none;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .navLink:hover {
-  color: var(--neon-cyan) !important;
-  background: rgba(0, 240, 255, 0.05);
-  border-color: rgba(0, 240, 255, 0.15);
+  color: var(--text-primary) !important;
+  background: var(--bg-secondary);
 }
 
 .navLinkActive {
-  color: var(--neon-cyan) !important;
-  background: rgba(0, 240, 255, 0.08);
-  border-color: rgba(0, 240, 255, 0.25);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
+  color: var(--color-primary) !important;
+  background: var(--color-primary-light);
 }
 
 .main {
@@ -116,9 +99,10 @@
 
 .footer {
   border-top: 1px solid var(--border-color);
-  padding: 24px 0;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  padding: 20px 0;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
   margin-top: auto;
+  background: var(--bg-tertiary);
 }
 
 .footerInner {
@@ -131,13 +115,10 @@
 }
 
 .footerGlow {
-  font-family: 'Orbitron', sans-serif;
-  font-size: var(--text-xxs);
-  font-weight: 700;
-  letter-spacing: 4px;
-  color: var(--neon-purple);
-  text-shadow: var(--glow-purple);
-  animation: pulseGlow 3s ease-in-out infinite;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
 }
 
 .footerLinks {
@@ -148,14 +129,12 @@
 
 .footerLinks a {
   font-size: var(--text-xs);
-  color: var(--text-muted) !important;
-  text-shadow: none !important;
-  letter-spacing: 0.5px;
-  transition: color 0.2s ease;
+  color: var(--text-secondary) !important;
+  transition: color 0.15s ease;
 }
 
 .footerLinks a:hover {
-  color: var(--neon-cyan) !important;
+  color: var(--color-primary) !important;
 }
 
 .headerRight {
@@ -168,27 +147,22 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-family: 'Rajdhani', sans-serif;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 500;
   color: var(--text-secondary) !important;
-  text-shadow: none !important;
   border: 1px solid var(--border-color);
   background: transparent;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   cursor: pointer;
   text-decoration: none;
 }
 
 .starBtn:hover {
-  color: #f0d000 !important;
-  border-color: rgba(240, 208, 0, 0.4);
-  background: rgba(240, 208, 0, 0.05);
-  box-shadow: 0 0 10px rgba(240, 208, 0, 0.15);
+  color: var(--text-primary) !important;
+  border-color: var(--text-muted);
+  background: var(--bg-secondary);
 }
 
 .menuToggle {
@@ -197,16 +171,16 @@
   justify-content: center;
   background: none;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px;
-  color: var(--neon-cyan);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .menuToggle:hover {
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
 }
 
 @media (max-width: 768px) {
@@ -221,10 +195,11 @@
     left: 0;
     right: 0;
     flex-direction: column;
-    background: var(--bg-darkest);
+    background: var(--bg-primary);
     border-bottom: 1px solid var(--border-color);
     padding: 8px 16px;
     gap: 2px;
+    box-shadow: var(--shadow-lg);
   }
 
   .navOpen {
@@ -233,7 +208,7 @@
 
   .navLink {
     padding: 12px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     font-size: var(--text-body);
     width: 100%;
   }
@@ -267,16 +242,10 @@
   }
 
   .logoText {
-    font-size: var(--text-body);
-    letter-spacing: 1px;
+    font-size: var(--text-xs);
   }
 
   .footerInner {
     padding: 0 16px;
   }
-}
-
-@keyframes pulseGlow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
 }
