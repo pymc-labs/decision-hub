@@ -54,15 +54,21 @@ export default function SkillDetailPage() {
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
   const zipRetries = useRef(0);
-  const MAX_ZIP_RETRIES = 3;
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const MAX_ZIP_ATTEMPTS = 3;
 
   // Reset state when navigating to a different skill
   useEffect(() => {
     setZipData(null);
     setZipError(null);
+    setZipLoading(false);
     setFiles([]);
     setSkillMdContent(null);
     zipRetries.current = 0;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
   }, [orgSlug, skillName]);
 
   // Fetch single skill
@@ -123,15 +129,13 @@ export default function SkillDetailPage() {
   });
 
   // Download zip once, extract SKILL.md and file list from it.
-  // Retries up to MAX_ZIP_RETRIES times with exponential backoff on transient failures.
+  // Retries up to MAX_ZIP_ATTEMPTS total on transient failures with exponential backoff.
   const loadZip = useCallback(async () => {
     if (!orgSlug || !skillName || zipData || zipLoading) return;
     setZipLoading(true);
     setZipError(null);
     try {
       const buf = await downloadSkillZip(orgSlug, skillName);
-      setZipData(buf);
-      zipRetries.current = 0;
       const zip = await JSZip.loadAsync(buf);
 
       const skillMdEntry = zip.file("SKILL.md");
@@ -148,16 +152,21 @@ export default function SkillDetailPage() {
         fileList.push({ path, content, size: content.length });
       }
       setFiles(fileList);
+      setZipData(buf);
+      zipRetries.current = 0;
     } catch (err) {
       zipRetries.current += 1;
-      if (zipRetries.current < MAX_ZIP_RETRIES) {
-        const delay = 2000 * zipRetries.current; // 2s, 4s
-        setTimeout(() => setZipLoading(false), delay);
-        return; // will re-trigger via the effect below
+      if (zipRetries.current < MAX_ZIP_ATTEMPTS) {
+        const delay = 2000 * zipRetries.current;
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          setZipLoading(false);
+        }, delay);
+        return;
       }
       setZipError(err instanceof Error ? err.message : "Failed to load package");
     } finally {
-      if (zipRetries.current === 0 || zipRetries.current >= MAX_ZIP_RETRIES) {
+      if (zipRetries.current === 0 || zipRetries.current >= MAX_ZIP_ATTEMPTS) {
         setZipLoading(false);
       }
     }
