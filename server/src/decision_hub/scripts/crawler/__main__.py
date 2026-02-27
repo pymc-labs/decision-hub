@@ -85,6 +85,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "or git@github.com:owner/repo.git"
         ),
     )
+    source_group.add_argument(
+        "--repos-file",
+        type=Path,
+        metavar="FILE",
+        help=(
+            "Process repos listed in a JSON file (e.g. from scrape_skillsmp.py). "
+            "The file must contain a 'repos' array with 'full_name' fields."
+        ),
+    )
 
     parser.add_argument(
         "--dry-run",
@@ -478,6 +487,22 @@ def run_crawler(args: argparse.Namespace) -> None:
         )
         _print_summary(stats)
         return
+
+    # --repos-file: load repo identifiers from a JSON file, then process like --repos
+    if args.repos_file:
+        from decision_hub.scripts.scrape_skillsmp import load_repos_file
+
+        if not args.repos_file.exists():
+            logger.error("Repos file not found: {}", args.repos_file)
+            sys.exit(1)
+
+        repo_identifiers = load_repos_file(args.repos_file)
+        if not repo_identifiers:
+            logger.error("No repos found in {}", args.repos_file)
+            sys.exit(1)
+
+        logger.info("Loaded {} repos from {}", len(repo_identifiers), args.repos_file)
+        args.repos = repo_identifiers  # fall through to --repos handling below
 
     # --repos: skip discovery, resolve specific repos and process them
     if args.repos:
