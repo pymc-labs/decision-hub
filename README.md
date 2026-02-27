@@ -2,7 +2,7 @@
   <img src="assets/banner.png" alt="Decision Hub — The AI Skill Manager" width="100%">
 </p>
 
-**Decision Hub** is a registry for publishing, discovering, and installing *Skills* — modular packages of code and prompts that AI coding agents (Claude, Cursor, Codex, Gemini, OpenCode) can use. Publish a skill once, install it into any supported agent with one command.
+**Decision Hub** is a registry for publishing, discovering, and installing *Skills* — modular packages of code and prompts that AI coding agents (Claude, Cursor, Codex, Gemini, OpenCode, and 30+ others) can use. Publish a skill once, install it into any supported agent with one command.
 
 **Browse the registry at [hub.decision.ai](https://hub.decision.ai)** or use the CLI below.
 
@@ -22,11 +22,17 @@ pipx install dhub-cli       # via pipx
 ## Quick Start
 
 ```bash
+# Authenticate via GitHub
+dhub login
+
 # Search for skills in plain English
 dhub ask "I need to do Bayesian statistics with PyMC"
 
-# Install to Claude, Cursor, Codex, Gemini, OpenCode...
-dhub install pymc-labs/pymc-modeling
+# Install a skill and link it to a specific agent
+dhub install pymc-labs/pymc-modeling --agent claude-code
+
+# Or link to all detected agents at once
+dhub install pymc-labs/pymc-modeling --agent all
 
 # Scaffold and publish your own skill
 dhub init my-skill
@@ -35,19 +41,19 @@ dhub publish ./my-skill
 
 ## Why Decision Hub
 
-**Agents that extend themselves.** Decision Hub ships as a skill itself. Install it into Claude Code (or any supported agent), and the agent can discover new skills mid-conversation — `dhub ask "analyze A/B test results"` — then install and use them without human intervention.
+**Agents that extend themselves.** Decision Hub ships as a skill itself. Install it into Claude Code (or any supported agent), and the agent can discover and install new skills mid-conversation without human intervention.
 
 **Publish from anywhere.** Point `dhub publish` at a local directory or a GitHub repo URL and every `SKILL.md` inside is discovered, versioned, and published automatically.
 
-**Private skills for your team.** Publish with `--private` to scope skills to your GitHub organization. Grant cross-org access selectively with `dhub access grant`. Proprietary tooling stays internal while using the same registry workflow.
+**Private skills for your team.** Publish with `--private` to scope skills to your GitHub organization. Grant cross-org access selectively with `dhub access grant`.
 
-**Install once, use everywhere.** A single `dhub install` downloads a skill and symlinks it into every detected agent's skill directory. No duplication, no per-agent setup.
+**Install once, use everywhere.** A single `dhub install --agent all` downloads a skill and symlinks it into every detected agent's skill directory.
 
 **Security gauntlet.** Every publish is scanned for shell injection, credential exfiltration, and other dangerous patterns. Skills receive a trust grade (A/B/C/F). Grade F is rejected; Grade C requires `--allow-risky` to install.
 
 **Automated evals.** Skills ship with eval cases that run on publish — each executes in an isolated sandbox, an LLM judge scores the output, and results are published as a report.
 
-**Zero-config namespaces.** Your GitHub username and org memberships become publishing namespaces on login. No accounts to create, no orgs to manage.
+**Zero-config namespaces.** Your GitHub username and org memberships become publishing namespaces on login.
 
 **Auto-tracking.** Publish from a GitHub URL and a tracker automatically republishes skills on future commits. No CI setup required.
 
@@ -111,9 +117,10 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 
 | Command | Description |
 |---------|-------------|
-| `dhub install ORG/SKILL` | Install a skill and symlink into all detected agents |
+| `dhub install ORG/SKILL` | Download a skill to `~/.dhub/skills/` |
+| `dhub install ORG/SKILL --agent all` | Download and symlink into all detected agents |
+| `dhub install ORG/SKILL --agent claude-code` | Download and symlink into a specific agent |
 | `dhub install ORG/SKILL -v VERSION` | Install a specific version |
-| `dhub install ORG/SKILL --agent claude-code` | Install for a specific agent only |
 | `dhub install ORG/SKILL --allow-risky` | Allow installing C-grade skills |
 | `dhub uninstall ORG/SKILL` | Remove a skill and its agent symlinks |
 | `dhub run ORG/SKILL [ARGS...]` | Run a locally installed skill |
@@ -125,6 +132,7 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 | `dhub list` | List all published skills |
 | `dhub list --org ORG` | Filter by organization |
 | `dhub list --skill NAME` | Filter by skill name |
+| `dhub info ORG/SKILL` | Show detailed information about a skill |
 | `dhub ask "QUERY"` | Natural language search |
 | `dhub ask "QUERY" --category "Backend & APIs"` | Search within a category |
 | `dhub init [PATH]` | Scaffold a new skill project |
@@ -135,7 +143,7 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 |---------|-------------|
 | `dhub eval-report ORG/SKILL@VERSION` | View the evaluation report for a version |
 | `dhub logs` | List recent eval runs |
-| `dhub logs ORG/SKILL [--follow]` | Tail eval logs for the latest version |
+| `dhub logs ORG/SKILL --follow` | Tail eval logs for the latest version |
 | `dhub logs RUN_ID --follow` | Tail a specific eval run by ID |
 
 ### Organizations, Keys & Config
@@ -163,7 +171,10 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 
 ## Supported Agents
 
-Skills are installed as symlinks into each agent's skill directory:
+Skills are installed as symlinks into each agent's skill directory. Use `--agent NAME` to target one agent or `--agent all` to symlink into every detected agent.
+
+<details>
+<summary>38 supported agents (click to expand)</summary>
 
 | Agent | `--agent` | Skill path |
 |-------|-----------|-----------|
@@ -209,7 +220,7 @@ Skills are installed as symlinks into each agent's skill directory:
 | Windsurf | `windsurf` | `~/.codeium/windsurf/skills/{skill}` |
 | Zencoder | `zencoder` | `~/.zencoder/skills/{skill}` |
 
-By default, `dhub install` symlinks into all agents. Use `--agent NAME` to target a specific one.
+</details>
 
 ## Safety & Evals
 
@@ -247,7 +258,7 @@ This is a **uv workspace monorepo** with four components:
 | `dhub-core` | `shared/` | `dhub_core.*` | Shared domain models and SKILL.md parsing |
 | Frontend | `frontend/` | — | React + TypeScript web UI at [hub.decision.ai](https://hub.decision.ai) |
 
-**Tech stack:** Python 3.11+ / Typer + Rich (CLI) / FastAPI (API) / PostgreSQL (database) / S3 (artifact storage) / Modal (compute & sandboxed evals) / Gemini (natural language search)
+**Tech stack:** Python 3.11+ / Typer + Rich (CLI) / FastAPI (API) / PostgreSQL (database) / S3 (artifact storage) / Modal (compute & sandboxed evals) / Gemini (search & classification) / Anthropic (eval judging)
 
 ## Development
 
@@ -288,7 +299,7 @@ Copy `server/.env.example` to `server/.env.dev` (or `server/.env.local` for loca
 
 ### Contributing
 
-See [`AGENTS.md`](AGENTS.md) for detailed development guidelines including: coding standards, database migration rules, deployment procedures, environment setup, and CI workflows.
+See [`CLAUDE.md`](CLAUDE.md) for detailed development guidelines including: coding standards, database migration rules, deployment procedures, environment setup, and CI workflows.
 
 ## Security
 
