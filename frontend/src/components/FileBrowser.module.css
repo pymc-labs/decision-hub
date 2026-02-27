@@ -5,7 +5,8 @@
   border-radius: 12px;
   overflow: hidden;
   background: var(--bg-card);
-  min-height: 500px;
+  min-height: 600px;
+  height: calc(100vh - 320px);
 }
 
 .sidebar {
@@ -21,7 +22,7 @@
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.7rem;
+  font-size: var(--text-xxs);
   font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -34,7 +35,7 @@
   border: 1px solid rgba(0, 240, 255, 0.2);
   border-radius: 10px;
   padding: 1px 8px;
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   color: var(--neon-cyan);
 }
 
@@ -52,7 +53,7 @@
   background: none;
   color: var(--text-secondary);
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   cursor: pointer;
   transition: all 0.15s ease;
   text-align: left;
@@ -96,13 +97,13 @@
 
 .editorPath {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--neon-cyan);
 }
 
 .editorSize {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
@@ -123,7 +124,7 @@
   gap: 12px;
   height: 100%;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 @media (max-width: 768px) {

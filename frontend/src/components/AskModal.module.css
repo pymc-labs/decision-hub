@@ -44,7 +44,7 @@
   align-items: center;
   gap: 8px;
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -101,14 +101,14 @@
 
 .emptyTitle {
   font-family: 'Orbitron', sans-serif;
-  font-size: 1rem;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0.5px;
 }
 
 .emptyHint {
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   max-width: 440px;
   line-height: 1.5;
@@ -128,7 +128,7 @@
   border-radius: 20px;
   color: var(--neon-cyan);
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   font-weight: 500;
   padding: 6px 14px;
   cursor: pointer;
@@ -158,7 +158,7 @@
 .messageContent {
   padding: 10px 14px;
   border-radius: 10px;
-  font-size: 1rem;
+  font-size: var(--text-body);
   line-height: 1.55;
 }
 
@@ -189,13 +189,13 @@
   font-family: 'Orbitron', sans-serif;
   color: var(--neon-cyan);
   margin: 12px 0 6px;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.5px;
 }
 
 .assistantMessage .messageContent h1 {
-  font-size: 1rem;
+  font-size: var(--text-body);
 }
 
 .assistantMessage .messageContent ul,
@@ -235,7 +235,7 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .assistantMessage .messageContent a {
@@ -252,7 +252,7 @@
   width: 100%;
   border-collapse: collapse;
   margin: 8px 0;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .assistantMessage .messageContent th {
@@ -262,7 +262,7 @@
   color: var(--neon-cyan);
   font-weight: 600;
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
@@ -314,13 +314,13 @@
 
 .skillName {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   color: var(--neon-cyan) !important;
   text-shadow: var(--glow-text-subtle);
 }
 
 .skillDescription {
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.4;
   margin: 0 0 4px 0;
@@ -341,12 +341,12 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .skillReason {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--neon-purple);
   font-style: italic;
   margin: 0;
@@ -374,7 +374,7 @@
   gap: 8px;
   padding: 10px 14px;
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 10px;
@@ -392,7 +392,7 @@
   background: rgba(255, 45, 149, 0.08);
   border: 1px solid rgba(255, 45, 149, 0.25);
   color: var(--neon-pink);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   align-self: flex-start;
 }
 
@@ -414,7 +414,7 @@
   padding: 10px 14px;
   color: var(--text-primary);
   font-family: 'Rajdhani', sans-serif;
-  font-size: 1rem;
+  font-size: var(--text-body);
   outline: none;
   transition: border-color 0.2s ease;
 }
@@ -525,7 +525,7 @@
   }
 
   .headerTitle {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .inputArea {
