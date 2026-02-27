@@ -131,11 +131,12 @@ export default function SkillDetailPage() {
   // Download zip once, extract SKILL.md and file list from it.
   // Retries up to MAX_ZIP_ATTEMPTS total on transient failures with exponential backoff.
   const loadZip = useCallback(async () => {
-    if (!orgSlug || !skillName || zipData || zipLoading) return;
+    if (!orgSlug || !skillName || !skill || zipData || zipLoading) return;
     setZipLoading(true);
     setZipError(null);
     try {
-      const buf = await downloadSkillZip(orgSlug, skillName);
+      const allowRisky = skill?.safety_rating === "C";
+      const buf = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const zip = await JSZip.loadAsync(buf);
 
       const skillMdEntry = zip.file("SKILL.md");
@@ -170,7 +171,7 @@ export default function SkillDetailPage() {
         setZipLoading(false);
       }
     }
-  }, [orgSlug, skillName, zipData, zipLoading]);
+  }, [orgSlug, skillName, zipData, zipLoading, skill]);
 
   // Trigger zip download when overview or files tab is first visited
   useEffect(() => {
@@ -183,7 +184,8 @@ export default function SkillDetailPage() {
     if (!orgSlug || !skillName) return;
     setDownloading(true);
     try {
-      const zipData = await downloadSkillZip(orgSlug, skillName);
+      const allowRisky = skill?.safety_rating === "C";
+      const zipData = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const blob = new Blob([zipData], { type: "application/zip" });
       saveAs(blob, `${orgSlug}-${skillName}.zip`);
     } catch (err) {
