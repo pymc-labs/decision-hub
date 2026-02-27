@@ -153,10 +153,12 @@ class OrgStatsResponse(BaseModel):
 def get_org_stats(
     search: str | None = Query(None, max_length=200),
     type_filter: str = Query("all", pattern="^(orgs|users|all)$"),
+    sort: str = Query("slug", pattern="^(slug|skill_count|total_downloads|latest_update)$"),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     conn: Connection = Depends(get_connection),
 ) -> OrgStatsResponse:
     """Return aggregated org statistics for the orgs listing page."""
-    rows = fetch_org_stats(conn, search=search, type_filter=type_filter)
+    rows = fetch_org_stats(conn, search=search, type_filter=type_filter, sort=sort, sort_dir=sort_dir)
     items = [
         OrgStatsEntry(
             slug=row["slug"],
