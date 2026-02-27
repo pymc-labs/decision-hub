@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     # Stop processing if GitHub rate limit remaining drops below this
     tracker_rate_limit_floor: int = 500
 
+    # Claude marketplace
+    marketplace_skill_limit: int = 1000  # max skills in the marketplace
+    marketplace_cache_ttl: int = 300  # seconds between generation checks
+
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
 

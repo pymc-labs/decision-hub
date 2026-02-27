@@ -90,6 +90,92 @@ class CLIVersionMiddleware:
         await self.app(scope, receive, send)
 
 
+def _parse_grade(gauntlet_summary: str | None) -> str:
+    """Extract letter grade from gauntlet summary string.
+
+    The summary format is 'A: ...' or just 'A'. Returns 'B' as default
+    if the summary is missing or unparseable (benefit of the doubt).
+    """
+    if not gauntlet_summary:
+        return "B"
+    grade = gauntlet_summary.strip()[:1].upper()
+    return grade if grade in ("A", "B", "C", "F") else "B"
+
+
+def _mount_marketplace(app: FastAPI, engine, s3_client, settings) -> None:
+    """Mount the virtual git marketplace at /marketplace.git/."""
+    from starlette.middleware.wsgi import WSGIMiddleware
+
+    from decision_hub.domain.marketplace import SkillPluginEntry
+    from decision_hub.domain.publish import extract_for_evaluation
+    from decision_hub.infra.database import (
+        fetch_marketplace_skills,
+        get_marketplace_generation,
+    )
+    from decision_hub.infra.git_marketplace import (
+        MarketplaceCache,
+        build_marketplace_repo,
+        create_git_wsgi_app,
+    )
+    from decision_hub.infra.storage import download_skill_zip
+
+    def _get_generation() -> int:
+        with engine.connect() as conn:
+            return get_marketplace_generation(conn)
+
+    def _build_repo():
+        with engine.connect() as conn:
+            rows = fetch_marketplace_skills(conn, limit=settings.marketplace_skill_limit)
+
+        # Fetch SKILL.md content from S3 for each skill
+        skill_md_contents: dict[str, str] = {}
+        entries: list[SkillPluginEntry] = []
+
+        for row in rows:
+            grade = _parse_grade(row.get("gauntlet_summary", ""))
+            if grade == "F":
+                continue
+
+            entry = SkillPluginEntry(
+                org_slug=row["org_slug"],
+                skill_name=row["skill_name"],
+                version=row["latest_version"],
+                description=row.get("description") or "",
+                category=row.get("category") or "",
+                gauntlet_grade=grade,
+                eval_status=row.get("eval_status") or "pending",
+                download_count=row.get("download_count") or 0,
+                source_repo_url=row.get("source_repo_url"),
+            )
+            entries.append(entry)
+
+            # Download SKILL.md from S3
+            s3_key = row.get("s3_key", "")
+            if s3_key:
+                try:
+                    zip_bytes = download_skill_zip(s3_client, settings.s3_bucket, s3_key)
+                    skill_md, _, _, _ = extract_for_evaluation(zip_bytes)
+                    skill_md_contents[f"{row['org_slug']}/{row['skill_name']}"] = skill_md
+                except Exception:
+                    logger.opt(exception=True).warning(
+                        "Failed to fetch SKILL.md for {}/{}",
+                        row["org_slug"],
+                        row["skill_name"],
+                    )
+
+        return build_marketplace_repo(entries, skill_md_contents)
+
+    cache = MarketplaceCache(
+        build_fn=_build_repo,
+        generation_fn=_get_generation,
+        ttl_seconds=settings.marketplace_cache_ttl,
+    )
+
+    wsgi_app = create_git_wsgi_app(cache=cache)
+    app.mount("/marketplace.git", WSGIMiddleware(wsgi_app))
+    logger.info("Mounted Claude marketplace at /marketplace.git/")
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -176,6 +262,9 @@ def create_app() -> FastAPI:
     from decision_hub.api.seo_routes import router as seo_router
 
     app.include_router(seo_router)
+
+    # --- Claude Plugin Marketplace (virtual git repo) ---
+    _mount_marketplace(app, engine, s3_client, settings)
 
     # --- Frontend SPA serving ---
     # If the frontend build was baked into the image, serve it from the
