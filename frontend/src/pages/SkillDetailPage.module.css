@@ -95,7 +95,9 @@ a.metaItem:hover {
   flex-direction: column;
   gap: 12px;
   position: sticky;
-  top: 24px;
+  top: calc(var(--header-height) + 24px);
+  max-height: calc(100vh - var(--header-height) - 48px);
+  overflow-y: auto;
 }
 
 .sidebarGrade {
