@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 800;
   border-radius: 6px;
   border: 1px solid;
@@ -28,32 +28,28 @@
 }
 
 .green {
-  color: #39ff14;
-  border-color: rgba(57, 255, 20, 0.4);
-  background: rgba(57, 255, 20, 0.08);
-  text-shadow: 0 0 8px rgba(57, 255, 20, 0.5);
-}
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.3);
+  background: rgba(22, 163, 74, 0.06);
+  }
 
 .cyan {
-  color: #00f0ff;
-  border-color: rgba(0, 240, 255, 0.4);
-  background: rgba(0, 240, 255, 0.08);
-  text-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
-}
+  color: #0d9488;
+  border-color: rgba(13, 148, 136, 0.3);
+  background: rgba(13, 148, 136, 0.06);
+  }
 
 .yellow {
-  color: #ffe600;
-  border-color: rgba(255, 230, 0, 0.4);
-  background: rgba(255, 230, 0, 0.08);
-  text-shadow: 0 0 8px rgba(255, 230, 0, 0.5);
-}
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.3);
+  background: rgba(217, 119, 6, 0.06);
+  }
 
 .red {
-  color: #ff2d95;
-  border-color: rgba(255, 45, 149, 0.4);
-  background: rgba(255, 45, 149, 0.08);
-  text-shadow: 0 0 8px rgba(255, 45, 149, 0.5);
-}
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.15);
+  background: rgba(220, 38, 38, 0.06);
+  }
 
 .muted {
   color: var(--text-muted);

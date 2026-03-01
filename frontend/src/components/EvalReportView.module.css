@@ -23,21 +23,20 @@
 }
 
 .summaryNumber {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-display);
   font-weight: 900;
   color: var(--neon-green);
-  text-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
-}
+  }
 
 .summarySlash {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-heading);
   color: var(--text-muted);
 }
 
 .summaryTotal {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-heading);
   color: var(--text-secondary);
 }
@@ -60,7 +59,7 @@
   background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
   border-radius: 4px;
   transition: width 0.5s ease;
-  box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .summaryMeta {
@@ -78,7 +77,7 @@
 }
 
 .summaryStatus {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -131,7 +130,7 @@
 }
 
 .caseName h4 {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
   font-weight: 400;
   color: var(--text-primary);
@@ -148,13 +147,13 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .caseVerdict {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-xxs);
   font-weight: 700;
   letter-spacing: 1px;
@@ -165,20 +164,20 @@
 
 .caseVerdict.pass {
   color: var(--neon-green);
-  border-color: rgba(57, 255, 20, 0.3);
-  background: rgba(57, 255, 20, 0.08);
+  border-color: rgba(22, 163, 74, 0.2);
+  background: rgba(22, 163, 74, 0.06);
 }
 
 .caseVerdict.fail {
   color: var(--neon-pink);
-  border-color: rgba(255, 45, 149, 0.3);
-  background: rgba(255, 45, 149, 0.08);
+  border-color: rgba(220, 38, 38, 0.2);
+  background: rgba(220, 38, 38, 0.06);
 }
 
 .caseVerdict.error {
   color: var(--neon-yellow);
-  border-color: rgba(255, 230, 0, 0.3);
-  background: rgba(255, 230, 0, 0.08);
+  border-color: rgba(217, 119, 6, 0.2);
+  background: rgba(217, 119, 6, 0.06);
 }
 
 .pass { color: var(--neon-green); }
@@ -199,7 +198,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 1px;
@@ -217,7 +216,7 @@
   border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 12px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-secondary);
   overflow-x: auto;
@@ -229,17 +228,17 @@
 }
 
 .stderr {
-  border-color: rgba(255, 45, 149, 0.15);
+  border-color: rgba(220, 38, 38, 0.1);
   color: var(--neon-pink);
   opacity: 0.8;
 }
 
 .exitCode {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--neon-pink);
   padding: 2px 8px;
-  background: rgba(255, 45, 149, 0.08);
+  background: rgba(220, 38, 38, 0.06);
   border-radius: 4px;
   align-self: flex-start;
 }

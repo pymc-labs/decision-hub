@@ -3,7 +3,7 @@
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: rgba(5, 5, 12, 0.85);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: flex-start;
@@ -24,8 +24,8 @@
   flex-direction: column;
   overflow: hidden;
   box-shadow:
-    0 0 30px rgba(0, 240, 255, 0.08),
-    0 20px 60px rgba(0, 0, 0, 0.5);
+    0 0 30px rgba(13, 148, 136, 0.06),
+    0 20px 60px rgba(0, 0, 0, 0.08);
   animation: slideDown 0.2s ease-out;
 }
 
@@ -43,18 +43,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
-}
+  }
 
 .sparkleIcon {
   color: var(--neon-cyan);
-  filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.5));
 }
 
 .closeBtn {
@@ -71,7 +69,7 @@
 
 .closeBtn:hover {
   color: var(--neon-pink);
-  border-color: rgba(255, 45, 149, 0.4);
+  border-color: rgba(220, 38, 38, 0.15);
 }
 
 /* ===== Conversation Area ===== */
@@ -100,7 +98,7 @@
 }
 
 .emptyTitle {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
@@ -123,11 +121,11 @@
 }
 
 .suggestion {
-  background: rgba(0, 240, 255, 0.05);
-  border: 1px solid rgba(0, 240, 255, 0.15);
+  background: rgba(13, 148, 136, 0.04);
+  border: 1px solid rgba(13, 148, 136, 0.1);
   border-radius: 20px;
   color: var(--neon-cyan);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-sm);
   font-weight: 500;
   padding: 6px 14px;
@@ -136,9 +134,9 @@
 }
 
 .suggestion:hover {
-  background: rgba(0, 240, 255, 0.1);
-  border-color: rgba(0, 240, 255, 0.35);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+  background: rgba(13, 148, 136, 0.08);
+  border-color: rgba(13, 148, 136, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 /* ===== Messages ===== */
@@ -171,8 +169,8 @@
 }
 
 .userMessage .messageContent {
-  background: rgba(0, 240, 255, 0.1);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: rgba(13, 148, 136, 0.08);
+  border: 1px solid rgba(13, 148, 136, 0.12);
   color: var(--text-primary);
 }
 
@@ -186,7 +184,7 @@
 .assistantMessage .messageContent h1,
 .assistantMessage .messageContent h2,
 .assistantMessage .messageContent h3 {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   color: var(--neon-cyan);
   margin: 12px 0 6px;
   font-size: var(--text-sm);
@@ -213,11 +211,11 @@
 }
 
 .assistantMessage .messageContent code {
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.15);
+  background: rgba(13, 148, 136, 0.06);
+  border: 1px solid rgba(13, 148, 136, 0.1);
   border-radius: 4px;
   padding: 1px 5px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.85em;
   color: var(--neon-cyan);
 }
@@ -261,7 +259,7 @@
   border-bottom: 1px solid var(--border-color);
   color: var(--neon-cyan);
   font-weight: 600;
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-xs);
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -269,7 +267,7 @@
 
 .assistantMessage .messageContent td {
   padding: 5px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
 }
 
 .assistantMessage .messageContent blockquote {
@@ -300,9 +298,9 @@
 }
 
 .skillCard:hover {
-  border-color: rgba(0, 240, 255, 0.3);
+  border-color: rgba(13, 148, 136, 0.2);
   background: var(--bg-card-hover);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .skillCardHeader {
@@ -313,11 +311,10 @@
 }
 
 .skillName {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
   color: var(--neon-cyan) !important;
-  text-shadow: var(--glow-text-subtle);
-}
+  }
 
 .skillDescription {
   font-size: var(--text-sm);
@@ -389,8 +386,8 @@
 .errorMessage {
   padding: 10px 14px;
   border-radius: 10px;
-  background: rgba(255, 45, 149, 0.08);
-  border: 1px solid rgba(255, 45, 149, 0.25);
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.15);
   color: var(--neon-pink);
   font-size: var(--text-sm);
   align-self: flex-start;
@@ -413,7 +410,7 @@
   border-radius: 8px;
   padding: 10px 14px;
   color: var(--text-primary);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-body);
   outline: none;
   transition: border-color 0.2s ease;
@@ -424,8 +421,8 @@
 }
 
 .input:focus {
-  border-color: rgba(0, 240, 255, 0.4);
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.1);
+  border-color: rgba(13, 148, 136, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .input:disabled {
@@ -439,8 +436,8 @@
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  border: 1px solid rgba(0, 240, 255, 0.3);
-  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(13, 148, 136, 0.2);
+  background: rgba(13, 148, 136, 0.06);
   color: var(--neon-cyan);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -448,9 +445,9 @@
 }
 
 .sendBtn:hover:not(:disabled) {
-  background: rgba(0, 240, 255, 0.15);
-  border-color: rgba(0, 240, 255, 0.5);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.2);
+  background: rgba(13, 148, 136, 0.1);
+  border-color: rgba(13, 148, 136, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .sendBtn:disabled {
