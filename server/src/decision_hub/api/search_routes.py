@@ -227,7 +227,7 @@ class AskRequest(BaseModel):
     dependencies=[Depends(_enforce_search_rate_limit)],
 )
 def ask_skills(
-    q: str = Query(..., max_length=500),
+    q: str = Query(..., min_length=1, max_length=500),
     category: str | None = Query(None, max_length=100, description="Filter results to a specific category"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     settings: Settings = Depends(get_settings),

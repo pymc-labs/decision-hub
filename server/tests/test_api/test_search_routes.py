@@ -309,6 +309,8 @@ class TestAskSkillsPost:
         data = resp.json()
         assert data["query"] == "I need the drafting one"
         assert len(data["skills"]) == 2
+        # POST intentionally omits category (no category filter param)
+        assert data.get("category") is None
         # Verify history was passed to ask_conversational
         call_kwargs = mock_llm.call_args
         assert call_kwargs[1]["history"] is not None
@@ -341,6 +343,20 @@ class TestAskSkillsPost:
         data = resp.json()
         assert data["query"] == "weather forecast"
         assert len(data["skills"]) == 2
+
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_OFF_TOPIC)
+    def test_post_ask_off_topic_rejected(
+        self,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Off-topic queries via POST get a friendly rejection with empty skills."""
+        resp = search_client.post("/v1/ask", json={"query": "chocolate cake recipe"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "doesn't look like a skill" in data["answer"]
+        assert data["skills"] == []
 
     def test_post_ask_validates_query_length(self, search_client: TestClient) -> None:
         """Query longer than 500 chars is rejected."""

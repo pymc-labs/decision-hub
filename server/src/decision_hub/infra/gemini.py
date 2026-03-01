@@ -282,7 +282,7 @@ def ask_conversational(
         "Given a user's question and a set of candidate skills (JSONL format), "
         "provide an opinionated recommendation that helps the user choose the "
         "right skill for their needs.\n\n"
-        "BREVITY: Keep your answer under 120 words. The UI shows skill cards "
+        "BREVITY: Keep your answer between 120 and 200 words. The UI shows skill cards "
         "with description, grade, category, and metadata next to your answer — "
         "do NOT repeat that information. Focus only on WHY each pick fits and "
         "how the picks differ from each other. Open with one sentence stating "
@@ -327,6 +327,10 @@ def ask_conversational(
         "it into a short, user-friendly remark. Do NOT dump raw safety_notes "
         "verbatim. ALWAYS prefer grade A and B skills. If recommending a "
         "grade C skill, briefly explain the risk using safety_notes.\n\n"
+        "Adapt your response depth to the query:\n"
+        '- For simple lookups ("find a tool for X"), give a concise answer.\n'
+        '- For analytical queries ("compare", "best", "differences"), '
+        "provide detailed analysis with comparisons and clear recommendations.\n\n"
         "Always mention skills by name (org/skill format). "
         "Order referenced_skills by relevance. "
         "If no skills match, say so clearly and leave referenced_skills empty."
