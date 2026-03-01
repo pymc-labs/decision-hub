@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
-import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download } from "lucide-react";
+import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download, Star, Scale } from "lucide-react";
 import { askQuestionWithHistory } from "../api/client";
 import GradeBadge from "./GradeBadge";
 import type { AskResponse, AskSkillRef } from "../types/api";
@@ -183,9 +183,19 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
                         {skill.author && (
                           <span className={styles.skillMetaItem}>by {skill.author}</span>
                         )}
+                        {skill.github_stars != null && skill.github_stars > 0 && (
+                          <span className={styles.skillMetaItem}>
+                            <Star size={11} /> {skill.github_stars.toLocaleString()}
+                          </span>
+                        )}
                         {skill.download_count > 0 && (
                           <span className={styles.skillMetaItem}>
                             <Download size={11} /> {skill.download_count.toLocaleString()}
+                          </span>
+                        )}
+                        {skill.github_license && (
+                          <span className={styles.skillMetaItem}>
+                            <Scale size={11} /> {skill.github_license}
                           </span>
                         )}
                         {skill.latest_version && (

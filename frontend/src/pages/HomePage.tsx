@@ -11,6 +11,7 @@ import { useSEO } from "../hooks/useSEO";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import AnimatedTerminal from "../components/AnimatedTerminal";
+import SkillCardStats from "../components/SkillCardStats";
 import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
 import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
@@ -234,10 +235,11 @@ export default function HomePage() {
                       <span className={styles.skillVersion}>
                         v{skill.latest_version}
                       </span>
-                      <span className={styles.skillDownloads}>
-                        <Download size={12} />
-                        {skill.download_count}
-                      </span>
+                      <SkillCardStats
+                        github_stars={skill.github_stars}
+                        github_license={skill.github_license}
+                        download_count={skill.download_count}
+                      />
                     </div>
                   </div>
                 </NeonCard>
