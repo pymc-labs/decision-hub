@@ -350,6 +350,10 @@ def ask_conversational(
         "head-to-head comparisons; use as many words as needed for clarity.\n"
         '- For broader analytical queries ("best tool for X", "differences '
         'between these 3"), provide concise analysis with clear recommendations.\n\n'
+        "FORMATTING: The answer field is rendered as markdown. Use proper "
+        "markdown with literal newline characters (not escaped \\n). Every "
+        "bullet item must start on its own line. Use `- ` for bullets, not `* `. "
+        "Always leave a blank line before the first bullet in a list.\n\n"
         "Always mention skills by name (org/skill format). "
         "Order referenced_skills by relevance. "
         "If no skills match, say so clearly and leave referenced_skills empty."
