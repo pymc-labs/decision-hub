@@ -1,0 +1,63 @@
+.card {
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-top: 2px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 28px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-top-color: var(--color-primary);
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── Variants ─────────────────────────────────────────── */
+
+.default {
+  border-color: var(--border-color);
+}
+
+.default:hover {
+  border-color: var(--color-primary-border);
+}
+
+.accent {
+  border-color: var(--color-info-border);
+}
+
+.accent:hover {
+  border-color: var(--color-info);
+}
+
+.success {
+  border-color: var(--color-success-border);
+}
+
+.success:hover {
+  border-color: var(--color-success);
+}
+
+.danger {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-light);
+}
+
+.danger:hover {
+  border-color: var(--color-danger);
+}

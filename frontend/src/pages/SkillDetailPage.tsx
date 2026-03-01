@@ -30,7 +30,7 @@ import {
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
 import type { SkillSummary, EvalReport, AuditLogEntry, CheckResult, PaginatedAuditLogResponse, SkillFile } from "../types/api";
-import NeonCard from "../components/NeonCard";
+import Card from "../components/Card";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import EvalReportView from "../components/EvalReportView";
@@ -208,11 +208,11 @@ export default function SkillDetailPage() {
   if (!skill) {
     return (
       <div className="container">
-        <NeonCard glow="pink">
-          <p style={{ color: "var(--neon-pink)" }}>
+        <Card variant="danger">
+          <p style={{ color: "var(--color-danger)" }}>
             Skill not found: {orgSlug}/{skillName}
           </p>
-        </NeonCard>
+        </Card>
       </div>
     );
   }
@@ -279,7 +279,7 @@ export default function SkillDetailPage() {
 
         {/* Right: sidebar */}
         <aside className={styles.sidebar}>
-          <NeonCard glow={skill.safety_rating === "A" ? "green" : skill.safety_rating === "F" ? "pink" : "cyan"}>
+          <Card variant={skill.safety_rating === "A" ? "success" : skill.safety_rating === "F" ? "danger" : "default"}>
             <div className={styles.sidebarGrade}>
               <GradeBadge grade={skill.safety_rating} size="lg" />
               <span className={styles.sidebarGradeLabel}>Safety Grade</span>
@@ -294,9 +294,9 @@ export default function SkillDetailPage() {
                 {downloading ? "Downloading..." : "Download .zip"}
               </button>
             </div>
-          </NeonCard>
+          </Card>
 
-          <NeonCard glow="cyan">
+          <Card>
             <div className={styles.sidebarMeta}>
               <div className={styles.sidebarRow}>
                 <span className={styles.sidebarLabel}>Version</span>
@@ -351,7 +351,7 @@ export default function SkillDetailPage() {
                 </div>
               )}
             </div>
-          </NeonCard>
+          </Card>
         </aside>
       </div>
       )}
@@ -364,9 +364,9 @@ export default function SkillDetailPage() {
 function OverviewTab({ content, loading, error }: { content: string | null; loading: boolean; error: string | null }) {
   if (loading) return <LoadingSpinner text="Loading SKILL.md..." />;
   if (error) return (
-    <NeonCard glow="pink">
-      <p style={{ color: "var(--neon-pink)" }}>Failed to load package: {error}</p>
-    </NeonCard>
+    <Card variant="danger">
+      <p style={{ color: "var(--color-danger)" }}>Failed to load package: {error}</p>
+    </Card>
   );
   if (!content) return (
     <div className={styles.emptyTab}>
@@ -413,9 +413,9 @@ function FilesTab({
   if (loading) return <LoadingSpinner text="Extracting files from package..." />;
   if (error) {
     return (
-      <NeonCard glow="pink">
-        <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
-      </NeonCard>
+      <Card variant="danger">
+        <p style={{ color: "var(--color-danger)" }}>Error: {error}</p>
+      </Card>
     );
   }
   if (files.length === 0) {
@@ -494,9 +494,9 @@ function AuditTab({
   return (
     <div className={styles.auditList}>
       {entries.map((entry) => (
-        <NeonCard
+        <Card
           key={entry.id}
-          glow={entry.grade === "F" ? "pink" : entry.grade === "A" ? "green" : "cyan"}
+          variant={entry.grade === "F" ? "danger" : entry.grade === "A" ? "success" : "default"}
         >
           <div className={styles.auditEntry}>
             <div className={styles.auditHeader}>
@@ -524,7 +524,7 @@ function AuditTab({
               </span>
             )}
           </div>
-        </NeonCard>
+        </Card>
       ))}
     </div>
   );

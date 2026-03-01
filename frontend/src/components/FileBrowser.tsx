@@ -144,12 +144,12 @@ function TreeNodeView({
   );
 }
 
-// Custom theme based on oneDark with neon accents
-const neonTheme = {
+// Clean dark editor theme
+const editorTheme = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
-    background: "#0d0d1a",
+    background: "#1e1e2e",
     fontSize: "0.85rem",
     lineHeight: "1.6",
   },
@@ -206,19 +206,19 @@ export default function FileBrowser({ files }: FileBrowserProps) {
             <div className={styles.editorContent}>
               <SyntaxHighlighter
                 language={getLanguage(selected.path)}
-                style={neonTheme}
+                style={editorTheme}
                 showLineNumbers
                 lineNumberStyle={{
-                  color: "#444466",
+                  color: "#585b70",
                   minWidth: "3em",
                   paddingRight: "1em",
-                  borderRight: "1px solid #222244",
+                  borderRight: "1px solid #313244",
                   marginRight: "1em",
                 }}
                 customStyle={{
                   margin: 0,
                   padding: "16px",
-                  background: "#0d0d1a",
+                  background: "#1e1e2e",
                   borderRadius: 0,
                   minHeight: "400px",
                 }}

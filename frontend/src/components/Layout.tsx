@@ -107,7 +107,7 @@ export default function Layout() {
 
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
-          <span className={styles.footerGlow}>DECISION HUB</span>
+          <span className={styles.footerBrand}>Decision Hub</span>
           <div className={styles.footerLinks}>
             <a href="https://www.pymc-labs.com" target="_blank" rel="noopener noreferrer">
               PyMC Labs

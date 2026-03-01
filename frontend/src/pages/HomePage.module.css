@@ -1,69 +1,44 @@
 /* Hero */
 .hero {
   text-align: center;
-  padding: 60px 0 40px;
-  position: relative;
+  padding: 80px 0 48px;
+  background: linear-gradient(180deg, var(--bg-primary) 0%, rgba(99, 102, 241, 0.04) 100%);
+  margin: 0 -24px;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
-.heroGrid {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 20% 50%, rgba(180, 0, 255, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 50%, rgba(255, 45, 149, 0.05) 0%, transparent 50%);
-  pointer-events: none;
+.heroEyebrow {
+  display: inline-block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: 12px;
 }
 
 .heroTitle {
   font-size: var(--text-hero);
-  line-height: 1;
+  line-height: 1.08;
   margin-bottom: 20px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-}
-
-.heroAccent {
-  letter-spacing: 6px;
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
-}
-
-.heroDivider {
-  font-size: var(--text-display);
-  color: var(--neon-purple);
-  opacity: 0.5;
-  text-shadow: var(--glow-purple);
-  font-weight: 400;
-  letter-spacing: -2px;
-}
-
-.heroMain {
-  letter-spacing: 6px;
-  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 30px rgba(0, 240, 255, 0.3));
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  color: var(--text-primary);
 }
 
 .heroSub {
-  max-width: 600px;
-  margin: 0 auto 32px;
-  font-size: var(--text-body);
+  max-width: 560px;
+  margin: 0 auto 36px;
+  font-size: var(--text-lg);
   color: var(--text-secondary);
-  line-height: 1.7;
-  position: relative;
+  line-height: 1.6;
 }
 
 .heroCta {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   justify-content: center;
-  position: relative;
 }
 
 .btnPrimary {
@@ -71,24 +46,22 @@
   align-items: center;
   gap: 8px;
   padding: 12px 28px;
-  border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
+  border-radius: var(--radius-xl);
   font-size: var(--text-body);
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--bg-darkest) !important;
-  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-  text-shadow: none !important;
+  font-weight: 600;
+  color: var(--text-inverse) !important;
+  background: var(--color-primary);
   border: none;
-  transition: all 0.3s ease;
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  text-decoration: none;
 }
 
 .btnPrimary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
-  color: var(--bg-darkest) !important;
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: var(--text-inverse) !important;
 }
 
 .btnSecondary {
@@ -96,70 +69,34 @@
   align-items: center;
   gap: 8px;
   padding: 12px 28px;
-  border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
+  border-radius: var(--radius-xl);
   font-size: var(--text-body);
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--neon-pink) !important;
+  font-weight: 600;
+  color: var(--color-primary) !important;
   background: transparent;
-  border: 1px solid rgba(255, 45, 149, 0.4);
-  text-shadow: none !important;
-  transition: all 0.3s ease;
+  border: 1px solid var(--color-primary-border);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  text-decoration: none;
 }
 
 .btnSecondary:hover {
-  background: rgba(255, 45, 149, 0.08);
-  border-color: var(--neon-pink);
-  box-shadow: 0 0 20px rgba(255, 45, 149, 0.2);
-  transform: translateY(-2px);
-  color: var(--neon-pink) !important;
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+  color: var(--color-primary) !important;
 }
 
-/* Value Props */
-.valueProps {
-  margin: 56px 0 0;
-}
-
-.valuePropGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-}
-
-.valueProp {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.valuePropIcon {
-  color: var(--neon-cyan);
-  display: flex;
-  align-items: center;
-}
-
-.valuePropTitle {
-  font-size: var(--text-body);
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 0;
-}
-
-.valuePropDesc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.65;
-}
-
-/* Stats */
+/* Stats — card container */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin: 48px 0;
+  margin: 0 0 72px;
+  padding: 32px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
 }
 
 .statItem {
@@ -171,28 +108,62 @@
 }
 
 .statIcon {
-  color: var(--neon-cyan);
+  color: var(--color-primary);
   margin-bottom: 4px;
 }
 
 .statNumber {
-  font-family: 'Orbitron', sans-serif;
   font-size: var(--text-title);
   font-weight: 800;
   color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 
 .statLabel {
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  letter-spacing: 1px;
-  text-transform: uppercase;
+}
+
+/* Value Props */
+.valueProps {
+  margin: 72px 0;
+}
+
+.valuePropGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.valueProp {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.valuePropIcon {
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+}
+
+.valuePropTitle {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.valuePropDesc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.65;
 }
 
 /* Agent Section */
 .cliSection {
   max-width: 700px;
-  margin: 48px auto;
+  margin: 72px auto;
 }
 
 .cliSection .sectionTitle {
@@ -210,7 +181,7 @@
 
 /* Featured */
 .featured {
-  margin: 48px 0;
+  margin: 72px 0;
 }
 
 .sectionHeader {
@@ -225,8 +196,8 @@
   align-items: center;
   gap: 10px;
   font-size: var(--text-body);
-  color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .seeAll {
@@ -235,8 +206,7 @@
   gap: 4px;
   font-size: var(--text-sm);
   font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  color: var(--color-primary);
 }
 
 .skillGrid {
@@ -248,7 +218,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
   display: block;
   height: 100%;
 }
@@ -267,17 +236,15 @@
 }
 
 .skillOrg {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--neon-purple);
-  letter-spacing: 1px;
+  color: var(--text-secondary);
 }
 
 .skillName {
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 0;
 }
 
 .skillCategory {
@@ -285,11 +252,10 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--neon-pink);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-pink);
+  color: var(--text-secondary);
   width: fit-content;
 }
 
@@ -315,65 +281,23 @@
 }
 
 .skillVersion {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--neon-cyan);
+  color: var(--text-secondary);
 }
 
 .skillDownloads {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
-/* How it works */
-.howItWorks {
-  margin: 60px 0;
-}
-
-.howItWorks .sectionTitle {
-  margin-bottom: 24px;
-}
-
-.stepsGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stepNumber {
-  font-family: 'Orbitron', sans-serif;
-  font-size: var(--text-title);
-  font-weight: 900;
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
-  opacity: 0.6;
-}
-
-.stepTitle {
-  font-size: var(--text-body);
-  color: var(--text-primary);
-  letter-spacing: 0;
-}
-
-.stepDesc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
 /* Install CTA */
 .installCta {
-  margin: 60px auto;
+  margin: 64px auto;
   max-width: 720px;
   text-align: center;
 }
@@ -386,22 +310,20 @@
 .osToggle {
   display: inline-flex;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   margin-bottom: 20px;
 }
 
 .osTab {
   padding: 6px 20px;
-  font-family: 'Rajdhani', sans-serif;
   font-size: var(--text-sm);
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 500;
   color: var(--text-muted);
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .osTab:not(:last-child) {
@@ -409,8 +331,8 @@
 }
 
 .osTabActive {
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
 }
 
 .commandWrapper {
@@ -428,17 +350,17 @@
   width: 30px;
   height: 30px;
   border-radius: 4px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-darkest);
-  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   z-index: 1;
 }
 
 .copyBtn:hover {
-  color: var(--neon-cyan);
-  border-color: var(--neon-cyan);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .installAlt {
@@ -448,14 +370,14 @@
 }
 
 .installAlt code {
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-cyan);
+  font-family: var(--font-mono);
+  color: var(--color-primary);
   font-size: var(--text-sm);
 }
 
 /* Quick Start Examples */
 .quickStart {
-  margin: 60px auto;
+  margin: 64px auto;
   max-width: 900px;
 }
 
@@ -484,21 +406,23 @@
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 8px;
-  letter-spacing: 0.5px;
 }
 
 .termOutput {
-  color: var(--neon-cyan);
+  color: #89b4fa;
 }
 
 /* Bottom CTA */
 .bottomCta {
-  margin: 60px 0 20px;
+  margin: 64px 0 20px;
 }
 
 .bottomCtaInner {
   text-align: center;
-  padding: 20px 0;
+  padding: 48px 24px;
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, rgba(99, 102, 241, 0.04) 100%);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
 }
 
 .bottomCtaTitle {
@@ -506,6 +430,7 @@
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 12px;
+  letter-spacing: -0.02em;
 }
 
 .bottomCtaDesc {
@@ -518,18 +443,13 @@
 
 .bottomCtaActions {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   justify-content: center;
 }
 
 @media (max-width: 768px) {
   .heroTitle {
-    font-size: var(--text-title);
-    gap: 10px;
-  }
-
-  .heroDivider {
-    font-size: var(--text-heading);
+    font-size: var(--text-display);
   }
 
   .stats {
@@ -537,7 +457,6 @@
   }
 
   .skillGrid,
-  .stepsGrid,
   .valuePropGrid,
   .examplesGrid {
     grid-template-columns: 1fr;
@@ -558,17 +477,11 @@
 
 @media (max-width: 480px) {
   .hero {
-    padding: 32px 0 24px;
+    padding: 40px 0 24px;
   }
 
   .heroTitle {
     font-size: var(--text-heading);
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .heroDivider {
-    font-size: var(--text-lg);
   }
 
   .heroSub {
@@ -585,17 +498,20 @@
   }
 
   .featured,
-  .howItWorks,
   .installCta,
   .quickStart {
-    margin: 32px 0;
+    margin: 48px 0;
+  }
+
+  .valueProps {
+    margin: 48px 0;
   }
 
   .cliSection {
-    margin: 32px auto;
+    margin: 48px auto;
   }
 
-  .stepNumber {
-    font-size: var(--text-heading);
+  .bottomCtaInner {
+    padding: 32px 16px;
   }
 }

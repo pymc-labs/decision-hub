@@ -1,24 +1,23 @@
 .avatar,
 .fallback {
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   flex-shrink: 0;
 }
 
 .avatar {
   object-fit: cover;
-  border: 1px solid rgba(180, 0, 255, 0.3);
+  border: 1px solid var(--border-color);
 }
 
 .fallback {
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.25);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--neon-purple);
+  color: var(--text-muted);
 }
 
-/* Sizes */
 .sm {
   width: 40px;
   height: 40px;
@@ -32,5 +31,5 @@
 .lg {
   width: 72px;
   height: 72px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
