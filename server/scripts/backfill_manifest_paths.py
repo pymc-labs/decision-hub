@@ -42,7 +42,7 @@ def _discover_manifest_paths(repo_root: Path) -> dict[str, str]:
     for skill_dir in skill_dirs:
         try:
             manifest = parse_skill_md(skill_dir / "SKILL.md")
-            rel_path = str((skill_dir / "SKILL.md").relative_to(repo_root))
+            rel_path = (skill_dir / "SKILL.md").relative_to(repo_root).as_posix()
             result[manifest.name] = rel_path
         except (ValueError, FileNotFoundError):
             continue

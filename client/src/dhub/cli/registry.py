@@ -220,8 +220,10 @@ def _publish_discovered_skills(
         rel = skill_dir.relative_to(root)
         console.print(f"Publishing [cyan]{name}[/] (from {rel})...")
 
-        # Compute relative path to SKILL.md within the repo
-        skill_manifest_path = str((skill_dir / "SKILL.md").relative_to(root))
+        # Compute relative path to SKILL.md within the repo (only meaningful
+        # when publishing from a git source — skip for local-only publishes
+        # to avoid overwriting a previously correct git-based path).
+        skill_manifest_path = (skill_dir / "SKILL.md").relative_to(root).as_posix() if source_repo_url else None
 
         try:
             result = _publish_skill_directory(
