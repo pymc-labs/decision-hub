@@ -9,9 +9,9 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 20% 50%, rgba(180, 0, 255, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 50%, rgba(255, 45, 149, 0.05) 0%, transparent 50%);
+    radial-gradient(ellipse at 50% 0%, rgba(13, 148, 136, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 20% 50%, rgba(232, 103, 42, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 50%, rgba(220, 38, 38, 0.04) 0%, transparent 50%);
   pointer-events: none;
 }
 
@@ -29,14 +29,12 @@
 .heroAccent {
   letter-spacing: 6px;
   color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
-}
+  }
 
 .heroDivider {
   font-size: var(--text-display);
   color: var(--neon-purple);
   opacity: 0.5;
-  text-shadow: var(--glow-purple);
   font-weight: 400;
   letter-spacing: -2px;
 }
@@ -47,7 +45,6 @@
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 30px rgba(0, 240, 255, 0.3));
 }
 
 .heroSub {
@@ -72,22 +69,21 @@
   gap: 8px;
   padding: 12px 28px;
   border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-body);
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--bg-darkest) !important;
   background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-  text-shadow: none !important;
   border: none;
   transition: all 0.3s ease;
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .btnPrimary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   color: var(--bg-darkest) !important;
 }
 
@@ -97,22 +93,21 @@
   gap: 8px;
   padding: 12px 28px;
   border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-body);
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--neon-pink) !important;
   background: transparent;
-  border: 1px solid rgba(255, 45, 149, 0.4);
-  text-shadow: none !important;
+  border: 1px solid rgba(220, 38, 38, 0.15);
   transition: all 0.3s ease;
 }
 
 .btnSecondary:hover {
-  background: rgba(255, 45, 149, 0.08);
+  background: rgba(220, 38, 38, 0.06);
   border-color: var(--neon-pink);
-  box-shadow: 0 0 20px rgba(255, 45, 149, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transform: translateY(-2px);
   color: var(--neon-pink) !important;
 }
@@ -176,7 +171,7 @@
 }
 
 .statNumber {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-title);
   font-weight: 800;
   color: var(--text-primary);
@@ -226,8 +221,7 @@
   gap: 10px;
   font-size: var(--text-body);
   color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
-}
+  }
 
 .seeAll {
   display: flex;
@@ -248,7 +242,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
   display: block;
   height: 100%;
 }
@@ -267,7 +260,7 @@
 }
 
 .skillOrg {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--neon-purple);
   letter-spacing: 1px;
@@ -287,7 +280,7 @@
   padding: 2px 8px;
   border: 1px solid var(--neon-pink);
   border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xxs);
   color: var(--neon-pink);
   width: fit-content;
@@ -315,7 +308,7 @@
 }
 
 .skillVersion {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--neon-cyan);
 }
@@ -324,7 +317,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
@@ -351,11 +344,10 @@
 }
 
 .stepNumber {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   font-size: var(--text-title);
   font-weight: 900;
   color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
   opacity: 0.6;
 }
 
@@ -393,7 +385,7 @@
 
 .osTab {
   padding: 6px 20px;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -410,7 +402,7 @@
 
 .osTabActive {
   color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
+  background: rgba(13, 148, 136, 0.06);
 }
 
 .commandWrapper {
@@ -448,7 +440,7 @@
 }
 
 .installAlt code {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   color: var(--neon-cyan);
   font-size: var(--text-sm);
 }
@@ -488,7 +480,7 @@
 }
 
 .termOutput {
-  color: var(--neon-cyan);
+  color: #5eead4;
 }
 
 /* Bottom CTA */

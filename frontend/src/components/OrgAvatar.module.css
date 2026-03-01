@@ -6,12 +6,12 @@
 
 .avatar {
   object-fit: cover;
-  border: 1px solid rgba(180, 0, 255, 0.3);
+  border: 1px solid rgba(232, 103, 42, 0.15);
 }
 
 .fallback {
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.25);
+  background: linear-gradient(135deg, rgba(232, 103, 42, 0.1), rgba(13, 148, 136, 0.08));
+  border: 1px solid rgba(232, 103, 42, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;

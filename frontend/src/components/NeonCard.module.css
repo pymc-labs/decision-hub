@@ -36,7 +36,7 @@
 }
 
 .cyan {
-  border-color: rgba(0, 240, 255, 0.12);
+  border-color: rgba(13, 148, 136, 0.1);
 }
 
 .cyan::before {
@@ -44,12 +44,12 @@
 }
 
 .cyan:hover {
-  border-color: rgba(0, 240, 255, 0.3);
-  box-shadow: 0 4px 30px rgba(0, 240, 255, 0.08), inset 0 1px 0 rgba(0, 240, 255, 0.1);
+  border-color: rgba(13, 148, 136, 0.2);
+  box-shadow: 0 4px 30px rgba(13, 148, 136, 0.06), inset 0 1px 0 rgba(13, 148, 136, 0.08);
 }
 
 .pink {
-  border-color: rgba(255, 45, 149, 0.12);
+  border-color: rgba(220, 38, 38, 0.08);
 }
 
 .pink::before {
@@ -57,12 +57,12 @@
 }
 
 .pink:hover {
-  border-color: rgba(255, 45, 149, 0.3);
-  box-shadow: 0 4px 30px rgba(255, 45, 149, 0.08), inset 0 1px 0 rgba(255, 45, 149, 0.1);
+  border-color: rgba(220, 38, 38, 0.2);
+  box-shadow: 0 4px 30px rgba(220, 38, 38, 0.06), inset 0 1px 0 rgba(220, 38, 38, 0.08);
 }
 
 .purple {
-  border-color: rgba(180, 0, 255, 0.35);
+  border-color: rgba(232, 103, 42, 0.2);
   border-width: 2px;
 }
 
@@ -71,11 +71,11 @@
 }
 
 .purple:hover {
-  border-color: rgba(180, 0, 255, 0.5);
+  border-color: rgba(232, 103, 42, 0.2);
 }
 
 .green {
-  border-color: rgba(57, 255, 20, 0.12);
+  border-color: rgba(22, 163, 74, 0.08);
 }
 
 .green::before {
@@ -83,6 +83,6 @@
 }
 
 .green:hover {
-  border-color: rgba(57, 255, 20, 0.3);
-  box-shadow: 0 4px 30px rgba(57, 255, 20, 0.08), inset 0 1px 0 rgba(57, 255, 20, 0.1);
+  border-color: rgba(22, 163, 74, 0.2);
+  box-shadow: 0 4px 30px rgba(22, 163, 74, 0.06), inset 0 1px 0 rgba(22, 163, 74, 0.08);
 }

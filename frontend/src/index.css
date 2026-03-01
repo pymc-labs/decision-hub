@@ -1,47 +1,47 @@
-/* === NEON 80s RETRO THEME === */
+/* === MODERN LIGHT THEME — Orange & Teal on White === */
 
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --neon-pink: #ff2d95;
-  --neon-cyan: #00f0ff;
-  --neon-purple: #b400ff;
-  --neon-yellow: #ffe600;
-  --neon-green: #39ff14;
-  --neon-orange: #ff6a00;
+  --neon-pink: #dc2626;
+  --neon-cyan: #0d9488;
+  --neon-purple: #e8672a;
+  --neon-yellow: #d97706;
+  --neon-green: #16a34a;
+  --neon-orange: #ea580c;
 
-  --glow-pink: 0 0 10px #ff2d95, 0 0 20px #ff2d9580, 0 0 40px #ff2d9540;
-  --glow-cyan: 0 0 10px #00f0ff, 0 0 20px #00f0ff80, 0 0 40px #00f0ff40;
-  --glow-purple: 0 0 10px #b400ff, 0 0 20px #b400ff80, 0 0 40px #b400ff40;
-  --glow-green: 0 0 10px #39ff14, 0 0 20px #39ff1480, 0 0 40px #39ff1440;
+  --glow-pink: none;
+  --glow-cyan: none;
+  --glow-purple: none;
+  --glow-green: none;
 
-  --glow-text-subtle: 0 0 8px rgba(0, 240, 255, 0.15);
-  --glow-text-strong: 0 0 10px rgba(0, 240, 255, 0.3);
+  --glow-text-subtle: none;
+  --glow-text-strong: none;
 
-  --bg-darkest: #0a0a12;
-  --bg-dark: #12121f;
-  --bg-card: #1a1a2e;
-  --bg-card-hover: #22223a;
-  --bg-elevated: #252540;
+  --bg-darkest: #ffffff;
+  --bg-dark: #f7f8fa;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafbfc;
+  --bg-elevated: #f0f1f4;
 
-  --text-primary: #e8e8f0;
-  --text-secondary: #8888aa;
-  --text-muted: #555577;
+  --text-primary: #1a1a2e;
+  --text-secondary: #555770;
+  --text-muted: #9a9cb0;
 
-  --border-color: #2a2a45;
-  --border-glow: #00f0ff30;
+  --border-color: #e5e7eb;
+  --border-glow: rgba(13, 148, 136, 0.1);
 
-  --max-width: 1280px;
-  --header-height: 72px;
+  --max-width: 1200px;
+  --header-height: 68px;
 
   /* Typography scale */
-  --text-hero:    4rem;
-  --text-display: 2.5rem;
-  --text-title:   2rem;
-  --text-heading: 1.6rem;
-  --text-lg:      1.3rem;
-  --text-body:    1.1rem;
-  --text-sm:      0.9rem;
+  --text-hero:    3.5rem;
+  --text-display: 2.2rem;
+  --text-title:   1.8rem;
+  --text-heading: 1.4rem;
+  --text-lg:      1.2rem;
+  --text-body:    1rem;
+  --text-sm:      0.875rem;
   --text-xs:      0.8rem;
   --text-xxs:     0.7rem;
 }
@@ -57,52 +57,27 @@ html {
 }
 
 body {
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-darkest);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
-  line-height: 1.6;
-  font-size: 18px;
-  /* Horizontal safe area insets for iPhone notch/dynamic island.
-     Top/bottom are handled on the sticky header and footer in Layout. */
+  line-height: 1.65;
+  font-size: 16px;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Subtle scanline overlay */
+/* Remove scanline overlay */
 body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 9999;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
+  display: none;
 }
 
-/* Grid background */
+/* Remove grid background */
 body::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
+  display: none;
 }
 
 #root {
@@ -114,47 +89,46 @@ body::after {
 a {
   color: var(--neon-cyan);
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease;
 }
 
 a:hover {
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
+  color: #0f766e;
+  text-shadow: none;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Orbitron', sans-serif;
-  font-weight: 700;
-  letter-spacing: 1px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 code, pre {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-darkest);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neon-cyan);
-  box-shadow: var(--glow-cyan);
+  background: #d1d5db;
 }
 
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 32px;
   width: 100%;
 }
 
@@ -165,17 +139,7 @@ code, pre {
 }
 
 @keyframes neonFlicker {
-  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
-    text-shadow:
-      0 0 4px #fff,
-      0 0 11px #fff,
-      0 0 19px #fff,
-      0 0 40px var(--neon-cyan),
-      0 0 80px var(--neon-cyan);
-  }
-  20%, 24%, 55% {
-    text-shadow: none;
-  }
+  0%, 100% { opacity: 1; }
 }
 
 @keyframes pulseGlow {
@@ -186,7 +150,7 @@ code, pre {
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;

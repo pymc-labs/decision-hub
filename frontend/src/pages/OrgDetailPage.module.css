@@ -26,8 +26,7 @@
 .title {
   font-size: var(--text-title);
   color: var(--neon-purple);
-  text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
-}
+  }
 
 .featuredBadge {
   display: flex;
@@ -38,8 +37,8 @@
   text-transform: uppercase;
   letter-spacing: 1.5px;
   color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.25);
+  background: rgba(13, 148, 136, 0.06);
+  border: 1px solid rgba(13, 148, 136, 0.15);
   border-radius: 4px;
   padding: 3px 8px;
 }
@@ -91,7 +90,7 @@
 .link:hover {
   color: var(--neon-cyan);
   border-color: var(--neon-cyan);
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   text-shadow: none;
 }
 
@@ -104,7 +103,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
   display: block;
   height: 100%;
 }
@@ -136,7 +134,7 @@
   padding: 2px 8px;
   border: 1px solid var(--neon-pink);
   border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xxs);
   color: var(--neon-pink);
   width: fit-content;
@@ -164,7 +162,7 @@
 }
 
 .cardVersion {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   color: var(--neon-cyan);
 }
 
@@ -177,7 +175,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   color: var(--text-muted);
 }
 
@@ -197,21 +195,21 @@
 }
 
 .loadingMore {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
   color: var(--text-muted);
   letter-spacing: 1px;
 }
 
 .loadMoreError {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
   color: var(--neon-pink);
   letter-spacing: 1px;
 }
 
 .retryBtn {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-xs);
   color: var(--neon-cyan);
   background: transparent;
@@ -222,7 +220,7 @@
 }
 
 .retryBtn:hover {
-  background: rgba(0, 255, 255, 0.1);
+  background: rgba(13, 148, 136, 0.08);
 }
 
 @media (max-width: 768px) {

@@ -8,7 +8,6 @@
   gap: 12px;
   font-size: var(--text-heading);
   color: var(--neon-purple);
-  text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
   margin-bottom: 8px;
 }
 
@@ -48,7 +47,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-primary);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
   outline: none;
   transition: all 0.2s ease;
@@ -60,7 +59,7 @@
 
 .searchInput:focus {
   border-color: var(--neon-purple);
-  box-shadow: 0 0 10px rgba(180, 0, 255, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .filterGroup {
@@ -76,7 +75,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-primary);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-sm);
   font-weight: 600;
   outline: none;
@@ -100,11 +99,11 @@
 
 .sortSelect {
   padding: 10px 12px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
+  background: rgba(232, 103, 42, 0.04);
+  border: 1px solid rgba(232, 103, 42, 0.15);
   border-radius: 8px;
   color: var(--neon-purple);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: var(--text-sm);
   font-weight: 600;
   outline: none;
@@ -116,7 +115,7 @@
 .sortSelect:focus,
 .sortSelect:hover {
   border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .sortDirBtn {
@@ -124,8 +123,8 @@
   align-items: center;
   justify-content: center;
   padding: 7px 8px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
+  background: rgba(232, 103, 42, 0.04);
+  border: 1px solid rgba(232, 103, 42, 0.15);
   border-radius: 8px;
   color: var(--neon-purple);
   cursor: pointer;
@@ -133,9 +132,9 @@
 }
 
 .sortDirBtn:hover {
-  background: rgba(180, 0, 255, 0.12);
+  background: rgba(232, 103, 42, 0.08);
   border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .grid {
@@ -147,8 +146,7 @@
 .orgLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
-}
+  }
 
 .card {
   display: flex;
@@ -172,8 +170,8 @@
   text-transform: uppercase;
   letter-spacing: 1.5px;
   color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.25);
+  background: rgba(13, 148, 136, 0.06);
+  border: 1px solid rgba(13, 148, 136, 0.15);
   border-radius: 4px;
   padding: 2px 6px;
 }
@@ -182,8 +180,8 @@
   width: 60px;
   height: 60px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.25);
+  background: linear-gradient(135deg, rgba(232, 103, 42, 0.1), rgba(13, 148, 136, 0.08));
+  border: 1px solid rgba(232, 103, 42, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -191,7 +189,7 @@
 }
 
 .cardName {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-body);
   font-weight: 400;
   color: var(--text-primary);
@@ -250,7 +248,7 @@
 }
 
 .loadingMore {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
   color: var(--text-muted);
   letter-spacing: 1px;
