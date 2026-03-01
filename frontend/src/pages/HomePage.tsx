@@ -1,8 +1,8 @@
 import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-  Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package, Scale
+  Building2, Users, Zap, ArrowRight, Bot, Terminal, Tag,
+  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -11,6 +11,7 @@ import { useSEO } from "../hooks/useSEO";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import AnimatedTerminal from "../components/AnimatedTerminal";
+import SkillCardStats from "../components/SkillCardStats";
 import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
 import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
@@ -234,24 +235,11 @@ export default function HomePage() {
                       <span className={styles.skillVersion}>
                         v{skill.latest_version}
                       </span>
-                      <span className={styles.skillStats}>
-                        {skill.github_stars != null && skill.github_stars > 0 && (
-                          <span className={styles.skillStat}>
-                            <Star size={12} />
-                            {skill.github_stars.toLocaleString()}
-                          </span>
-                        )}
-                        {skill.github_license && (
-                          <span className={styles.skillStat}>
-                            <Scale size={12} />
-                            {skill.github_license}
-                          </span>
-                        )}
-                        <span className={styles.skillStat}>
-                          <Download size={12} />
-                          {skill.download_count.toLocaleString()}
-                        </span>
-                      </span>
+                      <SkillCardStats
+                        github_stars={skill.github_stars}
+                        github_license={skill.github_license}
+                        download_count={skill.download_count}
+                      />
                     </div>
                   </div>
                 </NeonCard>

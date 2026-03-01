@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, Download, ArrowLeft, Globe, Github, Star, Scale, Tag } from "lucide-react";
+import { Package, ArrowLeft, Globe, Github, Star, Tag } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
@@ -8,6 +8,7 @@ import { useSEO } from "../hooks/useSEO";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import SkillCardStats from "../components/SkillCardStats";
 import OrgAvatar from "../components/OrgAvatar";
 import { FEATURED_SET } from "../constants/featuredOrgs";
 import styles from "./OrgDetailPage.module.css";
@@ -169,24 +170,11 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
                       {skill.author && (
                         <span className={styles.cardAuthor}>by {skill.author}</span>
                       )}
-                      <span className={styles.cardStats}>
-                        {skill.github_stars != null && skill.github_stars > 0 && (
-                          <span className={styles.cardStat}>
-                            <Star size={12} />
-                            {skill.github_stars.toLocaleString()}
-                          </span>
-                        )}
-                        {skill.github_license && (
-                          <span className={styles.cardStat}>
-                            <Scale size={12} />
-                            {skill.github_license}
-                          </span>
-                        )}
-                        <span className={styles.cardStat}>
-                          <Download size={12} />
-                          {skill.download_count.toLocaleString()}
-                        </span>
-                      </span>
+                      <SkillCardStats
+                        github_stars={skill.github_stars}
+                        github_license={skill.github_license}
+                        download_count={skill.download_count}
+                      />
                     </div>
                   </div>
                 </NeonCard>

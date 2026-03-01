@@ -310,13 +310,13 @@ export default function SkillDetailPage() {
                 <span className={styles.sidebarLabel}><Download size={12} /> Downloads</span>
                 <span className={styles.sidebarValue}>{skill.download_count.toLocaleString()}</span>
               </div>
-              {skill.github_stars != null && (
+              {skill.github_stars != null && skill.github_stars > 0 && (
                 <div className={styles.sidebarRow}>
                   <span className={styles.sidebarLabel}><Star size={12} /> Stars</span>
                   <span className={styles.sidebarValue}>{skill.github_stars.toLocaleString()}</span>
                 </div>
               )}
-              {skill.github_forks != null && (
+              {skill.github_forks != null && skill.github_forks > 0 && (
                 <div className={styles.sidebarRow}>
                   <span className={styles.sidebarLabel}><GitFork size={12} /> Forks</span>
                   <span className={styles.sidebarValue}>{skill.github_forks.toLocaleString()}</span>
