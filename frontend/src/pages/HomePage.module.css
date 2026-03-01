@@ -320,15 +320,6 @@
   color: var(--neon-cyan);
 }
 
-.skillDownloads {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
 .skillStats {
   display: flex;
   align-items: center;

@@ -235,7 +235,7 @@ export default function HomePage() {
                         v{skill.latest_version}
                       </span>
                       <span className={styles.skillStats}>
-                        {skill.github_stars != null && (
+                        {skill.github_stars != null && skill.github_stars > 0 && (
                           <span className={styles.skillStat}>
                             <Star size={12} />
                             {skill.github_stars.toLocaleString()}

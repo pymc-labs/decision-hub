@@ -297,7 +297,7 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
               <span className={styles.cardAuthor}>by {skill.author}</span>
             )}
             <span className={styles.cardStats}>
-              {skill.github_stars != null && (
+              {skill.github_stars != null && skill.github_stars > 0 && (
                 <span className={styles.cardStat}>
                   <Star size={12} />
                   {skill.github_stars.toLocaleString()}
