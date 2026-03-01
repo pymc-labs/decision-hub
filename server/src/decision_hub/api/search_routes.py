@@ -100,6 +100,7 @@ def _run_retrieval(
             gauntlet_summary=row.get("gauntlet_summary"),
             github_stars=row.get("github_stars"),
             github_forks=row.get("github_forks"),
+            github_license=row.get("github_license"),
         )
         for row in candidates
     )

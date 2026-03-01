@@ -105,6 +105,32 @@ def test_serialize_index_includes_github_stars_and_forks():
     assert "github_forks" not in lines[1]
 
 
+def test_serialize_index_includes_license():
+    entries = [
+        build_index_entry(
+            "org1",
+            "skill1",
+            "Desc 1",
+            "1.0.0",
+            "passed",
+            github_license="MIT",
+        ),
+        build_index_entry(
+            "org2",
+            "skill2",
+            "Desc 2",
+            "0.1.0",
+            "pending",
+            github_license=None,
+        ),
+    ]
+    jsonl = serialize_index(entries)
+    lines = jsonl.strip().split("\n")
+    assert '"license": "MIT"' in lines[0]
+    # Omitted when None
+    assert "license" not in lines[1]
+
+
 def test_serialize_empty():
     jsonl = serialize_index([])
     assert jsonl == ""

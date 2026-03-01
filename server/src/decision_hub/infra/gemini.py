@@ -312,8 +312,8 @@ def ask_conversational(
         "Mention the duplicates briefly in the runners-up line.\n\n"
         "Each skill entry includes metadata: org, skill name, description, "
         "version, eval_status, trust grade, author, category, download count, "
-        "github_stars, github_forks, source_repo_url (when available), and "
-        "safety_notes (when the grade is not A). Use all available metadata.\n\n"
+        "github_stars, github_forks, license, source_repo_url (when available), "
+        "and safety_notes (when the grade is not A). Use all available metadata.\n\n"
         "SECURITY GRADES: The 'trust' field is a security grade from the "
         "gauntlet safety scanner:\n"
         "- A = all checks passed, no elevated permissions — safest.\n"
@@ -329,8 +329,19 @@ def ask_conversational(
         "grade C skill, briefly explain the risk using safety_notes.\n\n"
         "Adapt your response depth to the query:\n"
         '- For simple lookups ("find a tool for X"), give a concise answer.\n'
-        '- For analytical queries ("compare", "best", "differences"), '
-        "provide detailed analysis with comparisons and clear recommendations.\n\n"
+        "- For HEAD-TO-HEAD comparisons (user names exactly 2 skills, or asks "
+        '"compare X with Y", "X vs Y", "how does X compare to Y"), respond with '
+        "a structured side-by-side comparison:\n"
+        "  1. One sentence summarizing the key difference.\n"
+        "  2. A comparison table or bullet list covering: purpose/focus, "
+        "trust grade, GitHub stars, license, downloads, and any other "
+        "distinguishing metadata.\n"
+        "  3. One sentence recommendation on which to pick and when.\n"
+        "  Keep it factual and concise — surface the numbers, don't just "
+        "describe them in prose. The BREVITY word limit does NOT apply to "
+        "head-to-head comparisons; use as many words as needed for clarity.\n"
+        '- For broader analytical queries ("best tool for X", "differences '
+        'between these 3"), provide concise analysis with clear recommendations.\n\n'
         "Always mention skills by name (org/skill format). "
         "Order referenced_skills by relevance. "
         "If no skills match, say so clearly and leave referenced_skills empty."
