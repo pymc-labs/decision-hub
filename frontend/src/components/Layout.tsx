@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star, MessageCircle } from "lucide-react";
 import AskModal from "./AskModal";
+import GradientMesh from "./GradientMesh";
 import styles from "./Layout.module.css";
 import { SHOW_GITHUB_BUTTONS } from "../featureFlags";
 
@@ -33,6 +34,7 @@ export default function Layout() {
 
   return (
     <div className={styles.layout}>
+      <GradientMesh />
       <header className={styles.header}>
         <div className={styles.headerInner}>
           <Link to="/" className={styles.logo}>

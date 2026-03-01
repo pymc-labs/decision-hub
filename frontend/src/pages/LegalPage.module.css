@@ -6,9 +6,9 @@
 
 .legal h1 {
   font-size: var(--text-title);
-  color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: var(--text-primary);
   margin-bottom: 8px;
+  letter-spacing: -0.02em;
 }
 
 .updated {
@@ -28,7 +28,7 @@
 
 .legal h3 {
   font-size: var(--text-body);
-  color: var(--neon-pink);
+  color: var(--color-primary);
   margin-top: 20px;
   margin-bottom: 8px;
 }
@@ -53,7 +53,7 @@
 }
 
 .legal a {
-  color: var(--neon-cyan);
+  color: var(--color-primary);
 }
 
 .legal a:hover {

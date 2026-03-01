@@ -92,7 +92,7 @@ export default function SkillsPage() {
     return (
       <div className="container">
         <NeonCard glow="pink">
-          <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+          <p style={{ color: "var(--color-error)" }}>Error: {error}</p>
         </NeonCard>
       </div>
     );
