@@ -190,15 +190,25 @@ def create_app() -> FastAPI:
             name="frontend-assets",
         )
 
-        @app.get("/vite.svg", include_in_schema=False)
-        def favicon():
-            return FileResponse(_FRONTEND_DIR / "vite.svg")
+        # Root-level static files from frontend/public/ (favicon, OG image,
+        # apple-touch-icon, etc.).  Checked inside the SPA catch-all so
+        # crawlers and social-media bots get the actual file instead of
+        # index.html, while SPA client-side routes still work normally.
+        _ROOT_STATIC_FILES = {
+            "vite.svg",
+            "og-image.png",
+            "favicon.ico",
+            "favicon-16x16.png",
+            "favicon-32x32.png",
+            "apple-touch-icon.png",
+        }
 
         # SPA catch-all: any path not matched by API routes returns index.html.
         # Paths under /v1/ are API namespace — return JSON 404 instead of HTML
-        # so API clients get a proper error.  Only GET reaches here (Starlette
-        # 0.50+ doesn't implicitly add HEAD), so 405 Method Not Allowed is
-        # preserved for real endpoints receiving unsupported methods.
+        # so API clients get a proper error.  Root-level static files are
+        # served directly.  Only GET reaches here (Starlette 0.50+ doesn't
+        # implicitly add HEAD), so 405 Method Not Allowed is preserved for
+        # real endpoints receiving unsupported methods.
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa_fallback(full_path: str):
             if full_path.startswith("v1/") or full_path == "v1":
@@ -206,6 +216,12 @@ def create_app() -> FastAPI:
                     status_code=404,
                     detail=f"API endpoint not found: /{full_path}",
                 )
+            # Serve root-level static files directly (e.g. og-image.png,
+            # favicon.ico) so social media crawlers get the real file.
+            if full_path in _ROOT_STATIC_FILES:
+                filepath = _FRONTEND_DIR / full_path
+                if filepath.is_file():
+                    return FileResponse(filepath)
             return FileResponse(_index_html)
 
     logger.info("Decision Hub app ready (log_level={})", settings.log_level)

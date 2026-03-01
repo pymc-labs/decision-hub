@@ -13,7 +13,7 @@ from decision_hub.infra.database import organizations_table, skills_table
 
 router = APIRouter(tags=["seo"])
 
-_BASE_URL = "https://decisionhub.dev"
+_BASE_URL = "https://hub.decision.ai"
 
 
 @router.get("/sitemap.xml", include_in_schema=False)
