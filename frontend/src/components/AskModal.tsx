@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download } from "lucide-react";
-import { askQuestion } from "../api/client";
+import { askQuestionWithHistory } from "../api/client";
 import GradeBadge from "./GradeBadge";
 import type { AskResponse, AskSkillRef } from "../types/api";
 import styles from "./AskModal.module.css";
@@ -74,7 +74,12 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
       setError(null);
 
       try {
-        const response: AskResponse = await askQuestion(trimmed);
+        // Build history from previous messages (only role + content, no skills)
+        const history = messages.map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }));
+        const response: AskResponse = await askQuestionWithHistory(trimmed, history);
         setMessages((prev) => [
           ...prev,
           {
@@ -89,7 +94,7 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
         setLoading(false);
       }
     },
-    [query, loading]
+    [query, loading, messages]
   );
 
   if (!isOpen) return null;

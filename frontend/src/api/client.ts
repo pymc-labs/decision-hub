@@ -9,6 +9,7 @@ import type {
   RegistryStats,
   OrgStatsResponse,
   AskResponse,
+  AskMessage,
 } from "../types/api";
 
 // When served from Modal (same origin), use "" so fetches are relative.
@@ -131,10 +132,14 @@ export async function getAuditLog(
   );
 }
 
-export async function askQuestion(query: string): Promise<AskResponse> {
-  return fetchJSON<AskResponse>(
-    `/v1/ask?q=${encodeURIComponent(query)}`
-  );
+export async function askQuestionWithHistory(
+  query: string,
+  history: AskMessage[]
+): Promise<AskResponse> {
+  return fetchJSON<AskResponse>("/v1/ask", {
+    method: "POST",
+    body: JSON.stringify({ query, history }),
+  });
 }
 
 export async function downloadSkillZip(

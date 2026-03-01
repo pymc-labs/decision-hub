@@ -3,12 +3,13 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
@@ -97,6 +98,8 @@ def _run_retrieval(
             download_count=row.get("download_count", 0),
             source_repo_url=row.get("source_repo_url"),
             gauntlet_summary=row.get("gauntlet_summary"),
+            github_stars=row.get("github_stars"),
+            github_forks=row.get("github_forks"),
         )
         for row in candidates
     )
@@ -204,13 +207,27 @@ class AskResponse(BaseModel):
     category: str | None = None
 
 
+class AskMessage(BaseModel):
+    """A single message in the conversation history."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=5000)
+
+
+class AskRequest(BaseModel):
+    """Request body for POST /v1/ask."""
+
+    query: str = Field(min_length=1, max_length=500)
+    history: list[AskMessage] = Field(default_factory=list, max_length=20)
+
+
 @router.get(
     "/ask",
     response_model=AskResponse,
     dependencies=[Depends(_enforce_search_rate_limit)],
 )
 def ask_skills(
-    q: str = Query(..., max_length=500),
+    q: str = Query(..., min_length=1, max_length=500),
     category: str | None = Query(None, max_length=100, description="Filter results to a specific category"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     settings: Settings = Depends(get_settings),
@@ -243,6 +260,49 @@ def ask_skills(
             s3_client=s3_client,
             current_user=current_user,
             shared_http=shared_http,
+            history=None,
+        )
+
+
+@router.post(
+    "/ask",
+    response_model=AskResponse,
+    dependencies=[Depends(_enforce_search_rate_limit)],
+)
+def ask_skills_post(
+    body: AskRequest,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    settings: Settings = Depends(get_settings),
+    engine: Engine = Depends(get_engine),
+    conn=Depends(get_connection),
+    s3_client=Depends(get_s3_client),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> AskResponse:
+    """Multi-turn conversational skill discovery.
+
+    Accepts conversation history so follow-up questions have context.
+    The web modal uses this; CLI uses GET for single-shot queries.
+    """
+    if not settings.google_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Ask is not configured (missing GOOGLE_API_KEY)",
+        )
+
+    history = [{"role": m.role, "content": m.content} for m in body.history] if body.history else None
+
+    with httpx.Client(timeout=60) as shared_http:
+        return _ask_skills_inner(
+            q=body.query,
+            category=None,
+            background_tasks=background_tasks,
+            settings=settings,
+            engine=engine,
+            conn=conn,
+            s3_client=s3_client,
+            current_user=current_user,
+            shared_http=shared_http,
+            history=history,
         )
 
 
@@ -257,6 +317,7 @@ def _ask_skills_inner(
     s3_client,
     current_user: User | None,
     shared_http: httpx.Client,
+    history: list[dict] | None,
 ) -> AskResponse:
     """Core ask logic, extracted so the shared httpx.Client context manager stays flat."""
     gemini = create_gemini_client(settings.google_api_key, http_client=shared_http)
@@ -315,6 +376,7 @@ def _ask_skills_inner(
             q,
             result.index_content,
             settings.gemini_model,
+            history=history,
         )
         llm_ms = int((time.monotonic() - llm_start) * 1000)
     except Exception:

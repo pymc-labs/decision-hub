@@ -155,3 +155,8 @@ export interface AskResponse {
   skills: AskSkillRef[];
   category: string | null;
 }
+
+export interface AskMessage {
+  role: "user" | "assistant";
+  content: string;
+}

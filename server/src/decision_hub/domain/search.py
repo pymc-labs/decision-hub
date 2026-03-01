@@ -16,6 +16,8 @@ def build_index_entry(
     download_count: int = 0,
     source_repo_url: str | None = None,
     gauntlet_summary: str | None = None,
+    github_stars: int | None = None,
+    github_forks: int | None = None,
 ) -> SkillIndexEntry:
     """Create a search index entry from skill metadata.
 
@@ -30,6 +32,8 @@ def build_index_entry(
         download_count: Number of times the skill has been downloaded.
         source_repo_url: URL of the source GitHub repository.
         gauntlet_summary: Brief summary of non-pass gauntlet findings.
+        github_stars: Number of GitHub stars on the source repository.
+        github_forks: Number of GitHub forks on the source repository.
 
     Returns:
         A SkillIndexEntry with a computed trust score.
@@ -46,6 +50,8 @@ def build_index_entry(
         download_count=download_count,
         source_repo_url=source_repo_url,
         gauntlet_summary=gauntlet_summary,
+        github_stars=github_stars,
+        github_forks=github_forks,
     )
 
 
@@ -104,5 +110,9 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
             obj["source_repo_url"] = entry.source_repo_url
         if entry.gauntlet_summary:
             obj["safety_notes"] = entry.gauntlet_summary
+        if entry.github_stars is not None:
+            obj["github_stars"] = entry.github_stars
+        if entry.github_forks is not None:
+            obj["github_forks"] = entry.github_forks
         lines.append(json.dumps(obj))
     return "\n".join(lines)

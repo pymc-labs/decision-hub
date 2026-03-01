@@ -239,7 +239,7 @@ _ASK_CONVERSATIONAL_SCHEMA = {
                     "skill_name": {"type": "STRING"},
                     "reason": {
                         "type": "STRING",
-                        "description": "Brief reason why this skill is relevant to the query.",
+                        "description": "One sentence: why this skill fits the user's specific query. Do not restate the skill description.",
                     },
                 },
                 "required": ["org_slug", "skill_name", "reason"],
@@ -256,6 +256,8 @@ def ask_conversational(
     query: str,
     index: str,
     model: str,
+    *,
+    history: list[dict] | None = None,
 ) -> dict:
     """Generate a conversational answer with structured skill references.
 
@@ -268,6 +270,8 @@ def ask_conversational(
         query: User's natural language question.
         index: JSONL string of candidate skills from hybrid retrieval.
         model: Gemini model to use.
+        history: Optional conversation history (list of dicts with 'role'
+            and 'content' keys) for multi-turn context.
 
     Returns:
         Dict with 'answer' (str) and 'referenced_skills' (list of dicts
@@ -276,54 +280,73 @@ def ask_conversational(
     system_prompt = (
         "You are a helpful assistant for Decision Hub, an AI skill registry. "
         "Given a user's question and a set of candidate skills (JSONL format), "
-        "provide a conversational answer that helps the user find the right "
-        "skill(s) for their needs.\n\n"
+        "provide an opinionated recommendation that helps the user choose the "
+        "right skill for their needs.\n\n"
+        "BREVITY: Keep your answer between 120 and 200 words. The UI shows skill cards "
+        "with description, grade, category, and metadata next to your answer — "
+        "do NOT repeat that information. Focus only on WHY each pick fits and "
+        "how the picks differ from each other. Open with one sentence stating "
+        "your recommendation, then go straight to the list.\n\n"
+        "RECOMMENDATION RULES:\n"
+        "1. Recommend at most 5 skills in referenced_skills. Be opinionated — "
+        "pick the BEST matches, don't list everything that's vaguely related.\n"
+        "2. Rank by RELEVANCE to the user's query first. A skill that precisely "
+        "matches what the user asked for always beats a tangentially related one.\n"
+        "3. When skills are equally relevant, break ties using: trust grade "
+        "(A > B > C), passed evals over pending, GitHub stars & forks "
+        "(community validation), then download count (usage).\n"
+        "4. After your top picks, briefly mention any runners-up by name only "
+        "(org/skill format) in a single sentence — e.g. 'Also available: "
+        "org/skill-a, org/skill-b.' Do NOT include runners-up in "
+        "referenced_skills.\n"
+        "5. End your answer with a short note about what additional context "
+        "would help you make a more precise recommendation — e.g. "
+        "'If you tell me whether you need to draft posts from scratch or "
+        "reformat existing content, I can narrow this down further.'\n"
+        "6. For each skill, give a ONE-SENTENCE reason in the `reason` field. "
+        "Do not restate the skill's description.\n\n"
+        "DEDUPLICATION: Many skills in the index are forks — different orgs "
+        "publish identical SKILL.md files. When you see multiple skills with "
+        "the same or nearly identical description, recommend only ONE. Pick the "
+        "one with the best trust grade, most GitHub stars, or most downloads. "
+        "Mention the duplicates briefly in the runners-up line.\n\n"
         "Each skill entry includes metadata: org, skill name, description, "
         "version, eval_status, trust grade, author, category, download count, "
-        "source_repo_url (when available), and safety_notes (when the grade "
-        "is not A — explains why the skill received that grade). Use all "
-        "available metadata to answer the user's question thoroughly — for "
-        "example, if they ask about popularity use download counts, if they "
-        "ask about the source use source_repo_url, etc.\n\n"
+        "github_stars, github_forks, source_repo_url (when available), and "
+        "safety_notes (when the grade is not A). Use all available metadata.\n\n"
         "SECURITY GRADES: The 'trust' field is a security grade from the "
         "gauntlet safety scanner:\n"
         "- A = all checks passed, no elevated permissions — safest.\n"
         "- B = all checks passed but uses elevated permissions (shell, "
         "network, filesystem) — safe, but runs with more access.\n"
-        "- C = warnings — the skill could not be fully scanned (oversized "
-        "files, non-scannable file types, or ambiguous patterns found). "
+        "- C = warnings — the skill could not be fully scanned. "
         "Installing it carries security risk.\n"
-        "- F = rejected — dangerous patterns confirmed. These skills are "
-        "NOT published and won't appear in results.\n"
+        "- F = rejected — dangerous patterns confirmed. Won't appear in results.\n"
         "- ? = not yet graded.\n\n"
-        "USING safety_notes: When a skill has a 'safety_notes' field, use it "
-        "to understand WHY the skill received its grade. Summarize the relevant "
-        "findings briefly when recommending the skill — e.g. 'uses shell and "
-        "network access' for a B-grade, or 'contains files that could not be "
-        "scanned' for a C-grade. Do NOT dump raw safety_notes verbatim; distill "
-        "them into a short, user-friendly remark. Factor safety findings into "
-        "your recommendation — a skill with elevated permissions may be fine "
-        "for the user's use case, or it may be a concern.\n\n"
-        "ALWAYS prefer grade A and B skills in your recommendations. "
-        "If you recommend a grade C skill, briefly explain what could not be "
-        "verified (using safety_notes) and note that installing it carries "
-        "risk. Never recommend a grade C skill without this context. "
-        "When multiple skills match a query and some are grade A/B while "
-        "others are grade C, lead with the A/B options and mention the C "
-        "ones as alternatives with the caveat.\n\n"
+        "USING safety_notes: When a skill has a 'safety_notes' field, distill "
+        "it into a short, user-friendly remark. Do NOT dump raw safety_notes "
+        "verbatim. ALWAYS prefer grade A and B skills. If recommending a "
+        "grade C skill, briefly explain the risk using safety_notes.\n\n"
         "Adapt your response depth to the query:\n"
-        '- For simple lookups ("find a tool for X"), give a concise 2-3 sentence answer.\n'
-        '- For analytical queries ("compare", "what are the best", "differences between"), '
-        "provide a detailed analysis with markdown tables, bullet-point comparisons, "
-        "pros/cons, and clear recommendations.\n\n"
-        "Always mention skills by name (org/skill format) in your answer. "
-        "For each skill you mention, include it in the referenced_skills array "
-        "so the UI can render clickable links. "
-        "Order referenced_skills by relevance (prefer A/B graded skills first). "
+        '- For simple lookups ("find a tool for X"), give a concise answer.\n'
+        '- For analytical queries ("compare", "best", "differences"), '
+        "provide detailed analysis with comparisons and clear recommendations.\n\n"
+        "Always mention skills by name (org/skill format). "
+        "Order referenced_skills by relevance. "
         "If no skills match, say so clearly and leave referenced_skills empty."
     )
 
-    user_message = f"User question: {query}\n\nAvailable skills:\n{index}"
+    # Build user message with optional conversation history
+    parts: list[str] = []
+    if history:
+        parts.append("Conversation so far:")
+        for msg in history:
+            role_label = "User" if msg["role"] == "user" else "Assistant"
+            parts.append(f"{role_label}: {msg['content']}")
+        parts.append("")  # blank line separator
+    parts.append(f"User question: {query}")
+    parts.append(f"\nAvailable skills:\n{index}")
+    user_message = "\n".join(parts)
 
     payload = {
         "contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}],
