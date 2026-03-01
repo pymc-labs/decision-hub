@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, ArrowLeft, Globe, Github, Star, Tag } from "lucide-react";
+import { Package, ArrowLeft, Globe, Github, Star, Tag, RefreshCw } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
@@ -167,8 +167,13 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
                       <span className={styles.cardVersion}>
                         v{skill.latest_version}
                       </span>
-                      {skill.author && (
+                      {skill.author && skill.author !== "auto-sync" && (
                         <span className={styles.cardAuthor}>by {skill.author}</span>
+                      )}
+                      {skill.is_auto_synced && (
+                        <span className={styles.cardAuthor} title="Auto-synced from GitHub">
+                          <RefreshCw size={12} />
+                        </span>
                       )}
                       <SkillCardStats
                         github_stars={skill.github_stars}

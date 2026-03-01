@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Search, Package, Filter, User, Tag, Layers, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, Package, Filter, User, Tag, Layers, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
 import type { SkillSortField } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -294,8 +294,13 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
 
           <div className={styles.cardFooter}>
             <span className={styles.cardVersion}>v{skill.latest_version}</span>
-            {skill.author && (
+            {skill.author && skill.author !== "auto-sync" && (
               <span className={styles.cardAuthor}>by {skill.author}</span>
+            )}
+            {skill.is_auto_synced && (
+              <span className={styles.cardAuthor} title="Auto-synced from GitHub">
+                <RefreshCw size={12} />
+              </span>
             )}
             <SkillCardStats
               github_stars={skill.github_stars}
