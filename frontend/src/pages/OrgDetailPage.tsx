@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, Download, ArrowLeft, Globe, Github, Star, Tag } from "lucide-react";
+import { Package, Download, ArrowLeft, Globe, Github, Star, Scale, Tag } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
@@ -169,9 +169,23 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
                       {skill.author && (
                         <span className={styles.cardAuthor}>by {skill.author}</span>
                       )}
-                      <span className={styles.cardDownloads}>
-                        <Download size={12} />
-                        {skill.download_count}
+                      <span className={styles.cardStats}>
+                        {skill.github_stars != null && (
+                          <span className={styles.cardStat}>
+                            <Star size={12} />
+                            {skill.github_stars.toLocaleString()}
+                          </span>
+                        )}
+                        {skill.github_license && (
+                          <span className={styles.cardStat}>
+                            <Scale size={12} />
+                            {skill.github_license}
+                          </span>
+                        )}
+                        <span className={styles.cardStat}>
+                          <Download size={12} />
+                          {skill.download_count.toLocaleString()}
+                        </span>
                       </span>
                     </div>
                   </div>

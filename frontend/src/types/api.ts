@@ -147,6 +147,8 @@ export interface AskSkillRef {
   latest_version: string;
   source_repo_url: string | null;
   gauntlet_summary: string | null;
+  github_stars: number | null;
+  github_license: string | null;
 }
 
 export interface AskResponse {

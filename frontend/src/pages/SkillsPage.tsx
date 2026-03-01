@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Search, Package, Download, Filter, User, Tag, Layers, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, Package, Download, Filter, User, Tag, Layers, ArrowUp, ArrowDown, Star, Scale } from "lucide-react";
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
 import type { SkillSortField } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -296,9 +296,23 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
             {skill.author && (
               <span className={styles.cardAuthor}>by {skill.author}</span>
             )}
-            <span className={styles.cardDownloads}>
-              <Download size={12} />
-              {skill.download_count}
+            <span className={styles.cardStats}>
+              {skill.github_stars != null && (
+                <span className={styles.cardStat}>
+                  <Star size={12} />
+                  {skill.github_stars.toLocaleString()}
+                </span>
+              )}
+              {skill.github_license && (
+                <span className={styles.cardStat}>
+                  <Scale size={12} />
+                  {skill.github_license}
+                </span>
+              )}
+              <span className={styles.cardStat}>
+                <Download size={12} />
+                {skill.download_count.toLocaleString()}
+              </span>
             </span>
           </div>
         </div>

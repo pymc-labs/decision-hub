@@ -329,6 +329,21 @@
   color: var(--text-muted);
 }
 
+.skillStats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.skillStat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
 /* How it works */
 .howItWorks {
   margin: 60px 0;

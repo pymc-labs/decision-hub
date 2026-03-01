@@ -2,7 +2,7 @@ import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package
+  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package, Scale
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -234,9 +234,23 @@ export default function HomePage() {
                       <span className={styles.skillVersion}>
                         v{skill.latest_version}
                       </span>
-                      <span className={styles.skillDownloads}>
-                        <Download size={12} />
-                        {skill.download_count}
+                      <span className={styles.skillStats}>
+                        {skill.github_stars != null && (
+                          <span className={styles.skillStat}>
+                            <Star size={12} />
+                            {skill.github_stars.toLocaleString()}
+                          </span>
+                        )}
+                        {skill.github_license && (
+                          <span className={styles.skillStat}>
+                            <Scale size={12} />
+                            {skill.github_license}
+                          </span>
+                        )}
+                        <span className={styles.skillStat}>
+                          <Download size={12} />
+                          {skill.download_count.toLocaleString()}
+                        </span>
                       </span>
                     </div>
                   </div>
