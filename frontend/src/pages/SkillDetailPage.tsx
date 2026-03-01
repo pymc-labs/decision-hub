@@ -13,6 +13,9 @@ import {
   Copy,
   Check,
   Github,
+  GitFork,
+  Star,
+  Scale,
   RefreshCw,
   CheckCircle,
   XCircle,
@@ -307,6 +310,24 @@ export default function SkillDetailPage() {
                 <span className={styles.sidebarLabel}><Download size={12} /> Downloads</span>
                 <span className={styles.sidebarValue}>{skill.download_count.toLocaleString()}</span>
               </div>
+              {skill.github_stars != null && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}><Star size={12} /> Stars</span>
+                  <span className={styles.sidebarValue}>{skill.github_stars.toLocaleString()}</span>
+                </div>
+              )}
+              {skill.github_forks != null && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}><GitFork size={12} /> Forks</span>
+                  <span className={styles.sidebarValue}>{skill.github_forks.toLocaleString()}</span>
+                </div>
+              )}
+              {skill.github_license && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.sidebarLabel}><Scale size={12} /> License</span>
+                  <span className={styles.sidebarValue}>{skill.github_license}</span>
+                </div>
+              )}
               {skill.author && (
                 <div className={styles.sidebarRow}>
                   <span className={styles.sidebarLabel}><User size={12} /> Author</span>
