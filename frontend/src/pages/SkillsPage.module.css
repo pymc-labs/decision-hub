@@ -48,7 +48,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   outline: none;
   transition: all 0.15s ease;
@@ -76,7 +76,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   outline: none;
   cursor: pointer;
@@ -104,7 +104,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   outline: none;
   cursor: pointer;
@@ -167,7 +167,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xxs);
   color: var(--text-secondary);
 }
@@ -200,7 +200,7 @@
 }
 
 .cardVersion {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-secondary);
 }
 
@@ -213,7 +213,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-muted);
 }
 
@@ -293,7 +293,7 @@
 }
 
 .categoryCount {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-muted);
   margin-left: 4px;

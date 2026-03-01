@@ -81,6 +81,7 @@ export default function HomePage() {
     <div className="container">
       {/* Hero */}
       <section className={styles.hero}>
+        <span className={styles.heroEyebrow}>The AI Skill Registry</span>
         <h1 className={styles.heroTitle}>Decision Hub</h1>
         <p className={styles.heroSub}>
           Trusted Skills for AI Agents in Data Science and Beyond

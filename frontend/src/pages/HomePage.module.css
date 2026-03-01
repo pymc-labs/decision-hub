@@ -2,13 +2,27 @@
 .hero {
   text-align: center;
   padding: 80px 0 48px;
+  background: linear-gradient(180deg, var(--bg-primary) 0%, rgba(99, 102, 241, 0.04) 100%);
+  margin: 0 -24px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.heroEyebrow {
+  display: inline-block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: 12px;
 }
 
 .heroTitle {
   font-size: var(--text-hero);
   line-height: 1.08;
   margin-bottom: 20px;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   font-weight: 800;
   color: var(--text-primary);
 }
@@ -73,15 +87,16 @@
   color: var(--color-primary) !important;
 }
 
-/* Stats — clean horizontal strip, no card wrapping */
+/* Stats — card container */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin: 0 0 56px;
-  padding: 32px 0;
-  border-top: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
+  margin: 0 0 72px;
+  padding: 32px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
 }
 
 .statItem {
@@ -111,7 +126,7 @@
 
 /* Value Props */
 .valueProps {
-  margin: 56px 0;
+  margin: 72px 0;
 }
 
 .valuePropGrid {
@@ -148,7 +163,7 @@
 /* Agent Section */
 .cliSection {
   max-width: 700px;
-  margin: 56px auto;
+  margin: 72px auto;
 }
 
 .cliSection .sectionTitle {
@@ -166,7 +181,7 @@
 
 /* Featured */
 .featured {
-  margin: 56px 0;
+  margin: 72px 0;
 }
 
 .sectionHeader {
@@ -221,7 +236,7 @@
 }
 
 .skillOrg {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-secondary);
 }
@@ -266,7 +281,7 @@
 }
 
 .skillVersion {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-secondary);
 }
@@ -275,7 +290,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
@@ -355,7 +370,7 @@
 }
 
 .installAlt code {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--color-primary);
   font-size: var(--text-sm);
 }
@@ -405,7 +420,7 @@
 .bottomCtaInner {
   text-align: center;
   padding: 48px 24px;
-  background: var(--bg-secondary);
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, rgba(99, 102, 241, 0.04) 100%);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border-color);
 }
@@ -485,15 +500,15 @@
   .featured,
   .installCta,
   .quickStart {
-    margin: 36px 0;
+    margin: 48px 0;
   }
 
   .valueProps {
-    margin: 36px 0;
+    margin: 48px 0;
   }
 
   .cliSection {
-    margin: 36px auto;
+    margin: 48px auto;
   }
 
   .bottomCtaInner {

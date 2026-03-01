@@ -23,7 +23,7 @@
 }
 
 .title {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xxs);
   color: rgba(255, 255, 255, 0.4);
   margin-left: 8px;
@@ -31,7 +31,7 @@
 
 .body {
   padding: 16px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: #cdd6f4;
   line-height: 1.7;

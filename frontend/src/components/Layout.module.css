@@ -8,7 +8,8 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(255, 255, 255, 0.8);
+  /* Warm cream glass — hardcoded rgba because var() can't compose inside rgba for backdrop-filter */
+  background: rgba(250, 248, 245, 0.85);
   border-bottom: 1px solid var(--border-color);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
@@ -70,7 +71,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 8px 16px;
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   font-weight: 500;

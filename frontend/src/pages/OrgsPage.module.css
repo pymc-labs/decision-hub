@@ -48,7 +48,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   outline: none;
   transition: all 0.15s ease;
@@ -76,7 +76,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   outline: none;
   cursor: pointer;
@@ -103,7 +103,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   outline: none;
   cursor: pointer;

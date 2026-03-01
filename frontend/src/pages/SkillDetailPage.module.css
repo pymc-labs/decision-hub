@@ -26,7 +26,7 @@
 }
 
 .org {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-body);
   color: var(--text-secondary) !important;
 }
@@ -62,7 +62,7 @@
   gap: 4px;
   font-size: var(--text-sm);
   color: var(--text-muted);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   text-decoration: none;
 }
 
@@ -75,7 +75,7 @@ a.metaItem:hover {
   align-items: center;
   gap: 4px;
   font-size: var(--text-sm);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--color-warning);
   border: 1px solid var(--color-warning-border);
   border-radius: 4px;
@@ -102,6 +102,9 @@ a.metaItem:hover {
   top: calc(var(--header-height) + 24px);
   max-height: calc(100vh - var(--header-height) - 48px);
   overflow-y: auto;
+  background: var(--bg-secondary);
+  padding: 20px;
+  border-radius: var(--radius-md);
 }
 
 .sidebarGrade {
@@ -142,21 +145,21 @@ a.metaItem:hover {
   gap: 4px;
   font-size: var(--text-xs);
   color: var(--text-muted);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
 .sidebarValue {
   font-size: var(--text-xs);
   color: var(--text-primary);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   text-align: right;
 }
 
 .sidebarLink {
   font-size: var(--text-xs);
   color: var(--color-primary);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   text-decoration: none;
 }
 
@@ -221,7 +224,7 @@ a.metaItem:hover {
   padding: 10px 20px;
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   color: var(--text-secondary);
   font-size: var(--text-sm);
   font-weight: 500;
@@ -281,7 +284,7 @@ a.metaItem:hover {
 }
 
 .skillMd code {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   color: var(--color-primary);
   background: var(--bg-secondary);
@@ -359,7 +362,7 @@ a.metaItem:hover {
 }
 
 .auditVersion {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text-primary);
   font-weight: 500;
@@ -371,7 +374,7 @@ a.metaItem:hover {
 }
 
 .auditDate {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
@@ -488,7 +491,7 @@ a.metaItem:hover {
 }
 
 .auditQuarantine {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-danger);
   padding: 4px 8px;

@@ -161,7 +161,7 @@
 }
 
 .cardVersion {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-secondary);
 }
 
@@ -174,7 +174,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-muted);
 }
 

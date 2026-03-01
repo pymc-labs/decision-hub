@@ -1,8 +1,9 @@
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1px solid transparent;
+  border-top: 2px solid transparent;
   border-radius: var(--radius-md);
-  padding: 24px;
+  padding: 28px;
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
@@ -14,6 +15,7 @@
 
 .card:hover {
   box-shadow: var(--shadow-md);
+  border-top-color: var(--color-primary);
 }
 
 .clickable {
@@ -21,7 +23,7 @@
 }
 
 .clickable:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
 }
 
