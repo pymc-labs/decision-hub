@@ -1,40 +1,95 @@
-/* === NEON 80s RETRO THEME === */
+/* === MODERN SAAS — ORGANIC MESH THEME === */
 
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
-  --neon-pink: #ff2d95;
-  --neon-cyan: #00f0ff;
-  --neon-purple: #b400ff;
-  --neon-yellow: #ffe600;
-  --neon-green: #39ff14;
-  --neon-orange: #ff6a00;
+  /* ── Font families ─────────────────────────────────────── */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  --glow-pink: 0 0 10px #ff2d95, 0 0 20px #ff2d9580, 0 0 40px #ff2d9540;
-  --glow-cyan: 0 0 10px #00f0ff, 0 0 20px #00f0ff80, 0 0 40px #00f0ff40;
-  --glow-purple: 0 0 10px #b400ff, 0 0 20px #b400ff80, 0 0 40px #b400ff40;
-  --glow-green: 0 0 10px #39ff14, 0 0 20px #39ff1480, 0 0 40px #39ff1440;
+  /* ── Color palette ─────────────────────────────────────── */
+  --purple-50: #faf5ff;
+  --purple-100: #f3e8ff;
+  --purple-200: #e9d5ff;
+  --purple-300: #d8b4fe;
+  --purple-400: #c084fc;
+  --purple-500: #a855f7;
+  --purple-600: #9333ea;
+  --purple-700: #7c3aed;
 
-  --glow-text-subtle: 0 0 8px rgba(0, 240, 255, 0.15);
-  --glow-text-strong: 0 0 10px rgba(0, 240, 255, 0.3);
+  --teal-50: #f0fdfa;
+  --teal-100: #ccfbf1;
+  --teal-200: #99f6e4;
+  --teal-300: #5eead4;
+  --teal-400: #2dd4bf;
+  --teal-500: #14b8a6;
+  --teal-600: #0d9488;
 
-  --bg-darkest: #0a0a12;
-  --bg-dark: #12121f;
-  --bg-card: #1a1a2e;
-  --bg-card-hover: #22223a;
-  --bg-elevated: #252540;
+  --amber-50: #fffbeb;
+  --amber-100: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-300: #fcd34d;
+  --amber-400: #fbbf24;
+  --amber-500: #f59e0b;
+  --amber-600: #d97706;
 
-  --text-primary: #e8e8f0;
-  --text-secondary: #8888aa;
-  --text-muted: #555577;
+  /* ── Semantic aliases ──────────────────────────────────── */
+  --color-primary: var(--purple-600);
+  --color-primary-hover: var(--purple-700);
+  --color-primary-light: var(--purple-100);
+  --color-secondary: var(--teal-500);
+  --color-secondary-hover: var(--teal-600);
+  --color-secondary-light: var(--teal-50);
+  --color-accent: var(--amber-500);
+  --color-accent-light: var(--amber-50);
 
-  --border-color: #2a2a45;
-  --border-glow: #00f0ff30;
+  --color-success: #16a34a;
+  --color-success-light: #f0fdf4;
+  --color-warning: #d97706;
+  --color-warning-light: #fffbeb;
+  --color-error: #dc2626;
+  --color-error-light: #fef2f2;
+  --color-info: #2563eb;
+  --color-info-light: #eff6ff;
 
+  /* ── Backgrounds ───────────────────────────────────────── */
+  --bg-page: #faf8f5;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f7f5f2;
+  --bg-inset: #f0eee8;
+  --bg-code: #1e1e2e;
+
+  /* ── Text ──────────────────────────────────────────────── */
+  --text-primary: #1a1625;
+  --text-secondary: #64607a;
+  --text-muted: #9e98b0;
+  --text-inverse: #ffffff;
+
+  /* ── Borders ───────────────────────────────────────────── */
+  --border-color: #e8e4f0;
+  --border-subtle: #f0edf5;
+  --border-strong: #d1cce0;
+
+  /* ── Shadows (soft, layered) ───────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.06);
+
+  /* ── Border radius (organic, generous) ─────────────────── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* ── Layout ────────────────────────────────────────────── */
   --max-width: 1280px;
   --header-height: 72px;
 
-  /* Typography scale */
+  /* ── Typography scale (base 18px) ──────────────────────── */
   --text-hero:    4rem;
   --text-display: 2.5rem;
   --text-title:   2rem;
@@ -57,52 +112,17 @@ html {
 }
 
 body {
-  font-family: 'Rajdhani', sans-serif;
-  background: var(--bg-darkest);
+  font-family: var(--font-sans);
+  background: var(--bg-page);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.6;
   font-size: 18px;
-  /* Horizontal safe area insets for iPhone notch/dynamic island.
-     Top/bottom are handled on the sticky header and footer in Layout. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
-}
-
-/* Subtle scanline overlay */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 9999;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
-}
-
-/* Grid background */
-body::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
 }
 
 #root {
@@ -112,24 +132,24 @@ body::after {
 }
 
 a {
-  color: var(--neon-cyan);
+  color: var(--color-primary);
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease;
 }
 
 a:hover {
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
+  color: var(--color-primary-hover);
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--font-sans);
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 code, pre {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: var(--font-mono);
 }
 
 ::-webkit-scrollbar {
@@ -138,17 +158,16 @@ code, pre {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-darkest);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neon-cyan);
-  box-shadow: var(--glow-cyan);
+  background: var(--border-strong);
 }
 
 .container {
@@ -162,39 +181,69 @@ code, pre {
   .container {
     padding: 0 16px;
   }
-}
 
-@keyframes neonFlicker {
-  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
-    text-shadow:
-      0 0 4px #fff,
-      0 0 11px #fff,
-      0 0 19px #fff,
-      0 0 40px var(--neon-cyan),
-      0 0 80px var(--neon-cyan);
-  }
-  20%, 24%, 55% {
-    text-shadow: none;
+  :root {
+    --text-hero:    2.5rem;
+    --text-display: 2rem;
+    --text-title:   1.6rem;
+    --text-heading: 1.3rem;
+    --text-lg:      1.1rem;
   }
 }
 
-@keyframes pulseGlow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+@media (max-width: 768px) and (min-width: 481px) {
+  :root {
+    --text-hero:    3rem;
+    --text-display: 2.2rem;
+    --text-title:   1.8rem;
+    --text-heading: 1.4rem;
+  }
+}
+
+/* ── Shared animations ───────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes gridScroll {
-  0% { background-position: 0 0, 0 0; }
-  100% { background-position: 60px 60px, 60px 60px; }
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes meshDrift1 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  25% { transform: translate(5%, -8%) scale(1.1); }
+  50% { transform: translate(-3%, 5%) scale(0.95); }
+  75% { transform: translate(8%, 3%) scale(1.05); }
+}
+
+@keyframes meshDrift2 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  25% { transform: translate(-6%, 4%) scale(0.95); }
+  50% { transform: translate(4%, -6%) scale(1.08); }
+  75% { transform: translate(-3%, -4%) scale(1); }
+}
+
+@keyframes meshDrift3 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  25% { transform: translate(4%, 6%) scale(1.05); }
+  50% { transform: translate(-5%, -3%) scale(0.92); }
+  75% { transform: translate(2%, -5%) scale(1.1); }
 }

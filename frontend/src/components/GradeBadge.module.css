@@ -2,11 +2,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Orbitron', sans-serif;
-  font-weight: 800;
-  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  border-radius: var(--radius-sm);
   border: 1px solid;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
 
 .sm {
@@ -28,35 +28,31 @@
 }
 
 .green {
-  color: #39ff14;
-  border-color: rgba(57, 255, 20, 0.4);
-  background: rgba(57, 255, 20, 0.08);
-  text-shadow: 0 0 8px rgba(57, 255, 20, 0.5);
+  color: var(--color-success);
+  border-color: rgba(22, 163, 74, 0.25);
+  background: var(--color-success-light);
 }
 
 .cyan {
-  color: #00f0ff;
-  border-color: rgba(0, 240, 255, 0.4);
-  background: rgba(0, 240, 255, 0.08);
-  text-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+  color: var(--color-info);
+  border-color: rgba(37, 99, 235, 0.25);
+  background: var(--color-info-light);
 }
 
 .yellow {
-  color: #ffe600;
-  border-color: rgba(255, 230, 0, 0.4);
-  background: rgba(255, 230, 0, 0.08);
-  text-shadow: 0 0 8px rgba(255, 230, 0, 0.5);
+  color: var(--color-warning);
+  border-color: rgba(217, 119, 6, 0.25);
+  background: var(--color-warning-light);
 }
 
 .red {
-  color: #ff2d95;
-  border-color: rgba(255, 45, 149, 0.4);
-  background: rgba(255, 45, 149, 0.08);
-  text-shadow: 0 0 8px rgba(255, 45, 149, 0.5);
+  color: var(--color-error);
+  border-color: rgba(220, 38, 38, 0.25);
+  background: var(--color-error-light);
 }
 
 .muted {
   color: var(--text-muted);
   border-color: var(--border-color);
-  background: rgba(85, 85, 119, 0.08);
+  background: var(--bg-elevated);
 }

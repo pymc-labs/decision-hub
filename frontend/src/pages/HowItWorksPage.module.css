@@ -11,9 +11,9 @@
 
 .pageTitle {
   font-size: var(--text-title);
-  color: var(--neon-cyan);
-  text-shadow: var(--glow-text-strong);
+  color: var(--text-primary);
   margin-bottom: 12px;
+  letter-spacing: -0.02em;
 }
 
 .pageSubtitle {
@@ -37,19 +37,19 @@
 /* ── Single act ───────────────────────────────────────── */
 
 .act {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--color-secondary);
 }
 
 .act[data-act-color="cyan"] {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--color-secondary);
 }
 
 .act[data-act-color="pink"] {
-  --act-color: var(--neon-pink);
+  --act-color: var(--color-error);
 }
 
 .act[data-act-color="green"] {
-  --act-color: var(--neon-green);
+  --act-color: var(--color-success);
 }
 
 /* ── Act divider between acts ─────────────────────────── */
@@ -71,7 +71,6 @@
   width: 60px;
   height: 3px;
   background: var(--act-color);
-  box-shadow: 0 0 12px var(--act-color);
   border-radius: 2px;
 }
 
@@ -84,12 +83,12 @@
 
 .actLabel {
   display: inline-block;
-  font-family: "Orbitron", sans-serif;
-  font-weight: 700;
-  font-size: var(--text-sm);
-  letter-spacing: 3px;
+  font-family: var(--font-sans);
+  font-weight: 800;
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
   color: var(--act-color);
-  text-shadow: 0 0 10px var(--act-color);
   margin-bottom: 8px;
 }
 
@@ -148,8 +147,8 @@
 
 .featureTitle {
   font-size: var(--text-lg);
-  color: var(--act-color);
-  text-shadow: var(--glow-text-subtle);
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .featureBullets {
@@ -170,11 +169,14 @@
 }
 
 .featureBullet::before {
-  content: "›";
+  content: "";
   position: absolute;
   left: 0;
-  color: var(--act-color);
-  font-weight: 700;
+  top: 10px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--act-color);
 }
 
 /* ── Emphasis within text ─────────────────────────────── */
@@ -209,7 +211,6 @@
     gap: 24px;
   }
 
-  /* Reset alternating order — text always on top */
   .featureRowAlt .featureText {
     order: unset;
   }
@@ -242,17 +243,9 @@
     font-size: var(--text-heading);
   }
 
-  .pageSubtitle {
-    font-size: var(--text-body);
-  }
-
   .actLabel {
-    font-size: var(--text-xs);
-    letter-spacing: 2px;
-  }
-
-  .actTagline {
-    font-size: var(--text-body);
+    font-size: var(--text-xxs);
+    letter-spacing: 0.1em;
   }
 
   .actHeader {

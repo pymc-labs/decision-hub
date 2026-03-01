@@ -9,8 +9,8 @@
 
 .spinner {
   position: relative;
-  width: 60px;
-  height: 60px;
+  width: 48px;
+  height: 48px;
 }
 
 .ring {
@@ -21,39 +21,26 @@
 }
 
 .ring:nth-child(1) {
-  border-top-color: var(--neon-cyan);
+  border-top-color: var(--purple-500);
   animation: spin 1.2s linear infinite;
-  filter: drop-shadow(0 0 6px var(--neon-cyan));
 }
 
 .ring:nth-child(2) {
-  border-right-color: var(--neon-pink);
+  border-right-color: var(--teal-400);
   animation: spin 1.6s linear infinite reverse;
-  filter: drop-shadow(0 0 6px var(--neon-pink));
-  inset: 6px;
+  inset: 5px;
 }
 
 .ring:nth-child(3) {
-  border-bottom-color: var(--neon-purple);
+  border-bottom-color: var(--amber-400);
   animation: spin 2s linear infinite;
-  filter: drop-shadow(0 0 6px var(--neon-purple));
-  inset: 12px;
+  inset: 10px;
 }
 
 .text {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
-  color: var(--text-secondary);
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  animation: blink 1.5s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  color: var(--text-muted);
+  font-weight: 500;
+  animation: pulse 1.5s ease-in-out infinite;
 }

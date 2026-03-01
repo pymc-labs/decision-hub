@@ -1,7 +1,7 @@
 .card {
-  background: var(--bg-card);
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   padding: 24px;
   transition: all 0.3s ease;
   position: relative;
@@ -9,80 +9,85 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-.card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .card:hover {
-  background: var(--bg-card-hover);
+  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
-}
-
-.card:hover::before {
-  opacity: 1;
+  border-color: var(--border-strong);
 }
 
 .clickable {
   cursor: pointer;
 }
 
+/* Accent stripe at top on hover */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+/* Color variants — soft accent colors */
 .cyan {
-  border-color: rgba(0, 240, 255, 0.12);
+  border-color: rgba(20, 184, 166, 0.15);
 }
 
 .cyan::before {
-  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  background: linear-gradient(90deg, var(--teal-400), var(--teal-500));
 }
 
 .cyan:hover {
-  border-color: rgba(0, 240, 255, 0.3);
-  box-shadow: 0 4px 30px rgba(0, 240, 255, 0.08), inset 0 1px 0 rgba(0, 240, 255, 0.1);
+  border-color: rgba(20, 184, 166, 0.3);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(20, 184, 166, 0.08);
 }
 
 .pink {
-  border-color: rgba(255, 45, 149, 0.12);
+  border-color: rgba(220, 38, 38, 0.12);
 }
 
 .pink::before {
-  background: linear-gradient(90deg, transparent, var(--neon-pink), transparent);
+  background: linear-gradient(90deg, #f87171, var(--color-error));
 }
 
 .pink:hover {
-  border-color: rgba(255, 45, 149, 0.3);
-  box-shadow: 0 4px 30px rgba(255, 45, 149, 0.08), inset 0 1px 0 rgba(255, 45, 149, 0.1);
+  border-color: rgba(220, 38, 38, 0.25);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(220, 38, 38, 0.06);
 }
 
 .purple {
-  border-color: rgba(180, 0, 255, 0.35);
-  border-width: 2px;
+  border-color: rgba(147, 51, 234, 0.15);
 }
 
 .purple::before {
-  background: linear-gradient(90deg, transparent, var(--neon-purple), transparent);
+  background: linear-gradient(90deg, var(--purple-400), var(--purple-600));
 }
 
 .purple:hover {
-  border-color: rgba(180, 0, 255, 0.5);
+  border-color: rgba(147, 51, 234, 0.3);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(147, 51, 234, 0.08);
 }
 
 .green {
-  border-color: rgba(57, 255, 20, 0.12);
+  border-color: rgba(22, 163, 74, 0.15);
 }
 
 .green::before {
-  background: linear-gradient(90deg, transparent, var(--neon-green), transparent);
+  background: linear-gradient(90deg, #4ade80, var(--color-success));
 }
 
 .green:hover {
-  border-color: rgba(57, 255, 20, 0.3);
-  box-shadow: 0 4px 30px rgba(57, 255, 20, 0.08), inset 0 1px 0 rgba(57, 255, 20, 0.1);
+  border-color: rgba(22, 163, 74, 0.3);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(22, 163, 74, 0.08);
 }
