@@ -35,7 +35,7 @@ def build_index_entry(
         gauntlet_summary: Brief summary of non-pass gauntlet findings.
         github_stars: Number of GitHub stars on the source repository.
         github_forks: Number of GitHub forks on the source repository.
-        github_license: SPDX license identifier of the source repository.
+        github_license: SPDX license identifier from the source repository.
 
     Returns:
         A SkillIndexEntry with a computed trust score.
@@ -118,6 +118,6 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
         if entry.github_forks is not None:
             obj["github_forks"] = entry.github_forks
         if entry.github_license:
-            obj["github_license"] = entry.github_license
+            obj["license"] = entry.github_license
         lines.append(json.dumps(obj))
     return "\n".join(lines)

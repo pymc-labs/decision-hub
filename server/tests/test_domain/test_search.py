@@ -102,11 +102,11 @@ def test_serialize_index_includes_github_metadata():
     lines = jsonl.strip().split("\n")
     assert '"github_stars": 150' in lines[0]
     assert '"github_forks": 30' in lines[0]
-    assert '"github_license": "MIT"' in lines[0]
+    assert '"license": "MIT"' in lines[0]
     # Omitted when None/empty
     assert "github_stars" not in lines[1]
     assert "github_forks" not in lines[1]
-    assert "github_license" not in lines[1]
+    assert "license" not in lines[1]
 
 
 def test_serialize_empty():
