@@ -27,6 +27,7 @@ def _publish_skill_directory(
     *,
     private: bool = False,
     source_repo_url: str | None = None,
+    manifest_path: str | None = None,
 ) -> bool:
     """Publish a single skill directory to the registry.
 
@@ -71,6 +72,8 @@ def _publish_skill_directory(
         meta["visibility"] = "org"
     if source_repo_url:
         meta["source_repo_url"] = source_repo_url
+    if manifest_path:
+        meta["manifest_path"] = manifest_path
     metadata = json.dumps(meta)
 
     with console.status(f"Publishing {org}/{name}@{version}..."):
@@ -217,6 +220,11 @@ def _publish_discovered_skills(
         rel = skill_dir.relative_to(root)
         console.print(f"Publishing [cyan]{name}[/] (from {rel})...")
 
+        # Compute relative path to SKILL.md within the repo (only meaningful
+        # when publishing from a git source — skip for local-only publishes
+        # to avoid overwriting a previously correct git-based path).
+        skill_manifest_path = (skill_dir / "SKILL.md").relative_to(root).as_posix() if source_repo_url else None
+
         try:
             result = _publish_skill_directory(
                 skill_dir,
@@ -228,6 +236,7 @@ def _publish_discovered_skills(
                 token,
                 private=private,
                 source_repo_url=source_repo_url,
+                manifest_path=skill_manifest_path,
             )
             if result:
                 published += 1

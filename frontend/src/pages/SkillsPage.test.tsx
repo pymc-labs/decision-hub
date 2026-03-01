@@ -20,6 +20,7 @@ function makeSkill(overrides: Partial<SkillSummary> = {}): SkillSummary {
     is_personal_org: false,
     category: "",
     source_repo_url: null,
+    manifest_path: null,
     source_repo_removed: false,
     github_stars: null,
     github_forks: null,
