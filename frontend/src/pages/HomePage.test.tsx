@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  renderWithRouter,
   makeSkill,
   makeRegistryStats,
   makePaginatedResponse,
@@ -99,11 +99,7 @@ afterEach(() => {
 // --- Helpers ---
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <HomePage />
-    </MemoryRouter>,
-  );
+  return renderWithRouter(<HomePage />);
 }
 
 // --- Tests ---

@@ -13,21 +13,6 @@ from decision_hub.models import Organization, OrgMember, Skill, Version
 DEFAULT_USER_ID = UUID("12345678-1234-5678-1234-567812345678")
 
 
-def make_user(**overrides: object) -> dict:
-    """Build a user dict with sensible defaults.
-
-    Returns a plain dict since User is a simple frozen dataclass with
-    only a few fields, and tests often just need the raw values.
-    """
-    defaults: dict[str, object] = {
-        "id": DEFAULT_USER_ID,
-        "github_id": "gh-42",
-        "username": "testuser",
-    }
-    defaults.update(overrides)
-    return defaults
-
-
 def make_org(**overrides: object) -> Organization:
     """Build an Organization with sensible defaults."""
     defaults: dict[str, object] = {

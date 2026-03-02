@@ -1,11 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { SkillSummary } from "../types/api";
-import { makeSkill } from "../test/helpers";
+import { renderWithRouter, makeSkill } from "../test/helpers";
 import SkillsPage from "./SkillsPage";
 
 const SKILLS: SkillSummary[] = [
@@ -88,11 +87,7 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <SkillsPage />
-    </MemoryRouter>,
-  );
+  return renderWithRouter(<SkillsPage />);
 }
 
 /** Wait for the skill grid to load (first skill name visible). */
