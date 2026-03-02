@@ -1355,3 +1355,122 @@ class TestMetricsMathContract:
         assert result.skipped_rate_limit == result.changed
         assert result.processed == 0
         assert result.checked == result.unchanged + result.changed + result.errored
+
+
+class TestDetectRemovedSkills:
+    """Verify _detect_removed_skills marks DB skills missing from repo discovery."""
+
+    def _make_tracker(self) -> SkillTracker:
+        return SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=5,
+            last_commit_sha="abc123",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_missing_skills_are_marked_removed(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """Skills in DB but not in discovered dirs should be marked as removed."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        manifest_a = MagicMock()
+        manifest_a.name = "skill-a"
+        mock_parse.return_value = manifest_a
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a")]
+
+        # DB has skill-a and skill-b
+        mock_fetch.return_value = {"skill-a", "skill-b"}
+        mock_mark.return_value = 1
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        mock_fetch.assert_called_once_with(mock_conn, "myorg", "https://github.com/myorg/myrepo")
+        mock_mark.assert_called_once_with(mock_conn, "myorg", {"skill-b"})
+        mock_conn.commit.assert_called_once()
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_no_removal_when_all_present(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """When all DB skills are still discovered, mark function should not be called."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        manifest_a = MagicMock()
+        manifest_a.name = "skill-a"
+        mock_parse.return_value = manifest_a
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a")]
+        mock_fetch.return_value = {"skill-a"}
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        mock_fetch.assert_called_once()
+        mock_mark.assert_not_called()
+        mock_conn.commit.assert_not_called()
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_no_removal_when_no_db_skills(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """Fresh repo with no prior DB skills should not trigger any removal."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        manifest_a = MagicMock()
+        manifest_a.name = "skill-a"
+        mock_parse.return_value = manifest_a
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a")]
+        mock_fetch.return_value = set()
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        mock_fetch.assert_called_once()
+        mock_mark.assert_not_called()
+        mock_conn.commit.assert_not_called()

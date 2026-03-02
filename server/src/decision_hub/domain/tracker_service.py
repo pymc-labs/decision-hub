@@ -23,7 +23,7 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
     parse_semver,
 )
-from decision_hub.domain.skill_manifest import extract_body, extract_description
+from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md
 from decision_hub.domain.tracker import has_new_commits, parse_github_repo_url
 from decision_hub.models import SkillTracker, TrackerBatchResult
 from decision_hub.settings import Settings
@@ -572,6 +572,10 @@ def process_tracker(
                 )
                 conn.commit()
 
+            # Detect skills removed from repo: compare discovered skill names
+            # against DB skills for this org+repo and mark missing ones.
+            _detect_removed_skills(skill_dirs, tracker, engine)
+
             logger.info(
                 "tracker_id={} repo={}/{} status=changed published={} sha={}",
                 tracker.id,
@@ -604,6 +608,41 @@ def process_tracker(
                 "tracker_id={} repo={} status=error_update_failed",
                 tracker.id,
                 tracker.repo_url,
+            )
+
+
+def _detect_removed_skills(
+    skill_dirs: list[Path],
+    tracker: SkillTracker,
+    engine: Any,
+) -> None:
+    """Compare discovered skill names against DB and mark missing ones as removed.
+
+    Parses each discovered SKILL.md to extract the canonical skill name, then
+    queries the DB for existing (non-removed) skills under the same org+repo.
+    Any DB skills not found in the current discovery are marked source_repo_removed=true.
+    """
+    from decision_hub.infra.database import fetch_skill_names_by_source_repo, mark_skills_removed_by_name
+
+    discovered_names: set[str] = set()
+    for skill_dir in skill_dirs:
+        try:
+            manifest = parse_skill_md(skill_dir / "SKILL.md")
+            discovered_names.add(manifest.name)
+        except (ValueError, FileNotFoundError):
+            continue
+
+    with engine.connect() as conn:
+        db_names = fetch_skill_names_by_source_repo(conn, tracker.org_slug, tracker.repo_url)
+        removed_names = db_names - discovered_names
+        if removed_names:
+            mark_skills_removed_by_name(conn, tracker.org_slug, removed_names)
+            conn.commit()
+            logger.info(
+                "tracker_id={} repo={} marked_removed={}",
+                tracker.id,
+                tracker.repo_url,
+                removed_names,
             )
 
 
