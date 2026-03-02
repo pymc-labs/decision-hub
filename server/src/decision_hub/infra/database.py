@@ -1196,17 +1196,6 @@ def delete_skill_access_grant(conn: Connection, skill_id: UUID, grantee_org_id: 
     return deleted
 
 
-def list_skill_access_grants(conn: Connection, skill_id: UUID) -> list[SkillAccessGrant]:
-    """List all access grants for a skill, ordered by created_at."""
-    stmt = (
-        sa.select(skill_access_grants_table)
-        .where(skill_access_grants_table.c.skill_id == skill_id)
-        .order_by(skill_access_grants_table.c.created_at)
-    )
-    rows = conn.execute(stmt).all()
-    return [_row_to_skill_access_grant(row) for row in rows]
-
-
 def list_skill_access_grants_with_names(conn: Connection, skill_id: UUID) -> list[tuple[str, str, datetime | None]]:
     """List access grants with resolved org slug and username in a single query.
 
@@ -2314,23 +2303,6 @@ def insert_eval_report(
     return _row_to_eval_report(row)
 
 
-def find_eval_report_by_version(conn: Connection, version_id: UUID) -> EvalReport | None:
-    """Find an eval report by version ID.
-
-    Args:
-        conn: Active database connection.
-        version_id: UUID of the skill version.
-
-    Returns:
-        The EvalReport if found, or None.
-    """
-    stmt = sa.select(eval_reports_table).where(eval_reports_table.c.version_id == version_id)
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_eval_report(row)
-
-
 def find_eval_report_by_skill(conn: Connection, org_slug: str, skill_name: str, semver: str) -> EvalReport | None:
     """Find an eval report by org, skill name, and version.
 
@@ -2471,29 +2443,9 @@ def update_eval_run_status(
         logger.debug("Eval run {} → status={} stage={}", run_id, status, stage)
 
 
-def update_eval_run_heartbeat(conn: Connection, run_id: UUID) -> None:
-    """Lightweight heartbeat-only update."""
-    stmt = sa.update(eval_runs_table).where(eval_runs_table.c.id == run_id).values(heartbeat_at=sa.func.now())
-    conn.execute(stmt)
-
-
 def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     """Find an eval run by its ID."""
     stmt = sa.select(eval_runs_table).where(eval_runs_table.c.id == run_id)
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_eval_run(row)
-
-
-def find_latest_eval_run_for_version(conn: Connection, version_id: UUID) -> EvalRun | None:
-    """Find the most recent eval run for a given version."""
-    stmt = (
-        sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
-        .limit(1)
-    )
     row = conn.execute(stmt).first()
     if row is None:
         return None
