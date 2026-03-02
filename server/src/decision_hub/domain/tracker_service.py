@@ -623,7 +623,7 @@ def _publish_skill_from_tracker(
     Returns True if a new version was actually published to S3,
     False if skipped (no content changes) or rejected by the gauntlet.
     """
-    from decision_hub.api.registry_service import (
+    from decision_hub.domain.publish_pipeline import (
         classify_skill_category,
         maybe_trigger_agent_assessment,
         parse_manifest_from_content,

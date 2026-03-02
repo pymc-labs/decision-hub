@@ -246,7 +246,7 @@ def _publish_one_skill(
     set_tracker: bool = False,
 ) -> None:
     """Parse, gauntlet-check, and publish a single skill. Mutates result counts."""
-    from decision_hub.api.registry_service import classify_skill_category, run_gauntlet_pipeline
+    from decision_hub.domain.publish_pipeline import classify_skill_category, run_gauntlet_pipeline
     from decision_hub.infra.database import (
         find_skill,
         find_version,

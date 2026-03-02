@@ -114,10 +114,10 @@ class TestPublishSkill:
         assert "LLM judge" in resp.json()["detail"]
 
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.update_skill_category")
     @patch("decision_hub.api.registry_routes.update_skill_description")
@@ -126,8 +126,8 @@ class TestPublishSkill:
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_routes.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_success(
         self,
         mock_find_org: MagicMock,
@@ -176,7 +176,7 @@ class TestPublishSkill:
         # Audit log inserted for successful publish
         mock_insert_audit.assert_called_once()
 
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_org_not_found(
         self,
         mock_find_org: MagicMock,
@@ -193,8 +193,8 @@ class TestPublishSkill:
         assert resp.status_code == 404
         assert "Organisation not found" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_not_member(
         self,
         mock_find_org: MagicMock,
@@ -232,8 +232,8 @@ class TestPublishSkill:
 
         assert resp.status_code == 401
 
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_rejects_oversized_upload(
         self,
         mock_find_org: MagicMock,
@@ -258,10 +258,10 @@ class TestPublishSkill:
         assert "maximum size" in resp.json()["detail"]
 
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.insert_version")
     @patch("decision_hub.api.registry_routes.find_version")
@@ -269,8 +269,8 @@ class TestPublishSkill:
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_routes.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_creates_new_skill(
         self,
         mock_find_org: MagicMock,
@@ -326,17 +326,17 @@ class TestPublishSkill:
         assert resp.json()["skill_id"] == str(new_skill.id)
 
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.update_skill_category")
     @patch("decision_hub.api.registry_routes.update_skill_description")
     @patch("decision_hub.api.registry_routes.find_version")
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_routes.compute_checksum")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_duplicate_version(
         self,
         mock_find_org: MagicMock,
@@ -373,14 +373,14 @@ class TestPublishSkill:
         assert resp.status_code == 409
         assert "already exists" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_service.insert_audit_log")
-    @patch("decision_hub.api.registry_service.upload_skill_zip")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_gauntlet_blocks_dangerous_skill(
         self,
         mock_find_org: MagicMock,
@@ -413,14 +413,14 @@ class TestPublishSkill:
         assert resp.status_code == 422
         assert "malformed" in resp.json()["detail"].lower()
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_service.insert_audit_log")
-    @patch("decision_hub.api.registry_service.upload_skill_zip")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_gauntlet_blocks_suspicious_code(
         self,
         mock_find_org: MagicMock,
@@ -514,10 +514,10 @@ class TestPublishSkill:
         assert "Invalid skill name" in resp.json()["detail"]
 
     @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.insert_version")
     @patch("decision_hub.api.registry_routes.find_version")
@@ -526,8 +526,8 @@ class TestPublishSkill:
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_routes.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_publish_race_condition_returns_409(
         self,
         mock_find_org: MagicMock,
@@ -866,8 +866,8 @@ class TestDeleteSkillVersion:
     @patch("decision_hub.api.registry_routes.delete_skill_zip")
     @patch("decision_hub.api.registry_routes.delete_version")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_success(
         self,
         mock_find_org: MagicMock,
@@ -905,8 +905,8 @@ class TestDeleteSkillVersion:
         resp = client.delete("/v1/skills/test-org/my-skill/1.0.0")
         assert resp.status_code == 401
 
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_forbidden_for_member_role(
         self,
         mock_find_org: MagicMock,
@@ -932,8 +932,8 @@ class TestDeleteSkillVersion:
         assert resp.status_code == 403
         assert "owners and admins" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_forbidden_for_non_member(
         self,
         mock_find_org: MagicMock,
@@ -954,7 +954,7 @@ class TestDeleteSkillVersion:
 
         assert resp.status_code == 403
 
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_org_not_found(
         self,
         mock_find_org: MagicMock,
@@ -972,8 +972,8 @@ class TestDeleteSkillVersion:
         assert resp.status_code == 404
 
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_skill_not_found(
         self,
         mock_find_org: MagicMock,
@@ -999,8 +999,8 @@ class TestDeleteSkillVersion:
 
     @patch("decision_hub.api.registry_routes.delete_version")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_version_not_found(
         self,
         mock_find_org: MagicMock,
@@ -1030,8 +1030,8 @@ class TestDeleteSkillVersion:
     @patch("decision_hub.api.registry_routes.delete_skill_zip")
     @patch("decision_hub.api.registry_routes.delete_version")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_allowed_for_admin(
         self,
         mock_find_org: MagicMock,
@@ -1395,10 +1395,10 @@ class TestDownloadSkillVisibility:
 class TestPublishVisibilityPreservation:
     """POST /v1/publish -- visibility is preserved when not explicitly provided."""
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.update_skill_visibility")
     @patch("decision_hub.api.registry_routes.update_skill_description")
@@ -1407,8 +1407,8 @@ class TestPublishVisibilityPreservation:
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_routes.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_republish_without_visibility_preserves_existing(
         self,
         mock_find_org: MagicMock,
@@ -1459,10 +1459,10 @@ class TestPublishVisibilityPreservation:
         # update_skill_visibility should NOT have been called
         mock_update_vis.assert_not_called()
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
     @patch("decision_hub.api.registry_routes.insert_audit_log")
     @patch("decision_hub.api.registry_routes.update_skill_visibility")
     @patch("decision_hub.api.registry_routes.update_skill_description")
@@ -1471,8 +1471,8 @@ class TestPublishVisibilityPreservation:
     @patch("decision_hub.api.registry_routes.find_skill")
     @patch("decision_hub.api.registry_routes.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_republish_with_explicit_visibility_updates_it(
         self,
         mock_find_org: MagicMock,
@@ -1539,8 +1539,8 @@ class TestDeleteAllVersions:
     @patch("decision_hub.api.registry_routes.delete_skill_record")
     @patch("decision_hub.api.registry_routes.delete_all_versions")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_all_success(
         self,
         mock_find_org: MagicMock,
@@ -1583,8 +1583,8 @@ class TestDeleteAllVersions:
         resp = client.delete("/v1/skills/test-org/my-skill")
         assert resp.status_code == 401
 
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_all_forbidden_for_member(
         self,
         mock_find_org: MagicMock,
@@ -1609,7 +1609,7 @@ class TestDeleteAllVersions:
 
         assert resp.status_code == 403
 
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_all_org_not_found(
         self,
         mock_find_org: MagicMock,
@@ -1627,8 +1627,8 @@ class TestDeleteAllVersions:
         assert resp.status_code == 404
 
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_all_skill_not_found(
         self,
         mock_find_org: MagicMock,
@@ -1656,8 +1656,8 @@ class TestDeleteAllVersions:
     @patch("decision_hub.api.registry_routes.delete_skill_record")
     @patch("decision_hub.api.registry_routes.delete_all_versions")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_delete_all_allowed_for_admin(
         self,
         mock_find_org: MagicMock,

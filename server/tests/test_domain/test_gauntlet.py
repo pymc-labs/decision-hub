@@ -1722,7 +1722,7 @@ class TestLLMRequiredGate:
     def test_raises_when_llm_required_but_no_key(self):
         from unittest.mock import MagicMock
 
-        from decision_hub.api.registry_service import run_gauntlet_pipeline
+        from decision_hub.domain.publish_pipeline import run_gauntlet_pipeline
 
         settings = MagicMock()
         settings.google_api_key = ""
@@ -1741,7 +1741,7 @@ class TestLLMRequiredGate:
     def test_no_raise_when_llm_not_required(self):
         from unittest.mock import MagicMock
 
-        from decision_hub.api.registry_service import run_gauntlet_pipeline
+        from decision_hub.domain.publish_pipeline import run_gauntlet_pipeline
 
         settings = MagicMock()
         settings.google_api_key = ""

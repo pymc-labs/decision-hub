@@ -41,8 +41,8 @@ class TestChangeVisibility:
 
     @patch("decision_hub.api.registry_routes.update_skill_visibility")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_change_visibility_to_org(
         self,
         mock_find_org: MagicMock,
@@ -72,8 +72,8 @@ class TestChangeVisibility:
 
     @patch("decision_hub.api.registry_routes.update_skill_visibility")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_change_visibility_to_public(
         self,
         mock_find_org: MagicMock,
@@ -110,8 +110,8 @@ class TestChangeVisibility:
         assert resp.status_code == 422
 
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_change_visibility_skill_not_found(
         self,
         mock_find_org: MagicMock,
@@ -132,8 +132,8 @@ class TestChangeVisibility:
         )
         assert resp.status_code == 404
 
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_change_visibility_non_admin_forbidden(
         self,
         mock_find_org: MagicMock,
@@ -175,8 +175,8 @@ class TestGrantAccess:
     @patch("decision_hub.api.registry_routes.insert_skill_access_grant")
     @patch("decision_hub.api.registry_routes.find_org_by_slug")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_grant_access_success(
         self,
         mock_service_find_org: MagicMock,
@@ -215,8 +215,8 @@ class TestGrantAccess:
         assert data["org_slug"] == "test-org"
 
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_grant_access_skill_not_found(
         self,
         mock_service_find_org: MagicMock,
@@ -239,8 +239,8 @@ class TestGrantAccess:
 
     @patch("decision_hub.api.registry_routes.find_org_by_slug")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_grant_access_grantee_org_not_found(
         self,
         mock_service_find_org: MagicMock,
@@ -266,8 +266,8 @@ class TestGrantAccess:
     @patch("decision_hub.api.registry_routes.insert_skill_access_grant")
     @patch("decision_hub.api.registry_routes.find_org_by_slug")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_grant_access_duplicate_409(
         self,
         mock_service_find_org: MagicMock,
@@ -316,8 +316,8 @@ class TestRevokeAccess:
     @patch("decision_hub.api.registry_routes.delete_skill_access_grant")
     @patch("decision_hub.api.registry_routes.find_org_by_slug")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_revoke_access_success(
         self,
         mock_service_find_org: MagicMock,
@@ -347,8 +347,8 @@ class TestRevokeAccess:
     @patch("decision_hub.api.registry_routes.delete_skill_access_grant")
     @patch("decision_hub.api.registry_routes.find_org_by_slug")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_revoke_access_not_found(
         self,
         mock_service_find_org: MagicMock,
@@ -383,8 +383,8 @@ class TestListAccess:
 
     @patch("decision_hub.api.registry_routes.list_skill_access_grants_with_names")
     @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_service.find_org_member")
-    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    @patch("decision_hub.domain.publish_pipeline.find_org_member")
+    @patch("decision_hub.domain.publish_pipeline.find_org_by_slug")
     def test_list_access_empty(
         self,
         mock_find_org: MagicMock,
