@@ -35,7 +35,7 @@ test-server: ## Run server tests (excludes slow LLM regression tests)
 	uv run --package decision-hub-server --extra dev pytest server/tests/ -v -m "not slow" --cov=decision_hub --cov-report=term-missing
 
 test-shared: ## Run shared tests
-	uv run --package dhub-core pytest shared/tests/ -v
+	uv run --package dhub-core --extra dev pytest shared/tests/ -v
 
 test-frontend: ## Run frontend tests
 	cd frontend && npx vitest run

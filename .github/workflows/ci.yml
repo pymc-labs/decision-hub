@@ -61,7 +61,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run shared tests
-        run: uv run --package dhub-core pytest shared/tests/ -v
+        run: uv run --package dhub-core --extra dev pytest shared/tests/ -v
 
   typecheck:
     runs-on: ubuntu-latest
