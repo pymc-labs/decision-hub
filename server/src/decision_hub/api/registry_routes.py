@@ -20,21 +20,19 @@ from decision_hub.api.deps import (
 )
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.api.registry_service import (
-    classify_skill_category,
-    maybe_trigger_agent_assessment,
-    parse_manifest_from_content,
-    quarantine_rejected_skill,
     require_org_membership,
-    run_gauntlet_pipeline,
 )
 from decision_hub.domain.publish import (
     build_s3_key,
-    extract_for_evaluation,
     validate_semver,
     validate_skill_name,
 )
+from decision_hub.domain.publish_pipeline import (
+    GauntletRejectionError,
+    VersionConflictError,
+    execute_publish,
+)
 from decision_hub.domain.search import format_trust_score, resolve_author_display
-from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
     delete_all_versions,
     delete_skill_access_grant,
@@ -49,36 +47,26 @@ from decision_hub.infra.database import (
     find_org_by_slug,
     find_skill,
     find_skill_by_slug,
-    find_version,
     has_active_tracker_for_repo,
     increment_skill_downloads,
-    insert_audit_log,
-    insert_skill,
     insert_skill_access_grant,
-    insert_version,
     list_granted_skill_ids,
     list_skill_access_grants_with_names,
     list_user_org_ids,
     resolve_latest_version,
     resolve_version,
     update_eval_run_status,
-    update_skill_category,
-    update_skill_description,
-    update_skill_manifest_path,
-    update_skill_source_repo_url,
     update_skill_visibility,
 )
 from decision_hub.infra.database import (
     delete_skill as delete_skill_record,
 )
-from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 from decision_hub.infra.storage import (
     compute_checksum,
     delete_skill_zip,
     generate_presigned_url,
     list_eval_log_chunks,
     read_eval_log_chunk,
-    upload_skill_zip,
 )
 from decision_hub.infra.storage import (
     download_skill_zip as download_zip_from_s3,
@@ -414,152 +402,43 @@ def publish_skill(
     checksum = compute_checksum(file_bytes)
 
     try:
-        skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(file_bytes)
-    except ValueError as exc:
-        logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
-        skill_md_content,
-        file_bytes,
-    )
-
-    description = extract_description(skill_md_content)
-    skill_md_body = extract_body(skill_md_content)
-
-    report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        skill_name,
-        description,
-        skill_md_body,
-        settings,
-        allowed_tools=allowed_tools,
-        unscanned_files=unscanned_files,
-    )
-    logger.info(
-        "Gauntlet result for {}/{} v{}: grade={} passed={}", org_slug, skill_name, version, report.grade, report.passed
-    )
-
-    if not report.passed:
-        quarantine_rejected_skill(
-            conn,
-            s3_client,
-            settings.s3_bucket,
-            file_bytes,
+        result = execute_publish(
+            conn=conn,
+            s3_client=s3_client,
+            settings=settings,
+            org_id=org.id,
             org_slug=org_slug,
             skill_name=skill_name,
             version=version,
-            report=report,
-            check_results=check_results_dicts,
-            llm_reasoning=llm_reasoning,
+            checksum=checksum,
+            file_bytes=file_bytes,
             publisher=current_user.username,
-        )
-
-    # Classify the skill after gauntlet passes (non-critical, graceful fallback)
-    category = classify_skill_category(skill_name, description, skill_md_body, settings)
-
-    # Upsert skill record (find or create), then check for duplicate version
-    eval_status = report.grade
-    skill = find_skill(conn, org.id, skill_name)
-    if skill is None:
-        skill = insert_skill(
-            conn,
-            org.id,
-            skill_name,
-            description,
-            category=category,
-            visibility=visibility or "public",
+            user_id=current_user.id,
+            visibility=visibility,
             source_repo_url=source_repo_url,
             manifest_path=manifest_path,
+            auto_bump_version=False,
         )
-    else:
-        update_skill_description(conn, skill.id, description)
-        update_skill_category(conn, skill.id, category)
-        if source_repo_url and skill.source_repo_url != source_repo_url:
-            update_skill_source_repo_url(conn, skill.id, source_repo_url)
-        if manifest_path and skill.manifest_path != manifest_path:
-            update_skill_manifest_path(conn, skill.id, manifest_path)
-        if visibility is not None:
-            update_skill_visibility(conn, skill.id, visibility)
-
-    if find_version(conn, skill.id, version) is not None:
+    except ValueError as exc:
+        logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except GauntletRejectionError as exc:
+        raise HTTPException(status_code=422, detail=f"Gauntlet checks failed: {exc.summary}") from exc
+    except VersionConflictError as exc:
         raise HTTPException(
             status_code=409,
-            detail=f"Version {version} already exists for {org_slug}/{skill_name}",
-        )
+            detail=str(exc),
+        ) from exc
 
-    # Generate embedding (fail-open: never blocks publish)
-    generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, category, description, settings)
-
-    # Upload to S3 and record the version
-    s3_key = build_s3_key(org_slug, skill_name, version)
-    upload_skill_zip(s3_client, settings.s3_bucket, s3_key, file_bytes)
-
-    try:
-        version_record = insert_version(
-            conn,
-            skill_id=skill.id,
-            semver=version,
-            s3_key=s3_key,
-            checksum=checksum,
-            runtime_config=runtime_config_dict,
-            published_by=current_user.username,
-            eval_status=eval_status,
-            gauntlet_summary=report.gauntlet_summary,
-        )
-    except IntegrityError:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Version {version} already exists for {org_slug}/{skill_name}",
-        ) from None
-
-    insert_audit_log(
-        conn,
-        org_slug=org_slug,
-        skill_name=skill_name,
-        semver=version,
-        grade=report.grade,
-        check_results=check_results_dicts,
-        publisher=current_user.username,
-        version_id=version_record.id,
-        llm_reasoning=llm_reasoning,
-    )
-
-    # Commit now so the version row is visible to the background eval thread.
-    conn.commit()
-
-    eval_report_status, eval_run_id = maybe_trigger_agent_assessment(
-        eval_config=eval_config,
-        eval_cases=eval_cases,
-        s3_key=s3_key,
-        s3_bucket=settings.s3_bucket,
-        version_id=version_record.id,
-        org_slug=org_slug,
-        skill_name=skill_name,
-        settings=settings,
-        user_id=current_user.id,
-    )
-
-    logger.info(
-        "Published {}/{} v{} — version_id={} grade={} eval_run={}",
-        org_slug,
-        skill_name,
-        version,
-        version_record.id,
-        eval_status,
-        eval_run_id,
-    )
     return PublishResponse(
-        skill_id=str(skill.id),
-        version_id=str(version_record.id),
-        version=version_record.semver,
-        s3_key=version_record.s3_key,
-        checksum=version_record.checksum,
-        eval_status=eval_status,
-        eval_report_status=eval_report_status,
-        eval_run_id=eval_run_id,
+        skill_id=str(result.skill_id),
+        version_id=str(result.version_id),
+        version=result.version,
+        s3_key=result.s3_key,
+        checksum=result.checksum,
+        eval_status=result.eval_status,
+        eval_report_status=result.eval_report_status,
+        eval_run_id=result.eval_run_id,
     )
 
 

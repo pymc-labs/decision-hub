@@ -15,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from decision_hub.domain.publish import build_s3_key, extract_for_evaluation, validate_skill_name
+from decision_hub.domain.publish import validate_skill_name
 from decision_hub.domain.repo_utils import (
     bump_version,
     clone_repo,
@@ -23,7 +23,6 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
     parse_semver,
 )
-from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.domain.tracker import has_new_commits, parse_github_repo_url
 from decision_hub.models import SkillTracker, TrackerBatchResult
 from decision_hub.settings import Settings
@@ -617,36 +616,23 @@ def _publish_skill_from_tracker(
 ) -> bool:
     """Publish a single skill directory through the full pipeline.
 
-    Mirrors the publish endpoint logic: zip -> extract -> gauntlet -> upload -> record.
-    Skips republish if the zip checksum hasn't changed from the latest version.
+    Delegates to ``execute_publish()`` for the core pipeline.  This
+    function handles tracker-specific concerns: checksum deduplication,
+    version determination, and mapping ``GauntletRejectionError`` to a
+    ``False`` return value (so the tracker retries on the next tick).
 
     Returns True if a new version was actually published to S3,
     False if skipped (no content changes) or rejected by the gauntlet.
     """
-    from decision_hub.api.registry_service import (
-        classify_skill_category,
-        maybe_trigger_agent_assessment,
-        parse_manifest_from_content,
-        quarantine_and_log_rejection,
-        run_gauntlet_pipeline,
-    )
+    from decision_hub.domain.publish_pipeline import GauntletRejectionError, execute_publish
+    from decision_hub.domain.skill_manifest import parse_skill_md
     from decision_hub.infra.database import (
         find_org_by_slug,
-        find_skill,
-        find_version,
-        insert_audit_log,
-        insert_skill,
-        insert_version,
         resolve_latest_version,
-        update_skill_category,
-        update_skill_description,
-        update_skill_source_repo_url,
     )
-    from decision_hub.infra.storage import compute_checksum, upload_skill_zip
+    from decision_hub.infra.storage import compute_checksum
 
     skill_md_path = skill_dir / "SKILL.md"
-    from decision_hub.domain.skill_manifest import parse_skill_md
-
     manifest = parse_skill_md(skill_md_path)
     skill_name = manifest.name
 
@@ -677,128 +663,32 @@ def _publish_skill_from_tracker(
         else:
             version = bump_version(latest.semver)
 
-        # Extract evaluation files and parse manifest
-        skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(zip_data)
-        runtime_config_dict, eval_config, eval_cases, allowed_tools = parse_manifest_from_content(
-            skill_md_content,
-            zip_data,
-        )
-        description = extract_description(skill_md_content)
-        skill_md_body = extract_body(skill_md_content)
-
-        # Run gauntlet security checks
-        report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
-            skill_md_content,
-            lockfile_content,
-            source_files,
-            skill_name,
-            description,
-            skill_md_body,
-            settings,
-            allowed_tools=allowed_tools,
-            unscanned_files=unscanned_files,
-        )
-
-        if not report.passed:
+        try:
+            result = execute_publish(
+                conn=conn,
+                s3_client=s3_client,
+                settings=settings,
+                org_id=org.id,
+                org_slug=org_slug,
+                skill_name=skill_name,
+                version=version,
+                checksum=checksum,
+                file_bytes=zip_data,
+                publisher=f"tracker:{tracker.id}",
+                user_id=tracker.user_id,
+                source_repo_url=tracker.repo_url,
+                auto_bump_version=True,
+            )
+        except GauntletRejectionError:
             logger.warning(
-                "tracker_id={} repo={} skill={}/{}@{} status=rejected grade={}",
+                "tracker_id={} repo={} skill={}/{}@{} status=rejected",
                 tracker.id,
                 tracker.repo_url,
                 org_slug,
                 skill_name,
                 version,
-                report.grade,
-            )
-            quarantine_and_log_rejection(
-                conn,
-                s3_client,
-                settings.s3_bucket,
-                zip_data,
-                org_slug=org_slug,
-                skill_name=skill_name,
-                version=version,
-                report=report,
-                check_results=check_results_dicts,
-                llm_reasoning=llm_reasoning,
-                publisher=f"tracker:{tracker.id}",
             )
             return False
-
-        # Upsert skill record
-        skill = find_skill(conn, org.id, skill_name)
-        if skill is None:
-            skill = insert_skill(conn, org.id, skill_name, description, source_repo_url=tracker.repo_url)
-        else:
-            update_skill_description(conn, skill.id, description)
-            if tracker.repo_url and skill.source_repo_url != tracker.repo_url:
-                update_skill_source_repo_url(conn, skill.id, tracker.repo_url)
-
-        # Classify category (non-critical, graceful fallback to default)
-        category = classify_skill_category(skill_name, description, skill_md_body, settings)
-        update_skill_category(conn, skill.id, category)
-
-        # Generate embedding (fail-open: never blocks publish)
-        from decision_hub.infra.embeddings import generate_and_store_skill_embedding
-
-        generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, category, description, settings)
-
-        # Check duplicate version
-        if find_version(conn, skill.id, version) is not None:
-            version = bump_version(version)
-
-        # Upload to S3 and create version record
-        s3_key = build_s3_key(org_slug, skill_name, version)
-        upload_skill_zip(s3_client, settings.s3_bucket, s3_key, zip_data)
-
-        version_record = insert_version(
-            conn,
-            skill_id=skill.id,
-            semver=version,
-            s3_key=s3_key,
-            checksum=checksum,
-            runtime_config=runtime_config_dict,
-            published_by=f"tracker:{tracker.id}",
-            eval_status=report.grade,
-            gauntlet_summary=report.gauntlet_summary,
-        )
-
-        insert_audit_log(
-            conn,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            semver=version,
-            grade=report.grade,
-            check_results=check_results_dicts,
-            publisher=f"tracker:{tracker.id}",
-            version_id=version_record.id,
-            llm_reasoning=llm_reasoning,
-        )
-
-        conn.commit()
-
-    # Trigger eval assessment if configured (uses its own connection)
-    try:
-        maybe_trigger_agent_assessment(
-            eval_config=eval_config,
-            eval_cases=eval_cases,
-            s3_key=s3_key,
-            s3_bucket=settings.s3_bucket,
-            version_id=version_record.id,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            settings=settings,
-            user_id=tracker.user_id,
-        )
-    except Exception as e:
-        # Don't fail the whole publish if eval trigger fails
-        logger.warning(
-            "tracker_id={} repo={} skill={}/{} status=eval_trigger_failed error={}",
-            tracker.id,
-            tracker.repo_url,
-            org_slug,
-            skill_name,
-            e,
-        )
 
     logger.info(
         "tracker_id={} repo={} skill={}/{}@{} status=published grade={}",
@@ -806,8 +696,8 @@ def _publish_skill_from_tracker(
         tracker.repo_url,
         org_slug,
         skill_name,
-        version,
-        report.grade,
+        result.version,
+        result.eval_status,
     )
     return True
 
