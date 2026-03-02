@@ -13,6 +13,7 @@ from loguru import logger
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.domain.auth import decode_jwt
+from decision_hub.infra.cache import TTLCache
 from decision_hub.models import User
 from decision_hub.settings import Settings
 
@@ -30,6 +31,11 @@ def get_engine(request: Request) -> Engine:
 def get_s3_client(request: Request):
     """Retrieve the boto3 S3 client from app state."""
     return request.app.state.s3_client
+
+
+def get_cache(request: Request) -> TTLCache:
+    """Retrieve the shared in-memory TTL cache from app state."""
+    return request.app.state.cache
 
 
 def get_connection(
