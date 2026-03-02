@@ -1687,12 +1687,12 @@ def _build_skills_filters(
     latest_eval_status column on skills_table directly.
     """
     if search:
-        pattern = f"%{search}%"
+        pattern = f"%{_escape_like(search)}%"
         base = base.where(
             sa.or_(
-                skills_table.c.name.ilike(pattern),
-                skills_table.c.description.ilike(pattern),
-                organizations_table.c.slug.ilike(pattern),
+                skills_table.c.name.ilike(pattern, escape="\\"),
+                skills_table.c.description.ilike(pattern, escape="\\"),
+                organizations_table.c.slug.ilike(pattern, escape="\\"),
             )
         )
     if org_slug:
@@ -2057,7 +2057,7 @@ def fetch_org_stats(
 
     # Filter on non-aggregate columns before grouping (WHERE, not HAVING)
     if search:
-        stmt = stmt.where(organizations_table.c.slug.ilike(f"%{search}%"))
+        stmt = stmt.where(organizations_table.c.slug.ilike(f"%{_escape_like(search)}%", escape="\\"))
 
     if type_filter == "orgs":
         stmt = stmt.where(organizations_table.c.is_personal == sa.false())
