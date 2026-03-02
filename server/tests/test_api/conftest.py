@@ -44,6 +44,10 @@ def test_settings() -> MagicMock:
     settings.download_rate_window = 60
     settings.audit_log_rate_limit = 30
     settings.audit_log_rate_window = 60
+    settings.publish_rate_limit = 10
+    settings.publish_rate_window = 60
+    settings.auth_rate_limit = 10
+    settings.auth_rate_window = 60
     return settings
 
 

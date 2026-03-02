@@ -138,6 +138,18 @@ def _enforce_audit_log_rate_limit(request: Request) -> None:
     state._audit_log_rate_limiter(request)
 
 
+def _enforce_publish_rate_limit(request: Request) -> None:
+    """Rate-limit the publish endpoint."""
+    state = request.app.state
+    if not hasattr(state, "_publish_rate_limiter"):
+        settings: Settings = state.settings
+        state._publish_rate_limiter = RateLimiter(
+            max_requests=settings.publish_rate_limit,
+            window_seconds=settings.publish_rate_window,
+        )
+    state._publish_rate_limiter(request)
+
+
 _VALID_VISIBILITIES = {"public", "org"}
 
 
@@ -357,7 +369,7 @@ _STALE_HEARTBEAT_SECONDS = 300
 # would block the event loop during synchronous DB/S3/gauntlet calls and
 # also requires ``await zip_file.read()`` which deadlocks under
 # BaseHTTPMiddleware (see CLIVersionMiddleware docstring in app.py).
-@router.post("/publish", response_model=PublishResponse, status_code=201)
+@router.post("/publish", response_model=PublishResponse, status_code=201, dependencies=[Depends(_enforce_publish_rate_limit)])
 def publish_skill(
     metadata: str = Form(...),
     zip_file: UploadFile = File(...),

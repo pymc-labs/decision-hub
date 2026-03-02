@@ -2,6 +2,7 @@
 
 import json as _json
 from pathlib import Path
+from typing import ClassVar
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -23,6 +24,41 @@ _FRONTEND_DIR = Path("/root/frontend_dist")
 def _parse_semver(v: str) -> tuple[int, ...]:
     """Parse '1.2.3' into (1, 2, 3) for comparison."""
     return tuple(int(x) for x in v.split("."))
+
+
+class SecurityHeadersMiddleware:
+    """Pure ASGI middleware that adds standard security headers to every response.
+
+    Adds:
+    - X-Frame-Options: DENY — prevents clickjacking by disallowing iframe embedding
+    - X-Content-Type-Options: nosniff — prevents MIME-type sniffing attacks
+    - Strict-Transport-Security — enforces HTTPS for 1 year (with subdomains)
+
+    Implemented as raw ASGI to avoid the receive-wrapping deadlock with UploadFile.
+    """
+
+    _HEADERS: ClassVar[list[list[bytes]]] = [
+        [b"x-frame-options", b"DENY"],
+        [b"x-content-type-options", b"nosniff"],
+        [b"strict-transport-security", b"max-age=31536000; includeSubDomains"],
+    ]
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.extend(self._HEADERS)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 class CLIVersionMiddleware:
@@ -122,6 +158,11 @@ def create_app() -> FastAPI:
     # Request logging with correlation IDs — outermost middleware (added first
     # so Starlette wraps it last, ensuring it runs before everything else).
     app.add_middleware(RequestLoggingMiddleware)
+
+    # Security headers on every response (X-Frame-Options, X-Content-Type-Options,
+    # Strict-Transport-Security). Added after logging so headers appear on all
+    # responses including error pages and middleware rejections.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     if settings.min_cli_version:
         app.add_middleware(
