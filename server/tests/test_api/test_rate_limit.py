@@ -1,7 +1,6 @@
 """Tests for decision_hub.api.rate_limit -- per-IP sliding-window rate limiter."""
 
-import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -61,18 +60,17 @@ class TestRateLimiter:
         limiter = RateLimiter(max_requests=2, window_seconds=1)
         request = _make_request()
 
-        for _ in range(2):
-            limiter(request)
+        with patch("decision_hub.api.rate_limit.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            for _ in range(2):
+                limiter(request)
 
-        # Should be blocked now
-        with pytest.raises(HTTPException):
-            limiter(request)
+            with pytest.raises(HTTPException):
+                limiter(request)
 
-        # Wait for window to expire
-        time.sleep(1.1)
-
-        # Should be allowed again
-        limiter(request)  # should not raise
+            # Advance past the 1-second window
+            mock_time.monotonic.return_value = 1001.5
+            limiter(request)  # should not raise
 
     def test_no_client_uses_unknown_key(self) -> None:
         """Requests with client=None use 'unknown' as the rate limit key."""

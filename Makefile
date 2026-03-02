@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-shared test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -26,13 +26,16 @@ fmt: ## Auto-fix lint issues and format code
 # Testing
 # ---------------------------------------------------------------------------
 
-test: test-client test-server test-frontend ## Run all tests
+test: test-client test-server test-shared test-frontend ## Run all tests
 
 test-client: ## Run client tests
-	uv run --package dhub-cli --extra dev pytest client/tests/ -v
+	uv run --package dhub-cli --extra dev pytest client/tests/ -v --cov=dhub --cov-report=term-missing
 
 test-server: ## Run server tests (excludes slow LLM regression tests)
-	uv run --package decision-hub-server --extra dev pytest server/tests/ -v -m "not slow"
+	uv run --package decision-hub-server --extra dev pytest server/tests/ -v -m "not slow" --cov=decision_hub --cov-report=term-missing
+
+test-shared: ## Run shared tests
+	uv run --package dhub-core pytest shared/tests/ -v
 
 test-frontend: ## Run frontend tests
 	cd frontend && npx vitest run
