@@ -103,6 +103,8 @@ class Settings(BaseSettings):
 
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
+    # Logging format: "text" (human-readable, default) or "json" (structured).
+    log_format: str = "text"
 
 
 def get_env() -> str:

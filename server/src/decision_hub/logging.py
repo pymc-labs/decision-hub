@@ -6,7 +6,9 @@ intercept stdlib ``logging`` so third-party libraries (uvicorn, sqlalchemy,
 httpx) route through the same pipeline.
 """
 
+import json
 import logging
+import re
 import sys
 import time
 import uuid
@@ -56,33 +58,70 @@ def _format_record(record: dict) -> str:
     return fmt
 
 
-def setup_logging(level: str = "INFO") -> None:
+def _json_sink(message) -> None:
+    """Serialize each log record as a single JSON line to stderr."""
+    record = message.record
+    extra = record["extra"]
+    entry: dict = {
+        "timestamp": record["time"].isoformat(),
+        "level": record["level"].name,
+        "message": record["message"],
+        "logger": record["name"],
+        "function": record["function"],
+        "line": record["line"],
+    }
+    # Include bound context fields (request_id, user, org_slug, etc.)
+    for key in ("request_id", "user", "org_slug", "skill_name", "response_size"):
+        if extra.get(key):
+            entry[key] = extra[key]
+    if record["exception"]:
+        entry["exception"] = str(record["exception"])
+    sys.stderr.write(json.dumps(entry, default=str) + "\n")
+    sys.stderr.flush()
+
+
+def setup_logging(level: str = "INFO", log_format: str = "text") -> None:
     """Configure loguru as the single logging sink for the application.
 
     - Removes the default loguru handler.
-    - Adds a stderr handler with a human-readable format that includes
-      timestamp, level, module, function, line, and an optional request_id.
+    - Adds a stderr handler with either human-readable ("text") or
+      structured ("json") format.
     - Intercepts stdlib ``logging`` so libraries like uvicorn and
       sqlalchemy also route through loguru.
 
     Args:
         level: Minimum log level (DEBUG, INFO, WARNING, ERROR).
+        log_format: "text" for human-readable or "json" for structured JSON lines.
     """
     # Remove default loguru handler
     logger.remove()
 
-    # Add a single stderr handler. Uses a callable format so that
-    # the request_id column only appears when a request context is active.
-    logger.add(
-        sys.stderr,
-        level=level.upper(),
-        format=_format_record,
-        backtrace=True,
-        diagnose=False,  # disable variable inspection in prod for safety
-    )
+    if log_format.lower() == "json":
+        logger.add(
+            _json_sink,
+            level=level.upper(),
+            format="{message}",
+            backtrace=True,
+            diagnose=False,
+        )
+    else:
+        # Human-readable format. Uses a callable format so that
+        # the request_id column only appears when a request context is active.
+        logger.add(
+            sys.stderr,
+            level=level.upper(),
+            format=_format_record,
+            backtrace=True,
+            diagnose=False,  # disable variable inspection in prod for safety
+        )
 
     # Intercept stdlib logging
     logging.basicConfig(handlers=[_InterceptHandler()], level=0, force=True)
+
+
+# Pattern to extract org_slug and skill_name from common API paths:
+# /v1/skills/{org}/{skill}/...  or  /v1/orgs/{org}/skills/{skill}/...
+_PATH_CONTEXT_RE = re.compile(r"/v1/(?:skills|orgs)/(?P<org>[^/]+)(?:/skills)?/(?P<skill>[^/]+)")
 
 
 class RequestLoggingMiddleware:
@@ -92,6 +131,11 @@ class RequestLoggingMiddleware:
     duration of the request, and emits a single summary line when the
     response completes.  The same request ID appears on every log line
     emitted during that request, making it easy to correlate.
+
+    Enhanced context:
+    - ``user``: username extracted from JWT (without logging the token)
+    - ``org_slug`` / ``skill_name``: parsed from the URL path
+    - ``response_size``: total response body bytes
 
     Implemented as raw ASGI (not BaseHTTPMiddleware) to avoid the
     receive-wrapping deadlock with UploadFile endpoints.
@@ -109,24 +153,45 @@ class RequestLoggingMiddleware:
         method = scope.get("method", "?")
         path = scope.get("path", "/")
 
-        # Extract username from headers if present (set by auth)
+        # Extract username from JWT payload if present.
+        # The JWT is a base64url-encoded JSON with a "username" claim.
         user = ""
-        for name, _value in scope.get("headers", []):
+        for name, value in scope.get("headers", []):
             if name == b"authorization":
-                # Don't log the token, just note auth is present
-                user = "(authed)"
+                user = _extract_username_from_jwt(value.decode("latin-1"))
                 break
 
+        # Extract org/skill context from URL path
+        org_slug = ""
+        skill_name = ""
+        m = _PATH_CONTEXT_RE.search(path)
+        if m:
+            org_slug = m.group("org")
+            skill_name = m.group("skill")
+
         status_code = 0
+        response_size = 0
         start = time.perf_counter()
 
         async def send_wrapper(message: dict) -> None:
-            nonlocal status_code
+            nonlocal status_code, response_size
             if message["type"] == "http.response.start":
                 status_code = message.get("status", 0)
+            elif message["type"] == "http.response.body":
+                body = message.get("body", b"")
+                if body:
+                    response_size += len(body)
             await send(message)
 
-        with logger.contextualize(request_id=request_id):
+        ctx: dict = {"request_id": request_id}
+        if user:
+            ctx["user"] = user
+        if org_slug:
+            ctx["org_slug"] = org_slug
+        if skill_name:
+            ctx["skill_name"] = skill_name
+
+        with logger.contextualize(**ctx):
             logger.info("{} {} {}", method, path, user)
             try:
                 await self.app(scope, receive, send_wrapper)
@@ -136,4 +201,38 @@ class RequestLoggingMiddleware:
             finally:
                 duration_ms = (time.perf_counter() - start) * 1000
                 lvl = "WARNING" if status_code >= 400 else "INFO"
-                logger.log(lvl, "{} {} → {} ({:.0f}ms)", method, path, status_code, duration_ms)
+                logger.log(
+                    lvl,
+                    "{} {} → {} ({:.0f}ms, {}B)",
+                    method,
+                    path,
+                    status_code,
+                    duration_ms,
+                    response_size,
+                )
+
+
+def _extract_username_from_jwt(auth_header: str) -> str:
+    """Extract the username from a Bearer JWT without verifying it.
+
+    This is only used for logging context — actual auth verification
+    happens in the dependency layer. We decode the payload segment
+    (base64url) to read the ``username`` claim. Returns empty string
+    on any failure.
+    """
+    import base64
+
+    try:
+        if not auth_header.startswith("Bearer "):
+            return ""
+        token = auth_header[7:]
+        parts = token.split(".")
+        if len(parts) != 3:
+            return ""
+        # Pad base64url payload
+        payload_b64 = parts[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return payload.get("username", "")
+    except Exception:
+        return ""
