@@ -2,6 +2,7 @@
 
 import json
 import math
+import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -415,7 +416,7 @@ def publish_skill(
 
     try:
         skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(file_bytes)
-    except ValueError as exc:
+    except (ValueError, zipfile.BadZipFile) as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
