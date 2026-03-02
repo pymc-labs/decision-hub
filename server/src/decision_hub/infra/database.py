@@ -43,6 +43,7 @@ from decision_hub.models import (
     UserApiKey,
     Version,
 )
+from dhub_core.validation import parse_semver as parse_semver_parts
 
 metadata = MetaData()
 
@@ -1339,12 +1340,6 @@ def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
             "latest_published_by": None,
         }
     conn.execute(sa.update(skills_table).where(skills_table.c.id == skill_id).values(**values))
-
-
-def parse_semver_parts(semver: str) -> tuple[int, int, int]:
-    """Parse a semver string into (major, minor, patch) integers."""
-    major, minor, patch = semver.split(".")
-    return int(major), int(minor), int(patch)
 
 
 def find_version(conn: Connection, skill_id: UUID, semver: str) -> Version | None:

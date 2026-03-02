@@ -9,7 +9,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from decision_hub.api.app import _parse_semver
 from decision_hub.api.auth_routes import router as auth_router
 from decision_hub.api.deps import get_current_user
 from decision_hub.api.keys_routes import router as keys_router
@@ -17,6 +16,7 @@ from decision_hub.api.org_routes import org_public_router, org_router
 from decision_hub.api.registry_routes import public_router as registry_public_router
 from decision_hub.api.registry_routes import router as registry_router
 from decision_hub.domain.auth import create_jwt
+from dhub_core.validation import parse_semver as _parse_semver
 
 
 @pytest.fixture

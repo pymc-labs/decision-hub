@@ -21,6 +21,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 
+from dhub_core.validation import parse_semver as _parse_semver
+
 logger = logging.getLogger(__name__)
 
 _PYPI_URL = "https://pypi.org/pypi/dhub-cli/json"
@@ -31,11 +33,6 @@ def _cache_path() -> Path:
     from dhub.cli.config import CONFIG_DIR
 
     return CONFIG_DIR / ".version_cache.json"
-
-
-def _parse_semver(v: str) -> tuple[int, ...]:
-    """Parse '1.2.3' into a comparable tuple."""
-    return tuple(int(x) for x in v.split("."))
 
 
 def _read_cache() -> str | None:

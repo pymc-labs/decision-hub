@@ -14,15 +14,11 @@ from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
 from decision_hub.logging import RequestLoggingMiddleware, setup_logging
 from decision_hub.settings import create_settings
+from dhub_core.validation import parse_semver as _parse_semver
 
 # Frontend dist directory — populated at deploy time by the build script.
 # When the directory exists the app serves the SPA; otherwise API-only mode.
 _FRONTEND_DIR = Path("/root/frontend_dist")
-
-
-def _parse_semver(v: str) -> tuple[int, ...]:
-    """Parse '1.2.3' into (1, 2, 3) for comparison."""
-    return tuple(int(x) for x in v.split("."))
 
 
 class CLIVersionMiddleware:
