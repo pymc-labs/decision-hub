@@ -208,6 +208,7 @@ export default function FileBrowser({ files }: FileBrowserProps) {
                 language={getLanguage(selected.path)}
                 style={neonTheme}
                 showLineNumbers
+                wrapLongLines
                 lineNumberStyle={{
                   color: "#444466",
                   minWidth: "3em",
