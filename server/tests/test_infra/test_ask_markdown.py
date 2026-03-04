@@ -5,32 +5,13 @@ formatted markdown (newlines, bullet lists, bold data points).
 Marked @slow — skipped in CI, run manually with: pytest -m slow -v
 """
 
-import os
 import re
-from pathlib import Path
 
 import pytest
+from slow_helpers import get_default_gemini_model, load_google_api_key
 
 from decision_hub.domain.search import build_index_entry, serialize_index
 from decision_hub.infra.gemini import ask_conversational, create_gemini_client
-
-
-def _load_google_api_key() -> str | None:
-    """Try to load GOOGLE_API_KEY from environment or server/.env files."""
-    key = os.environ.get("GOOGLE_API_KEY", "")
-    if key:
-        return key
-
-    for env_file in (".env.dev", ".env.prod"):
-        path = Path(__file__).resolve().parents[2] / env_file
-        if path.exists():
-            for line in path.read_text().splitlines():
-                line = line.strip()
-                if line.startswith("GOOGLE_API_KEY="):
-                    val = line.split("=", 1)[1].strip().strip("\"'")
-                    if val:
-                        return val
-    return None
 
 
 def _build_comparison_index() -> str:
@@ -71,11 +52,11 @@ class TestAskMarkdownFormatting:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        api_key = _load_google_api_key()
+        api_key = load_google_api_key()
         if not api_key:
             pytest.skip("GOOGLE_API_KEY not available")
         self.client = create_gemini_client(api_key)
-        self.model = "gemini-2.5-flash"
+        self.model = get_default_gemini_model()
         self.index = _build_comparison_index()
 
     def test_comparison_has_bullet_list_with_newlines(self):
