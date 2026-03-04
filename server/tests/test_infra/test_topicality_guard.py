@@ -145,7 +145,7 @@ _ON_TOPIC_QUERIES = [
 ]
 
 _OFF_TOPIC_QUERIES = [
-    "how do I make chocolate chip cookies?",
+    "what year did World War 2 end?",
     "what is the capital of France?",
     "explain quantum computing in simple terms",
     "write me a poem about the ocean",

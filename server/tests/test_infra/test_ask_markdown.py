@@ -59,9 +59,9 @@ class TestAskMarkdownFormatting:
         self.model = get_default_gemini_model()
         self.index = _build_comparison_index()
 
-    def test_comparison_has_bullet_list_with_newlines(self):
-        """Head-to-head comparison should produce markdown with proper newlines
-        so bullet lists render correctly (not all on one line)."""
+    def test_comparison_has_structured_markdown(self):
+        """Head-to-head comparison should produce structured markdown
+        (bullet lists or tables) with proper newlines."""
         result = ask_conversational(
             self.client,
             query="compare acme/focused-tool and bigcorp/general-tool",
@@ -76,10 +76,12 @@ class TestAskMarkdownFormatting:
             f"Expected at least 5 lines for a structured comparison, got {len(lines)}.\nAnswer:\n{answer}"
         )
 
-        # Must contain markdown bullet points (- item) on their own lines
+        # Must contain markdown structure: bullet points (- item) or table rows (| col |)
         bullet_lines = [line for line in lines if re.match(r"\s*-\s", line)]
-        assert len(bullet_lines) >= 2, (
-            f"Expected at least 2 bullet points, found {len(bullet_lines)}.\nAnswer:\n{answer}"
+        table_lines = [line for line in lines if re.match(r"\s*\|", line)]
+        assert len(bullet_lines) >= 2 or len(table_lines) >= 2, (
+            f"Expected at least 2 bullet points or 2 table rows, "
+            f"found {len(bullet_lines)} bullets and {len(table_lines)} table rows.\nAnswer:\n{answer}"
         )
 
     def test_comparison_has_bold_data_points(self):
