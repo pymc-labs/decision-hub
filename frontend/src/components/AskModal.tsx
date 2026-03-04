@@ -5,6 +5,7 @@ import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download, Star, Scale
 import { askQuestionWithHistory } from "../api/client";
 import GradeBadge from "./GradeBadge";
 import type { AskResponse, AskSkillRef } from "../types/api";
+import { useRecentlyViewed } from "../hooks/useRecentlyViewed";
 import styles from "./AskModal.module.css";
 
 interface Message {
@@ -25,6 +26,7 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { items: recentlyViewed, refresh: refreshRecentlyViewed } = useRecentlyViewed();
 
   // Focus input when modal opens
   useEffect(() => {
@@ -34,6 +36,11 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
+
+  // Re-read recently viewed from localStorage each time the modal opens
+  useEffect(() => {
+    if (isOpen) refreshRecentlyViewed();
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -121,11 +128,36 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
                 Ask about skills, tools, or capabilities. I'll find the best
                 matches and explain why they fit.
               </p>
+              {recentlyViewed.length > 0 && (
+                <div className={styles.recentlyViewed}>
+                  <p className={styles.recentlyViewedTitle}>Recently Viewed</p>
+                  <div className={styles.recentlyViewedList}>
+                    {recentlyViewed.map((skill) => (
+                      <Link
+                        key={`${skill.org_slug}/${skill.skill_name}`}
+                        to={`/skills/${skill.org_slug}/${skill.skill_name}`}
+                        className={styles.recentlyViewedItem}
+                        onClick={onClose}
+                      >
+                        <div className={styles.recentlyViewedItemHeader}>
+                          <span className={styles.recentlyViewedName}>
+                            {skill.org_slug}/{skill.skill_name}
+                          </span>
+                          <GradeBadge grade={skill.safety_rating} size="sm" />
+                        </div>
+                        {skill.description && (
+                          <p className={styles.recentlyViewedDesc}>{skill.description}</p>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className={styles.suggestions}>
                 {[
-                  "Help me build a Bayesian model",
-                  "Tools for writing LinkedIn posts",
-                  "Analyze A/B test results",
+                  "Analyze experimental results using Bayesian methods",
+                  "Automate code review and pull request quality checks",
+                  "Generate structured data from APIs and transform it",
                 ].map((suggestion) => (
                   <button
                     key={suggestion}

@@ -32,6 +32,7 @@ import {
 } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
+import { useRecentlyViewed } from "../hooks/useRecentlyViewed";
 import type { SkillSummary, EvalReport, AuditLogEntry, CheckResult, PaginatedAuditLogResponse, SkillFile } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -80,6 +81,19 @@ export default function SkillDetailPage() {
     () => getSkill(orgSlug!, skillName!),
     [orgSlug, skillName]
   );
+
+  // Track this skill as recently viewed
+  const { addRecentlyViewed } = useRecentlyViewed();
+  useEffect(() => {
+    if (skill) {
+      addRecentlyViewed({
+        org_slug: skill.org_slug,
+        skill_name: skill.skill_name,
+        description: skill.description ?? "",
+        safety_rating: skill.safety_rating ?? "",
+      });
+    }
+  }, [skill?.org_slug, skill?.skill_name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch eval report
   const {
