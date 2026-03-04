@@ -93,19 +93,19 @@ describe("AskModal", () => {
   it("shows empty state with suggestions when no messages", () => {
     renderModal();
     expect(screen.getByText("What are you looking for?")).toBeInTheDocument();
-    expect(screen.getByText("Help me build a Bayesian model")).toBeInTheDocument();
-    expect(screen.getByText("Tools for writing LinkedIn posts")).toBeInTheDocument();
-    expect(screen.getByText("Analyze A/B test results")).toBeInTheDocument();
+    expect(screen.getByText("Analyze experimental results using Bayesian methods")).toBeInTheDocument();
+    expect(screen.getByText("Automate code review and pull request quality checks")).toBeInTheDocument();
+    expect(screen.getByText("Generate structured data from APIs and transform it")).toBeInTheDocument();
   });
 
   it("populates input when suggestion button is clicked", async () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.click(screen.getByText("Help me build a Bayesian model"));
+    await user.click(screen.getByText("Analyze experimental results using Bayesian methods"));
 
     const input = screen.getByPlaceholderText("Ask about skills...");
-    expect(input).toHaveValue("Help me build a Bayesian model");
+    expect(input).toHaveValue("Analyze experimental results using Bayesian methods");
   });
 
   it("submits query and shows response with markdown", async () => {
