@@ -2,10 +2,17 @@
 
 Each Modal container processes exactly one repo: clone, discover skills,
 run gauntlet, publish or quarantine. No shared state between containers.
+
+Skills within a repo are processed in parallel using ThreadPoolExecutor.
+Each thread gets its own DB connection (SQLAlchemy engines are thread-safe,
+connections are not). The gauntlet pipeline is I/O-bound (HTTP calls to
+Gemini), so threading gives a large speedup for repos with many skills.
 """
 
 import re
 import shutil
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -199,24 +206,57 @@ def process_repo_on_modal(
                 return result
 
             source_repo_url = f"https://github.com/{repo_dict['full_name']}"
-            with engine.connect() as conn:
-                for skill_dir in skill_dirs:
+            max_workers = settings.crawler_parallel_skills
+
+            def _process_skill(skill_dir: Path) -> str:
+                """Process a single skill with its own DB connection.
+
+                Returns a status string: "published", "skipped",
+                "quarantined", or "failed".
+                """
+                with engine.connect() as conn:
                     try:
-                        _publish_one_skill(
+                        status = _publish_one_skill(
                             conn,
                             s3_client,
                             settings,
                             org,
                             skill_dir,
-                            result,
                             source_repo_url=source_repo_url,
                             bot_user_id=bot_user_id,
                             set_tracker=set_tracker,
                         )
                         conn.commit()
+                        return status
                     except Exception:
-                        result["skills_failed"] += 1
                         conn.rollback()
+                        logger.opt(exception=True).warning(
+                            "Failed to process skill dir {}",
+                            skill_dir.name,
+                        )
+                        return "failed"
+
+            counts: Counter[str] = Counter()
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {pool.submit(_process_skill, sd): sd for sd in skill_dirs}
+                for i, future in enumerate(as_completed(futures), 1):
+                    status = future.result()
+                    counts[status] += 1
+                    if i % 10 == 0 or i == len(skill_dirs):
+                        logger.info(
+                            "Skill progress {}/{}: pub={} skip={} quar={} fail={}",
+                            i,
+                            len(skill_dirs),
+                            counts["published"],
+                            counts["skipped"],
+                            counts["quarantined"],
+                            counts["failed"],
+                        )
+
+            result["skills_published"] = counts["published"]
+            result["skills_skipped"] = counts["skipped"]
+            result["skills_quarantined"] = counts["quarantined"]
+            result["skills_failed"] = counts["failed"]
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -239,13 +279,16 @@ def _publish_one_skill(
     settings,
     org,
     skill_dir: Path,
-    result: dict,
     *,
     source_repo_url: str | None = None,
     bot_user_id: UUID | None = None,
     set_tracker: bool = False,
-) -> None:
-    """Parse, gauntlet-check, and publish a single skill. Mutates result counts."""
+) -> str:
+    """Parse, gauntlet-check, and publish a single skill.
+
+    Returns a status string: "published", "skipped", "quarantined", or "failed".
+    The caller is responsible for commit/rollback and counting results.
+    """
     from decision_hub.api.registry_service import classify_skill_category, run_gauntlet_pipeline
     from decision_hub.infra.database import (
         find_skill,
@@ -283,15 +326,13 @@ def _publish_one_skill(
     latest = resolve_latest_version(conn, org.slug, name)
     if latest is not None:
         if latest.checksum == checksum:
-            result["skills_skipped"] += 1
-            return  # identical content — skip
+            return "skipped"  # identical content
         version = bump_version(latest.semver)
     else:
         version = "0.1.0"
 
     if find_version(conn, skill.id, version) is not None:
-        result["skills_skipped"] += 1
-        return
+        return "skipped"
 
     # Extract content for gauntlet evaluation
     skill_md_content = (skill_dir / "SKILL.md").read_text()
@@ -301,8 +342,7 @@ def _publish_one_skill(
         _, source_files, lockfile_content, unscanned_files = extract_for_evaluation(zip_data)
     except ValueError as exc:
         logger.warning("Skipping {}/{}: extraction failed: {}", org.slug, name, exc)
-        result["skills_failed"] += 1
-        return
+        return "failed"
 
     # Run Gauntlet
     report, check_results, llm_reasoning = run_gauntlet_pipeline(
@@ -334,8 +374,7 @@ def _publish_one_skill(
         )
         conn.commit()
         upload_skill_zip(s3_client, settings.s3_bucket, q_key, zip_data)
-        result["skills_quarantined"] += 1
-        return
+        return "quarantined"
 
     # Grade A/B/C — publish
     # Classify category (non-critical, graceful fallback to empty string)
@@ -372,9 +411,10 @@ def _publish_one_skill(
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=None,
     )
-    result["skills_published"] += 1
 
     if set_tracker and source_repo_url and bot_user_id is not None:
         from decision_hub.infra.database import upsert_skill_tracker
 
         upsert_skill_tracker(conn, bot_user_id, org.slug, source_repo_url)
+
+    return "published"

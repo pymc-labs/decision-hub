@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     sandbox_timeout_seconds: int = 900
     sandbox_cpu: float = 2.0
 
+    # Crawler: max parallel skill-processing threads per repo container.
+    # Each thread runs the gauntlet pipeline (I/O-bound Gemini calls) with
+    # its own DB connection. Higher values speed up large repos but increase
+    # concurrent Gemini API load.
+    crawler_parallel_skills: int = 10
+
     # Tracker batch size: max trackers claimed per loop iteration.
     # The cron loops until no more are due, so this controls lock granularity
     # rather than total throughput.
