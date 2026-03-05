@@ -615,12 +615,11 @@ def list_skills(
     # private/org-scoped skills so the response varies per user).
     ttl = settings.cache_ttl_skill_list
     is_anonymous = current_user is None
+    # In-memory cache keyed by the full set of query params for anonymous
+    # requests. Authenticated requests always go to the DB.
+    cache_key = f"skills:{page}:{page_size}:{search}:{org}:{category}:{grade}:{sort}:{sort_dir}"
     if ttl and is_anonymous:
         response.headers["Cache-Control"] = f"public, max-age={ttl}"
-
-        # In-memory cache keyed by the full set of query params for anonymous
-        # requests. Authenticated requests always go to the DB.
-        cache_key = f"skills:{page}:{page_size}:{search}:{org}:{category}:{grade}:{sort}:{sort_dir}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
@@ -679,7 +678,6 @@ def list_skills(
         total_pages=total_pages,
     )
     if ttl and is_anonymous:
-        cache_key = f"skills:{page}:{page_size}:{search}:{org}:{category}:{grade}:{sort}:{sort_dir}"
         cache.set(cache_key, result, ttl=ttl)
     return result
 
