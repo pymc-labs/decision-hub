@@ -24,6 +24,8 @@ import {
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
 import {
   getSkill,
   getEvalReport,
@@ -32,6 +34,7 @@ import {
 } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
+import { useRecentlyViewed } from "../hooks/useRecentlyViewed";
 import type { SkillSummary, EvalReport, AuditLogEntry, CheckResult, PaginatedAuditLogResponse, SkillFile } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
@@ -41,6 +44,8 @@ import FileBrowser from "../components/FileBrowser";
 import { formatCheckName } from "./auditUtils";
 import { LINK_TO_MANIFEST } from "../featureFlags";
 import styles from "./SkillDetailPage.module.css";
+
+const REMARK_PLUGINS: PluggableList = [remarkGfm];
 
 type Tab = "overview" | "evals" | "files" | "audit";
 
@@ -80,6 +85,19 @@ export default function SkillDetailPage() {
     () => getSkill(orgSlug!, skillName!),
     [orgSlug, skillName]
   );
+
+  // Track this skill as recently viewed
+  const { addRecentlyViewed } = useRecentlyViewed();
+  useEffect(() => {
+    if (skill) {
+      addRecentlyViewed({
+        org_slug: skill.org_slug,
+        skill_name: skill.skill_name,
+        description: skill.description ?? "",
+        safety_rating: skill.safety_rating ?? "",
+      });
+    }
+  }, [skill?.org_slug, skill?.skill_name, addRecentlyViewed]);
 
   // Fetch eval report
   const {
@@ -271,7 +289,7 @@ export default function SkillDetailPage() {
       <div className={styles.pageBody}>
         <div className={styles.main}>
           <div className={styles.content}>
-            {activeTab === "overview" && <OverviewTab content={skillMdContent} loading={zipLoading} error={zipError} />}
+            {activeTab === "overview" && <OverviewTab content={skillMdContent} loading={zipLoading} error={zipError} sourceRepoUrl={skill.source_repo_url} manifestPath={skill.manifest_path} />}
             {activeTab === "evals" && (
               <EvalsTab report={evalReport} loading={evalLoading} />
             )}
@@ -383,7 +401,41 @@ export default function SkillDetailPage() {
 
 /* --- Tab components --- */
 
-function OverviewTab({ content, loading, error }: { content: string | null; loading: boolean; error: string | null }) {
+/**
+ * Resolve a relative URL from a SKILL.md to an absolute GitHub blob URL.
+ * Leaves absolute URLs, anchors, and mailto: links unchanged.
+ */
+function resolveRelativeUrl(
+  href: string,
+  sourceRepoUrl: string | null,
+  manifestPath: string | null,
+): string {
+  if (!sourceRepoUrl || /^(https?:\/\/|#|mailto:)/.test(href)) return href;
+
+  // Determine the directory containing SKILL.md in the repo
+  const dir = manifestPath?.includes("/")
+    ? manifestPath.replace(/\/[^/]+$/, "") // strip filename
+    : "";
+  const base = dir
+    ? `${sourceRepoUrl}/blob/main/${dir}/`
+    : `${sourceRepoUrl}/blob/main/`;
+
+  return new URL(href, base).href;
+}
+
+function OverviewTab({
+  content,
+  loading,
+  error,
+  sourceRepoUrl,
+  manifestPath,
+}: {
+  content: string | null;
+  loading: boolean;
+  error: string | null;
+  sourceRepoUrl: string | null;
+  manifestPath: string | null;
+}) {
   if (loading) return <LoadingSpinner text="Loading SKILL.md..." />;
   if (error) return (
     <NeonCard glow="pink">
@@ -399,7 +451,30 @@ function OverviewTab({ content, loading, error }: { content: string | null; load
 
   return (
     <div className={styles.skillMd}>
-      <ReactMarkdown>{content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        components={{
+          a: ({ href, children, ...props }) => {
+            const resolved = href ? resolveRelativeUrl(href, sourceRepoUrl, manifestPath) : href;
+            const isExternal = resolved && /^https?:\/\//.test(resolved);
+            return (
+              <a
+                href={resolved}
+                {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                {...props}
+              >
+                {children}
+              </a>
+            );
+          },
+          img: ({ src, ...props }) => {
+            const resolved = src ? resolveRelativeUrl(src, sourceRepoUrl, manifestPath).replace('/blob/', '/raw/') : src;
+            return <img src={resolved} {...props} />;
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }

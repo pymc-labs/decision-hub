@@ -7,7 +7,6 @@ The safety scan uses a two-stage approach:
    If no LLM is available the regex hits are treated as failures.
 """
 
-import json
 import math
 import re
 from collections import Counter
@@ -20,7 +19,7 @@ from decision_hub.infra.gemini import (
     LLM_HOLISTIC_TOTAL_CAP,
     LLM_PER_FILE_CAP,
 )
-from decision_hub.models import EvalResult, GauntletReport, SafetyGrade, TestCase
+from decision_hub.models import EvalResult, GauntletReport, SafetyGrade
 
 # ---------------------------------------------------------------------------
 # Static analysis checks
@@ -1218,97 +1217,6 @@ def build_gauntlet_summary(
         parts.append(f"Elevated permissions: {', '.join(elevated_permissions)}")
 
     return "; ".join(parts) if parts else None
-
-
-# ---------------------------------------------------------------------------
-# Test case parsing and evaluation
-# ---------------------------------------------------------------------------
-
-
-def parse_test_cases(cases_json: str) -> tuple[TestCase, ...]:
-    """Parse a tests/cases.json string into TestCase objects.
-
-    Args:
-        cases_json: JSON string containing a list of test case objects.
-
-    Returns:
-        Tuple of TestCase instances.
-
-    Raises:
-        json.JSONDecodeError: If the input is not valid JSON.
-        KeyError: If required fields are missing from a test case.
-    """
-    raw = json.loads(cases_json)
-    return tuple(
-        TestCase(
-            prompt=case["prompt"],
-            assertions=tuple(case["assertions"]),
-        )
-        for case in raw
-    )
-
-
-def evaluate_assertion(output: str, exit_code: int, assertion: dict) -> bool:
-    """Evaluate a single assertion against command output.
-
-    Assertion types:
-    - contains: stdout must contain substring (case-insensitive)
-    - contains_any: stdout must contain at least one substring
-    - not_contains: stdout must NOT contain substring
-    - exit_code: process must exit with this code
-    - json_schema: stdout must be valid JSON (basic check)
-    """
-    atype = assertion["type"]
-
-    if atype == "contains":
-        return assertion["value"].lower() in output.lower()
-    if atype == "contains_any":
-        return any(v.lower() in output.lower() for v in assertion["values"])
-    if atype == "not_contains":
-        return assertion["value"].lower() not in output.lower()
-    if atype == "exit_code":
-        return exit_code == assertion["value"]
-    if atype == "json_schema":
-        try:
-            json.loads(output)
-            return True
-        except json.JSONDecodeError:
-            return False
-
-    return False
-
-
-def evaluate_test_results(
-    cases: tuple[TestCase, ...],
-    outputs: list[tuple[str, int]],
-) -> EvalResult:
-    """Evaluate test results against expected assertions.
-
-    Args:
-        cases: Parsed test cases with assertions.
-        outputs: List of (stdout, exit_code) tuples from running each case.
-
-    Returns:
-        Aggregated EvalResult for all test cases.
-    """
-    failures: list[str] = []
-
-    for i, (case, (output, exit_code)) in enumerate(zip(cases, outputs, strict=True)):
-        for assertion in case.assertions:
-            if not evaluate_assertion(output, exit_code, assertion):
-                failures.append(f"Case {i + 1}: {assertion['type']} assertion failed")
-
-    if not failures:
-        return EvalResult(
-            check_name="functional_tests",
-            severity="pass",
-            message=f"All {len(cases)} test cases passed",
-        )
-    return EvalResult(
-        check_name="functional_tests",
-        severity="fail",
-        message=f"Test failures: {'; '.join(failures)}",
-    )
 
 
 def run_static_checks(

@@ -7,6 +7,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { AskResponse } from "../types/api";
 import AskModal from "./AskModal";
 
+// jsdom + Node 22 localStorage can be flaky — use a Map-backed mock.
+let store: Record<string, string> = {};
+const storageMock: Storage = {
+  get length() { return Object.keys(store).length; },
+  key(i: number) { return Object.keys(store)[i] ?? null; },
+  getItem(k: string) { return store[k] ?? null; },
+  setItem(k: string, v: string) { store[k] = v; },
+  removeItem(k: string) { delete store[k]; },
+  clear() { store = {}; },
+};
+
 // --- Test data ---
 
 const ASK_RESPONSE: AskResponse = {
@@ -78,6 +89,12 @@ describe("AskModal", () => {
   beforeEach(() => {
     // Reset body overflow that the component sets
     document.body.style.overflow = "";
+    store = {};
+    vi.stubGlobal("localStorage", storageMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("does not render when isOpen is false", () => {
@@ -93,19 +110,19 @@ describe("AskModal", () => {
   it("shows empty state with suggestions when no messages", () => {
     renderModal();
     expect(screen.getByText("What are you looking for?")).toBeInTheDocument();
-    expect(screen.getByText("Help me build a Bayesian model")).toBeInTheDocument();
-    expect(screen.getByText("Tools for writing LinkedIn posts")).toBeInTheDocument();
-    expect(screen.getByText("Analyze A/B test results")).toBeInTheDocument();
+    expect(screen.getByText("Analyze experimental results using Bayesian methods")).toBeInTheDocument();
+    expect(screen.getByText("Automate code review and pull request quality checks")).toBeInTheDocument();
+    expect(screen.getByText("Generate structured data from APIs and transform it")).toBeInTheDocument();
   });
 
   it("populates input when suggestion button is clicked", async () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.click(screen.getByText("Help me build a Bayesian model"));
+    await user.click(screen.getByText("Analyze experimental results using Bayesian methods"));
 
     const input = screen.getByPlaceholderText("Ask about skills...");
-    expect(input).toHaveValue("Help me build a Bayesian model");
+    expect(input).toHaveValue("Analyze experimental results using Bayesian methods");
   });
 
   it("submits query and shows response with markdown", async () => {
@@ -261,5 +278,73 @@ describe("AskModal", () => {
     renderModal();
     const sendBtn = screen.getByRole("button", { name: "Send" });
     expect(sendBtn).toBeDisabled();
+  });
+
+  describe("recently viewed strip", () => {
+    const STORAGE_KEY = "dhub:recently-viewed";
+
+    it("does not show recently viewed section when localStorage is empty", () => {
+      renderModal();
+      expect(screen.queryByText("Recently Viewed")).not.toBeInTheDocument();
+    });
+
+    it("renders recently viewed skills from localStorage", () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify([
+          {
+            org_slug: "acme",
+            skill_name: "cool-skill",
+            description: "A cool skill",
+            safety_rating: "A",
+          },
+        ]),
+      );
+
+      renderModal();
+
+      expect(screen.getByText("Recently Viewed")).toBeInTheDocument();
+      expect(screen.getByText("acme/cool-skill")).toBeInTheDocument();
+      expect(screen.getByText("A cool skill")).toBeInTheDocument();
+    });
+
+    it("links recently viewed items to skill detail page", () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify([
+          {
+            org_slug: "acme",
+            skill_name: "cool-skill",
+            description: "A cool skill",
+            safety_rating: "B",
+          },
+        ]),
+      );
+
+      renderModal();
+
+      const link = screen.getByText("acme/cool-skill").closest("a");
+      expect(link).toHaveAttribute("href", "/skills/acme/cool-skill");
+    });
+
+    it("calls onClose when a recently viewed item is clicked", async () => {
+      const user = userEvent.setup();
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify([
+          {
+            org_slug: "acme",
+            skill_name: "cool-skill",
+            description: "desc",
+            safety_rating: "A",
+          },
+        ]),
+      );
+
+      const { onClose } = renderModal();
+
+      await user.click(screen.getByText("acme/cool-skill"));
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 });
