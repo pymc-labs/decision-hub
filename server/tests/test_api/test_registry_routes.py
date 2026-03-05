@@ -1320,6 +1320,111 @@ class TestListSkills:
 
 
 # ---------------------------------------------------------------------------
+# GET /v1/skills/by-repo
+# ---------------------------------------------------------------------------
+
+
+class TestSkillsByRepo:
+    """Tests for the GET /v1/skills/by-repo endpoint."""
+
+    @patch("decision_hub.api.registry_routes.fetch_skills_by_repo")
+    def test_returns_skills_for_repo(
+        self,
+        mock_fetch: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Returns skills matching a repository URL."""
+        from datetime import datetime
+
+        mock_fetch.return_value = [
+            {
+                "org_slug": "test-org",
+                "skill_name": "gws-gmail",
+                "description": "Gmail skill",
+                "latest_version": "1.0.0",
+                "eval_status": "A",
+                "download_count": 0,
+                "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
+                "published_by": "testuser",
+                "category": "",
+                "visibility": "public",
+                "source_repo_url": "https://github.com/googleworkspace/cli",
+                "manifest_path": None,
+                "source_repo_removed": False,
+                "github_stars": None,
+                "github_forks": None,
+                "github_watchers": None,
+                "github_is_archived": None,
+                "github_license": None,
+                "is_personal_org": False,
+            },
+            {
+                "org_slug": "test-org",
+                "skill_name": "gws-drive",
+                "description": "Drive skill",
+                "latest_version": "1.0.0",
+                "eval_status": "A",
+                "download_count": 0,
+                "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
+                "published_by": "testuser",
+                "category": "",
+                "visibility": "public",
+                "source_repo_url": "https://github.com/googleworkspace/cli",
+                "manifest_path": None,
+                "source_repo_removed": False,
+                "github_stars": None,
+                "github_forks": None,
+                "github_watchers": None,
+                "github_is_archived": None,
+                "github_license": None,
+                "is_personal_org": False,
+            },
+        ]
+
+        resp = client.get(
+            "/v1/skills/by-repo",
+            params={"repo_url": "https://github.com/googleworkspace/cli"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 2
+        names = [s["skill_name"] for s in data["items"]]
+        assert "gws-gmail" in names
+        assert "gws-drive" in names
+        assert data["total"] == 2
+        assert data["repo_url"] == "https://github.com/googleworkspace/cli"
+
+    @patch("decision_hub.api.registry_routes.fetch_skills_by_repo")
+    def test_returns_empty_for_unknown_repo(
+        self,
+        mock_fetch: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Unknown repo URL returns empty items list."""
+        mock_fetch.return_value = []
+
+        resp = client.get(
+            "/v1/skills/by-repo",
+            params={"repo_url": "https://github.com/no/such"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
+
+    def test_rejects_missing_repo_url(
+        self,
+        client: TestClient,
+    ) -> None:
+        """Missing repo_url query param returns 422 validation error."""
+        resp = client.get("/v1/skills/by-repo")
+
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/skills/{org_slug}/{skill_name}/latest-version
 # ---------------------------------------------------------------------------
 

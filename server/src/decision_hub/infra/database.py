@@ -1852,6 +1852,56 @@ def fetch_all_skills_for_index(
     return items, total
 
 
+def _normalize_repo_url(url: str) -> str:
+    """Strip trailing slashes and .git suffix for consistent matching."""
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    return url
+
+
+def fetch_skills_by_repo(
+    conn: Connection,
+    repo_url: str,
+    *,
+    user_org_ids: list[UUID] | None = None,
+) -> list[dict]:
+    """Fetch all published skills whose source_repo_url matches the given repo.
+
+    Normalizes URLs (strips .git suffix and trailing slashes) before comparing.
+    Only returns skills with at least one published version.
+    """
+    normalized = _normalize_repo_url(repo_url)
+
+    base = (
+        sa.select(*_SKILL_SUMMARY_COLUMNS)
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            )
+        )
+        .where(
+            sa.and_(
+                skills_table.c.latest_semver.isnot(None),
+                sa.func.rtrim(
+                    sa.func.regexp_replace(skills_table.c.source_repo_url, r"\.git$", ""),
+                    "/",
+                )
+                == normalized,
+            )
+        )
+        .order_by(organizations_table.c.slug, skills_table.c.name)
+    )
+
+    # Visibility filter
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+    base = _apply_visibility_filter(base, user_org_ids, granted)
+
+    rows = conn.execute(base).all()
+    return [_row_to_skill_summary(row) for row in rows]
+
+
 def search_skills_hybrid(
     conn: Connection,
     fts_queries: list[str],

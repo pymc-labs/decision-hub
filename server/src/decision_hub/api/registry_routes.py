@@ -42,6 +42,7 @@ from decision_hub.infra.database import (
     delete_version,
     fetch_all_skills_for_index,
     fetch_registry_stats,
+    fetch_skills_by_repo,
     find_active_eval_runs_for_user,
     find_audit_logs,
     find_eval_report_by_skill,
@@ -232,6 +233,14 @@ class PaginatedSkillsResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class RepoSkillsResponse(BaseModel):
+    """Response for skills-by-repo endpoint."""
+
+    items: list[SkillSummary]
+    total: int
+    repo_url: str
 
 
 class AuditLogResponse(BaseModel):
@@ -647,6 +656,46 @@ def list_skills(
         page_size=page_size,
         total_pages=total_pages,
     )
+
+
+@public_router.get(
+    "/skills/by-repo",
+    response_model=RepoSkillsResponse,
+    dependencies=[Depends(_enforce_list_skills_rate_limit)],
+)
+def list_skills_by_repo(
+    repo_url: str = Query(..., max_length=500),
+    conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> RepoSkillsResponse:
+    """List all published skills from a specific source repository."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    rows = fetch_skills_by_repo(conn, repo_url, user_org_ids=user_org_ids)
+    items = [
+        SkillSummary(
+            org_slug=row["org_slug"],
+            skill_name=row["skill_name"],
+            description=row.get("description", ""),
+            latest_version=row["latest_version"],
+            updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
+            safety_rating=format_trust_score(row["eval_status"]),
+            author=resolve_author_display(row.get("published_by", "")),
+            download_count=row.get("download_count", 0),
+            is_personal_org=row.get("is_personal_org", False),
+            category=row.get("category", ""),
+            visibility=row.get("visibility", "public"),
+            source_repo_url=row.get("source_repo_url"),
+            manifest_path=row.get("manifest_path"),
+            source_repo_removed=row.get("source_repo_removed", False),
+            github_stars=row.get("github_stars"),
+            github_forks=row.get("github_forks"),
+            github_watchers=row.get("github_watchers"),
+            github_is_archived=row.get("github_is_archived"),
+            github_license=row.get("github_license"),
+        )
+        for row in rows
+    ]
+    return RepoSkillsResponse(items=items, total=len(items), repo_url=repo_url)
 
 
 @public_router.get(
