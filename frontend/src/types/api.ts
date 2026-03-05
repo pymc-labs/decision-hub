@@ -135,6 +135,15 @@ export interface OrgStatsResponse {
   items: OrgStatsEntry[];
 }
 
+export interface SimilarSkillRef {
+  org_slug: string;
+  skill_name: string;
+  description: string;
+  safety_rating: string;
+  category: string;
+  download_count: number;
+}
+
 export interface AskSkillRef {
   org_slug: string;
   skill_name: string;

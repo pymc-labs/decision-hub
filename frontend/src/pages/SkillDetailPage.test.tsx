@@ -111,6 +111,9 @@ const server = setupServer(
   http.get("/v1/skills/acme/data-tool/audit-log", () =>
     HttpResponse.json({ items: AUDIT_LOG, total: 2, page: 1, page_size: 20, total_pages: 1 }),
   ),
+  http.get("/v1/skills/acme/data-tool/similar", () =>
+    HttpResponse.json([]),
+  ),
   http.get("/v1/skills/acme/data-tool/download", () =>
     new HttpResponse(EMPTY_ZIP, {
       headers: { "Content-Type": "application/zip" },

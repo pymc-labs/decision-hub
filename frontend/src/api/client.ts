@@ -10,6 +10,7 @@ import type {
   OrgStatsResponse,
   AskResponse,
   AskMessage,
+  SimilarSkillRef,
 } from "../types/api";
 
 // When served from Modal (same origin), use "" so fetches are relative.
@@ -140,6 +141,15 @@ export async function askQuestionWithHistory(
     method: "POST",
     body: JSON.stringify({ query, history }),
   });
+}
+
+export async function getSimilarSkills(
+  orgSlug: string,
+  skillName: string
+): Promise<SimilarSkillRef[]> {
+  return fetchJSON<SimilarSkillRef[]>(
+    `/v1/skills/${orgSlug}/${skillName}/similar`
+  );
 }
 
 export async function downloadSkillZip(

@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     list_skills_rate_window: int = 60  # window in seconds
     resolve_rate_limit: int = 60  # max requests per window
     resolve_rate_window: int = 60  # window in seconds
+    similar_skills_rate_limit: int = 120  # max requests per window
+    similar_skills_rate_window: int = 60  # window in seconds
     download_rate_limit: int = 20  # max requests per window
     download_rate_window: int = 60  # window in seconds
     audit_log_rate_limit: int = 30  # max requests per window

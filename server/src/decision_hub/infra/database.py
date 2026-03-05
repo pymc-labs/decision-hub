@@ -1953,6 +1953,57 @@ def update_skill_embedding(conn: Connection, skill_id: UUID, embedding: list[flo
     conn.execute(stmt)
 
 
+def fetch_similar_skills(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    *,
+    limit: int = 3,
+) -> list[dict]:
+    """Find published public skills whose embeddings are closest to the given skill.
+
+    Returns an empty list if the skill has no stored embedding.
+    Excludes the queried skill itself from results.
+    """
+    emb_stmt = (
+        sa.select(skills_table.c.embedding)
+        .select_from(skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id))
+        .where(
+            organizations_table.c.slug == org_slug,
+            skills_table.c.name == skill_name,
+            skills_table.c.latest_semver.isnot(None),
+        )
+    )
+    row = conn.execute(emb_stmt).first()
+    if row is None or row.embedding is None:
+        return []
+
+    source_embedding = row.embedding
+
+    vec_stmt = (
+        sa.select(
+            *_SKILL_SUMMARY_COLUMNS,
+            skills_table.c.embedding.cosine_distance(source_embedding).label("vec_dist"),
+        )
+        .select_from(skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id))
+        .where(
+            skills_table.c.latest_semver.isnot(None),
+            skills_table.c.embedding.isnot(None),
+            skills_table.c.visibility == "public",
+            sa.not_(
+                sa.and_(
+                    organizations_table.c.slug == org_slug,
+                    skills_table.c.name == skill_name,
+                )
+            ),
+        )
+        .order_by(sa.text("vec_dist ASC"))
+        .limit(limit)
+    )
+    rows = conn.execute(vec_stmt).all()
+    return [_row_to_skill_summary(r) for r in rows]
+
+
 def fetch_registry_stats(conn: Connection) -> dict:
     """Fetch aggregate registry statistics for the homepage.
 

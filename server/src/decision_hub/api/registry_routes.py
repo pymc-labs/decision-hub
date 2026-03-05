@@ -42,6 +42,7 @@ from decision_hub.infra.database import (
     delete_version,
     fetch_all_skills_for_index,
     fetch_registry_stats,
+    fetch_similar_skills,
     find_active_eval_runs_for_user,
     find_audit_logs,
     find_eval_report_by_skill,
@@ -113,6 +114,18 @@ def _enforce_resolve_rate_limit(request: Request) -> None:
             window_seconds=settings.resolve_rate_window,
         )
     state._resolve_rate_limiter(request)
+
+
+def _enforce_similar_skills_rate_limit(request: Request) -> None:
+    """Rate-limit the similar skills endpoint."""
+    state = request.app.state
+    if not hasattr(state, "_similar_skills_rate_limiter"):
+        settings: Settings = state.settings
+        state._similar_skills_rate_limiter = RateLimiter(
+            max_requests=settings.similar_skills_rate_limit,
+            window_seconds=settings.similar_skills_rate_window,
+        )
+    state._similar_skills_rate_limiter(request)
 
 
 def _enforce_download_rate_limit(request: Request) -> None:
@@ -222,6 +235,17 @@ class SkillSummary(BaseModel):
     github_is_archived: bool | None = None
     github_license: str | None = None
     is_auto_synced: bool = False
+
+
+class SimilarSkillRef(BaseModel):
+    """A skill similar to the queried skill, for the sidebar panel."""
+
+    org_slug: str
+    skill_name: str
+    description: str
+    safety_rating: str
+    category: str = ""
+    download_count: int = 0
 
 
 class PaginatedSkillsResponse(BaseModel):
@@ -691,6 +715,34 @@ def get_skill_summary(
         github_license=skill.github_license,
         is_auto_synced=bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url)),
     )
+
+
+@public_router.get(
+    "/skills/{org_slug}/{skill_name}/similar",
+    response_model=list[SimilarSkillRef],
+    dependencies=[Depends(_enforce_similar_skills_rate_limit)],
+)
+def get_similar_skills(
+    org_slug: str,
+    skill_name: str,
+    conn: Connection = Depends(get_connection),
+) -> list[SimilarSkillRef]:
+    """Return up to 3 skills similar to the given skill by vector distance.
+
+    Returns an empty list if the skill has no stored embedding.
+    """
+    rows = fetch_similar_skills(conn, org_slug, skill_name, limit=3)
+    return [
+        SimilarSkillRef(
+            org_slug=row["org_slug"],
+            skill_name=row["skill_name"],
+            description=row.get("description") or "",
+            safety_rating=format_trust_score(row["eval_status"]),
+            category=row.get("category") or "",
+            download_count=row.get("download_count", 0),
+        )
+        for row in rows
+    ]
 
 
 @public_router.get(
