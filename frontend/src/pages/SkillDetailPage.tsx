@@ -395,7 +395,7 @@ function resolveRelativeUrl(
   if (!sourceRepoUrl || /^(https?:\/\/|#|mailto:)/.test(href)) return href;
 
   // Determine the directory containing SKILL.md in the repo
-  const dir = manifestPath
+  const dir = manifestPath?.includes("/")
     ? manifestPath.replace(/\/[^/]+$/, "") // strip filename
     : "";
   const base = dir
