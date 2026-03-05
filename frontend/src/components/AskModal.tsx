@@ -40,7 +40,7 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
   // Re-read recently viewed from localStorage each time the modal opens
   useEffect(() => {
     if (isOpen) refreshRecentlyViewed();
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen, refreshRecentlyViewed]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {

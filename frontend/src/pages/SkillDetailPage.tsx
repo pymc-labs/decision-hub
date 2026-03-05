@@ -93,7 +93,7 @@ export default function SkillDetailPage() {
         safety_rating: skill.safety_rating ?? "",
       });
     }
-  }, [skill?.org_slug, skill?.skill_name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [skill?.org_slug, skill?.skill_name, addRecentlyViewed]);
 
   // Fetch eval report
   const {
