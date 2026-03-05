@@ -9,6 +9,6 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--text-muted);
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--fog);
 }

@@ -1,6 +1,6 @@
 .terminal {
-  background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  background: var(--paper);
+  border: 1px solid var(--mist);
   border-radius: 8px;
   overflow: hidden;
   display: flex;
@@ -12,8 +12,8 @@
   align-items: center;
   gap: 6px;
   padding: 10px 14px;
-  background: var(--bg-darkest);
-  border-bottom: 1px solid var(--border-color);
+  background: var(--cream);
+  border-bottom: 1px solid var(--mist);
 }
 
 .dot {
@@ -23,17 +23,17 @@
 }
 
 .title {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--fog);
   margin-left: 8px;
 }
 
 .body {
   padding: 16px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-sm);
-  color: var(--text-primary);
+  color: var(--foreground);
   line-height: 1.7;
   white-space: pre;
   overflow-x: auto;
@@ -42,9 +42,9 @@
 }
 
 .command {
-  color: var(--text-primary);
+  color: var(--foreground);
 }
 
 .output {
-  color: var(--neon-cyan);
+  color: var(--olive);
 }

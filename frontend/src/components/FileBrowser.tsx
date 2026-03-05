@@ -144,19 +144,47 @@ function TreeNodeView({
   );
 }
 
-// Custom theme based on oneDark with neon accents
-const neonTheme = {
+// Editorial theme: warm, light background with muted syntax colors
+const editorialTheme = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
-    background: "#0d0d1a",
+    background: "hsl(35, 20%, 94%)",
     fontSize: "0.85rem",
     lineHeight: "1.6",
+    color: "hsl(35, 2%, 25%)",
   },
   'code[class*="language-"]': {
     ...oneDark['code[class*="language-"]'],
     background: "transparent",
+    color: "hsl(35, 2%, 25%)",
   },
+  comment: { color: "hsl(35, 5%, 60%)", fontStyle: "italic" },
+  prolog: { color: "hsl(35, 5%, 60%)" },
+  doctype: { color: "hsl(35, 5%, 60%)" },
+  cdata: { color: "hsl(35, 5%, 60%)" },
+  punctuation: { color: "hsl(35, 3%, 40%)" },
+  property: { color: "hsl(15, 45%, 55%)" },
+  tag: { color: "hsl(15, 45%, 55%)" },
+  boolean: { color: "hsl(85, 15%, 45%)" },
+  number: { color: "hsl(85, 15%, 45%)" },
+  constant: { color: "hsl(85, 15%, 45%)" },
+  symbol: { color: "hsl(85, 15%, 45%)" },
+  selector: { color: "hsl(85, 15%, 45%)" },
+  "attr-name": { color: "hsl(35, 3%, 40%)" },
+  string: { color: "hsl(85, 15%, 45%)" },
+  char: { color: "hsl(85, 15%, 45%)" },
+  builtin: { color: "hsl(15, 45%, 55%)" },
+  operator: { color: "hsl(35, 3%, 40%)" },
+  entity: { color: "hsl(15, 45%, 55%)" },
+  url: { color: "hsl(35, 3%, 40%)" },
+  keyword: { color: "hsl(15, 45%, 55%)" },
+  regex: { color: "hsl(85, 15%, 45%)" },
+  important: { color: "hsl(15, 45%, 55%)" },
+  atrule: { color: "hsl(15, 45%, 55%)" },
+  "attr-value": { color: "hsl(85, 15%, 45%)" },
+  function: { color: "hsl(35, 2%, 25%)" },
+  "class-name": { color: "hsl(15, 45%, 55%)" },
 };
 
 export default function FileBrowser({ files }: FileBrowserProps) {
@@ -206,19 +234,19 @@ export default function FileBrowser({ files }: FileBrowserProps) {
             <div className={styles.editorContent}>
               <SyntaxHighlighter
                 language={getLanguage(selected.path)}
-                style={neonTheme}
+                style={editorialTheme}
                 showLineNumbers
                 lineNumberStyle={{
-                  color: "#444466",
+                  color: "hsl(35, 5%, 60%)",
                   minWidth: "3em",
                   paddingRight: "1em",
-                  borderRight: "1px solid #222244",
+                  borderRight: "1px solid hsl(35, 10%, 88%)",
                   marginRight: "1em",
                 }}
                 customStyle={{
                   margin: 0,
                   padding: "16px",
-                  background: "#0d0d1a",
+                  background: "hsl(35, 20%, 94%)",
                   borderRadius: 0,
                   minHeight: "400px",
                 }}

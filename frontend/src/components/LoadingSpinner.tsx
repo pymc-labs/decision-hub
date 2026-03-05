@@ -7,11 +7,7 @@ interface LoadingSpinnerProps {
 export default function LoadingSpinner({ text = "Loading..." }: LoadingSpinnerProps) {
   return (
     <div className={styles.wrapper}>
-      <div className={styles.spinner}>
-        <div className={styles.ring} />
-        <div className={styles.ring} />
-        <div className={styles.ring} />
-      </div>
+      <div className={styles.ring} />
       <p className={styles.text}>{text}</p>
     </div>
   );

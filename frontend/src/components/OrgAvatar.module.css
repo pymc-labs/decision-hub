@@ -1,21 +1,21 @@
 .avatar,
 .fallback {
-  border-radius: 12px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
 .avatar {
   object-fit: cover;
-  border: 1px solid rgba(180, 0, 255, 0.3);
+  border: 1px solid var(--mist);
 }
 
 .fallback {
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.25);
+  background: var(--paper);
+  border: 1px solid var(--mist);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--neon-purple);
+  color: var(--charcoal);
 }
 
 /* Sizes */
@@ -32,5 +32,4 @@
 .lg {
   width: 72px;
   height: 72px;
-  border-radius: 16px;
 }

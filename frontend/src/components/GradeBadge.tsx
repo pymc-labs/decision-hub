@@ -6,10 +6,10 @@ interface GradeBadgeProps {
 }
 
 const GRADE_CONFIG: Record<string, { label: string; color: string; tooltip: string }> = {
-  A: { label: "A", color: "green", tooltip: "Grade A — Safe: No dangerous patterns detected" },
-  B: { label: "B", color: "cyan", tooltip: "Grade B — Elevated: Minor risks identified, reviewed safe" },
-  C: { label: "C", color: "yellow", tooltip: "Grade C — Risky: Contains patterns that need careful review" },
-  F: { label: "F", color: "red", tooltip: "Grade F — Unsafe: Dangerous patterns detected" },
+  A: { label: "A", color: "olive", tooltip: "Grade A — Safe: No dangerous patterns detected" },
+  B: { label: "B", color: "charcoal", tooltip: "Grade B — Elevated: Minor risks identified, reviewed safe" },
+  C: { label: "C", color: "terracotta", tooltip: "Grade C — Risky: Contains patterns that need careful review" },
+  F: { label: "F", color: "destructive", tooltip: "Grade F — Unsafe: Dangerous patterns detected" },
   pending: { label: "...", color: "muted", tooltip: "Security analysis pending" },
 };
 

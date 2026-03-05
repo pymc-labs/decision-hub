@@ -29,9 +29,9 @@ export default function TerminalBlock({ title, children, colorCommands }: Termin
     <div className={styles.terminal}>
       {title !== undefined && (
         <div className={styles.header}>
-          <span className={styles.dot} style={{ background: "#ff5f56" }} />
-          <span className={styles.dot} style={{ background: "#ffbd2e" }} />
-          <span className={styles.dot} style={{ background: "#27c93f" }} />
+          <span className={styles.dot} style={{ background: "var(--stone)" }} />
+          <span className={styles.dot} style={{ background: "var(--stone)" }} />
+          <span className={styles.dot} style={{ background: "var(--stone)" }} />
           <span className={styles.title}>{title}</span>
         </div>
       )}

@@ -114,9 +114,9 @@ export default function AnimatedTerminal() {
   return (
     <div className={styles.terminal} ref={containerRef} onClick={handleRestart}>
       <div className={styles.header}>
-        <span className={styles.dot} style={{ background: "#ff5f56" }} />
-        <span className={styles.dot} style={{ background: "#ffbd2e" }} />
-        <span className={styles.dot} style={{ background: "#27c93f" }} />
+        <span className={styles.dot} style={{ background: "var(--stone)" }} />
+        <span className={styles.dot} style={{ background: "var(--stone)" }} />
+        <span className={styles.dot} style={{ background: "var(--stone)" }} />
         <span className={styles.title}>~/projects/my-analysis</span>
       </div>
       <pre className={styles.body} ref={bodyRef}>
