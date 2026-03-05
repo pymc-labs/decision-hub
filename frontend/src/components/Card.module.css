@@ -1,0 +1,15 @@
+.card {
+  background: var(--cream);
+  border: 1px solid rgba(38, 37, 36, 0.05);
+  padding: 32px;
+  transition: border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card:hover {
+  border-color: rgba(38, 37, 36, 0.15);
+}
+
+.elevated {
+  background: var(--paper);
+  border-color: var(--mist);
+}

@@ -8,7 +8,7 @@ import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useCountUp } from "../hooks/useCountUp";
 import { useSEO } from "../hooks/useSEO";
-import NeonCard from "../components/NeonCard";
+import Card from "../components/Card";
 import GradeBadge from "../components/GradeBadge";
 import AnimatedTerminal from "../components/AnimatedTerminal";
 import SkillCardStats from "../components/SkillCardStats";
@@ -110,7 +110,7 @@ export default function HomePage() {
       {/* Value Props — the three pillars */}
       <section className={styles.valueProps}>
         <div className={styles.valuePropGrid}>
-          <NeonCard glow="cyan">
+          <Card>
             <div className={styles.valueProp}>
               <div className={styles.valuePropIcon}>
                 <FlaskConical size={32} />
@@ -122,8 +122,8 @@ export default function HomePage() {
                 actually works before you install it.
               </p>
             </div>
-          </NeonCard>
-          <NeonCard glow="pink">
+          </Card>
+          <Card>
             <div className={styles.valueProp}>
               <div className={styles.valuePropIcon}>
                 <ShieldCheck size={32} />
@@ -135,8 +135,8 @@ export default function HomePage() {
                 graded A through F. No surprises in your agent's toolchain.
               </p>
             </div>
-          </NeonCard>
-          <NeonCard glow="purple">
+          </Card>
+          <Card>
             <div className={styles.valueProp}>
               <div className={styles.valuePropIcon}>
                 <Search size={32} />
@@ -148,40 +148,40 @@ export default function HomePage() {
                 right skill in one command.
               </p>
             </div>
-          </NeonCard>
+          </Card>
         </div>
       </section>
 
       {/* Stats */}
       <section className={styles.stats}>
-        <NeonCard glow="cyan">
+        <Card>
           <div className={styles.statItem} ref={skillsRef as React.RefObject<HTMLDivElement>}>
             <Package size={24} className={styles.statIcon} />
             <span className={styles.statNumber}>{animatedSkills.toLocaleString()}</span>
             <span className={styles.statLabel}>Skills Published</span>
           </div>
-        </NeonCard>
-        <NeonCard glow="pink">
+        </Card>
+        <Card>
           <div className={styles.statItem} ref={orgsRef as React.RefObject<HTMLDivElement>}>
             <Building2 size={24} className={styles.statIcon} />
             <span className={styles.statNumber}>{animatedOrgs.toLocaleString()}</span>
             <span className={styles.statLabel}>Organizations</span>
           </div>
-        </NeonCard>
-        <NeonCard glow="purple">
+        </Card>
+        <Card>
           <div className={styles.statItem} ref={downloadsRef as React.RefObject<HTMLDivElement>}>
             <Download size={24} className={styles.statIcon} />
             <span className={styles.statNumber}>{animatedDownloads.toLocaleString()}</span>
             <span className={styles.statLabel}>Downloads</span>
           </div>
-        </NeonCard>
-        <NeonCard glow="green">
+        </Card>
+        <Card>
           <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
             <Users size={24} className={styles.statIcon} />
             <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
             <span className={styles.statLabel}>Publishers</span>
           </div>
-        </NeonCard>
+        </Card>
       </section>
 
       {/* Agent First */}
@@ -217,7 +217,7 @@ export default function HomePage() {
                 to={`/skills/${skill.org_slug}/${skill.skill_name}`}
                 className={styles.skillLink}
               >
-                <NeonCard glow="cyan">
+                <Card>
                   <div className={styles.skillCard}>
                     <div className={styles.skillHeader}>
                       <span className={styles.skillOrg}>{skill.org_slug}</span>
@@ -242,7 +242,7 @@ export default function HomePage() {
                       />
                     </div>
                   </div>
-                </NeonCard>
+                </Card>
               </Link>
             ))}
           </div>
@@ -327,7 +327,7 @@ Downloading anthropics/statistical-analysis@0.1.0...
 
       {/* Bottom CTA */}
       <section className={styles.bottomCta}>
-        <NeonCard glow="pink">
+        <Card variant="elevated">
           <div className={styles.bottomCtaInner}>
             <h2 className={styles.bottomCtaTitle}>Publish Your Skills</h2>
             <p className={styles.bottomCtaDesc}>
@@ -353,7 +353,7 @@ Downloading anthropics/statistical-analysis@0.1.0...
               </Link>
             </div>
           </div>
-        </NeonCard>
+        </Card>
       </section>
     </div>
   );

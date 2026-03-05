@@ -7,7 +7,7 @@ import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useSEO } from "../hooks/useSEO";
 import type { SkillSummary } from "../types/api";
-import NeonCard from "../components/NeonCard";
+import Card from "../components/Card";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import SkillCardStats from "../components/SkillCardStats";
@@ -92,9 +92,9 @@ export default function SkillsPage() {
   if (error && items.length === 0) {
     return (
       <div className="container">
-        <NeonCard glow="pink">
+        <Card>
           <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
-        </NeonCard>
+        </Card>
       </div>
     );
   }
@@ -267,7 +267,7 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
       to={`/skills/${skill.org_slug}/${skill.skill_name}`}
       className={styles.skillLink}
     >
-      <NeonCard glow="cyan">
+      <Card>
         <div className={styles.card}>
           <div className={styles.cardTop}>
             <div className={styles.cardOrg}>
@@ -309,7 +309,7 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
             />
           </div>
         </div>
-      </NeonCard>
+      </Card>
     </Link>
   );
 }
