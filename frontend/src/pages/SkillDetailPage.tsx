@@ -24,6 +24,7 @@ import {
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   getSkill,
   getEvalReport,
@@ -399,7 +400,7 @@ function OverviewTab({ content, loading, error }: { content: string | null; load
 
   return (
     <div className={styles.skillMd}>
-      <ReactMarkdown>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   );
 }
