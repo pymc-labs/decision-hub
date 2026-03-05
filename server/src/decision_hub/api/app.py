@@ -183,7 +183,11 @@ def create_app() -> FastAPI:
     # every other non-API path falls back to index.html for client-side
     # routing.  When _FRONTEND_DIR is absent the app runs in API-only mode.
     _index_html = _FRONTEND_DIR / "index.html"
-    if _FRONTEND_DIR.is_dir() and _index_html.is_file():
+    try:
+        _has_frontend = _FRONTEND_DIR.is_dir() and _index_html.is_file()
+    except PermissionError:
+        _has_frontend = False
+    if _has_frontend:
         app.mount(
             "/assets",
             StaticFiles(directory=_FRONTEND_DIR / "assets"),
