@@ -3,6 +3,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { File, Folder, ChevronRight, ChevronDown } from "lucide-react";
 import type { SkillFile } from "../types/api";
+import { COLORS } from "../theme";
 import styles from "./FileBrowser.module.css";
 
 interface FileBrowserProps {
@@ -144,47 +145,48 @@ function TreeNodeView({
   );
 }
 
-// Editorial theme: warm, light background with muted syntax colors
+// Editorial theme: warm, light background with muted syntax colors.
+// Color values sourced from theme.ts COLORS to stay DRY with index.css.
 const editorialTheme = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
-    background: "hsl(35, 20%, 94%)",
+    background: COLORS.paper,
     fontSize: "0.85rem",
     lineHeight: "1.6",
-    color: "hsl(35, 2%, 25%)",
+    color: COLORS.ink,
   },
   'code[class*="language-"]': {
     ...oneDark['code[class*="language-"]'],
     background: "transparent",
-    color: "hsl(35, 2%, 25%)",
+    color: COLORS.ink,
   },
-  comment: { color: "hsl(35, 5%, 60%)", fontStyle: "italic" },
-  prolog: { color: "hsl(35, 5%, 60%)" },
-  doctype: { color: "hsl(35, 5%, 60%)" },
-  cdata: { color: "hsl(35, 5%, 60%)" },
-  punctuation: { color: "hsl(35, 3%, 40%)" },
-  property: { color: "hsl(15, 45%, 55%)" },
-  tag: { color: "hsl(15, 45%, 55%)" },
-  boolean: { color: "hsl(85, 15%, 45%)" },
-  number: { color: "hsl(85, 15%, 45%)" },
-  constant: { color: "hsl(85, 15%, 45%)" },
-  symbol: { color: "hsl(85, 15%, 45%)" },
-  selector: { color: "hsl(85, 15%, 45%)" },
-  "attr-name": { color: "hsl(35, 3%, 40%)" },
-  string: { color: "hsl(85, 15%, 45%)" },
-  char: { color: "hsl(85, 15%, 45%)" },
-  builtin: { color: "hsl(15, 45%, 55%)" },
-  operator: { color: "hsl(35, 3%, 40%)" },
-  entity: { color: "hsl(15, 45%, 55%)" },
-  url: { color: "hsl(35, 3%, 40%)" },
-  keyword: { color: "hsl(15, 45%, 55%)" },
-  regex: { color: "hsl(85, 15%, 45%)" },
-  important: { color: "hsl(15, 45%, 55%)" },
-  atrule: { color: "hsl(15, 45%, 55%)" },
-  "attr-value": { color: "hsl(85, 15%, 45%)" },
-  function: { color: "hsl(35, 2%, 25%)" },
-  "class-name": { color: "hsl(15, 45%, 55%)" },
+  comment: { color: COLORS.fog, fontStyle: "italic" },
+  prolog: { color: COLORS.fog },
+  doctype: { color: COLORS.fog },
+  cdata: { color: COLORS.fog },
+  punctuation: { color: COLORS.charcoal },
+  property: { color: COLORS.terracotta },
+  tag: { color: COLORS.terracotta },
+  boolean: { color: COLORS.olive },
+  number: { color: COLORS.olive },
+  constant: { color: COLORS.olive },
+  symbol: { color: COLORS.olive },
+  selector: { color: COLORS.olive },
+  "attr-name": { color: COLORS.charcoal },
+  string: { color: COLORS.olive },
+  char: { color: COLORS.olive },
+  builtin: { color: COLORS.terracotta },
+  operator: { color: COLORS.charcoal },
+  entity: { color: COLORS.terracotta },
+  url: { color: COLORS.charcoal },
+  keyword: { color: COLORS.terracotta },
+  regex: { color: COLORS.olive },
+  important: { color: COLORS.terracotta },
+  atrule: { color: COLORS.terracotta },
+  "attr-value": { color: COLORS.olive },
+  function: { color: COLORS.ink },
+  "class-name": { color: COLORS.terracotta },
 };
 
 export default function FileBrowser({ files }: FileBrowserProps) {
@@ -237,16 +239,16 @@ export default function FileBrowser({ files }: FileBrowserProps) {
                 style={editorialTheme}
                 showLineNumbers
                 lineNumberStyle={{
-                  color: "hsl(35, 5%, 60%)",
+                  color: COLORS.fog,
                   minWidth: "3em",
                   paddingRight: "1em",
-                  borderRight: "1px solid hsl(35, 10%, 88%)",
+                  borderRight: `1px solid ${COLORS.mist}`,
                   marginRight: "1em",
                 }}
                 customStyle={{
                   margin: 0,
                   padding: "16px",
-                  background: "hsl(35, 20%, 94%)",
+                  background: COLORS.paper,
                   borderRadius: 0,
                   minHeight: "400px",
                 }}

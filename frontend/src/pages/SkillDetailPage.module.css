@@ -104,8 +104,8 @@ a.metaItem:hover {
   flex-direction: column;
   gap: 12px;
   position: sticky;
-  top: calc(var(--header-height) + 24px);
-  max-height: calc(100vh - var(--header-height) - 48px);
+  top: 24px;
+  max-height: calc(100vh - 48px);
   overflow-y: auto;
 }
 

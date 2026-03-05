@@ -152,7 +152,7 @@ code, pre {
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 0 80px;
+  padding: 0 16px;
   width: 100%;
 }
 
@@ -167,9 +167,15 @@ code, pre {
   margin-bottom: 24px;
 }
 
-@media (max-width: 768px) {
+@media (min-width: 480px) {
   .container {
     padding: 0 24px;
+  }
+}
+
+@media (min-width: 768px) {
+  .container {
+    padding: 0 80px;
   }
 }
 
@@ -179,9 +185,5 @@ code, pre {
     --text-display: 40px;
     --text-title: 30px;
     --text-heading: 20px;
-  }
-
-  .container {
-    padding: 0 16px;
   }
 }
