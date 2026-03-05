@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # Sprint 4: Gemini Search
     google_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.1-flash-lite-preview"
 
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
