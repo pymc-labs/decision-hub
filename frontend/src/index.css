@@ -1,49 +1,49 @@
-/* === NEON 80s RETRO THEME === */
+/* === EDITORIAL DESIGN SYSTEM === */
 
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500;600&family=Newsreader:ital,wght@0,300;1,300&display=swap');
 
 :root {
-  --neon-pink: #ff2d95;
-  --neon-cyan: #00f0ff;
-  --neon-purple: #b400ff;
-  --neon-yellow: #ffe600;
-  --neon-green: #39ff14;
-  --neon-orange: #ff6a00;
+  /* Warm neutrals (HSL) */
+  --cream: hsl(35, 25%, 97%);
+  --paper: hsl(35, 20%, 94%);
+  --mist: hsl(35, 10%, 88%);
+  --stone: hsl(35, 8%, 78%);
+  --fog: hsl(35, 5%, 60%);
+  --charcoal: hsl(35, 3%, 40%);
+  --ink: hsl(35, 2%, 25%);
+  --black: hsl(35, 0%, 15%);
 
-  --glow-pink: 0 0 10px #ff2d95, 0 0 20px #ff2d9580, 0 0 40px #ff2d9540;
-  --glow-cyan: 0 0 10px #00f0ff, 0 0 20px #00f0ff80, 0 0 40px #00f0ff40;
-  --glow-purple: 0 0 10px #b400ff, 0 0 20px #b400ff80, 0 0 40px #b400ff40;
-  --glow-green: 0 0 10px #39ff14, 0 0 20px #39ff1480, 0 0 40px #39ff1440;
+  /* Accents */
+  --olive: hsl(85, 15%, 45%);
+  --terracotta: hsl(15, 45%, 55%);
+  --destructive: hsl(0, 84%, 60%);
 
-  --glow-text-subtle: 0 0 8px rgba(0, 240, 255, 0.15);
-  --glow-text-strong: 0 0 10px rgba(0, 240, 255, 0.3);
+  /* Semantic aliases */
+  --background: var(--cream);
+  --foreground: var(--black);
+  --card: var(--paper);
+  --primary: var(--black);
+  --primary-foreground: var(--cream);
+  --secondary: var(--mist);
+  --muted-foreground: var(--fog);
+  --accent: var(--olive);
+  --border: var(--mist);
 
-  --bg-darkest: #0a0a12;
-  --bg-dark: #12121f;
-  --bg-card: #1a1a2e;
-  --bg-card-hover: #22223a;
-  --bg-elevated: #252540;
-
-  --text-primary: #e8e8f0;
-  --text-secondary: #8888aa;
-  --text-muted: #555577;
-
-  --border-color: #2a2a45;
-  --border-glow: #00f0ff30;
-
-  --max-width: 1280px;
+  /* Layout */
+  --max-width: 1200px;
+  --content-width: 992px;
   --header-height: 72px;
 
   /* Typography scale */
-  --text-hero:    4rem;
-  --text-display: 2.5rem;
-  --text-title:   2rem;
-  --text-heading: 1.6rem;
-  --text-lg:      1.3rem;
-  --text-body:    1.1rem;
-  --text-sm:      0.9rem;
-  --text-xs:      0.8rem;
-  --text-xxs:     0.7rem;
+  --text-hero:    84px;
+  --text-display: 60px;
+  --text-title:   40px;
+  --text-heading: 24px;
+  --text-lg:      18px;
+  --text-body:    16px;
+  --text-sm:      14px;
+  --text-xs:      11px;
+  --text-xxs:     9px;
 }
 
 * {
@@ -57,20 +57,19 @@ html {
 }
 
 body {
-  font-family: 'Rajdhani', sans-serif;
-  background: var(--bg-darkest);
-  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
   min-height: 100vh;
   overflow-x: hidden;
-  line-height: 1.6;
-  font-size: 18px;
-  /* Horizontal safe area insets for iPhone notch/dynamic island.
-     Top/bottom are handled on the sticky header and footer in Layout. */
+  line-height: 1.625;
+  font-size: 16px;
+  font-weight: 400;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
 
-/* Subtle scanline overlay */
+/* Subtle noise texture overlay */
 body::before {
   content: '';
   position: fixed;
@@ -80,16 +79,11 @@ body::before {
   height: 100%;
   pointer-events: none;
   z-index: 9999;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
+  opacity: 0.012;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* Grid background */
+/* Grid-line background */
 body::after {
   content: '';
   position: fixed;
@@ -100,9 +94,9 @@ body::after {
   pointer-events: none;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
+    linear-gradient(rgba(38, 37, 36, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(38, 37, 36, 0.03) 1px, transparent 1px);
+  background-size: 80px 80px;
 }
 
 #root {
@@ -112,89 +106,82 @@ body::after {
 }
 
 a {
-  color: var(--neon-cyan);
+  color: var(--charcoal);
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 a:hover {
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
+  color: var(--foreground);
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-family: 'Orbitron', sans-serif;
-  font-weight: 700;
-  letter-spacing: 1px;
+h1, h2 {
+  font-family: 'Newsreader', Georgia, serif;
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+h3, h4, h5, h6 {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 500;
 }
 
 code, pre {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-darkest);
+  background: var(--cream);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
+  background: var(--mist);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neon-cyan);
-  box-shadow: var(--glow-cyan);
+  background: var(--stone);
 }
 
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 80px;
   width: 100%;
 }
 
+/* Section label utility — IBM Plex Mono, uppercase, fog color */
+.sectionLabel {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--fog);
+  margin-bottom: 24px;
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: 0 24px;
+  }
+}
+
 @media (max-width: 480px) {
+  :root {
+    --text-hero: 56px;
+    --text-display: 40px;
+    --text-title: 30px;
+    --text-heading: 20px;
+  }
+
   .container {
     padding: 0 16px;
   }
-}
-
-@keyframes neonFlicker {
-  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
-    text-shadow:
-      0 0 4px #fff,
-      0 0 11px #fff,
-      0 0 19px #fff,
-      0 0 40px var(--neon-cyan),
-      0 0 80px var(--neon-cyan);
-  }
-  20%, 24%, 55% {
-    text-shadow: none;
-  }
-}
-
-@keyframes pulseGlow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes gridScroll {
-  0% { background-position: 0 0, 0 0; }
-  100% { background-position: 60px 60px, 60px 60px; }
 }
