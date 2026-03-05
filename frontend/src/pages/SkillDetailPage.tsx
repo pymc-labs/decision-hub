@@ -25,6 +25,7 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
 import {
   getSkill,
   getEvalReport,
@@ -42,6 +43,8 @@ import FileBrowser from "../components/FileBrowser";
 import { formatCheckName } from "./auditUtils";
 import { LINK_TO_MANIFEST } from "../featureFlags";
 import styles from "./SkillDetailPage.module.css";
+
+const REMARK_PLUGINS: PluggableList = [remarkGfm];
 
 type Tab = "overview" | "evals" | "files" | "audit";
 
@@ -400,7 +403,7 @@ function OverviewTab({ content, loading, error }: { content: string | null; load
 
   return (
     <div className={styles.skillMd}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{content}</ReactMarkdown>
     </div>
   );
 }
