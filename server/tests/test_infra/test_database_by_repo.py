@@ -58,6 +58,7 @@ class TestFetchSkillsByRepo:
             "published_by": "testuser",
             "is_personal_org": False,
         }
+        mock_row.has_tracker = True
 
         conn = MagicMock()
         conn.execute.return_value.all.return_value = [mock_row]
@@ -67,6 +68,7 @@ class TestFetchSkillsByRepo:
         assert len(results) == 1
         assert results[0]["org_slug"] == "acme"
         assert results[0]["skill_name"] == "skill-a"
+        assert results[0]["has_tracker"] is True
         conn.execute.assert_called_once()
 
     @patch("decision_hub.infra.database._apply_visibility_filter", side_effect=lambda stmt, *a, **kw: stmt)

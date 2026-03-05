@@ -1873,8 +1873,21 @@ def fetch_skills_by_repo(
     """
     normalized = _normalize_repo_url(repo_url)
 
+    tracker_exists = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+        .correlate(skills_table)
+        .exists()
+        .label("has_tracker")
+    )
+
     base = (
-        sa.select(*_SKILL_SUMMARY_COLUMNS)
+        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
         .select_from(
             skills_table.join(
                 organizations_table,
@@ -1899,7 +1912,7 @@ def fetch_skills_by_repo(
     base = _apply_visibility_filter(base, user_org_ids, granted)
 
     rows = conn.execute(base).all()
-    return [_row_to_skill_summary(row) for row in rows]
+    return [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
 
 
 def search_skills_hybrid(

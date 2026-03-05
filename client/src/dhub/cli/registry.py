@@ -913,6 +913,10 @@ def _install_from_repo(
     # Normalize repo_ref to full URL if it's owner/repo format
     repo_url = f"https://github.com/{repo_ref}" if not repo_ref.startswith("http") else repo_ref
 
+    if len(repo_url) > 500:
+        console.print("[red]Error: Repository URL is too long (max 500 characters).[/]")
+        raise typer.Exit(1)
+
     # Fetch all skills from the repo
     with console.status(f"Fetching skills from {repo_ref}..."), httpx.Client(timeout=60) as client:
         resp = client.get(
@@ -941,7 +945,7 @@ def _install_from_repo(
         try:
             _install_single_skill(ref, version=version, agent=agent, allow_risky=allow_risky)
             succeeded += 1
-        except (typer.Exit, SystemExit):
+        except typer.Exit:
             failed += 1
             console.print(f"[yellow]Warning: Failed to install {ref}, continuing...[/]")
 

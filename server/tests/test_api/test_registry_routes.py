@@ -1357,6 +1357,7 @@ class TestSkillsByRepo:
                 "github_is_archived": None,
                 "github_license": None,
                 "is_personal_org": False,
+                "has_tracker": True,
             },
             {
                 "org_slug": "test-org",
@@ -1378,6 +1379,7 @@ class TestSkillsByRepo:
                 "github_is_archived": None,
                 "github_license": None,
                 "is_personal_org": False,
+                "has_tracker": False,
             },
         ]
 
@@ -1394,6 +1396,10 @@ class TestSkillsByRepo:
         assert "gws-drive" in names
         assert data["total"] == 2
         assert data["repo_url"] == "https://github.com/googleworkspace/cli"
+        # Verify is_auto_synced is populated from has_tracker
+        by_name = {s["skill_name"]: s for s in data["items"]}
+        assert by_name["gws-gmail"]["is_auto_synced"] is True
+        assert by_name["gws-drive"]["is_auto_synced"] is False
 
     @patch("decision_hub.api.registry_routes.fetch_skills_by_repo")
     def test_returns_empty_for_unknown_repo(

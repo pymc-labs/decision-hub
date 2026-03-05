@@ -119,6 +119,14 @@ class TestInstallRepo:
         assert result.exit_code == 1
         assert "Provide a skill reference" in result.output
 
+    def test_install_repo_url_too_long(self) -> None:
+        """--repo with a URL exceeding 500 chars is rejected client-side."""
+        long_repo = "a" * 501
+        result = runner.invoke(app, ["install", "--repo", long_repo])
+
+        assert result.exit_code == 1
+        assert "too long" in result.output
+
     @respx.mock
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")
