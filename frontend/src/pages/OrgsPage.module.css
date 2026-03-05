@@ -6,15 +6,15 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-heading);
-  color: var(--neon-purple);
-  text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
+  color: var(--foreground);
   margin-bottom: 8px;
 }
 
 .subtitle {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--fog);
   letter-spacing: 1px;
 }
 
@@ -38,45 +38,43 @@
   left: 14px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .searchInput {
   width: 100%;
   padding: 10px 14px 10px 40px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-family: 'Share Tech Mono', monospace;
+  background: var(--cream);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--foreground);
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-sm);
   outline: none;
   transition: all 0.2s ease;
 }
 
 .searchInput::placeholder {
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .searchInput:focus {
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 10px rgba(180, 0, 255, 0.15);
+  border-color: var(--charcoal);
 }
 
 .filterGroup {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .select {
   padding: 10px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-family: 'Rajdhani', sans-serif;
+  background: var(--cream);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--foreground);
   font-size: var(--text-sm);
   font-weight: 600;
   outline: none;
@@ -86,25 +84,24 @@
 }
 
 .select:focus {
-  border-color: var(--neon-purple);
+  border-color: var(--charcoal);
 }
 
 .sortGroup {
   display: flex;
   align-items: center;
   gap: 4px;
-  border-left: 1px solid var(--border-color);
+  border-left: 1px solid var(--border);
   padding-left: 12px;
   margin-left: 4px;
 }
 
 .sortSelect {
   padding: 10px 12px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
-  border-radius: 8px;
-  color: var(--neon-purple);
-  font-family: 'Rajdhani', sans-serif;
+  background: var(--paper);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--charcoal);
   font-size: var(--text-sm);
   font-weight: 600;
   outline: none;
@@ -115,8 +112,7 @@
 
 .sortSelect:focus,
 .sortSelect:hover {
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  border-color: var(--charcoal);
 }
 
 .sortDirBtn {
@@ -124,18 +120,17 @@
   align-items: center;
   justify-content: center;
   padding: 7px 8px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
-  border-radius: 8px;
-  color: var(--neon-purple);
+  background: var(--paper);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--charcoal);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .sortDirBtn:hover {
-  background: rgba(180, 0, 255, 0.12);
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  background: rgba(38, 37, 36, 0.04);
+  border-color: var(--charcoal);
 }
 
 .grid {
@@ -147,7 +142,6 @@
 .orgLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
 }
 
 .card {
@@ -171,30 +165,30 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.25);
-  border-radius: 4px;
+  color: var(--olive);
+  background: rgba(122, 139, 110, 0.08);
+  border: 1px solid rgba(122, 139, 110, 0.25);
+  border-radius: 0;
   padding: 2px 6px;
 }
 
 .cardIcon {
   width: 60px;
   height: 60px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(180, 0, 255, 0.15), rgba(0, 240, 255, 0.1));
-  border: 1px solid rgba(180, 0, 255, 0.25);
+  border-radius: 0;
+  background: var(--paper);
+  border: 1px solid var(--mist);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--neon-purple);
+  color: var(--charcoal);
 }
 
 .cardName {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-body);
   font-weight: 400;
-  color: var(--text-primary);
+  color: var(--foreground);
   letter-spacing: 1px;
 }
 
@@ -202,7 +196,7 @@
   display: flex;
   gap: 16px;
   font-size: var(--text-xs);
-  color: var(--text-secondary);
+  color: var(--charcoal);
 }
 
 .stat {
@@ -217,12 +211,12 @@
   gap: 4px;
   font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--neon-cyan);
+  color: var(--charcoal);
   letter-spacing: 1px;
   text-transform: uppercase;
   margin-top: 4px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border);
   width: 100%;
   justify-content: center;
 }
@@ -233,7 +227,7 @@
   align-items: center;
   gap: 16px;
   padding: 80px 20px;
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 @media (max-width: 768px) {
@@ -250,9 +244,9 @@
 }
 
 .loadingMore {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--fog);
   letter-spacing: 1px;
 }
 
@@ -271,7 +265,7 @@
     border-left: none;
     padding-left: 0;
     margin-left: 0;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--border);
     padding-top: 8px;
     width: 100%;
   }

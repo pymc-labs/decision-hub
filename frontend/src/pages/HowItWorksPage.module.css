@@ -1,4 +1,4 @@
-/* ── Page layout ───────────────────────────────────────── */
+/* -- Page layout ----------------------------------------- */
 
 .page {
   padding: 40px 0 60px;
@@ -10,9 +10,9 @@
 }
 
 .pageTitle {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-title);
-  color: var(--neon-cyan);
-  text-shadow: var(--glow-text-strong);
+  color: var(--foreground);
   margin-bottom: 12px;
 }
 
@@ -20,11 +20,11 @@
   max-width: 600px;
   margin: 0 auto;
   font-size: var(--text-body);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.7;
 }
 
-/* ── Acts container ───────────────────────────────────── */
+/* -- Acts container --------------------------------------- */
 
 .acts {
   display: flex;
@@ -34,29 +34,29 @@
   margin: 0 auto;
 }
 
-/* ── Single act ───────────────────────────────────────── */
+/* -- Single act ------------------------------------------- */
 
 .act {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--charcoal);
 }
 
 .act[data-act-color="cyan"] {
-  --act-color: var(--neon-cyan);
+  --act-color: var(--charcoal);
 }
 
 .act[data-act-color="pink"] {
-  --act-color: var(--neon-pink);
+  --act-color: var(--olive);
 }
 
 .act[data-act-color="green"] {
-  --act-color: var(--neon-green);
+  --act-color: var(--terracotta);
 }
 
-/* ── Act divider between acts ─────────────────────────── */
+/* -- Act divider between acts ----------------------------- */
 
 .actDivider {
   position: relative;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--mist);
   margin: 56px 0;
   display: flex;
   justify-content: center;
@@ -71,11 +71,11 @@
   width: 60px;
   height: 3px;
   background: var(--act-color);
-  box-shadow: 0 0 12px var(--act-color);
-  border-radius: 2px;
+  opacity: 0.15;
+  border-radius: 0;
 }
 
-/* ── Act header ───────────────────────────────────────── */
+/* -- Act header ------------------------------------------- */
 
 .actHeader {
   text-align: center;
@@ -84,24 +84,23 @@
 
 .actLabel {
   display: inline-block;
-  font-family: "Orbitron", sans-serif;
+  font-family: 'IBM Plex Mono', monospace;
   font-weight: 700;
   font-size: var(--text-sm);
   letter-spacing: 3px;
   color: var(--act-color);
-  text-shadow: 0 0 10px var(--act-color);
   margin-bottom: 8px;
 }
 
 .actTagline {
   font-size: var(--text-body);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.6;
   max-width: 600px;
   margin: 0 auto;
 }
 
-/* ── Features within an act ───────────────────────────── */
+/* -- Features within an act ------------------------------- */
 
 .features {
   display: flex;
@@ -109,7 +108,7 @@
   gap: 48px;
 }
 
-/* ── Feature row: two-column grid ─────────────────────── */
+/* -- Feature row: two-column grid ------------------------- */
 
 .featureRow {
   display: grid;
@@ -127,11 +126,12 @@
   order: 1;
 }
 
-/* ── Text column ──────────────────────────────────────── */
+/* -- Text column ------------------------------------------ */
 
 .featureText {
-  border-left: 3px solid var(--act-color);
+  border-left: 2px solid var(--act-color);
   padding-left: 24px;
+  opacity: 0.85;
 }
 
 .featureHeader {
@@ -147,9 +147,9 @@
 }
 
 .featureTitle {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-lg);
-  color: var(--act-color);
-  text-shadow: var(--glow-text-subtle);
+  color: var(--foreground);
 }
 
 .featureBullets {
@@ -163,45 +163,45 @@
 
 .featureBullet {
   font-size: var(--text-body);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.7;
   padding-left: 16px;
   position: relative;
 }
 
 .featureBullet::before {
-  content: "›";
+  content: "\203A";
   position: absolute;
   left: 0;
   color: var(--act-color);
   font-weight: 700;
 }
 
-/* ── Emphasis within text ─────────────────────────────── */
+/* -- Emphasis within text --------------------------------- */
 
 .pageSubtitle strong {
-  color: var(--text-primary);
+  color: var(--foreground);
   font-weight: 500;
 }
 
 .actTagline strong {
-  color: var(--text-primary);
+  color: var(--foreground);
   font-weight: 600;
 }
 
 .featureBullet strong {
-  color: var(--text-primary);
+  color: var(--foreground);
   font-weight: 600;
 }
 
-/* ── Terminal column ──────────────────────────────────── */
+/* -- Terminal column -------------------------------------- */
 
 .featureTerminal {
   min-width: 0;
   overflow: hidden;
 }
 
-/* ── Responsive: tablet ───────────────────────────────── */
+/* -- Responsive: tablet ----------------------------------- */
 
 @media (max-width: 768px) {
   .featureRow {
@@ -209,7 +209,7 @@
     gap: 24px;
   }
 
-  /* Reset alternating order — text always on top */
+  /* Reset alternating order -- text always on top */
   .featureRowAlt .featureText {
     order: unset;
   }
@@ -227,7 +227,7 @@
   }
 }
 
-/* ── Responsive: mobile ───────────────────────────────── */
+/* -- Responsive: mobile ----------------------------------- */
 
 @media (max-width: 480px) {
   .page {

@@ -93,7 +93,7 @@ export default function SkillsPage() {
     return (
       <div className="container">
         <Card>
-          <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+          <p style={{ color: "var(--destructive)" }}>Error: {error}</p>
         </Card>
       </div>
     );

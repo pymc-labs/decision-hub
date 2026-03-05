@@ -6,15 +6,15 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-heading);
-  color: var(--neon-cyan);
-  text-shadow: var(--glow-text-subtle);
+  color: var(--foreground);
   margin-bottom: 8px;
 }
 
 .subtitle {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--fog);
   letter-spacing: 1px;
 }
 
@@ -38,45 +38,43 @@
   left: 14px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .searchInput {
   width: 100%;
   padding: 10px 14px 10px 40px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-family: 'Share Tech Mono', monospace;
+  background: var(--cream);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--foreground);
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-sm);
   outline: none;
   transition: all 0.2s ease;
 }
 
 .searchInput::placeholder {
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .searchInput:focus {
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+  border-color: var(--charcoal);
 }
 
 .filterGroup {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .select {
   padding: 10px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-family: 'Rajdhani', sans-serif;
+  background: var(--cream);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--foreground);
   font-size: var(--text-sm);
   font-weight: 600;
   outline: none;
@@ -86,26 +84,25 @@
 }
 
 .select:focus {
-  border-color: var(--neon-cyan);
+  border-color: var(--charcoal);
 }
 
-/* Sort controls — visually distinct from filters */
+/* Sort controls */
 .sortGroup {
   display: flex;
   align-items: center;
   gap: 4px;
-  border-left: 1px solid var(--border-color);
+  border-left: 1px solid var(--border);
   padding-left: 12px;
   margin-left: 4px;
 }
 
 .sortSelect {
   padding: 10px 12px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
-  border-radius: 8px;
-  color: var(--neon-purple);
-  font-family: 'Rajdhani', sans-serif;
+  background: var(--paper);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--charcoal);
   font-size: var(--text-sm);
   font-weight: 600;
   outline: none;
@@ -116,8 +113,7 @@
 
 .sortSelect:focus,
 .sortSelect:hover {
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  border-color: var(--charcoal);
 }
 
 .sortDirBtn {
@@ -125,18 +121,17 @@
   align-items: center;
   justify-content: center;
   padding: 7px 8px;
-  background: rgba(180, 0, 255, 0.06);
-  border: 1px solid rgba(180, 0, 255, 0.3);
-  border-radius: 8px;
-  color: var(--neon-purple);
+  background: var(--paper);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--charcoal);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .sortDirBtn:hover {
-  background: rgba(180, 0, 255, 0.12);
-  border-color: var(--neon-purple);
-  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+  background: rgba(38, 37, 36, 0.04);
+  border-color: var(--charcoal);
 }
 
 /* Grid */
@@ -149,7 +144,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
   display: block;
   height: 100%;
 }
@@ -172,22 +166,23 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-purple);
+  color: var(--charcoal);
   letter-spacing: 1px;
 }
 
 .cardName {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-body);
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--foreground);
   letter-spacing: 0;
 }
 
 .cardDesc {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.5;
   flex: 1;
   display: -webkit-box;
@@ -202,17 +197,17 @@
   align-items: center;
   gap: 12px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border);
   font-size: var(--text-xs);
 }
 
 .cardVersion {
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-cyan);
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--fog);
 }
 
 .cardAuthor {
-  color: var(--text-muted);
+  color: var(--fog);
   flex: 1;
 }
 
@@ -222,11 +217,11 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--neon-pink);
-  border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-pink);
+  color: var(--charcoal);
   width: fit-content;
 }
 
@@ -236,11 +231,11 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--neon-orange);
-  border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  border: 1px solid rgba(196, 122, 92, 0.3);
+  border-radius: 0;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-orange);
+  color: var(--terracotta);
   width: fit-content;
 }
 
@@ -250,23 +245,22 @@
   align-items: center;
   justify-content: center;
   padding: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-muted);
+  background: var(--cream);
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  color: var(--fog);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .viewToggle:hover {
-  border-color: var(--neon-cyan);
-  color: var(--neon-cyan);
+  border-color: var(--charcoal);
+  color: var(--foreground);
 }
 
 .viewToggleActive {
-  border-color: var(--neon-cyan);
-  color: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+  border-color: var(--charcoal);
+  color: var(--foreground);
 }
 
 /* Grouped view */
@@ -286,16 +280,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-body);
-  color: var(--neon-pink);
+  color: var(--foreground);
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--mist);
 }
 
 .categoryCount {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--fog);
   margin-left: 4px;
 }
 
@@ -309,32 +304,33 @@
 }
 
 .loadingMore {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--fog);
   letter-spacing: 1px;
 }
 
 .loadMoreError {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-sm);
-  color: var(--neon-pink);
+  color: var(--destructive);
   letter-spacing: 1px;
 }
 
 .retryBtn {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--neon-cyan);
+  color: var(--charcoal);
   background: transparent;
-  border: 1px solid var(--neon-cyan);
+  border: 1px solid var(--mist);
   padding: 4px 12px;
   cursor: pointer;
   letter-spacing: 1px;
 }
 
 .retryBtn:hover {
-  background: rgba(0, 255, 255, 0.1);
+  background: rgba(38, 37, 36, 0.04);
+  border-color: var(--charcoal);
 }
 
 /* Empty */
@@ -344,7 +340,7 @@
   align-items: center;
   gap: 16px;
   padding: 80px 20px;
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 @media (max-width: 1024px) {
@@ -376,7 +372,7 @@
     border-left: none;
     padding-left: 0;
     margin-left: 0;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--border);
     padding-top: 8px;
     width: 100%;
   }

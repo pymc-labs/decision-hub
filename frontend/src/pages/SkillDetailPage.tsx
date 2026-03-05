@@ -213,7 +213,7 @@ export default function SkillDetailPage() {
     return (
       <div className="container">
         <Card>
-          <p style={{ color: "var(--neon-pink)" }}>
+          <p style={{ color: "var(--destructive)" }}>
             Skill not found: {orgSlug}/{skillName}
           </p>
         </Card>
@@ -387,7 +387,7 @@ function OverviewTab({ content, loading, error }: { content: string | null; load
   if (loading) return <LoadingSpinner text="Loading SKILL.md..." />;
   if (error) return (
     <Card>
-      <p style={{ color: "var(--neon-pink)" }}>Failed to load package: {error}</p>
+      <p style={{ color: "var(--destructive)" }}>Failed to load package: {error}</p>
     </Card>
   );
   if (!content) return (
@@ -436,7 +436,7 @@ function FilesTab({
   if (error) {
     return (
       <Card>
-        <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+        <p style={{ color: "var(--destructive)" }}>Error: {error}</p>
       </Card>
     );
   }

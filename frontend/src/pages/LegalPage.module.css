@@ -5,37 +5,38 @@
 }
 
 .legal h1 {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-title);
-  color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: var(--foreground);
   margin-bottom: 8px;
 }
 
 .updated {
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--fog);
   margin-bottom: 40px;
 }
 
 .legal h2 {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--foreground);
   margin-top: 32px;
   margin-bottom: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--mist);
 }
 
 .legal h3 {
   font-size: var(--text-body);
-  color: var(--neon-pink);
+  color: var(--charcoal);
   margin-top: 20px;
   margin-bottom: 8px;
 }
 
 .legal p {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.7;
   margin-bottom: 12px;
 }
@@ -47,16 +48,17 @@
 
 .legal li {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.7;
   margin-bottom: 4px;
 }
 
 .legal a {
-  color: var(--neon-cyan);
+  color: var(--charcoal);
 }
 
 .legal a:hover {
+  color: var(--foreground);
   text-decoration: underline;
 }
 

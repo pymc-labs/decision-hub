@@ -6,17 +6,13 @@
 }
 
 .heroGrid {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 20% 50%, rgba(180, 0, 255, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 50%, rgba(255, 45, 149, 0.05) 0%, transparent 50%);
-  pointer-events: none;
+  display: none;
 }
 
 .heroTitle {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-hero);
+  font-weight: 300;
   line-height: 1;
   margin-bottom: 20px;
   position: relative;
@@ -24,37 +20,32 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
+  color: var(--foreground);
 }
 
 .heroAccent {
   letter-spacing: 6px;
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
+  color: var(--foreground);
 }
 
 .heroDivider {
   font-size: var(--text-display);
-  color: var(--neon-purple);
+  color: var(--stone);
   opacity: 0.5;
-  text-shadow: var(--glow-purple);
   font-weight: 400;
   letter-spacing: -2px;
 }
 
 .heroMain {
   letter-spacing: 6px;
-  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 30px rgba(0, 240, 255, 0.3));
+  color: var(--olive);
 }
 
 .heroSub {
   max-width: 600px;
   margin: 0 auto 32px;
   font-size: var(--text-body);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.7;
   position: relative;
 }
@@ -70,51 +61,45 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 28px;
-  border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
+  padding: 16px 32px;
+  border-radius: 0;
   font-size: var(--text-body);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--bg-darkest) !important;
-  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-  text-shadow: none !important;
+  color: var(--cream) !important;
+  background: var(--foreground);
   border: none;
-  transition: all 0.3s ease;
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  transition: all 0.2s ease;
+  text-decoration: none;
 }
 
 .btnPrimary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
-  color: var(--bg-darkest) !important;
+  opacity: 0.85;
+  color: var(--cream) !important;
 }
 
 .btnSecondary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 28px;
-  border-radius: 8px;
-  font-family: 'Rajdhani', sans-serif;
+  padding: 16px 32px;
+  border-radius: 0;
   font-size: var(--text-body);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--neon-pink) !important;
+  color: var(--foreground) !important;
   background: transparent;
-  border: 1px solid rgba(255, 45, 149, 0.4);
-  text-shadow: none !important;
-  transition: all 0.3s ease;
+  border: 1px solid rgba(38, 37, 36, 0.25);
+  transition: all 0.2s ease;
+  text-decoration: none;
 }
 
 .btnSecondary:hover {
-  background: rgba(255, 45, 149, 0.08);
-  border-color: var(--neon-pink);
-  box-shadow: 0 0 20px rgba(255, 45, 149, 0.2);
-  transform: translateY(-2px);
-  color: var(--neon-pink) !important;
+  background: rgba(38, 37, 36, 0.04);
+  border-color: var(--foreground);
+  color: var(--foreground) !important;
 }
 
 /* Value Props */
@@ -136,21 +121,22 @@
 }
 
 .valuePropIcon {
-  color: var(--neon-cyan);
+  color: var(--charcoal);
   display: flex;
   align-items: center;
 }
 
 .valuePropTitle {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-body);
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--foreground);
   letter-spacing: 0;
 }
 
 .valuePropDesc {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.65;
 }
 
@@ -171,20 +157,21 @@
 }
 
 .statIcon {
-  color: var(--neon-cyan);
+  color: var(--charcoal);
   margin-bottom: 4px;
 }
 
 .statNumber {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-title);
-  font-weight: 800;
-  color: var(--text-primary);
+  font-weight: 600;
+  color: var(--foreground);
 }
 
 .statLabel {
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--text-secondary);
+  color: var(--fog);
   letter-spacing: 1px;
   text-transform: uppercase;
 }
@@ -201,7 +188,7 @@
 
 .sectionSubtitle {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.6;
   max-width: 520px;
   margin: 0 auto 20px;
@@ -224,9 +211,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-body);
-  color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: var(--foreground);
 }
 
 .seeAll {
@@ -237,6 +224,7 @@
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
+  color: var(--charcoal);
 }
 
 .skillGrid {
@@ -248,7 +236,6 @@
 .skillLink {
   text-decoration: none !important;
   color: inherit !important;
-  text-shadow: none !important;
   display: block;
   height: 100%;
 }
@@ -267,16 +254,17 @@
 }
 
 .skillOrg {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--neon-purple);
+  color: var(--charcoal);
   letter-spacing: 1px;
 }
 
 .skillName {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-body);
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--foreground);
   letter-spacing: 0;
 }
 
@@ -285,17 +273,17 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--neon-pink);
-  border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  border: 1px solid var(--mist);
+  border-radius: 0;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xxs);
-  color: var(--neon-pink);
+  color: var(--charcoal);
   width: fit-content;
 }
 
 .skillDesc {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -311,13 +299,13 @@
   justify-content: space-between;
   margin-top: 4px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border);
 }
 
 .skillVersion {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--neon-cyan);
+  color: var(--fog);
 }
 
 /* How it works */
@@ -342,23 +330,22 @@
 }
 
 .stepNumber {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-title);
-  font-weight: 900;
-  color: var(--neon-pink);
-  text-shadow: var(--glow-pink);
+  font-weight: 700;
+  color: var(--stone);
   opacity: 0.6;
 }
 
 .stepTitle {
   font-size: var(--text-body);
-  color: var(--text-primary);
+  color: var(--foreground);
   letter-spacing: 0;
 }
 
 .stepDesc {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.6;
 }
 
@@ -376,19 +363,18 @@
 
 .osToggle {
   display: inline-flex;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 0;
   overflow: hidden;
   margin-bottom: 20px;
 }
 
 .osTab {
   padding: 6px 20px;
-  font-family: 'Rajdhani', sans-serif;
   font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.5px;
-  color: var(--text-muted);
+  color: var(--fog);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -396,12 +382,12 @@
 }
 
 .osTab:not(:last-child) {
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border);
 }
 
 .osTabActive {
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.08);
+  color: var(--foreground);
+  background: var(--cream);
 }
 
 .commandWrapper {
@@ -418,29 +404,29 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-darkest);
-  color: var(--text-muted);
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--paper);
+  color: var(--fog);
   cursor: pointer;
   transition: all 0.2s ease;
   z-index: 1;
 }
 
 .copyBtn:hover {
-  color: var(--neon-cyan);
-  border-color: var(--neon-cyan);
+  color: var(--foreground);
+  border-color: var(--charcoal);
 }
 
 .installAlt {
   margin-top: 14px;
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .installAlt code {
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-cyan);
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--charcoal);
   font-size: var(--text-sm);
 }
 
@@ -473,13 +459,13 @@
 .exampleLabel {
   font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--charcoal);
   margin-bottom: 8px;
   letter-spacing: 0.5px;
 }
 
 .termOutput {
-  color: var(--neon-cyan);
+  color: var(--charcoal);
 }
 
 /* Bottom CTA */
@@ -493,15 +479,16 @@
 }
 
 .bottomCtaTitle {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-heading);
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--foreground);
   margin-bottom: 12px;
 }
 
 .bottomCtaDesc {
   font-size: var(--text-body);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.6;
   max-width: 480px;
   margin: 0 auto 24px;

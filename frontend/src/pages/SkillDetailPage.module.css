@@ -7,6 +7,11 @@
   letter-spacing: 1px;
   text-transform: uppercase;
   margin-bottom: 24px;
+  color: var(--charcoal);
+}
+
+.back:hover {
+  color: var(--foreground);
 }
 
 /* Header */
@@ -23,25 +28,29 @@
 }
 
 .org {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-body);
-  color: var(--neon-purple) !important;
+  color: var(--charcoal) !important;
+}
+
+.org:hover {
+  color: var(--foreground) !important;
 }
 
 .slash {
   font-size: var(--text-lg);
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .name {
+  font-family: 'Newsreader', Georgia, serif;
   font-size: var(--text-title);
-  color: var(--neon-cyan);
-  text-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+  color: var(--foreground);
 }
 
 .desc {
   font-size: var(--text-body);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.6;
   margin-bottom: 12px;
 }
@@ -57,13 +66,13 @@
   align-items: center;
   gap: 4px;
   font-size: var(--text-sm);
-  color: var(--text-muted);
-  font-family: 'Share Tech Mono', monospace;
+  color: var(--fog);
+  font-family: 'IBM Plex Mono', monospace;
   text-decoration: none;
 }
 
 a.metaItem:hover {
-  color: var(--neon-cyan);
+  color: var(--foreground);
 }
 
 .metaRemoved {
@@ -71,10 +80,10 @@ a.metaItem:hover {
   align-items: center;
   gap: 4px;
   font-size: var(--text-sm);
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--neon-orange);
-  border: 1px solid var(--neon-orange);
-  border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--terracotta);
+  border: 1px solid rgba(196, 122, 92, 0.3);
+  border-radius: 0;
   padding: 2px 8px;
 }
 
@@ -108,12 +117,12 @@ a.metaItem:hover {
 }
 
 .sidebarGradeLabel {
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xxs);
   font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .sidebarActions {
@@ -140,26 +149,27 @@ a.metaItem:hover {
   align-items: center;
   gap: 4px;
   font-size: var(--text-xs);
-  color: var(--text-muted);
-  font-family: 'Share Tech Mono', monospace;
+  color: var(--fog);
+  font-family: 'IBM Plex Mono', monospace;
   white-space: nowrap;
 }
 
 .sidebarValue {
   font-size: var(--text-xs);
-  color: var(--text-primary);
-  font-family: 'Share Tech Mono', monospace;
+  color: var(--foreground);
+  font-family: 'IBM Plex Mono', monospace;
   text-align: right;
 }
 
 .sidebarLink {
   font-size: var(--text-xs);
-  color: var(--neon-cyan);
-  font-family: 'Share Tech Mono', monospace;
+  color: var(--charcoal);
+  font-family: 'IBM Plex Mono', monospace;
   text-decoration: none;
 }
 
 .sidebarLink:hover {
+  color: var(--foreground);
   text-decoration: underline;
 }
 
@@ -169,8 +179,8 @@ a.metaItem:hover {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  border-radius: 6px;
-  font-family: 'Share Tech Mono', monospace;
+  border-radius: 0;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -179,27 +189,24 @@ a.metaItem:hover {
 }
 
 .installBtn {
-  color: var(--neon-cyan);
-  background: rgba(0, 240, 255, 0.06);
-  border-color: rgba(0, 240, 255, 0.25);
+  color: var(--cream);
+  background: var(--foreground);
+  border-color: var(--foreground);
 }
 
 .installBtn:hover {
-  background: rgba(0, 240, 255, 0.12);
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+  opacity: 0.85;
 }
 
 .downloadBtn {
-  color: var(--neon-pink);
-  background: rgba(255, 45, 149, 0.06);
-  border-color: rgba(255, 45, 149, 0.25);
+  color: var(--charcoal);
+  background: transparent;
+  border-color: var(--mist);
 }
 
 .downloadBtn:hover:not(:disabled) {
-  background: rgba(255, 45, 149, 0.12);
-  border-color: var(--neon-pink);
-  box-shadow: 0 0 15px rgba(255, 45, 149, 0.2);
+  border-color: var(--charcoal);
+  color: var(--foreground);
 }
 
 .downloadBtn:disabled {
@@ -211,7 +218,7 @@ a.metaItem:hover {
 .tabs {
   display: flex;
   gap: 2px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
 }
 
@@ -223,8 +230,7 @@ a.metaItem:hover {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-family: 'Rajdhani', sans-serif;
+  color: var(--charcoal);
   font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 1px;
@@ -234,14 +240,12 @@ a.metaItem:hover {
 }
 
 .tab:hover {
-  color: var(--text-primary);
-  background: rgba(0, 240, 255, 0.03);
+  color: var(--foreground);
 }
 
 .tabActive {
-  color: var(--neon-cyan) !important;
-  border-bottom-color: var(--neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: var(--foreground) !important;
+  border-bottom-color: var(--foreground);
 }
 
 /* Content */
@@ -254,10 +258,10 @@ a.metaItem:hover {
   to { opacity: 1; }
 }
 
-/* Overview tab — SKILL.md rendered markdown */
+/* Overview tab -- SKILL.md rendered markdown */
 .skillMd {
   font-size: var(--text-body);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.7;
 }
 
@@ -266,15 +270,15 @@ a.metaItem:hover {
 }
 
 .skillMd h1, .skillMd h2, .skillMd h3, .skillMd h4 {
-  color: var(--text-primary);
+  color: var(--foreground);
   margin: 1.5em 0 0.5em;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Newsreader', Georgia, serif;
   font-weight: 700;
   letter-spacing: 0.5px;
 }
 
-.skillMd h1 { font-size: var(--text-heading); color: var(--neon-cyan); }
-.skillMd h2 { font-size: var(--text-lg); border-bottom: 1px solid var(--border-color); padding-bottom: 6px; }
+.skillMd h1 { font-size: var(--text-heading); color: var(--foreground); }
+.skillMd h2 { font-size: var(--text-lg); border-bottom: 1px solid var(--mist); padding-bottom: 6px; }
 .skillMd h3 { font-size: var(--text-body); }
 
 .skillMd p { margin: 0 0 1em; }
@@ -287,19 +291,19 @@ a.metaItem:hover {
 }
 
 .skillMd code {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: 0.85em;
-  color: var(--neon-green);
-  background: var(--bg-dark);
-  border: 1px solid var(--border-color);
-  border-radius: 3px;
+  color: var(--charcoal);
+  background: var(--paper);
+  border: 1px solid var(--mist);
+  border-radius: 0;
   padding: 1px 5px;
 }
 
 .skillMd pre {
-  background: var(--bg-dark);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  background: var(--paper);
+  border: 1px solid var(--mist);
+  border-radius: 0;
   padding: 12px 16px;
   overflow-x: auto;
   margin: 0 0 1em;
@@ -313,18 +317,18 @@ a.metaItem:hover {
 }
 
 .skillMd blockquote {
-  border-left: 3px solid var(--neon-cyan);
+  border-left: 3px solid var(--mist);
   margin: 0 0 1em;
   padding: 4px 16px;
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
-.skillMd a { color: var(--neon-cyan); }
-.skillMd a:hover { text-decoration: underline; }
+.skillMd a { color: var(--charcoal); }
+.skillMd a:hover { text-decoration: underline; color: var(--foreground); }
 
 .skillMd hr {
   border: none;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--mist);
   margin: 1.5em 0;
 }
 
@@ -335,7 +339,7 @@ a.metaItem:hover {
   align-items: center;
   gap: 16px;
   padding: 60px 20px;
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 /* Audit tab */
@@ -364,20 +368,20 @@ a.metaItem:hover {
 }
 
 .auditVersion {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-sm);
-  color: var(--neon-cyan);
+  color: var(--foreground);
 }
 
 .auditPublisher {
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .auditDate {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--fog);
 }
 
 .auditChecks {
@@ -385,12 +389,12 @@ a.metaItem:hover {
 }
 
 .auditCheckTitle {
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xxs);
   font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--fog);
   margin-bottom: 6px;
 }
 
@@ -405,9 +409,9 @@ a.metaItem:hover {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border-radius: 4px;
-  background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  border-radius: 0;
+  background: var(--paper);
+  border: 1px solid var(--mist);
   overflow: hidden;
   cursor: pointer;
 }
@@ -423,21 +427,20 @@ a.metaItem:hover {
 }
 
 .checkName {
-  font-family: 'Orbitron', sans-serif;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xxs);
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
   white-space: nowrap;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 0;
   border: 1px solid;
 }
 
 .checkMessage {
-  font-family: 'Rajdhani', sans-serif;
   font-size: var(--text-xs);
-  color: var(--text-secondary);
+  color: var(--charcoal);
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -452,54 +455,54 @@ a.metaItem:hover {
 
 /* Severity variants */
 .severityPass {
-  border-color: rgba(57, 255, 20, 0.15);
+  border-color: rgba(122, 139, 110, 0.2);
 }
 
 .severityPass .checkIcon {
-  color: var(--neon-green);
+  color: var(--olive);
 }
 
 .severityPass .checkName {
-  color: var(--neon-green);
-  border-color: rgba(57, 255, 20, 0.3);
-  background: rgba(57, 255, 20, 0.08);
+  color: var(--olive);
+  border-color: rgba(122, 139, 110, 0.3);
+  background: rgba(122, 139, 110, 0.08);
 }
 
 .severityFail {
-  border-color: rgba(255, 45, 149, 0.15);
+  border-color: rgba(185, 28, 28, 0.15);
 }
 
 .severityFail .checkIcon {
-  color: var(--neon-pink);
+  color: var(--destructive);
 }
 
 .severityFail .checkName {
-  color: var(--neon-pink);
-  border-color: rgba(255, 45, 149, 0.3);
-  background: rgba(255, 45, 149, 0.08);
+  color: var(--destructive);
+  border-color: rgba(185, 28, 28, 0.3);
+  background: rgba(185, 28, 28, 0.08);
 }
 
 .severityWarn {
-  border-color: rgba(255, 230, 0, 0.15);
+  border-color: rgba(196, 122, 92, 0.2);
 }
 
 .severityWarn .checkIcon {
-  color: var(--neon-yellow);
+  color: var(--terracotta);
 }
 
 .severityWarn .checkName {
-  color: var(--neon-yellow);
-  border-color: rgba(255, 230, 0, 0.3);
-  background: rgba(255, 230, 0, 0.08);
+  color: var(--terracotta);
+  border-color: rgba(196, 122, 92, 0.3);
+  background: rgba(196, 122, 92, 0.08);
 }
 
 .auditQuarantine {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: var(--text-xs);
-  color: var(--neon-pink);
+  color: var(--destructive);
   padding: 4px 8px;
-  background: rgba(255, 45, 149, 0.08);
-  border-radius: 4px;
+  background: rgba(185, 28, 28, 0.06);
+  border-radius: 0;
   align-self: flex-start;
 }
 
