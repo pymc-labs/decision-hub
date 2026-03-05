@@ -107,14 +107,37 @@ export default function Layout() {
 
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
-          <span className={styles.footerGlow}>DECISION HUB</span>
-          <div className={styles.footerLinks}>
-            <a href="https://www.pymc-labs.com" target="_blank" rel="noopener noreferrer">
-              PyMC Labs
-            </a>
-            <Link to="/terms">Terms</Link>
-            <Link to="/privacy">Privacy</Link>
+          <div className={styles.footerBrand}>
+            <span className={styles.footerGlow}>DECISION HUB</span>
+            <p className={styles.footerTagline}>
+              The open registry for AI agent skills. Discover, evaluate, and publish reusable skill manifests for any AI coding agent.
+            </p>
           </div>
+          <div className={styles.footerColumns}>
+            <div className={styles.footerColumn}>
+              <h4 className={styles.footerColumnTitle}>Product</h4>
+              <Link to="/skills">Skills</Link>
+              <Link to="/orgs">Organizations</Link>
+              <Link to="/how-it-works">How It Works</Link>
+            </div>
+            <div className={styles.footerColumn}>
+              <h4 className={styles.footerColumnTitle}>Resources</h4>
+              <a href="https://github.com/pymc-labs/decision-hub" target="_blank" rel="noopener noreferrer">
+                GitHub
+              </a>
+              <a href="https://www.pymc-labs.com" target="_blank" rel="noopener noreferrer">
+                PyMC Labs
+              </a>
+            </div>
+            <div className={styles.footerColumn}>
+              <h4 className={styles.footerColumnTitle}>Legal</h4>
+              <Link to="/terms">Terms</Link>
+              <Link to="/privacy">Privacy</Link>
+            </div>
+          </div>
+        </div>
+        <div className={styles.footerBottom}>
+          <span>&copy; 2026 PyMC Labs. All rights reserved.</span>
         </div>
       </footer>
 
