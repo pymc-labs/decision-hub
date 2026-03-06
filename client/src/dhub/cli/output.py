@@ -7,7 +7,7 @@ for emitting machine-readable JSON to stdout/stderr.
 import json
 import sys
 from enum import StrEnum
-from typing import Any
+from typing import Any, NoReturn
 
 
 class OutputFormat(StrEnum):
@@ -54,7 +54,7 @@ class ErrorCode(StrEnum):
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
 
 
-def exit_error(code: ErrorCode, message: str, *, status: int | None = None) -> None:
+def exit_error(code: ErrorCode, message: str, *, status: int | None = None) -> NoReturn:
     """Print an error and raise typer.Exit(1).
 
     In JSON mode: writes structured JSON to stderr.
