@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlalchemy.engine import Connection
 
-from decision_hub.api.deps import get_connection
+from decision_hub.api.deps import get_cache, get_connection, get_settings
+from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import organizations_table, skills_table
+from decision_hub.settings import Settings
 
 router = APIRouter(tags=["seo"])
 
@@ -17,8 +19,17 @@ _BASE_URL = "https://hub.decision.ai"
 
 
 @router.get("/sitemap.xml", include_in_schema=False)
-def sitemap_xml(conn: Connection = Depends(get_connection)) -> Response:
+def sitemap_xml(
+    conn: Connection = Depends(get_connection),
+    cache: TTLCache = Depends(get_cache),
+    settings: Settings = Depends(get_settings),
+) -> Response:
     """Generate a dynamic XML sitemap with all public skills and orgs."""
+    ttl = settings.cache_ttl_sitemap
+    cached = cache.get("sitemap_xml") if ttl else None
+    if cached is not None:
+        return cached
+
     today = datetime.now(UTC).strftime("%Y-%m-%d")
 
     urls: list[tuple[str, str, str]] = [
@@ -81,7 +92,11 @@ def sitemap_xml(conn: Connection = Depends(get_connection)) -> Response:
     lines.append("</urlset>")
 
     xml = "\n".join(lines)
-    return Response(content=xml, media_type="application/xml")
+    headers = {"Cache-Control": f"public, max-age={ttl}"} if ttl else {}
+    result = Response(content=xml, media_type="application/xml", headers=headers)
+    if ttl:
+        cache.set("sitemap_xml", result, ttl=ttl)
+    return result
 
 
 _PROD_HOSTS = {"hub.decision.ai", "decisionhub.dev"}

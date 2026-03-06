@@ -16,7 +16,9 @@ from decision_hub.api.keys_routes import router as keys_router
 from decision_hub.api.org_routes import org_public_router, org_router
 from decision_hub.api.registry_routes import public_router as registry_public_router
 from decision_hub.api.registry_routes import router as registry_router
+from decision_hub.api.taxonomy_routes import public_router as taxonomy_public_router
 from decision_hub.domain.auth import create_jwt
+from decision_hub.infra.cache import TTLCache
 
 
 @pytest.fixture
@@ -48,6 +50,13 @@ def test_settings() -> MagicMock:
     settings.publish_rate_window = 60
     settings.auth_rate_limit = 10
     settings.auth_rate_window = 60
+    # Cache TTLs
+    settings.cache_ttl_taxonomy = 300
+    settings.cache_ttl_org_profiles = 60
+    settings.cache_ttl_org_stats = 60
+    settings.cache_ttl_skill_list = 30
+    settings.cache_ttl_stats = 60
+    settings.cache_ttl_sitemap = 300
     return settings
 
 
@@ -59,6 +68,7 @@ def test_app(test_settings: MagicMock) -> FastAPI:
     app.state.settings = test_settings
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
+    app.state.cache = TTLCache(default_ttl=60)
 
     @app.middleware("http")
     async def check_cli_version(request: Request, call_next):
@@ -89,6 +99,7 @@ def test_app(test_settings: MagicMock) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(org_public_router)
     app.include_router(registry_public_router)
+    app.include_router(taxonomy_public_router)
 
     # Mirror production app.py: write routers get unconditional auth deps
     # as defense-in-depth alongside per-endpoint Depends(get_current_user).

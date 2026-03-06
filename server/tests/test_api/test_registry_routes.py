@@ -1,8 +1,6 @@
 """Tests for decision_hub.api.registry_routes -- publish, resolve, and delete endpoints."""
 
-import io
 import json
-import zipfile
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
@@ -10,24 +8,26 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from decision_hub.models import Organization, OrgMember, Skill, Version
+from tests.factories import DEFAULT_USER_ID, make_member, make_org, make_skill, make_version
+from tests.helpers import make_skill_zip
 
 # ---------------------------------------------------------------------------
 # Shared test data helpers
 # ---------------------------------------------------------------------------
 
-SAMPLE_USER_ID = UUID("12345678-1234-5678-1234-567812345678")
+SAMPLE_USER_ID = DEFAULT_USER_ID
 
 
 def _make_org(owner_id: UUID = SAMPLE_USER_ID) -> Organization:
-    return Organization(id=uuid4(), slug="test-org", owner_id=owner_id)
+    return make_org(owner_id=owner_id)
 
 
 def _make_member(org: Organization, user_id: UUID = SAMPLE_USER_ID) -> OrgMember:
-    return OrgMember(org_id=org.id, user_id=user_id, role="owner")
+    return make_member(org, user_id=user_id)
 
 
 def _make_skill(org: Organization, name: str = "my-skill", description: str = "A test skill") -> Skill:
-    return Skill(id=uuid4(), org_id=org.id, name=name, description=description)
+    return make_skill(org, name=name, description=description)
 
 
 def _make_version(
@@ -36,17 +36,7 @@ def _make_version(
     published_by: str = "testuser",
     eval_status: str = "A",
 ) -> Version:
-    return Version(
-        id=uuid4(),
-        skill_id=skill.id,
-        semver=semver,
-        s3_key=f"skills/test-org/{skill.name}/{semver}.zip",
-        checksum="abc123def456",
-        runtime_config=None,
-        eval_status=eval_status,
-        created_at=None,
-        published_by=published_by,
-    )
+    return make_version(skill, semver=semver, published_by=published_by, eval_status=eval_status)
 
 
 def _make_skill_zip(
@@ -55,14 +45,7 @@ def _make_skill_zip(
     lockfile: str | None = None,
 ) -> bytes:
     """Create an in-memory zip archive with SKILL.md and optional files."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("SKILL.md", skill_md)
-        for name, content in (sources or {}).items():
-            zf.writestr(name, content)
-        if lockfile is not None:
-            zf.writestr("requirements.txt", lockfile)
-    return buf.getvalue()
+    return make_skill_zip(skill_md=skill_md, sources=sources, lockfile=lockfile)
 
 
 def _publish_request(
@@ -568,6 +551,101 @@ class TestPublishSkill:
 
         assert resp.status_code == 409
         assert "already exists" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_service.find_org_member")
+    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    def test_publish_non_zip_bytes_returns_422(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+        test_settings: MagicMock,
+    ) -> None:
+        """Uploading non-zip bytes should return 422, not 500 (BadZipFile handling)."""
+        test_settings.google_api_key = "test-key"
+        org = _make_org(sample_user_id)
+        mock_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+
+        # Send garbage bytes that are not a valid zip archive
+        garbage_bytes = b"this is definitely not a zip file"
+        resp = _publish_request(client, auth_headers, zip_bytes=garbage_bytes)
+
+        assert resp.status_code == 422
+
+    @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
+    @patch("decision_hub.api.registry_routes.insert_audit_log")
+    @patch("decision_hub.api.registry_routes.update_skill_category")
+    @patch("decision_hub.api.registry_routes.update_skill_description")
+    @patch("decision_hub.api.registry_routes.insert_version")
+    @patch("decision_hub.api.registry_routes.find_version")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.api.registry_routes.compute_checksum")
+    @patch("decision_hub.api.registry_service.find_org_member")
+    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    def test_publish_simultaneous_duplicate_one_succeeds_one_409(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        mock_checksum: MagicMock,
+        mock_upload: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_version: MagicMock,
+        mock_insert_version: MagicMock,
+        mock_update_desc: MagicMock,
+        mock_update_cat: MagicMock,
+        mock_insert_audit: MagicMock,
+        _mock_analyze_fn: MagicMock,
+        _mock_prompt_fn: MagicMock,
+        _mock_review_body: MagicMock,
+        _mock_review_code: MagicMock,
+        _mock_classify: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+        test_settings: MagicMock,
+    ) -> None:
+        """Two publishes of same org/skill/version: first succeeds, second gets 409.
+
+        Simulates a race where both pass the find_version check (returns None)
+        but the second insert hits a unique constraint violation.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        test_settings.google_api_key = "test-key"
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org)
+        version = _make_version(skill)
+
+        mock_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_checksum.return_value = "abc123def456"
+        mock_find_skill.return_value = skill
+        mock_find_version.return_value = None
+
+        # First call succeeds, second raises IntegrityError
+        mock_insert_version.side_effect = [
+            version,
+            IntegrityError("duplicate", params=None, orig=Exception()),
+        ]
+
+        zip_bytes = _make_skill_zip()
+
+        # First publish succeeds
+        resp1 = _publish_request(client, auth_headers, zip_bytes=zip_bytes)
+        assert resp1.status_code == 201
+
+        # Second publish hits the unique constraint -> 409
+        resp2 = _publish_request(client, auth_headers, zip_bytes=zip_bytes)
+        assert resp2.status_code == 409
+        assert "already exists" in resp2.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

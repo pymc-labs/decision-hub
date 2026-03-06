@@ -8,11 +8,24 @@ from dhub_core.validation import FIRST_VERSION, validate_semver, validate_skill_
 class TestValidateSemver:
     """validate_semver accepts valid semver and rejects invalid."""
 
-    @pytest.mark.parametrize("version", ["0.1.0", "1.0.0", "12.34.56"])
+    @pytest.mark.parametrize("version", ["0.0.0", "0.0.1", "0.1.0", "1.0.0", "12.34.56", "999.999.999"])
     def test_valid(self, version: str) -> None:
         assert validate_semver(version) == version
 
-    @pytest.mark.parametrize("version", ["", "1.0", "1.0.0.0", "v1.0.0", "01.0.0", "abc"])
+    @pytest.mark.parametrize(
+        "version",
+        [
+            "",
+            "1.0",
+            "1.0.0.0",
+            "v1.0.0",
+            "01.0.0",
+            "0.01.0",
+            "0.0.01",
+            "1.0.0-beta",
+            "abc",
+        ],
+    )
     def test_invalid(self, version: str) -> None:
         with pytest.raises(ValueError, match="Invalid semver"):
             validate_semver(version)
@@ -21,11 +34,14 @@ class TestValidateSemver:
 class TestValidateSkillName:
     """validate_skill_name accepts valid names and rejects invalid."""
 
-    @pytest.mark.parametrize("name", ["a", "my-skill", "a1", "abc-def-ghi"])
+    @pytest.mark.parametrize("name", ["a", "my-skill", "a1", "skill123", "abc-def-ghi", "a" * 64])
     def test_valid(self, name: str) -> None:
         assert validate_skill_name(name) == name
 
-    @pytest.mark.parametrize("name", ["", "-leading", "trailing-", "UPPER", "has space", "a" * 65])
+    @pytest.mark.parametrize(
+        "name",
+        ["", "-leading", "trailing-", "UPPER", "has space", "under_score", "a" * 65],
+    )
     def test_invalid(self, name: str) -> None:
         with pytest.raises(ValueError, match="Invalid skill name"):
             validate_skill_name(name)

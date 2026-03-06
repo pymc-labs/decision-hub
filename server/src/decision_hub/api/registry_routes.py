@@ -2,6 +2,7 @@
 
 import json
 import math
+import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -369,7 +370,9 @@ _STALE_HEARTBEAT_SECONDS = 300
 # would block the event loop during synchronous DB/S3/gauntlet calls and
 # also requires ``await zip_file.read()`` which deadlocks under
 # BaseHTTPMiddleware (see CLIVersionMiddleware docstring in app.py).
-@router.post("/publish", response_model=PublishResponse, status_code=201, dependencies=[Depends(_enforce_publish_rate_limit)])
+@router.post(
+    "/publish", response_model=PublishResponse, status_code=201, dependencies=[Depends(_enforce_publish_rate_limit)]
+)
 def publish_skill(
     metadata: str = Form(...),
     zip_file: UploadFile = File(...),
@@ -427,7 +430,7 @@ def publish_skill(
 
     try:
         skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(file_bytes)
-    except ValueError as exc:
+    except (ValueError, zipfile.BadZipFile) as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
