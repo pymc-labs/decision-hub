@@ -2880,6 +2880,36 @@ def _escape_like(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def fetch_skill_names_by_source_repo(conn: Connection, org_slug: str, source_repo_url: str) -> set[str]:
+    """Return skill names for a given org and source repo that are not yet marked as removed."""
+    stmt = (
+        sa.select(skills_table.c.name)
+        .select_from(skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id))
+        .where(
+            organizations_table.c.slug == org_slug,
+            skills_table.c.source_repo_url == source_repo_url,
+            skills_table.c.source_repo_removed == sa.false(),
+        )
+    )
+    return {row.name for row in conn.execute(stmt)}
+
+
+def mark_skills_removed_by_name(conn: Connection, org_slug: str, skill_names: set[str]) -> int:
+    """Mark specific skills as removed from their source repo."""
+    if not skill_names:
+        return 0
+    stmt = (
+        sa.update(skills_table)
+        .where(
+            skills_table.c.org_id
+            == sa.select(organizations_table.c.id).where(organizations_table.c.slug == org_slug).scalar_subquery(),
+            skills_table.c.name.in_(skill_names),
+        )
+        .values(source_repo_removed=True)
+    )
+    return conn.execute(stmt).rowcount
+
+
 def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
     """Set source_repo_removed=True for skills matching any repo URL.
 
