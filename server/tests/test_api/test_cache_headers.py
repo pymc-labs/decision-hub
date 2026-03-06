@@ -17,7 +17,7 @@ class TestTaxonomyCacheHeaders:
 
 
 class TestRegistryStatsCacheHeaders:
-    """GET /v1/stats -- Cache-Control header + in-memory cache."""
+    """GET /v1/stats -- Cache-Control header (no in-memory cache)."""
 
     @patch("decision_hub.api.registry_routes.fetch_registry_stats")
     def test_returns_cache_control_header(
@@ -31,20 +31,6 @@ class TestRegistryStatsCacheHeaders:
         assert "Cache-Control" in resp.headers
         assert "public" in resp.headers["Cache-Control"]
         assert "max-age=60" in resp.headers["Cache-Control"]
-
-    @patch("decision_hub.api.registry_routes.fetch_registry_stats")
-    def test_in_memory_cache_avoids_repeated_db_call(
-        self,
-        mock_fetch: MagicMock,
-        client: TestClient,
-    ) -> None:
-        mock_fetch.return_value = {"total_skills": 10, "total_orgs": 3, "total_downloads": 100}
-        resp1 = client.get("/v1/stats")
-        resp2 = client.get("/v1/stats")
-        assert resp1.status_code == 200
-        assert resp2.status_code == 200
-        # DB function should only be called once — second hit is from cache
-        assert mock_fetch.call_count == 1
 
 
 class TestOrgProfilesCacheHeaders:
@@ -117,51 +103,3 @@ class TestOrgStatsCacheHeaders:
         client.get("/v1/orgs/stats?sort=skill_count")
         # Different query params should result in separate cache entries
         assert mock_fetch.call_count == 2
-
-
-class TestSkillListCacheHeaders:
-    """GET /v1/skills -- Cache-Control for anonymous requests only."""
-
-    @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
-    def test_anonymous_request_has_cache_control(
-        self,
-        mock_fetch: MagicMock,
-        client: TestClient,
-    ) -> None:
-        mock_fetch.return_value = ([], 0)
-        resp = client.get("/v1/skills")
-        assert resp.status_code == 200
-        assert "Cache-Control" in resp.headers
-        assert "public" in resp.headers["Cache-Control"]
-        assert "max-age=30" in resp.headers["Cache-Control"]
-
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
-    @patch("decision_hub.api.registry_routes.list_granted_skill_ids")
-    @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
-    def test_authenticated_request_has_no_cache_control(
-        self,
-        mock_fetch: MagicMock,
-        mock_granted: MagicMock,
-        mock_org_ids: MagicMock,
-        client: TestClient,
-        auth_headers: dict[str, str],
-    ) -> None:
-        mock_fetch.return_value = ([], 0)
-        mock_org_ids.return_value = []
-        mock_granted.return_value = []
-        resp = client.get("/v1/skills", headers=auth_headers)
-        assert resp.status_code == 200
-        assert "Cache-Control" not in resp.headers
-
-    @patch("decision_hub.api.registry_routes.fetch_all_skills_for_index")
-    def test_anonymous_in_memory_cache_avoids_repeated_db_call(
-        self,
-        mock_fetch: MagicMock,
-        client: TestClient,
-    ) -> None:
-        mock_fetch.return_value = ([], 0)
-        resp1 = client.get("/v1/skills")
-        resp2 = client.get("/v1/skills")
-        assert resp1.status_code == 200
-        assert resp2.status_code == 200
-        assert mock_fetch.call_count == 1
