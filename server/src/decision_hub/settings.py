@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     resolve_plugin_rate_window: int = 60  # window in seconds
     publish_plugin_rate_limit: int = 10  # max requests per window
     publish_plugin_rate_window: int = 60  # window in seconds
+    plugin_detail_rate_limit: int = 120  # max requests per window
+    plugin_detail_rate_window: int = 60  # window in seconds
+    plugin_versions_rate_limit: int = 120  # max requests per window
+    plugin_versions_rate_window: int = 60  # window in seconds
+    plugin_audit_rate_limit: int = 30  # max requests per window
+    plugin_audit_rate_window: int = 60  # window in seconds
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

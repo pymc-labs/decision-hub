@@ -28,7 +28,6 @@ from decision_hub.infra.database import (
     fetch_paginated_plugins,
     find_plugin_audit_logs,
     find_plugin_by_slug,
-    has_active_tracker_for_repo,
     increment_plugin_downloads,
     list_plugin_versions,
     resolve_plugin_version,
@@ -36,6 +35,7 @@ from decision_hub.infra.database import (
 from decision_hub.infra.storage import compute_checksum, generate_presigned_url
 from decision_hub.models import User
 from decision_hub.settings import Settings
+from dhub_core.validation import validate_skill_name
 
 # ---------------------------------------------------------------------------
 # Response models
@@ -156,6 +156,42 @@ def _enforce_publish_plugin_rate_limit(request: Request) -> None:
     state._publish_plugin_rate_limiter(request)
 
 
+def _enforce_plugin_detail_rate_limit(request: Request) -> None:
+    """Rate-limit the plugin detail endpoint."""
+    state = request.app.state
+    if not hasattr(state, "_plugin_detail_rate_limiter"):
+        settings: Settings = state.settings
+        state._plugin_detail_rate_limiter = RateLimiter(
+            max_requests=settings.plugin_detail_rate_limit,
+            window_seconds=settings.plugin_detail_rate_window,
+        )
+    state._plugin_detail_rate_limiter(request)
+
+
+def _enforce_plugin_versions_rate_limit(request: Request) -> None:
+    """Rate-limit the plugin versions endpoint."""
+    state = request.app.state
+    if not hasattr(state, "_plugin_versions_rate_limiter"):
+        settings: Settings = state.settings
+        state._plugin_versions_rate_limiter = RateLimiter(
+            max_requests=settings.plugin_versions_rate_limit,
+            window_seconds=settings.plugin_versions_rate_window,
+        )
+    state._plugin_versions_rate_limiter(request)
+
+
+def _enforce_plugin_audit_rate_limit(request: Request) -> None:
+    """Rate-limit the plugin audit endpoint."""
+    state = request.app.state
+    if not hasattr(state, "_plugin_audit_rate_limiter"):
+        settings: Settings = state.settings
+        state._plugin_audit_rate_limiter = RateLimiter(
+            max_requests=settings.plugin_audit_rate_limit,
+            window_seconds=settings.plugin_audit_rate_window,
+        )
+    state._plugin_audit_rate_limiter(request)
+
+
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
@@ -220,11 +256,7 @@ def list_plugins(
             source_repo_url=row.get("source_repo_url"),
             github_stars=row.get("github_stars"),
             github_license=row.get("github_license"),
-            is_auto_synced=(
-                bool(row.get("source_repo_url") and has_active_tracker_for_repo(conn, row["source_repo_url"]))
-                if row.get("source_repo_url")
-                else False
-            ),
+            is_auto_synced=bool(row.get("has_tracker", False)),
         )
         for row in rows
     ]
@@ -239,6 +271,7 @@ def list_plugins(
 
 @public_router.get(
     "/{org_slug}/{plugin_name}",
+    dependencies=[Depends(_enforce_plugin_detail_rate_limit)],
 )
 def get_plugin_detail(
     org_slug: str,
@@ -316,6 +349,7 @@ def resolve_plugin(
 @public_router.get(
     "/{org_slug}/{plugin_name}/versions",
     response_model=list[PluginVersionResponse],
+    dependencies=[Depends(_enforce_plugin_versions_rate_limit)],
 )
 def get_plugin_versions(
     org_slug: str,
@@ -343,6 +377,7 @@ def get_plugin_versions(
 @public_router.get(
     "/{org_slug}/{plugin_name}/audit",
     response_model=list[PluginAuditEntry],
+    dependencies=[Depends(_enforce_plugin_audit_rate_limit)],
 )
 def get_plugin_audit_log(
     org_slug: str,
@@ -403,6 +438,11 @@ def publish_plugin(
     plugin_name = meta["plugin_name"]
     version = meta["version"]
     source_repo_url = meta.get("source_repo_url")
+
+    try:
+        validate_skill_name(plugin_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         validate_semver(version)
