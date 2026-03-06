@@ -290,6 +290,10 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
             <div className={styles.cardRemoved}>Removed from GitHub</div>
           )}
 
+          {!skill.source_repo_removed && skill.github_is_archived && (
+            <div className={styles.cardArchived}>Archived on GitHub</div>
+          )}
+
           <p className={styles.cardDesc}>{skill.description}</p>
 
           <div className={styles.cardFooter}>

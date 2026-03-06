@@ -101,6 +101,8 @@ def _run_retrieval(
             github_stars=row.get("github_stars"),
             github_forks=row.get("github_forks"),
             github_license=row.get("github_license"),
+            source_repo_removed=row.get("source_repo_removed", False),
+            github_is_archived=row.get("github_is_archived"),
         )
         for row in candidates
     )

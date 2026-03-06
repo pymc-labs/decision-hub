@@ -244,6 +244,20 @@
   width: fit-content;
 }
 
+/* Archived on GitHub badge – same style as removed, different color */
+.cardArchived {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--neon-orange);
+  border-radius: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--text-xxs);
+  color: var(--neon-orange);
+  width: fit-content;
+}
+
 /* View toggle */
 .viewToggle {
   display: flex;

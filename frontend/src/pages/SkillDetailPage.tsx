@@ -399,6 +399,11 @@ export default function SkillDetailPage() {
                   <span className={styles.metaRemoved}>Removed from GitHub</span>
                 </div>
               )}
+              {!skill.source_repo_removed && skill.github_is_archived && (
+                <div className={styles.sidebarRow}>
+                  <span className={styles.metaArchived}>Archived on GitHub</span>
+                </div>
+              )}
             </div>
           </NeonCard>
 

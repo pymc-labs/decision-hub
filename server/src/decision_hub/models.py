@@ -317,3 +317,4 @@ class SkillIndexEntry:
     github_stars: int | None = None
     github_forks: int | None = None
     github_license: str | None = None
+    source_status: str = "active"

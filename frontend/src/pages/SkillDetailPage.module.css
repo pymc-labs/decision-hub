@@ -78,6 +78,18 @@ a.metaItem:hover {
   padding: 2px 8px;
 }
 
+.metaArchived {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-sm);
+  font-family: 'Share Tech Mono', monospace;
+  color: var(--neon-orange);
+  border: 1px solid var(--neon-orange);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
 /* Two-column layout */
 .pageBody {
   display: grid;

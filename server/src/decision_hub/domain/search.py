@@ -19,6 +19,8 @@ def build_index_entry(
     github_stars: int | None = None,
     github_forks: int | None = None,
     github_license: str | None = None,
+    source_repo_removed: bool = False,
+    github_is_archived: bool | None = None,
 ) -> SkillIndexEntry:
     """Create a search index entry from skill metadata.
 
@@ -36,10 +38,13 @@ def build_index_entry(
         github_stars: Number of GitHub stars on the source repository.
         github_forks: Number of GitHub forks on the source repository.
         github_license: SPDX license identifier from the source repository.
+        source_repo_removed: Whether the source repo has been removed.
+        github_is_archived: Whether the source repo is archived on GitHub.
 
     Returns:
         A SkillIndexEntry with a computed trust score.
     """
+    source_status = "removed" if source_repo_removed else "archived" if github_is_archived else "active"
     return SkillIndexEntry(
         org_slug=org_slug,
         skill_name=skill_name,
@@ -55,6 +60,7 @@ def build_index_entry(
         github_stars=github_stars,
         github_forks=github_forks,
         github_license=github_license,
+        source_status=source_status,
     )
 
 
@@ -109,6 +115,8 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
             "category": entry.category,
             "downloads": entry.download_count,
         }
+        if entry.source_status != "active":
+            obj["source_status"] = entry.source_status
         if entry.source_repo_url:
             obj["source_repo_url"] = entry.source_repo_url
         if entry.gauntlet_summary:
