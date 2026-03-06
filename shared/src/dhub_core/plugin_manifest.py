@@ -133,7 +133,10 @@ def _discover_hooks(root: Path) -> tuple[PluginHookRef, ...]:
 
     seen: set[tuple[str, str]] = set()
     for hooks_file in hooks_files:
-        data = json.loads(hooks_file.read_text())
+        try:
+            data = json.loads(hooks_file.read_text())
+        except (json.JSONDecodeError, ValueError):
+            continue
         hooks_map = data.get("hooks", {})
         for event, hook_entries in hooks_map.items():
             for entry in hook_entries:
@@ -194,8 +197,11 @@ def parse_plugin_manifest(root: Path) -> PluginManifest:
 
     keywords_raw = data.get("keywords", [])
 
+    name = data.get("name")
+    if not name:
+        raise ValueError("plugin.json missing required 'name' field")
     return PluginManifest(
-        name=data["name"],
+        name=name,
         description=data.get("description", ""),
         version=data.get("version", "0.0.0"),
         author_name=author_name,
