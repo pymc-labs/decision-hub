@@ -2797,6 +2797,7 @@ def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
         last_checked_at=row.last_checked_at,
         last_published_at=row.last_published_at,
         last_error=row.last_error,
+        kind=row.kind,
         next_check_at=row.next_check_at,
         created_at=row.created_at,
     )
@@ -2864,6 +2865,23 @@ def has_active_tracker_for_repo(conn: Connection, repo_url: str) -> bool:
         )
     )
     return conn.execute(stmt).first() is not None
+
+
+def disable_skill_trackers_for_repo(conn: Connection, repo_url: str) -> int:
+    """Disable skill-kind trackers for a repo URL (used when plugin tracker created)."""
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == repo_url,
+                skill_trackers_table.c.kind == "skill",
+                skill_trackers_table.c.enabled == True,  # noqa: E712
+            )
+        )
+        .values(enabled=False)
+    )
+    result = conn.execute(stmt)
+    return result.rowcount
 
 
 def find_skill_tracker(conn: Connection, tracker_id: UUID) -> SkillTracker | None:
