@@ -30,11 +30,28 @@ def main(
         callback=_version_callback,
         is_eager=True,
     ),
+    output: str = typer.Option(
+        "text",
+        "--output",
+        help="Output format: 'text' or 'json'.",
+    ),
 ) -> None:
     """Decision Hub - The AI Skill Manager for Data Science Agents."""
-    from dhub.cli.version_check import show_update_notice
+    from dhub.cli.output import OutputFormat, set_format
 
-    show_update_notice(Console(stderr=True))
+    try:
+        fmt = OutputFormat(output)
+    except ValueError:
+        raise typer.BadParameter(
+            f"Invalid output format '{output}'. Must be 'text' or 'json'.",
+            param_hint="'--output'",
+        )
+    set_format(fmt)
+
+    if output == "text":
+        from dhub.cli.version_check import show_update_notice
+
+        show_update_notice(Console(stderr=True))
 
 
 # Register top-level commands
