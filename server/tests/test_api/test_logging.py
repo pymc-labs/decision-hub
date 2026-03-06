@@ -45,6 +45,56 @@ class TestSetupLogging:
                 assert "level" in parsed
                 assert "message" in parsed
 
+    def test_json_sink_preserves_zero_valued_fields(self):
+        """Falsy values like 0 should still appear in JSON output."""
+        buf = StringIO()
+        with patch("decision_hub.logging.sys") as mock_sys:
+            mock_sys.stderr = buf
+            setup_logging("DEBUG", log_format="json")
+            with logger.contextualize(request_id="test1234", response_size=0):
+                logger.info("zero body")
+
+        lines = [line for line in buf.getvalue().strip().split("\n") if line]
+        assert len(lines) >= 1
+        parsed = json.loads(lines[-1])
+        assert parsed["response_size"] == 0
+        assert parsed["request_id"] == "test1234"
+
+    def test_json_sink_formats_exception_traceback(self):
+        """Exception should be formatted as a readable traceback string."""
+        buf = StringIO()
+        with patch("decision_hub.logging.sys") as mock_sys:
+            mock_sys.stderr = buf
+            setup_logging("DEBUG", log_format="json")
+            try:
+                raise ValueError("test error")
+            except ValueError:
+                logger.opt(exception=True).error("something failed")
+
+        lines = [line for line in buf.getvalue().strip().split("\n") if line]
+        # Find the line with the exception
+        exc_line = None
+        for line in lines:
+            parsed = json.loads(line)
+            if "exception" in parsed:
+                exc_line = parsed
+                break
+        assert exc_line is not None, "No JSON line with 'exception' key found"
+        assert "ValueError" in exc_line["exception"]
+        assert "test error" in exc_line["exception"]
+        assert "Traceback" in exc_line["exception"]
+
+
+def _extract_org_skill(path: str) -> tuple[str, str]:
+    """Helper to extract org_slug/skill_name from a path using the regex,
+    mirroring the logic in RequestLoggingMiddleware."""
+    m = _PATH_CONTEXT_RE.search(path)
+    if not m:
+        return ("", "")
+    org = m.group("org") or m.group("org2") or ""
+    skill = m.group("skill") or m.group("skill2") or ""
+    return (org, skill)
+
 
 class TestPathContextRegex:
     @pytest.mark.parametrize(
@@ -57,18 +107,24 @@ class TestPathContextRegex:
         ],
     )
     def test_extracts_org_and_skill(self, path, expected_org, expected_skill):
-        m = _PATH_CONTEXT_RE.search(path)
-        assert m is not None
-        assert m.group("org") == expected_org
-        assert m.group("skill") == expected_skill
+        org, skill = _extract_org_skill(path)
+        assert org == expected_org
+        assert skill == expected_skill
 
     @pytest.mark.parametrize(
         "path",
-        ["/health", "/cli/latest-version", "/v1/ask"],
+        [
+            "/health",
+            "/cli/latest-version",
+            "/v1/ask",
+            "/v1/orgs/acme/profile",
+            "/v1/orgs/acme/members",
+        ],
     )
     def test_no_match_on_unrelated_paths(self, path):
-        m = _PATH_CONTEXT_RE.search(path)
-        assert m is None
+        org, skill = _extract_org_skill(path)
+        assert org == ""
+        assert skill == ""
 
 
 class TestExtractUsernameFromJwt:

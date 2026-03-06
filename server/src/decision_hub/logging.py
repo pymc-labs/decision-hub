@@ -11,6 +11,7 @@ import logging
 import re
 import sys
 import time
+import traceback
 import uuid
 
 from loguru import logger
@@ -72,10 +73,11 @@ def _json_sink(message) -> None:
     }
     # Include bound context fields (request_id, user, org_slug, etc.)
     for key in ("request_id", "user", "org_slug", "skill_name", "response_size"):
-        if extra.get(key):
+        if key in extra:
             entry[key] = extra[key]
     if record["exception"]:
-        entry["exception"] = str(record["exception"])
+        exc_type, exc_value, exc_tb = record["exception"]
+        entry["exception"] = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
     sys.stderr.write(json.dumps(entry, default=str) + "\n")
     sys.stderr.flush()
 
@@ -121,7 +123,11 @@ def setup_logging(level: str = "INFO", log_format: str = "text") -> None:
 
 # Pattern to extract org_slug and skill_name from common API paths:
 # /v1/skills/{org}/{skill}/...  or  /v1/orgs/{org}/skills/{skill}/...
-_PATH_CONTEXT_RE = re.compile(r"/v1/(?:skills|orgs)/(?P<org>[^/]+)(?:/skills)?/(?P<skill>[^/]+)")
+_PATH_CONTEXT_RE = re.compile(
+    r"/v1/skills/(?P<org>[^/]+)/(?P<skill>[^/]+)"
+    r"|"
+    r"/v1/orgs/(?P<org2>[^/]+)/skills/(?P<skill2>[^/]+)"
+)
 
 
 class RequestLoggingMiddleware:
@@ -166,8 +172,9 @@ class RequestLoggingMiddleware:
         skill_name = ""
         m = _PATH_CONTEXT_RE.search(path)
         if m:
-            org_slug = m.group("org")
-            skill_name = m.group("skill")
+            # Two alternative patterns: "org"/"skill" or "org2"/"skill2"
+            org_slug = m.group("org") or m.group("org2") or ""
+            skill_name = m.group("skill") or m.group("skill2") or ""
 
         status_code = 0
         response_size = 0
@@ -201,7 +208,7 @@ class RequestLoggingMiddleware:
             finally:
                 duration_ms = (time.perf_counter() - start) * 1000
                 lvl = "WARNING" if status_code >= 400 else "INFO"
-                logger.log(
+                logger.bind(response_size=response_size).log(
                     lvl,
                     "{} {} → {} ({:.0f}ms, {}B)",
                     method,
