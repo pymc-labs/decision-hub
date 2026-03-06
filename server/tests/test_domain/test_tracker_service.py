@@ -966,7 +966,11 @@ class TestAutoDisablePermanentErrors:
         the tracker or mark skills as removed."""
         tracker = self._make_tracker()
         mock_conn, mock_settings = self._setup_mocks(
-            mock_create_engine, mock_claim, mock_gh_class, mock_batch_fetch, [tracker],
+            mock_create_engine,
+            mock_claim,
+            mock_gh_class,
+            mock_batch_fetch,
+            [tracker],
         )
         # Counter below threshold — no IDs returned
         mock_increment.return_value = []
@@ -1009,7 +1013,11 @@ class TestAutoDisablePermanentErrors:
         disabled and skills marked as removed."""
         tracker = self._make_tracker()
         mock_conn, mock_settings = self._setup_mocks(
-            mock_create_engine, mock_claim, mock_gh_class, mock_batch_fetch, [tracker],
+            mock_create_engine,
+            mock_claim,
+            mock_gh_class,
+            mock_batch_fetch,
+            [tracker],
         )
         # Counter crossed threshold — return this tracker's ID
         mock_increment.return_value = [tracker.id]

@@ -2933,7 +2933,9 @@ def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
 
 
 def batch_increment_permanent_failures(
-    conn: Connection, tracker_ids: list[UUID], threshold: int,
+    conn: Connection,
+    tracker_ids: list[UUID],
+    threshold: int,
 ) -> list[UUID]:
     """Increment consecutive_permanent_failures and return IDs that reached the threshold.
 
@@ -2950,12 +2952,9 @@ def batch_increment_permanent_failures(
     )
     conn.execute(stmt)
     # Return IDs that have now crossed the threshold
-    stmt = (
-        sa.select(skill_trackers_table.c.id)
-        .where(
-            skill_trackers_table.c.id.in_(tracker_ids),
-            skill_trackers_table.c.consecutive_permanent_failures >= threshold,
-        )
+    stmt = sa.select(skill_trackers_table.c.id).where(
+        skill_trackers_table.c.id.in_(tracker_ids),
+        skill_trackers_table.c.consecutive_permanent_failures >= threshold,
     )
     return [row.id for row in conn.execute(stmt)]
 

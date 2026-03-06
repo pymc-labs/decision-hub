@@ -185,7 +185,9 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         if errored_ids_permanent:
             threshold = settings.tracker_permanent_failure_threshold
             over_threshold_ids = batch_increment_permanent_failures(
-                conn, errored_ids_permanent, threshold=threshold,
+                conn,
+                errored_ids_permanent,
+                threshold=threshold,
             )
             if over_threshold_ids:
                 over_threshold_set = set(over_threshold_ids)
