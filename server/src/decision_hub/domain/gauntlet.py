@@ -1219,6 +1219,133 @@ def build_gauntlet_summary(
     return "; ".join(parts) if parts else None
 
 
+# ---------------------------------------------------------------------------
+# Plugin-specific checks
+# ---------------------------------------------------------------------------
+
+# Patterns for hook commands that download and execute remote code
+_HOOK_REMOTE_EXEC_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"curl\s+.*\|\s*(ba)?sh"), "curl piped to shell"),
+    (re.compile(r"wget\s+.*\|\s*(ba)?sh"), "wget piped to shell"),
+    (re.compile(r"curl\s+.*-o\s+\S+.*&&\s*(ba)?sh"), "curl download and execute"),
+    (re.compile(r"wget\s+.*&&\s*(ba)?sh"), "wget download and execute"),
+    (re.compile(r"\bpython\d?\s+-c\s+['\"].*(?:urllib|requests|http)"), "python inline remote fetch"),
+    (re.compile(r"\bnpx\s+"), "npx execution (network fetch)"),
+)
+
+# Patterns for permission escalation flags
+_PERMISSION_ESCALATION_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"--dangerously-skip-permissions"), "dangerously-skip-permissions flag"),
+    (re.compile(r"--no-verify"), "git no-verify flag (hook bypass)"),
+    (re.compile(r"--trust-all"), "trust-all flag"),
+)
+
+
+def check_hook_commands(hooks: list[tuple[str, str]]) -> EvalResult:
+    """Audit hook commands for remote code execution patterns.
+
+    Args:
+        hooks: List of (event, command) tuples from the plugin manifest.
+
+    Returns:
+        EvalResult with severity 'fail' if dangerous patterns found.
+    """
+    findings: list[str] = []
+    for event, command in hooks:
+        for pattern, label in _HOOK_REMOTE_EXEC_PATTERNS:
+            if pattern.search(command):
+                findings.append(f"Hook '{event}': {label} in '{command}'")
+    if findings:
+        return EvalResult(
+            check_name="hook_command_audit",
+            severity="fail",
+            message=f"Dangerous hook commands detected: {'; '.join(findings)}",
+            details={"findings": findings},
+        )
+    return EvalResult(
+        check_name="hook_command_audit",
+        severity="pass",
+        message="Hook commands are safe",
+    )
+
+
+def check_permission_escalation(source_files: list[tuple[str, str]]) -> EvalResult:
+    """Check for permission escalation patterns in source files.
+
+    Args:
+        source_files: List of (filename, content) tuples.
+
+    Returns:
+        EvalResult with severity 'warn' if escalation patterns found.
+    """
+    findings: list[str] = []
+    for filename, content in source_files:
+        for pattern, label in _PERMISSION_ESCALATION_PATTERNS:
+            if pattern.search(content):
+                findings.append(f"{filename}: {label}")
+    if findings:
+        return EvalResult(
+            check_name="permission_escalation",
+            severity="warn",
+            message=f"Permission escalation patterns found: {'; '.join(findings)}",
+            details={"findings": findings},
+        )
+    return EvalResult(
+        check_name="permission_escalation",
+        severity="pass",
+        message="No permission escalation patterns detected",
+    )
+
+
+def run_plugin_static_checks(
+    source_files: list[tuple[str, str]],
+    hooks: list[tuple[str, str]],
+    skill_md_content: str = "",
+    skill_name: str = "",
+    skill_description: str = "",
+    analyze_fn: AnalyzeFn | None = None,
+    skill_md_body: str = "",
+    allowed_tools: str | None = None,
+    analyze_prompt_fn: AnalyzePromptFn | None = None,
+    review_body_fn: ReviewBodyFn | None = None,
+    analyze_credential_fn: AnalyzeCredentialFn | None = None,
+    review_code_fn: ReviewCodeFn | None = None,
+    unscanned_files: list[str] | None = None,
+) -> GauntletReport:
+    """Run all static checks for a plugin, including plugin-specific checks.
+
+    Extends run_static_checks with hook command audit and permission escalation detection.
+    """
+    # Run standard code checks on all source files
+    base_report = run_static_checks(
+        skill_md_content=skill_md_content,
+        lockfile_content=None,
+        source_files=source_files,
+        skill_name=skill_name,
+        skill_description=skill_description,
+        analyze_fn=analyze_fn,
+        skill_md_body=skill_md_body,
+        allowed_tools=allowed_tools,
+        analyze_prompt_fn=analyze_prompt_fn,
+        review_body_fn=review_body_fn,
+        analyze_credential_fn=analyze_credential_fn,
+        review_code_fn=review_code_fn,
+        unscanned_files=unscanned_files,
+    )
+
+    # Add plugin-specific checks
+    plugin_results = list(base_report.results)
+    plugin_results.append(check_hook_commands(hooks))
+    plugin_results.append(check_permission_escalation(source_files))
+
+    result_tuple = tuple(plugin_results)
+    elevated = detect_elevated_permissions(source_files, allowed_tools)
+    grade = compute_grade(result_tuple, elevated)
+    summary = build_gauntlet_summary(result_tuple, elevated)
+
+    return GauntletReport(results=result_tuple, grade=grade, gauntlet_summary=summary)
+
+
 def run_static_checks(
     skill_md_content: str,
     lockfile_content: str | None,
