@@ -479,6 +479,8 @@ def check_manifest_schema(content: str) -> EvalResult:
     """
     import yaml
 
+    from dhub_core.manifest import parse_frontmatter_yaml
+
     # Extract frontmatter between --- delimiters
     lines = content.split("\n")
     start = 0
@@ -507,7 +509,7 @@ def check_manifest_schema(content: str) -> EvalResult:
 
     frontmatter_str = "\n".join(lines[start + 1 : end])
     try:
-        data = yaml.safe_load(frontmatter_str)
+        data = parse_frontmatter_yaml(frontmatter_str)
     except yaml.YAMLError as exc:
         return EvalResult(
             check_name="manifest_schema",
