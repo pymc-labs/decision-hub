@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Zap, Package, Building2, Home, BookOpen, Menu, X, Star, MessageCircle } from "lucide-react";
+import { Zap, Package, Puzzle, Building2, Home, BookOpen, Menu, X, Star, MessageCircle } from "lucide-react";
 import AskModal from "./AskModal";
 import styles from "./Layout.module.css";
 
@@ -9,6 +9,7 @@ const IS_DEV = import.meta.env.VITE_ENV !== "prod";
 const NAV_ITEMS = [
   { path: "/", label: "Home", icon: Home },
   { path: "/skills", label: "Skills", icon: Package },
+  { path: "/plugins", label: "Plugins", icon: Puzzle },
   { path: "/orgs", label: "Organizations", icon: Building2 },
   { path: "/how-it-works", label: "How it Works", icon: BookOpen },
 ];

@@ -17,7 +17,7 @@ from decision_hub.scripts.crawler.checkpoint import Checkpoint
 from decision_hub.scripts.crawler.models import CrawlStats, DiscoveredRepo, repo_to_dict
 
 DEFAULT_CHECKPOINT_PATH = Path("crawl_checkpoint.json")
-ALL_STRATEGIES = ["size", "path", "topic", "fork", "curated"]
+ALL_STRATEGIES = ["size", "path", "topic", "fork", "curated", "plugin"]
 
 _STRATEGY_LABELS: dict[str, str] = {
     "size": "File-size partitioning",
@@ -25,6 +25,7 @@ _STRATEGY_LABELS: dict[str, str] = {
     "topic": "Topic-based discovery",
     "curated": "Curated list parsing",
     "fork": "Fork scanning",
+    "plugin": "Plugin discovery",
 }
 
 
@@ -125,6 +126,7 @@ def discover_batches(
         scan_forks,
         search_by_file_size,
         search_by_path,
+        search_by_plugin,
         search_by_topic,
         search_trusted_orgs,
         tag_trusted_repos,
@@ -176,6 +178,8 @@ def discover_batches(
                 sub_batches = search_by_topic(gh, stats)
             elif name == "curated":
                 sub_batches = parse_curated_lists(gh, stats)
+            elif name == "plugin":
+                sub_batches = search_by_plugin(gh, stats)
             elif name == "fork":
                 top_repos = sorted(
                     all_repos.values(),
