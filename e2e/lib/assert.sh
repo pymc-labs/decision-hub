@@ -25,7 +25,8 @@ assert_element_text() {
 assert_snapshot_contains() {
   local expected="$1"
   local snap
-  snap=$(agent-browser snapshot -i 2>/dev/null)
+  # Use full snapshot (not -i) to include static text, labels, and descriptions
+  snap=$(agent-browser snapshot 2>/dev/null)
   if ! echo "$snap" | grep -qi "$expected"; then
     echo "ASSERT FAILED: snapshot does not contain '$expected'"
     return 1
