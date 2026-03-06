@@ -2,6 +2,7 @@
 
 import json
 import math
+import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import (
+    get_cache,
     get_connection,
     get_current_user,
     get_current_user_optional,
@@ -35,12 +37,14 @@ from decision_hub.domain.publish import (
 )
 from decision_hub.domain.search import format_trust_score, resolve_author_display
 from decision_hub.domain.skill_manifest import extract_body, extract_description
+from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import (
     delete_all_versions,
     delete_skill_access_grant,
     delete_version,
     fetch_all_skills_for_index,
     fetch_registry_stats,
+    fetch_skills_by_repo,
     find_active_eval_runs_for_user,
     find_audit_logs,
     find_eval_report_by_skill,
@@ -64,6 +68,7 @@ from decision_hub.infra.database import (
     update_eval_run_status,
     update_skill_category,
     update_skill_description,
+    update_skill_manifest_path,
     update_skill_source_repo_url,
     update_skill_visibility,
 )
@@ -212,6 +217,7 @@ class SkillSummary(BaseModel):
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    manifest_path: str | None = None
     source_repo_removed: bool = False
     github_stars: int | None = None
     github_forks: int | None = None
@@ -229,6 +235,14 @@ class PaginatedSkillsResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class RepoSkillsResponse(BaseModel):
+    """Response for skills-by-repo endpoint."""
+
+    items: list[SkillSummary]
+    total: int
+    repo_url: str
 
 
 class AuditLogResponse(BaseModel):
@@ -383,6 +397,7 @@ def publish_skill(
     org_slug, skill_name, version = meta["org_slug"], meta["skill_name"], meta["version"]
     visibility = meta.get("visibility")
     source_repo_url = meta.get("source_repo_url")
+    manifest_path = meta.get("manifest_path")
     if visibility is not None and visibility not in _VALID_VISIBILITIES:
         raise HTTPException(
             status_code=422,
@@ -412,7 +427,7 @@ def publish_skill(
 
     try:
         skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(file_bytes)
-    except ValueError as exc:
+    except (ValueError, zipfile.BadZipFile) as exc:
         logger.warning("Skill extraction failed for {}/{} v{}: {}", org_slug, skill_name, version, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -469,12 +484,15 @@ def publish_skill(
             category=category,
             visibility=visibility or "public",
             source_repo_url=source_repo_url,
+            manifest_path=manifest_path,
         )
     else:
         update_skill_description(conn, skill.id, description)
         update_skill_category(conn, skill.id, category)
         if source_repo_url and skill.source_repo_url != source_repo_url:
             update_skill_source_repo_url(conn, skill.id, source_repo_url)
+        if manifest_path and skill.manifest_path != manifest_path:
+            update_skill_manifest_path(conn, skill.id, manifest_path)
         if visibility is not None:
             update_skill_visibility(conn, skill.id, visibility)
 
@@ -561,10 +579,51 @@ def publish_skill(
     "/stats",
 )
 def get_registry_stats(
+    response: Response,
     conn: Connection = Depends(get_connection),
+    cache: TTLCache = Depends(get_cache),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     """Return aggregate registry statistics (total skills, orgs, downloads)."""
-    return fetch_registry_stats(conn)
+    ttl = settings.cache_ttl_stats
+    if ttl:
+        response.headers["Cache-Control"] = f"public, max-age={ttl}"
+
+    cache_key = "registry_stats"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = fetch_registry_stats(conn)
+    if ttl:
+        cache.set(cache_key, result, ttl=ttl)
+    return result
+
+
+def _row_to_skill_summary_model(row: dict) -> SkillSummary:
+    """Convert a DB row dict to a SkillSummary response model."""
+    return SkillSummary(
+        org_slug=row["org_slug"],
+        skill_name=row["skill_name"],
+        description=row.get("description", ""),
+        latest_version=row["latest_version"],
+        updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
+        safety_rating=format_trust_score(row["eval_status"]),
+        author=resolve_author_display(row.get("published_by", "")),
+        download_count=row.get("download_count", 0),
+        is_personal_org=row.get("is_personal_org", False),
+        category=row.get("category", ""),
+        visibility=row.get("visibility", "public"),
+        source_repo_url=row.get("source_repo_url"),
+        manifest_path=row.get("manifest_path"),
+        source_repo_removed=row.get("source_repo_removed", False),
+        github_stars=row.get("github_stars"),
+        github_forks=row.get("github_forks"),
+        github_watchers=row.get("github_watchers"),
+        github_is_archived=row.get("github_is_archived"),
+        github_license=row.get("github_license"),
+        is_auto_synced=row.get("has_tracker", False),
+    )
 
 
 @public_router.get(
@@ -573,6 +632,7 @@ def get_registry_stats(
     dependencies=[Depends(_enforce_list_skills_rate_limit)],
 )
 def list_skills(
+    response: Response,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None, max_length=200),
@@ -582,9 +642,24 @@ def list_skills(
     sort: str = Query("updated", pattern="^(updated|name|downloads|github_stars|safety_rating)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     conn: Connection = Depends(get_connection),
+    cache: TTLCache = Depends(get_cache),
+    settings: Settings = Depends(get_settings),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedSkillsResponse:
     """List published skills with pagination and server-side filtering."""
+    # Cache-Control for anonymous requests only (authenticated users see
+    # private/org-scoped skills so the response varies per user).
+    ttl = settings.cache_ttl_skill_list
+    is_anonymous = current_user is None
+    # In-memory cache keyed by the full set of query params for anonymous
+    # requests. Authenticated requests always go to the DB.
+    cache_key = f"skills:{page}:{page_size}:{search}:{org}:{category}:{grade}:{sort}:{sort_dir}"
+    if ttl and is_anonymous:
+        response.headers["Cache-Control"] = f"public, max-age={ttl}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     # Pre-compute granted skill IDs once to avoid duplicate DB round-trips.
     granted_skill_ids = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
@@ -606,37 +681,34 @@ def list_skills(
         sort_dir=sort_dir,
     )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
-    items = [
-        SkillSummary(
-            org_slug=row["org_slug"],
-            skill_name=row["skill_name"],
-            description=row.get("description", ""),
-            latest_version=row["latest_version"],
-            updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
-            safety_rating=format_trust_score(row["eval_status"]),
-            author=resolve_author_display(row.get("published_by", "")),
-            download_count=row.get("download_count", 0),
-            is_personal_org=row.get("is_personal_org", False),
-            category=row.get("category", ""),
-            visibility=row.get("visibility", "public"),
-            source_repo_url=row.get("source_repo_url"),
-            source_repo_removed=row.get("source_repo_removed", False),
-            github_stars=row.get("github_stars"),
-            github_forks=row.get("github_forks"),
-            github_watchers=row.get("github_watchers"),
-            github_is_archived=row.get("github_is_archived"),
-            github_license=row.get("github_license"),
-            is_auto_synced=row.get("has_tracker", False),
-        )
-        for row in rows
-    ]
-    return PaginatedSkillsResponse(
+    items = [_row_to_skill_summary_model(row) for row in rows]
+    result = PaginatedSkillsResponse(
         items=items,
         total=total,
         page=page,
         page_size=page_size,
         total_pages=total_pages,
     )
+    if ttl and is_anonymous:
+        cache.set(cache_key, result, ttl=ttl)
+    return result
+
+
+@public_router.get(
+    "/skills/by-repo",
+    response_model=RepoSkillsResponse,
+    dependencies=[Depends(_enforce_list_skills_rate_limit)],
+)
+def list_skills_by_repo(
+    repo_url: str = Query(..., max_length=500),
+    conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> RepoSkillsResponse:
+    """List all published skills from a specific source repository."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    rows = fetch_skills_by_repo(conn, repo_url, user_org_ids=user_org_ids)
+    items = [_row_to_skill_summary_model(row) for row in rows]
+    return RepoSkillsResponse(items=items, total=len(items), repo_url=repo_url)
 
 
 @public_router.get(
@@ -672,6 +744,7 @@ def get_skill_summary(
         category=skill.category,
         visibility=skill.visibility,
         source_repo_url=skill.source_repo_url,
+        manifest_path=skill.manifest_path,
         source_repo_removed=skill.source_repo_removed,
         github_stars=skill.github_stars,
         github_forks=skill.github_forks,

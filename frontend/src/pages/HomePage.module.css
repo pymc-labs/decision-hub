@@ -16,7 +16,7 @@
 }
 
 .heroTitle {
-  font-size: 4rem;
+  font-size: var(--text-hero);
   line-height: 1;
   margin-bottom: 20px;
   position: relative;
@@ -33,7 +33,7 @@
 }
 
 .heroDivider {
-  font-size: 2.5rem;
+  font-size: var(--text-display);
   color: var(--neon-purple);
   opacity: 0.5;
   text-shadow: var(--glow-purple);
@@ -53,7 +53,7 @@
 .heroSub {
   max-width: 600px;
   margin: 0 auto 32px;
-  font-size: 1.15rem;
+  font-size: var(--text-body);
   color: var(--text-secondary);
   line-height: 1.7;
   position: relative;
@@ -73,7 +73,7 @@
   padding: 12px 28px;
   border-radius: 8px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 1rem;
+  font-size: var(--text-body);
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -98,7 +98,7 @@
   padding: 12px 28px;
   border-radius: 8px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 1rem;
+  font-size: var(--text-body);
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -142,14 +142,14 @@
 }
 
 .valuePropTitle {
-  font-size: 1.15rem;
+  font-size: var(--text-body);
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0;
 }
 
 .valuePropDesc {
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.65;
 }
@@ -177,13 +177,13 @@
 
 .statNumber {
   font-family: 'Orbitron', sans-serif;
-  font-size: 1.8rem;
+  font-size: var(--text-title);
   font-weight: 800;
   color: var(--text-primary);
 }
 
 .statLabel {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -200,7 +200,7 @@
 }
 
 .sectionSubtitle {
-  font-size: 0.95rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.6;
   max-width: 520px;
@@ -224,7 +224,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 1.1rem;
+  font-size: var(--text-body);
   color: var(--neon-cyan);
   text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
 }
@@ -233,7 +233,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -268,13 +268,13 @@
 
 .skillOrg {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--neon-purple);
   letter-spacing: 1px;
 }
 
 .skillName {
-  font-size: 1rem;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0;
@@ -288,13 +288,13 @@
   border: 1px solid var(--neon-pink);
   border-radius: 4px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   color: var(--neon-pink);
   width: fit-content;
 }
 
 .skillDesc {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.5;
   display: -webkit-box;
@@ -316,17 +316,8 @@
 
 .skillVersion {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--neon-cyan);
-}
-
-.skillDownloads {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
-  color: var(--text-muted);
 }
 
 /* How it works */
@@ -352,7 +343,7 @@
 
 .stepNumber {
   font-family: 'Orbitron', sans-serif;
-  font-size: 2rem;
+  font-size: var(--text-title);
   font-weight: 900;
   color: var(--neon-pink);
   text-shadow: var(--glow-pink);
@@ -360,13 +351,13 @@
 }
 
 .stepTitle {
-  font-size: 1rem;
+  font-size: var(--text-body);
   color: var(--text-primary);
   letter-spacing: 0;
 }
 
 .stepDesc {
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.6;
 }
@@ -394,7 +385,7 @@
 .osTab {
   padding: 6px 20px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.5px;
   color: var(--text-muted);
@@ -443,14 +434,14 @@
 
 .installAlt {
   margin-top: 14px;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
 .installAlt code {
   font-family: 'Share Tech Mono', monospace;
   color: var(--neon-cyan);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 /* Quick Start Examples */
@@ -480,7 +471,7 @@
 }
 
 .exampleLabel {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 8px;
@@ -502,14 +493,14 @@
 }
 
 .bottomCtaTitle {
-  font-size: 1.6rem;
+  font-size: var(--text-heading);
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 12px;
 }
 
 .bottomCtaDesc {
-  font-size: 1rem;
+  font-size: var(--text-body);
   color: var(--text-secondary);
   line-height: 1.6;
   max-width: 480px;
@@ -524,12 +515,12 @@
 
 @media (max-width: 768px) {
   .heroTitle {
-    font-size: 2.2rem;
+    font-size: var(--text-title);
     gap: 10px;
   }
 
   .heroDivider {
-    font-size: 1.6rem;
+    font-size: var(--text-heading);
   }
 
   .stats {
@@ -562,26 +553,26 @@
   }
 
   .heroTitle {
-    font-size: 1.6rem;
+    font-size: var(--text-heading);
     flex-direction: column;
     gap: 4px;
   }
 
   .heroDivider {
-    font-size: 1.2rem;
+    font-size: var(--text-lg);
   }
 
   .heroSub {
-    font-size: 1rem;
+    font-size: var(--text-body);
     margin-bottom: 24px;
   }
 
   .statNumber {
-    font-size: 1.4rem;
+    font-size: var(--text-lg);
   }
 
   .statLabel {
-    font-size: 0.7rem;
+    font-size: var(--text-xxs);
   }
 
   .featured,
@@ -596,6 +587,6 @@
   }
 
   .stepNumber {
-    font-size: 1.5rem;
+    font-size: var(--text-heading);
   }
 }

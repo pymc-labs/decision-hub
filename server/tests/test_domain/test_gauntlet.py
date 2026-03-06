@@ -1,7 +1,5 @@
 """Tests for domain/gauntlet.py -- static analysis, prompt scanning, and grading."""
 
-import json
-
 import pytest
 
 from decision_hub.domain.gauntlet import (
@@ -19,9 +17,6 @@ from decision_hub.domain.gauntlet import (
     check_unscanned_files,
     compute_grade,
     detect_elevated_permissions,
-    evaluate_assertion,
-    evaluate_test_results,
-    parse_test_cases,
     run_static_checks,
     trace_pipeline_taint,
 )
@@ -284,13 +279,20 @@ class TestCheckEmbeddedCredentials:
         assert result.passed is False
         assert "SKILL.md" in result.message
 
+    def test_entropy_ignores_fstring_templates(self):
+        """F-string templates with {variable} interpolation are allowlisted."""
+        files = [("api.py", 'url = f"https://api.example.com/v1/generate?key={api_key}"\n')]
+        result = check_embedded_credentials("---\nname: x\ndescription: y\n---\n", files)
+        assert result.passed is True
+
 
 class TestCredentialLlmReview:
     """Tests for LLM-based entropy hit review."""
 
     def _make_entropy_hit_files(self):
         """Create source files with high-entropy strings (false positives)."""
-        return [("ui.py", 'msg = "{Colors.YELLOW}Reddit{Colors.RESET} Found {count} threads"\n')]
+        # Use a random-looking but non-secret string (e.g. test fixture data)
+        return [("config.py", 'salt = "aB3xK9mP2qR7wL5nJ8vT4cY6uF0"\n')]
 
     def test_llm_clears_false_positives(self):
         """LLM judge can clear entropy hits that are not real secrets."""
@@ -370,6 +372,38 @@ class TestCredentialLlmReview:
             analyze_credential_fn=return_empty,
         )
         assert result.passed is False
+
+    def test_llm_line_attribution_multiple_hits(self):
+        """Each LLM judgment gets the correct line from its corresponding hit via index."""
+        secret1 = "aB3xK9mP2qR7wL5nJ8vT4cY6uF0"
+        secret2 = "zY9wX8vU7tS6rQ5pO4nM3lK2jI1"
+        files = [("config.py", f'key1 = "{secret1}"\nkey2 = "{secret2}"\n')]
+
+        def judge_with_index(hits, name, desc):
+            # Simulate the fixed gemini.py behavior: use index to attribute lines
+            return [
+                {
+                    "index": i + 1,
+                    "source": h["source"],
+                    "line": h["line"],
+                    "dangerous": False,
+                    "reason": "test data",
+                }
+                for i, h in enumerate(hits)
+            ]
+
+        result = check_embedded_credentials(
+            "---\nname: x\ndescription: y\n---\n",
+            files,
+            skill_name="test",
+            skill_description="test",
+            analyze_credential_fn=judge_with_index,
+        )
+        assert result.passed is True
+        # Verify each judgment has its own distinct line
+        judgments = result.details["judgments"]
+        lines = [j["line"] for j in judgments]
+        assert len(set(lines)) == 2  # two distinct lines
 
 
 class TestCheckPromptSafety:
@@ -549,86 +583,6 @@ class TestComputeGrade:
             EvalResult(check_name="safety_scan", severity="warn", message="ambiguous"),
         )
         assert compute_grade(results, []) == "F"
-
-
-class TestParseTestCases:
-    def test_parse_valid(self):
-        cases_json = json.dumps(
-            [
-                {
-                    "prompt": "Hello",
-                    "assertions": [
-                        {"type": "contains", "value": "world"},
-                        {"type": "exit_code", "value": 0},
-                    ],
-                }
-            ]
-        )
-        cases = parse_test_cases(cases_json)
-        assert len(cases) == 1
-        assert cases[0].prompt == "Hello"
-        assert len(cases[0].assertions) == 2
-
-    def test_parse_invalid_json(self):
-        with pytest.raises(json.JSONDecodeError):
-            parse_test_cases("not json")
-
-
-class TestAssertionChecks:
-    def test_contains_pass(self):
-        assert evaluate_assertion("Hello World", 0, {"type": "contains", "value": "hello"})
-
-    def test_contains_fail(self):
-        assert not evaluate_assertion("Goodbye", 0, {"type": "contains", "value": "hello"})
-
-    def test_contains_any_pass(self):
-        assert evaluate_assertion(
-            "p-value is 0.03",
-            0,
-            {"type": "contains_any", "values": ["p-value", "confidence"]},
-        )
-
-    def test_not_contains_pass(self):
-        assert evaluate_assertion("Success", 0, {"type": "not_contains", "value": "error"})
-
-    def test_not_contains_fail(self):
-        assert not evaluate_assertion("Error occurred", 0, {"type": "not_contains", "value": "error"})
-
-    def test_exit_code_pass(self):
-        assert evaluate_assertion("", 0, {"type": "exit_code", "value": 0})
-
-    def test_exit_code_fail(self):
-        assert not evaluate_assertion("", 1, {"type": "exit_code", "value": 0})
-
-    def test_json_schema_pass(self):
-        assert evaluate_assertion('{"key": "value"}', 0, {"type": "json_schema"})
-
-    def test_json_schema_fail(self):
-        assert not evaluate_assertion("not json", 0, {"type": "json_schema"})
-
-
-class TestResultsAggregation:
-    def test_all_pass(self):
-        cases = parse_test_cases(
-            json.dumps(
-                [
-                    {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
-                ]
-            )
-        )
-        result = evaluate_test_results(cases, [("output", 0)])
-        assert result.passed is True
-
-    def test_failure(self):
-        cases = parse_test_cases(
-            json.dumps(
-                [
-                    {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
-                ]
-            )
-        )
-        result = evaluate_test_results(cases, [("output", 1)])
-        assert result.passed is False
 
 
 class TestSafetyScanFailClosed:

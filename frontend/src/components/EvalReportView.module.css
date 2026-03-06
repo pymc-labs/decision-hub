@@ -24,7 +24,7 @@
 
 .summaryNumber {
   font-family: 'Orbitron', sans-serif;
-  font-size: 2.5rem;
+  font-size: var(--text-display);
   font-weight: 900;
   color: var(--neon-green);
   text-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
@@ -32,13 +32,13 @@
 
 .summarySlash {
   font-family: 'Orbitron', sans-serif;
-  font-size: 1.5rem;
+  font-size: var(--text-heading);
   color: var(--text-muted);
 }
 
 .summaryTotal {
   font-family: 'Orbitron', sans-serif;
-  font-size: 1.5rem;
+  font-size: var(--text-heading);
   color: var(--text-secondary);
 }
 
@@ -67,7 +67,7 @@
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
 }
 
@@ -102,7 +102,7 @@
   align-items: center;
   gap: 8px;
   color: var(--neon-pink);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 /* Cases */
@@ -132,7 +132,7 @@
 
 .caseName h4 {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.95rem;
+  font-size: var(--text-sm);
   font-weight: 400;
   color: var(--text-primary);
   letter-spacing: 0;
@@ -149,13 +149,13 @@
   align-items: center;
   gap: 4px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .caseVerdict {
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   font-weight: 700;
   letter-spacing: 1px;
   padding: 2px 10px;
@@ -186,7 +186,7 @@
 .error { color: var(--neon-yellow); }
 
 .caseDesc {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -200,7 +200,7 @@
   align-items: center;
   gap: 6px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -218,7 +218,7 @@
   border-radius: 6px;
   padding: 12px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   overflow-x: auto;
   max-height: 200px;
@@ -236,7 +236,7 @@
 
 .exitCode {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--neon-pink);
   padding: 2px 8px;
   background: rgba(255, 45, 149, 0.08);
@@ -252,17 +252,17 @@
   }
 
   .summaryNumber {
-    font-size: 2rem;
+    font-size: var(--text-title);
   }
 
   .summarySlash,
   .summaryTotal {
-    font-size: 1.2rem;
+    font-size: var(--text-lg);
   }
 
   .summaryMeta {
     gap: 8px;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .caseHeader {
@@ -272,7 +272,7 @@
   }
 
   .casePre {
-    font-size: 0.7rem;
+    font-size: var(--text-xxs);
     padding: 8px;
   }
 }

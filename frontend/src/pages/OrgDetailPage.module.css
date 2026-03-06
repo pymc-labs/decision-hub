@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -24,7 +24,7 @@
 }
 
 .title {
-  font-size: 1.8rem;
+  font-size: var(--text-title);
   color: var(--neon-purple);
   text-shadow: 0 0 15px rgba(180, 0, 255, 0.3);
 }
@@ -33,7 +33,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.7rem;
+  font-size: var(--text-xxs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -46,7 +46,7 @@
 
 .description {
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   line-height: 1.5;
   margin-bottom: 4px;
   display: -webkit-box;
@@ -58,7 +58,7 @@
 .meta {
   display: flex;
   gap: 20px;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
@@ -78,7 +78,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 20px;
@@ -123,7 +123,7 @@
 }
 
 .cardName {
-  font-size: 1.05rem;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0;
@@ -137,13 +137,13 @@
   border: 1px solid var(--neon-pink);
   border-radius: 4px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   color: var(--neon-pink);
   width: fit-content;
 }
 
 .cardDesc {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.5;
   display: -webkit-box;
@@ -160,7 +160,7 @@
   gap: 12px;
   padding-top: 8px;
   border-top: 1px solid var(--border-color);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
 }
 
 .cardVersion {
@@ -171,14 +171,6 @@
 .cardAuthor {
   color: var(--text-muted);
   flex: 1;
-}
-
-.cardDownloads {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--text-muted);
 }
 
 .empty {
@@ -198,21 +190,21 @@
 
 .loadingMore {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   letter-spacing: 1px;
 }
 
 .loadMoreError {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--neon-pink);
   letter-spacing: 1px;
 }
 
 .retryBtn {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--neon-cyan);
   background: transparent;
   border: 1px solid var(--neon-cyan);
@@ -244,7 +236,7 @@
 
 @media (max-width: 480px) {
   .title {
-    font-size: 1.3rem;
+    font-size: var(--text-lg);
   }
 
   .titleRow {
@@ -258,10 +250,10 @@
 
   .pageButton {
     padding: 8px 10px;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .pageInfo {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 }

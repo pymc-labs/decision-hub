@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Search, Package, Download, Filter, User, Tag, Layers, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, Package, Filter, User, Tag, Layers, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
 import type { SkillSortField } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -10,6 +10,7 @@ import type { SkillSummary } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import SkillCardStats from "../components/SkillCardStats";
 import styles from "./SkillsPage.module.css";
 
 const PAGE_SIZE = 12;
@@ -293,13 +294,19 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
 
           <div className={styles.cardFooter}>
             <span className={styles.cardVersion}>v{skill.latest_version}</span>
-            {skill.author && (
+            {skill.author && skill.author !== "auto-sync" && (
               <span className={styles.cardAuthor}>by {skill.author}</span>
             )}
-            <span className={styles.cardDownloads}>
-              <Download size={12} />
-              {skill.download_count}
-            </span>
+            {skill.is_auto_synced && (
+              <span className={styles.cardAuthor} title="Auto-synced from GitHub">
+                <RefreshCw size={12} />
+              </span>
+            )}
+            <SkillCardStats
+              github_stars={skill.github_stars}
+              github_license={skill.github_license}
+              download_count={skill.download_count}
+            />
           </div>
         </div>
       </NeonCard>

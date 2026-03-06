@@ -5,10 +5,12 @@ import json
 import httpx
 import pytest
 import respx
+from slow_helpers import LatencyTracker, get_default_gemini_model, load_google_api_key, timed
 
-from decision_hub.infra.gemini import check_query_topicality, create_gemini_client
+from decision_hub.infra.gemini import create_gemini_client, parse_query_with_guard
 
-_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+_DEFAULT_MODEL = get_default_gemini_model()
+_GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{_DEFAULT_MODEL}:generateContent"
 
 
 @pytest.fixture
@@ -16,12 +18,12 @@ def gemini_client() -> dict:
     return create_gemini_client("test-api-key")
 
 
-class TestTopicalityGuard:
-    """Unit tests for check_query_topicality."""
+class TestParseQueryWithGuard:
+    """Unit tests for the combined parse_query_with_guard."""
 
     @respx.mock
-    def test_on_topic_query(self, gemini_client: dict) -> None:
-        """On-topic queries return is_skill_query=True."""
+    def test_on_topic_with_keywords(self, gemini_client: dict) -> None:
+        """On-topic queries return is_skill_query=True with extracted keywords."""
         respx.post(_GEMINI_URL).mock(
             return_value=httpx.Response(
                 200,
@@ -30,7 +32,19 @@ class TestTopicalityGuard:
                         {
                             "content": {
                                 "parts": [
-                                    {"text": json.dumps({"is_skill_query": True, "reason": "asks about data tools"})}
+                                    {
+                                        "text": json.dumps(
+                                            {
+                                                "is_skill_query": True,
+                                                "reason": "asks about data tools",
+                                                "fts_queries": [
+                                                    "data validation",
+                                                    "data quality",
+                                                    "validation library",
+                                                ],
+                                            }
+                                        )
+                                    }
                                 ]
                             }
                         }
@@ -39,12 +53,13 @@ class TestTopicalityGuard:
             )
         )
 
-        result = check_query_topicality(gemini_client, "data validation library", model="gemini-2.5-flash")
-        assert result["is_skill_query"] is True
+        result = parse_query_with_guard(gemini_client, "data validation library", model=_DEFAULT_MODEL)
+        assert result.is_skill_query is True
+        assert result.fts_queries == ["data validation", "data quality", "validation library"]
 
     @respx.mock
-    def test_off_topic_query(self, gemini_client: dict) -> None:
-        """Off-topic queries return is_skill_query=False with reason preserved."""
+    def test_off_topic_returns_empty_keywords(self, gemini_client: dict) -> None:
+        """Off-topic queries return is_skill_query=False with empty fts_queries."""
         respx.post(_GEMINI_URL).mock(
             return_value=httpx.Response(
                 200,
@@ -52,7 +67,17 @@ class TestTopicalityGuard:
                     "candidates": [
                         {
                             "content": {
-                                "parts": [{"text": json.dumps({"is_skill_query": False, "reason": "cooking recipe"})}]
+                                "parts": [
+                                    {
+                                        "text": json.dumps(
+                                            {
+                                                "is_skill_query": False,
+                                                "reason": "cooking recipe",
+                                                "fts_queries": [],
+                                            }
+                                        )
+                                    }
+                                ]
                             }
                         }
                     ]
@@ -60,44 +85,105 @@ class TestTopicalityGuard:
             )
         )
 
-        result = check_query_topicality(gemini_client, "chocolate cake recipe", model="gemini-2.5-flash")
-        assert result["is_skill_query"] is False
-        assert result["reason"] == "cooking recipe"
+        result = parse_query_with_guard(gemini_client, "chocolate cake recipe", model=_DEFAULT_MODEL)
+        assert result.is_skill_query is False
+        assert result.fts_queries == []
 
     @respx.mock
-    def test_guard_fails_open_on_api_error(self, gemini_client: dict) -> None:
-        """API errors fail open -- query is allowed through."""
+    def test_fails_open_on_api_error(self, gemini_client: dict) -> None:
+        """API errors fail open with fallback keywords."""
         respx.post(_GEMINI_URL).mock(return_value=httpx.Response(500))
 
-        result = check_query_topicality(gemini_client, "anything", model="gemini-2.5-flash")
-        assert result["is_skill_query"] is True
-        assert result["reason"] == "guard_error"
+        result = parse_query_with_guard(gemini_client, "anything useful", model=_DEFAULT_MODEL)
+        assert result.is_skill_query is True
+        assert result.reason == "guard_error"
+        assert result.fts_queries == ["anything useful"]
 
     @respx.mock
-    def test_guard_fails_open_on_malformed_json(self, gemini_client: dict) -> None:
-        """Malformed JSON fails open -- query is allowed through."""
+    def test_on_topic_empty_keywords_falls_back_to_query(self, gemini_client: dict) -> None:
+        """On-topic but empty fts_queries falls back to the raw query."""
         respx.post(_GEMINI_URL).mock(
             return_value=httpx.Response(
                 200,
-                json={"candidates": [{"content": {"parts": [{"text": "not valid json at all"}]}}]},
+                json={
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "text": json.dumps(
+                                            {
+                                                "is_skill_query": True,
+                                                "reason": "tool search",
+                                                "fts_queries": [],
+                                            }
+                                        )
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
             )
         )
 
-        result = check_query_topicality(gemini_client, "anything", model="gemini-2.5-flash")
-        assert result["is_skill_query"] is True
-        assert result["reason"] == "guard_error"
+        result = parse_query_with_guard(gemini_client, "find a tool", model=_DEFAULT_MODEL)
+        assert result.is_skill_query is True
+        assert result.fts_queries == ["find a tool"]
 
-    @respx.mock
-    def test_guard_strips_markdown_fences(self, gemini_client: dict) -> None:
-        """JSON wrapped in markdown code fences is parsed correctly."""
-        fenced = '```json\n{"is_skill_query": false, "reason": "poetry request"}\n```'
-        respx.post(_GEMINI_URL).mock(
-            return_value=httpx.Response(
-                200,
-                json={"candidates": [{"content": {"parts": [{"text": fenced}]}}]},
-            )
+
+# ---------------------------------------------------------------------------
+# Golden-set tests hitting real Gemini API
+# ---------------------------------------------------------------------------
+
+_ON_TOPIC_QUERIES = [
+    "find a data validation library",
+    "recommend a tool for deploying to Kubernetes",
+    "what's the best skill for generating React components?",
+    "compare testing frameworks for browser automation",
+    "I need a CSV parser that handles large files",
+]
+
+_OFF_TOPIC_QUERIES = [
+    "what year did World War 2 end?",
+    "what is the capital of France?",
+    "explain quantum computing in simple terms",
+    "write me a poem about the ocean",
+    "what's the weather like today?",
+]
+
+
+@pytest.mark.slow
+class TestTopicalityGuardGoldenSet:
+    """Real-LLM golden set tests for topicality classification.
+
+    Skipped automatically when no GOOGLE_API_KEY is available.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        api_key = load_google_api_key()
+        if not api_key:
+            pytest.skip("GOOGLE_API_KEY not available")
+        self.client = create_gemini_client(api_key)
+        self.model = get_default_gemini_model()
+        self.latency = LatencyTracker("topicality_guard", soft_p95_limit=10.0)
+        yield
+        print(self.latency.summary())
+
+    @pytest.mark.parametrize("query", _ON_TOPIC_QUERIES)
+    def test_on_topic(self, query: str) -> None:
+        with timed(self.latency):
+            result = parse_query_with_guard(self.client, query, model=self.model)
+        assert result.is_skill_query is True, (
+            f"Expected on-topic for '{query}', got is_skill_query=False (reason: {result.reason})"
         )
+        assert len(result.fts_queries) > 0, f"On-topic query '{query}' should produce fts_queries"
 
-        result = check_query_topicality(gemini_client, "write me a poem", model="gemini-2.5-flash")
-        assert result["is_skill_query"] is False
-        assert result["reason"] == "poetry request"
+    @pytest.mark.parametrize("query", _OFF_TOPIC_QUERIES)
+    def test_off_topic(self, query: str) -> None:
+        with timed(self.latency):
+            result = parse_query_with_guard(self.client, query, model=self.model)
+        assert result.is_skill_query is False, (
+            f"Expected off-topic for '{query}', got is_skill_query=True (reason: {result.reason})"
+        )

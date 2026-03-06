@@ -12,6 +12,7 @@ export interface SkillSummary {
   is_personal_org: boolean;
   category: string;
   source_repo_url: string | null;
+  manifest_path: string | null;
   source_repo_removed: boolean;
   github_stars: number | null;
   github_forks: number | null;
@@ -146,6 +147,8 @@ export interface AskSkillRef {
   latest_version: string;
   source_repo_url: string | null;
   gauntlet_summary: string | null;
+  github_stars: number | null;
+  github_license: string | null;
 }
 
 export interface AskResponse {
@@ -153,4 +156,9 @@ export interface AskResponse {
   answer: string;
   skills: AskSkillRef[];
   category: string | null;
+}
+
+export interface AskMessage {
+  role: "user" | "assistant";
+  content: string;
 }

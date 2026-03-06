@@ -162,6 +162,7 @@ skills_table = Table(
     Column("category", String, nullable=False, server_default=""),
     Column("visibility", String(10), nullable=False, server_default="public"),
     Column("source_repo_url", Text, nullable=True),
+    Column("manifest_path", Text, nullable=True),
     Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
     Column("github_stars", sa.Integer, nullable=True),
     Column("github_forks", sa.Integer, nullable=True),
@@ -213,6 +214,22 @@ sa.Index(
     "idx_skills_latest_eval_status",
     skills_table.c.latest_eval_status,
     postgresql_where=skills_table.c.latest_semver.isnot(None),
+)
+
+sa.Index(
+    "idx_skills_visibility",
+    skills_table.c.visibility,
+    postgresql_where=skills_table.c.latest_semver.isnot(None),
+)
+
+sa.Index(
+    "idx_skills_category",
+    skills_table.c.category,
+    postgresql_where=sa.and_(
+        skills_table.c.latest_semver.isnot(None),
+        skills_table.c.category.isnot(None),
+        skills_table.c.category != "",
+    ),
 )
 
 skill_access_grants_table = Table(
@@ -602,6 +619,7 @@ _SKILL_SUMMARY_COLUMNS = [
     skills_table.c.category,
     skills_table.c.visibility,
     skills_table.c.source_repo_url,
+    skills_table.c.manifest_path,
     skills_table.c.source_repo_removed,
     skills_table.c.github_stars,
     skills_table.c.github_forks,
@@ -684,6 +702,7 @@ def _row_to_skill(row: sa.Row) -> Skill:
         category=row.category,
         visibility=row.visibility,
         source_repo_url=row.source_repo_url,
+        manifest_path=row.manifest_path,
         source_repo_removed=row.source_repo_removed,
         github_stars=row.github_stars,
         github_forks=row.github_forks,
@@ -954,6 +973,7 @@ def insert_skill(
     *,
     visibility: str = "public",
     source_repo_url: str | None = None,
+    manifest_path: str | None = None,
 ) -> Skill:
     """Register a new skill under an organization.
 
@@ -965,6 +985,7 @@ def insert_skill(
         category: Skill category from LLM classification.
         visibility: Skill visibility ('public' or 'org').
         source_repo_url: URL of the source GitHub repository.
+        manifest_path: Relative path to SKILL.md within the repo.
 
     Returns:
         The newly created Skill.
@@ -972,6 +993,8 @@ def insert_skill(
     values: dict = dict(org_id=org_id, name=name, description=description, category=category, visibility=visibility)
     if source_repo_url is not None:
         values["source_repo_url"] = source_repo_url
+    if manifest_path is not None:
+        values["manifest_path"] = manifest_path
     stmt = sa.insert(skills_table).values(**values).returning(*skills_table.c)
     row = conn.execute(stmt).one()
     skill = _row_to_skill(row)
@@ -1088,6 +1111,12 @@ def update_skill_source_repo_url(conn: Connection, skill_id: UUID, source_repo_u
     conn.execute(stmt)
 
 
+def update_skill_manifest_path(conn: Connection, skill_id: UUID, manifest_path: str) -> None:
+    """Set or update the relative path to SKILL.md within the source repo."""
+    stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(manifest_path=manifest_path)
+    conn.execute(stmt)
+
+
 def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> None:
     """Batch-update github_stars on the skills table by source_repo_url.
 
@@ -1165,17 +1194,6 @@ def delete_skill_access_grant(conn: Connection, skill_id: UUID, grantee_org_id: 
     if deleted:
         logger.debug("Revoked access skill={} grantee_org={}", skill_id, grantee_org_id)
     return deleted
-
-
-def list_skill_access_grants(conn: Connection, skill_id: UUID) -> list[SkillAccessGrant]:
-    """List all access grants for a skill, ordered by created_at."""
-    stmt = (
-        sa.select(skill_access_grants_table)
-        .where(skill_access_grants_table.c.skill_id == skill_id)
-        .order_by(skill_access_grants_table.c.created_at)
-    )
-    rows = conn.execute(stmt).all()
-    return [_row_to_skill_access_grant(row) for row in rows]
 
 
 def list_skill_access_grants_with_names(conn: Connection, skill_id: UUID) -> list[tuple[str, str, datetime | None]]:
@@ -1653,8 +1671,8 @@ def _build_skills_filters(
 ) -> sa.Select:
     """Apply optional filter predicates to a skills query.
 
-    Shared between fetch_all_skills_for_index and count_all_skills to
-    keep filter logic consistent. Grade filtering reads the denormalized
+    Used by fetch_all_skills_for_index to apply user-specified filters.
+    Grade filtering reads the denormalized
     latest_eval_status column on skills_table directly.
     """
     if search:
@@ -1704,7 +1722,9 @@ def fetch_all_skills_for_index(
     Returns a tuple of (items, total) where items is a list of dicts with
     keys: org_slug, skill_name, latest_version, eval_status, visibility, etc.
     total is the full count of matching rows (before LIMIT/OFFSET), obtained
-    via a separate count_all_skills() call.
+    via a COUNT(*) OVER() window function in the main query.  When the
+    requested page is past the end of results (zero rows returned), a
+    lightweight fallback count query runs to return the correct total.
 
     Reads denormalized latest-version columns directly from the skills
     table, avoiding LATERAL subqueries. Only skills with at least one
@@ -1728,7 +1748,11 @@ def fetch_all_skills_for_index(
     )
 
     base = (
-        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
+        sa.select(
+            *_SKILL_SUMMARY_COLUMNS,
+            tracker_exists,
+            sa.func.count().over().label("_total"),
+        )
         .select_from(
             skills_table.join(
                 organizations_table,
@@ -1790,24 +1814,94 @@ def fetch_all_skills_for_index(
         col = skills_table.c.latest_published_at
         base = base.order_by(col.asc() if asc else col.desc(), *tiebreaker)
 
-    # Get total via separate count query (avoids COUNT(*) OVER() which
-    # forces full result set materialization)
-    total = count_all_skills(
-        conn,
-        user_org_ids=user_org_ids,
-        granted_skill_ids=granted_skill_ids,
-        search=search,
-        org_slug=org_slug,
-        category=category,
-        grade=grade,
-    )
-
     if limit is not None:
         base = base.limit(limit).offset(offset)
 
     rows = conn.execute(base).all()
+    if rows:
+        total = rows[0]._mapping["_total"]
+    elif limit is not None:
+        # Out-of-range page — window function unavailable, run count fallback
+        count_q = (
+            sa.select(sa.func.count())
+            .select_from(
+                skills_table.join(
+                    organizations_table,
+                    skills_table.c.org_id == organizations_table.c.id,
+                )
+            )
+            .where(skills_table.c.latest_semver.isnot(None))
+        )
+        count_q = _apply_visibility_filter(count_q, user_org_ids, granted_skill_ids)
+        count_q = _build_skills_filters(count_q, search=search, org_slug=org_slug, category=category, grade=grade)
+        total = conn.execute(count_q).scalar_one()
+    else:
+        total = 0
     items = [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
     return items, total
+
+
+def _normalize_repo_url(url: str) -> str:
+    """Strip trailing slashes and .git suffix for consistent matching."""
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    return url
+
+
+def fetch_skills_by_repo(
+    conn: Connection,
+    repo_url: str,
+    *,
+    user_org_ids: list[UUID] | None = None,
+) -> list[dict]:
+    """Fetch all published skills whose source_repo_url matches the given repo.
+
+    Normalizes URLs (strips .git suffix and trailing slashes) before comparing.
+    Only returns skills with at least one published version.
+    """
+    normalized = _normalize_repo_url(repo_url)
+
+    tracker_exists = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+        .correlate(skills_table)
+        .exists()
+        .label("has_tracker")
+    )
+
+    base = (
+        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            )
+        )
+        .where(
+            sa.and_(
+                skills_table.c.latest_semver.isnot(None),
+                sa.func.rtrim(
+                    sa.func.regexp_replace(skills_table.c.source_repo_url, r"\.git$", ""),
+                    "/",
+                )
+                == normalized,
+            )
+        )
+        .order_by(organizations_table.c.slug, skills_table.c.name)
+    )
+
+    # Visibility filter
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+    base = _apply_visibility_filter(base, user_org_ids, granted)
+
+    rows = conn.execute(base).all()
+    return [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
 
 
 def search_skills_hybrid(
@@ -1853,22 +1947,26 @@ def search_skills_hybrid(
 
         return stmt
 
-    # --- 1. FTS queries (loop over extracted keyword phrases) ---
+    # --- 1. FTS query (combine all keyword phrases with OR via ||) ---
     fts_rows: list = []
-    for fts_query in fts_queries:
+    if fts_queries:
+        # Combine multiple keyword phrases into a single tsquery using || (OR).
+        # This replaces the previous loop of N sequential DB queries with one.
+        combined_tsquery = sa.func.websearch_to_tsquery("english", fts_queries[0])
+        for fts_q in fts_queries[1:]:
+            combined_tsquery = combined_tsquery.op("||")(sa.func.websearch_to_tsquery("english", fts_q))
+
         fts_stmt = _base_select(
             [
                 sa.func.ts_rank_cd(
                     skills_table.c.search_vector,
-                    sa.func.websearch_to_tsquery("english", fts_query),
+                    combined_tsquery,
                 ).label("fts_rank"),
             ]
         )
-        fts_stmt = fts_stmt.where(
-            skills_table.c.search_vector.op("@@")(sa.func.websearch_to_tsquery("english", fts_query))
-        )
+        fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
         fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
-        fts_rows.extend(conn.execute(fts_stmt).all())
+        fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
     vec_rows: list = []
@@ -1905,44 +2003,6 @@ def update_skill_embedding(conn: Connection, skill_id: UUID, embedding: list[flo
     """Store an embedding vector for a skill."""
     stmt = sa.update(skills_table).where(skills_table.c.id == skill_id).values(embedding=embedding)
     conn.execute(stmt)
-
-
-def count_all_skills(
-    conn: Connection,
-    *,
-    user_org_ids: list[UUID] | None = None,
-    granted_skill_ids: list[UUID] | None = None,
-    search: str | None = None,
-    org_slug: str | None = None,
-    category: str | None = None,
-    grade: str | None = None,
-) -> int:
-    """Count total skills visible to the user (for pagination metadata).
-
-    Reads the denormalized latest_semver column to match the inner-join
-    behavior of fetch_all_skills_for_index (only skills with at least
-    one published version are counted). Accepts the same filter params
-    for consistency.
-    """
-    base = (
-        sa.select(sa.func.count())
-        .select_from(
-            skills_table.join(
-                organizations_table,
-                skills_table.c.org_id == organizations_table.c.id,
-            )
-        )
-        .where(skills_table.c.latest_semver.isnot(None))
-    )
-    base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
-    base = _build_skills_filters(
-        base,
-        search=search,
-        org_slug=org_slug,
-        category=category,
-        grade=grade,
-    )
-    return conn.execute(base).scalar_one()
 
 
 def fetch_registry_stats(conn: Connection) -> dict:
@@ -2306,23 +2366,6 @@ def insert_eval_report(
     return _row_to_eval_report(row)
 
 
-def find_eval_report_by_version(conn: Connection, version_id: UUID) -> EvalReport | None:
-    """Find an eval report by version ID.
-
-    Args:
-        conn: Active database connection.
-        version_id: UUID of the skill version.
-
-    Returns:
-        The EvalReport if found, or None.
-    """
-    stmt = sa.select(eval_reports_table).where(eval_reports_table.c.version_id == version_id)
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_eval_report(row)
-
-
 def find_eval_report_by_skill(conn: Connection, org_slug: str, skill_name: str, semver: str) -> EvalReport | None:
     """Find an eval report by org, skill name, and version.
 
@@ -2463,29 +2506,9 @@ def update_eval_run_status(
         logger.debug("Eval run {} → status={} stage={}", run_id, status, stage)
 
 
-def update_eval_run_heartbeat(conn: Connection, run_id: UUID) -> None:
-    """Lightweight heartbeat-only update."""
-    stmt = sa.update(eval_runs_table).where(eval_runs_table.c.id == run_id).values(heartbeat_at=sa.func.now())
-    conn.execute(stmt)
-
-
 def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     """Find an eval run by its ID."""
     stmt = sa.select(eval_runs_table).where(eval_runs_table.c.id == run_id)
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_eval_run(row)
-
-
-def find_latest_eval_run_for_version(conn: Connection, version_id: UUID) -> EvalRun | None:
-    """Find the most recent eval run for a given version."""
-    stmt = (
-        sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
-        .limit(1)
-    )
     row = conn.execute(stmt).first()
     if row is None:
         return None

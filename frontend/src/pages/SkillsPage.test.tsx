@@ -1,35 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { SkillSummary } from "../types/api";
+import { renderWithRouter, makeSkill } from "../test/helpers";
 import SkillsPage from "./SkillsPage";
-
-function makeSkill(overrides: Partial<SkillSummary> = {}): SkillSummary {
-  return {
-    org_slug: "acme",
-    skill_name: "test-skill",
-    description: "A test skill",
-    latest_version: "1.0.0",
-    updated_at: "2025-01-01T00:00:00Z",
-    safety_rating: "A",
-    author: "dev",
-    download_count: 10,
-    is_personal_org: false,
-    category: "",
-    source_repo_url: null,
-    source_repo_removed: false,
-    github_stars: null,
-    github_forks: null,
-    github_watchers: null,
-    github_is_archived: null,
-    github_license: null,
-    is_auto_synced: false,
-    ...overrides,
-  };
-}
 
 const SKILLS: SkillSummary[] = [
   makeSkill({
@@ -111,11 +87,7 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <SkillsPage />
-    </MemoryRouter>,
-  );
+  return renderWithRouter(<SkillsPage />);
 }
 
 /** Wait for the skill grid to load (first skill name visible). */
