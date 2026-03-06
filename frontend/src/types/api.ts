@@ -123,6 +123,7 @@ export interface RegistryStats {
   total_publishers: number;
   total_downloads: number;
   active_categories: string[];
+  total_plugins?: number;
 }
 
 export interface OrgStatsEntry {
@@ -161,6 +162,7 @@ export interface AskSkillRef {
   gauntlet_summary: string | null;
   github_stars: number | null;
   github_license: string | null;
+  kind?: "skill" | "plugin";
 }
 
 export interface AskResponse {
