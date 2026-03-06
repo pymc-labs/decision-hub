@@ -328,6 +328,36 @@ a.metaItem:hover {
   margin: 1.5em 0;
 }
 
+.skillMd table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  font-size: var(--text-sm);
+  overflow-x: auto;
+  display: block;
+}
+
+.skillMd th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--neon-cyan);
+  font-weight: 600;
+  font-family: 'Orbitron', sans-serif;
+  font-size: var(--text-xs);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.skillMd td {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.skillMd tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
 /* Empty tab */
 .emptyTab {
   display: flex;
