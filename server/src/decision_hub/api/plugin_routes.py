@@ -93,6 +93,7 @@ class PluginResolveResponse(BaseModel):
     version: str
     checksum: str
     download_url: str
+    kind: str = "plugin"
 
 
 class PluginPublishResponse(BaseModel):

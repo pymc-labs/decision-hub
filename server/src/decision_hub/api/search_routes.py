@@ -394,8 +394,9 @@ def _ask_skills_inner(
         return AskResponse(query=q, answer=msg, skills=[], category=category)
 
     # Build lookup map for enriching LLM skill refs with DB metadata
-    candidate_map: dict[tuple[str, str], dict] = {
-        (row["org_slug"], row.get("skill_name") or row.get("plugin_name", "")): row for row in result.candidates
+    candidate_map: dict[tuple[str, str, str], dict] = {
+        (row["org_slug"], row.get("skill_name") or row.get("plugin_name", ""), row.get("kind", "skill")): row
+        for row in result.candidates
     }
 
     # Conversational answer with structured output
@@ -418,7 +419,7 @@ def _ask_skills_inner(
                 skill_name=e.skill_name,
                 description=e.description,
                 safety_rating=format_trust_score(
-                    candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
+                    candidate_map.get((e.org_slug, e.skill_name, e.kind), {}).get("eval_status", "")
                 ),
                 reason="Matched your search query.",
                 kind=e.kind,
@@ -485,7 +486,7 @@ def _ask_skills_inner(
     # Enrich LLM skill references with metadata from DB candidates
     skill_refs = []
     for ref in llm_result.get("referenced_skills", []):
-        key = (ref["org_slug"], ref["skill_name"])
+        key = (ref["org_slug"], ref["skill_name"], ref.get("kind", "skill"))
         row = candidate_map.get(key)
         if row:
             skill_refs.append(
