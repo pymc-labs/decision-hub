@@ -1,0 +1,69 @@
+name: E2E Nightly
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install agent-browser + Chromium
+        run: |
+          npm install -g agent-browser
+          npx playwright install chromium --with-deps
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Start infrastructure (Postgres + MinIO)
+        run: docker compose -f docker-compose-local.yml up -d
+
+      - name: Wait for Postgres
+        run: |
+          until docker compose -f docker-compose-local.yml exec -T postgres pg_isready -U postgres; do
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: cd server && DHUB_ENV=local uv run --package decision-hub-server python ../scripts/run_migrations.py
+
+      - name: Seed test data
+        run: |
+          docker compose -f docker-compose-local.yml exec -T postgres \
+            psql -U postgres -d decision_hub < e2e/seed.sql
+
+      - name: Start API server
+        run: |
+          cd server && DHUB_ENV=local uv run --package decision-hub-server \
+            python -m uvicorn decision_hub.api.app:create_app \
+            --host 0.0.0.0 --port 8000 &
+          sleep 5
+          curl -sf http://localhost:8000/health || exit 1
+
+      - name: Start frontend dev server
+        run: |
+          cd frontend && npm run dev &
+          sleep 5
+          curl -sf http://localhost:5173/ || exit 1
+
+      - name: Run E2E smoke tests
+        run: make e2e-local
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ github.run_id }}
+          path: e2e/reports/
+          retention-days: 30
