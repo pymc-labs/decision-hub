@@ -528,6 +528,7 @@ skill_trackers_table = Table(
     Column("last_published_at", DateTime(timezone=True), nullable=True),
     Column("last_error", Text, nullable=True),
     Column("next_check_at", DateTime(timezone=True), nullable=True),
+    Column("consecutive_permanent_failures", sa.Integer, nullable=False, server_default="0"),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -2885,10 +2886,14 @@ def delete_skill_tracker(conn: Connection, tracker_id: UUID) -> bool:
 
 
 def batch_clear_tracker_errors(conn: Connection, tracker_ids: list[UUID]) -> int:
-    """Clear last_error for multiple trackers in one UPDATE. Returns rowcount."""
+    """Clear last_error and reset failure counter for multiple trackers. Returns rowcount."""
     if not tracker_ids:
         return 0
-    stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id.in_(tracker_ids)).values(last_error=None)
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(last_error=None, consecutive_permanent_failures=0)
+    )
     return conn.execute(stmt).rowcount
 
 
@@ -2925,6 +2930,34 @@ def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
         return 0
     stmt = sa.update(skill_trackers_table).where(skill_trackers_table.c.id.in_(tracker_ids)).values(enabled=False)
     return conn.execute(stmt).rowcount
+
+
+def batch_increment_permanent_failures(
+    conn: Connection, tracker_ids: list[UUID], threshold: int,
+) -> list[UUID]:
+    """Increment consecutive_permanent_failures and return IDs that reached the threshold.
+
+    Trackers already at or above the threshold are included in the returned list
+    but their counter is not incremented further.
+    """
+    if not tracker_ids:
+        return []
+    # Increment counter
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(consecutive_permanent_failures=skill_trackers_table.c.consecutive_permanent_failures + 1)
+    )
+    conn.execute(stmt)
+    # Return IDs that have now crossed the threshold
+    stmt = (
+        sa.select(skill_trackers_table.c.id)
+        .where(
+            skill_trackers_table.c.id.in_(tracker_ids),
+            skill_trackers_table.c.consecutive_permanent_failures >= threshold,
+        )
+    )
+    return [row.id for row in conn.execute(stmt)]
 
 
 def _escape_like(s: str) -> str:

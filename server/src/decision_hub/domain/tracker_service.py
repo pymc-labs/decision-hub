@@ -95,6 +95,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         batch_clear_tracker_errors,
         batch_defer_trackers,
         batch_disable_trackers,
+        batch_increment_permanent_failures,
         batch_set_tracker_errors,
         batch_update_github_repo_metadata,
         batch_update_github_stars,
@@ -180,23 +181,38 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         batch_clear_tracker_errors(conn, unchanged_ids)
         batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
         batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
-        # Auto-disable permanent errors and mark their skills as removed
+        # Increment consecutive failure counter; only disable after threshold
         if errored_ids_permanent:
-            batch_disable_trackers(conn, errored_ids_permanent)
-            removed_urls = list(
-                {
-                    t.repo_url
-                    for key, kts in repo_key_to_trackers.items()
-                    if key not in failed_chunk_keys and sha_map.get(key) is None
-                    for t in kts
-                }
+            threshold = settings.tracker_permanent_failure_threshold
+            over_threshold_ids = batch_increment_permanent_failures(
+                conn, errored_ids_permanent, threshold=threshold,
             )
-            mark_skills_source_removed(conn, removed_urls)
-            logger.info(
-                "auto_disabled {} permanent-error trackers, marked {} repo URLs as removed",
-                len(errored_ids_permanent),
-                len(removed_urls),
-            )
+            if over_threshold_ids:
+                over_threshold_set = set(over_threshold_ids)
+                batch_disable_trackers(conn, over_threshold_ids)
+                removed_urls = list(
+                    {
+                        t.repo_url
+                        for key, kts in repo_key_to_trackers.items()
+                        if key not in failed_chunk_keys and sha_map.get(key) is None
+                        for t in kts
+                        if t.id in over_threshold_set
+                    }
+                )
+                mark_skills_source_removed(conn, removed_urls)
+                logger.info(
+                    "permanent_failures: {} incremented, {} crossed threshold (>={}), {} repo URLs marked removed",
+                    len(errored_ids_permanent),
+                    len(over_threshold_ids),
+                    threshold,
+                    len(removed_urls),
+                )
+            else:
+                logger.info(
+                    "permanent_failures: {} incremented (threshold={}, none crossed yet)",
+                    len(errored_ids_permanent),
+                    threshold,
+                )
         conn.commit()
 
     # Update github_stars on skills whose source_repo_url matches the tracked repos.

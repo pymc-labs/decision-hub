@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     tracker_jitter_seconds: int = 120
     # Stop processing if GitHub rate limit remaining drops below this
     tracker_rate_limit_floor: int = 500
+    # Consecutive permanent GraphQL failures before disabling a tracker
+    # and marking its skills as removed. Prevents transient token/API
+    # issues from mass-disabling trackers on a single bad tick.
+    tracker_permanent_failure_threshold: int = 3
 
     # Cache TTLs (seconds) for hot read paths. Set to 0 to disable.
     cache_ttl_taxonomy: int = 300  # taxonomy is static — 5 min

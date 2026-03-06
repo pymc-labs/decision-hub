@@ -261,6 +261,7 @@ class SkillTracker:
     last_published_at: datetime | None
     last_error: str | None
     next_check_at: datetime | None = None
+    consecutive_permanent_failures: int = 0
     created_at: datetime | None = None
 
 
