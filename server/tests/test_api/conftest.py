@@ -130,5 +130,5 @@ def _disable_credential_llm_judge():
     strict (regex-only) mode. Patching it globally avoids adding the mock
     parameter to every publish test.
     """
-    with patch("decision_hub.api.registry_service._build_analyze_credential_fn", return_value=None):
+    with patch("decision_hub.domain.publish_pipeline._build_analyze_credential_fn", return_value=None):
         yield

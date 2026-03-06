@@ -12,9 +12,8 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
-from decision_hub.api.registry_service import maybe_trigger_agent_assessment
+from decision_hub.domain.publish_pipeline import maybe_trigger_agent_assessment
 from decision_hub.models import EvalCase, EvalConfig
 
 
@@ -79,9 +78,9 @@ class TestMaybeTriggerAgentAssessment:
         assert status is None
         assert run_id is None
 
-    def test_config_without_cases_raises_422(self):
-        """Config declared but no case files raises 422 error."""
-        with pytest.raises(HTTPException) as exc_info:
+    def test_config_without_cases_raises_value_error(self):
+        """Config declared but no case files raises ValueError."""
+        with pytest.raises(ValueError, match="no case files"):
             maybe_trigger_agent_assessment(
                 eval_config=_make_eval_config(),
                 eval_cases=(),  # No cases
@@ -93,9 +92,6 @@ class TestMaybeTriggerAgentAssessment:
                 settings=_make_settings(),
                 user_id=uuid4(),
             )
-
-        assert exc_info.value.status_code == 422
-        assert "no case files" in exc_info.value.detail.lower()
 
     @patch("modal.Function")
     @patch("decision_hub.infra.database.insert_eval_run")
