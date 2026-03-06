@@ -43,6 +43,7 @@ from decision_hub.models import (
     UserApiKey,
     Version,
 )
+from dhub_core.validation import parse_semver as parse_semver_parts
 
 metadata = MetaData()
 
@@ -1330,12 +1331,6 @@ def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
     conn.execute(sa.update(skills_table).where(skills_table.c.id == skill_id).values(**values))
 
 
-def parse_semver_parts(semver: str) -> tuple[int, int, int]:
-    """Parse a semver string into (major, minor, patch) integers."""
-    major, minor, patch = semver.split(".")
-    return int(major), int(minor), int(patch)
-
-
 def find_version(conn: Connection, skill_id: UUID, semver: str) -> Version | None:
     """Look up a specific version of a skill by skill ID and semver string.
 
@@ -1676,12 +1671,12 @@ def _build_skills_filters(
     latest_eval_status column on skills_table directly.
     """
     if search:
-        pattern = f"%{search}%"
+        pattern = f"%{_escape_like(search)}%"
         base = base.where(
             sa.or_(
-                skills_table.c.name.ilike(pattern),
-                skills_table.c.description.ilike(pattern),
-                organizations_table.c.slug.ilike(pattern),
+                skills_table.c.name.ilike(pattern, escape="\\"),
+                skills_table.c.description.ilike(pattern, escape="\\"),
+                organizations_table.c.slug.ilike(pattern, escape="\\"),
             )
         )
     if org_slug:
@@ -2161,7 +2156,7 @@ def fetch_org_stats(
 
     # Filter on non-aggregate columns before grouping (WHERE, not HAVING)
     if search:
-        stmt = stmt.where(organizations_table.c.slug.ilike(f"%{search}%"))
+        stmt = stmt.where(organizations_table.c.slug.ilike(f"%{_escape_like(search)}%", escape="\\"))
 
     if type_filter == "orgs":
         stmt = stmt.where(organizations_table.c.is_personal == sa.false())
@@ -2297,6 +2292,24 @@ def insert_audit_log(
     row = conn.execute(stmt).one()
     logger.debug("Audit log: {}/{} v{} grade={} by={}", org_slug, skill_name, semver, grade, publisher)
     return _row_to_audit_log_entry(row)
+
+
+def delete_audit_logs_by_version_id(conn: Connection, version_id: UUID) -> int:
+    """Delete all audit log entries referencing a specific version.
+
+    Used during rollback when an S3 upload fails after the DB commit,
+    to avoid leaving orphaned audit entries with a NULL version_id.
+
+    Args:
+        conn: Active database connection.
+        version_id: UUID of the version whose audit entries should be removed.
+
+    Returns:
+        Number of deleted rows.
+    """
+    stmt = sa.delete(eval_audit_logs_table).where(eval_audit_logs_table.c.version_id == version_id)
+    result = conn.execute(stmt)
+    return result.rowcount
 
 
 def find_audit_logs(
@@ -2917,6 +2930,36 @@ def batch_disable_trackers(conn: Connection, tracker_ids: list[UUID]) -> int:
 def _escape_like(s: str) -> str:
     """Escape SQL LIKE wildcards in a literal string (escape char: \\)."""
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def fetch_skill_names_by_source_repo(conn: Connection, org_slug: str, source_repo_url: str) -> set[str]:
+    """Return skill names for a given org and source repo that are not yet marked as removed."""
+    stmt = (
+        sa.select(skills_table.c.name)
+        .select_from(skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id))
+        .where(
+            organizations_table.c.slug == org_slug,
+            skills_table.c.source_repo_url == source_repo_url,
+            skills_table.c.source_repo_removed == sa.false(),
+        )
+    )
+    return {row.name for row in conn.execute(stmt)}
+
+
+def mark_skills_removed_by_name(conn: Connection, org_slug: str, skill_names: set[str]) -> int:
+    """Mark specific skills as removed from their source repo."""
+    if not skill_names:
+        return 0
+    stmt = (
+        sa.update(skills_table)
+        .where(
+            skills_table.c.org_id
+            == sa.select(organizations_table.c.id).where(organizations_table.c.slug == org_slug).scalar_subquery(),
+            skills_table.c.name.in_(skill_names),
+        )
+        .values(source_repo_removed=True)
+    )
+    return conn.execute(stmt).rowcount
 
 
 def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:

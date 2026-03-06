@@ -96,18 +96,18 @@ class TestPublishSkill:
         assert resp.status_code == 503
         assert "LLM judge" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_routes.insert_audit_log")
-    @patch("decision_hub.api.registry_routes.update_skill_category")
-    @patch("decision_hub.api.registry_routes.update_skill_description")
-    @patch("decision_hub.api.registry_routes.insert_version")
-    @patch("decision_hub.api.registry_routes.find_version")
-    @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_category")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_description")
+    @patch("decision_hub.domain.publish_pipeline.insert_version")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
@@ -240,17 +240,17 @@ class TestPublishSkill:
         assert resp.status_code == 413
         assert "maximum size" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_routes.insert_audit_log")
-    @patch("decision_hub.api.registry_routes.insert_version")
-    @patch("decision_hub.api.registry_routes.find_version")
-    @patch("decision_hub.api.registry_routes.insert_skill")
-    @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.insert_version")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.insert_skill")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
@@ -308,15 +308,15 @@ class TestPublishSkill:
         )
         assert resp.json()["skill_id"] == str(new_skill.id)
 
-    @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_routes.update_skill_category")
-    @patch("decision_hub.api.registry_routes.update_skill_description")
-    @patch("decision_hub.api.registry_routes.find_version")
-    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.update_skill_category")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_description")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
     @patch("decision_hub.api.registry_routes.compute_checksum")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
@@ -356,12 +356,12 @@ class TestPublishSkill:
         assert resp.status_code == 409
         assert "already exists" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_service.insert_audit_log")
-    @patch("decision_hub.api.registry_service.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
     def test_publish_gauntlet_blocks_dangerous_skill(
@@ -396,12 +396,12 @@ class TestPublishSkill:
         assert resp.status_code == 422
         assert "malformed" in resp.json()["detail"].lower()
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_service.insert_audit_log")
-    @patch("decision_hub.api.registry_service.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
     def test_publish_gauntlet_blocks_suspicious_code(
@@ -496,18 +496,18 @@ class TestPublishSkill:
         assert resp.status_code == 422
         assert "Invalid skill name" in resp.json()["detail"]
 
-    @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_routes.insert_audit_log")
-    @patch("decision_hub.api.registry_routes.insert_version")
-    @patch("decision_hub.api.registry_routes.find_version")
-    @patch("decision_hub.api.registry_routes.update_skill_category")
-    @patch("decision_hub.api.registry_routes.update_skill_description")
-    @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.insert_version")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_category")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_description")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
@@ -575,18 +575,18 @@ class TestPublishSkill:
 
         assert resp.status_code == 422
 
-    @patch("decision_hub.api.registry_routes.classify_skill_category", return_value="Other & Utilities")
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_routes.insert_audit_log")
-    @patch("decision_hub.api.registry_routes.update_skill_category")
-    @patch("decision_hub.api.registry_routes.update_skill_description")
-    @patch("decision_hub.api.registry_routes.insert_version")
-    @patch("decision_hub.api.registry_routes.find_version")
-    @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_category")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_description")
+    @patch("decision_hub.domain.publish_pipeline.insert_version")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
@@ -1320,117 +1320,6 @@ class TestListSkills:
 
 
 # ---------------------------------------------------------------------------
-# GET /v1/skills/by-repo
-# ---------------------------------------------------------------------------
-
-
-class TestSkillsByRepo:
-    """Tests for the GET /v1/skills/by-repo endpoint."""
-
-    @patch("decision_hub.api.registry_routes.fetch_skills_by_repo")
-    def test_returns_skills_for_repo(
-        self,
-        mock_fetch: MagicMock,
-        client: TestClient,
-    ) -> None:
-        """Returns skills matching a repository URL."""
-        from datetime import datetime
-
-        mock_fetch.return_value = [
-            {
-                "org_slug": "test-org",
-                "skill_name": "gws-gmail",
-                "description": "Gmail skill",
-                "latest_version": "1.0.0",
-                "eval_status": "A",
-                "download_count": 0,
-                "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
-                "published_by": "testuser",
-                "category": "",
-                "visibility": "public",
-                "source_repo_url": "https://github.com/googleworkspace/cli",
-                "manifest_path": None,
-                "source_repo_removed": False,
-                "github_stars": None,
-                "github_forks": None,
-                "github_watchers": None,
-                "github_is_archived": None,
-                "github_license": None,
-                "is_personal_org": False,
-                "has_tracker": True,
-            },
-            {
-                "org_slug": "test-org",
-                "skill_name": "gws-drive",
-                "description": "Drive skill",
-                "latest_version": "1.0.0",
-                "eval_status": "A",
-                "download_count": 0,
-                "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
-                "published_by": "testuser",
-                "category": "",
-                "visibility": "public",
-                "source_repo_url": "https://github.com/googleworkspace/cli",
-                "manifest_path": None,
-                "source_repo_removed": False,
-                "github_stars": None,
-                "github_forks": None,
-                "github_watchers": None,
-                "github_is_archived": None,
-                "github_license": None,
-                "is_personal_org": False,
-                "has_tracker": False,
-            },
-        ]
-
-        resp = client.get(
-            "/v1/skills/by-repo",
-            params={"repo_url": "https://github.com/googleworkspace/cli"},
-        )
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["items"]) == 2
-        names = [s["skill_name"] for s in data["items"]]
-        assert "gws-gmail" in names
-        assert "gws-drive" in names
-        assert data["total"] == 2
-        assert data["repo_url"] == "https://github.com/googleworkspace/cli"
-        # Verify is_auto_synced is populated from has_tracker
-        by_name = {s["skill_name"]: s for s in data["items"]}
-        assert by_name["gws-gmail"]["is_auto_synced"] is True
-        assert by_name["gws-drive"]["is_auto_synced"] is False
-
-    @patch("decision_hub.api.registry_routes.fetch_skills_by_repo")
-    def test_returns_empty_for_unknown_repo(
-        self,
-        mock_fetch: MagicMock,
-        client: TestClient,
-    ) -> None:
-        """Unknown repo URL returns empty items list."""
-        mock_fetch.return_value = []
-
-        resp = client.get(
-            "/v1/skills/by-repo",
-            params={"repo_url": "https://github.com/no/such"},
-        )
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["items"] == []
-        assert data["total"] == 0
-
-    def test_rejects_missing_repo_url(
-        self,
-        client: TestClient,
-    ) -> None:
-        """Missing repo_url query param returns 422 validation error."""
-        resp = client.get("/v1/skills/by-repo")
-
-        assert resp.status_code == 422
-
-
-# ---------------------------------------------------------------------------
 # GET /v1/skills/{org_slug}/{skill_name}/latest-version
 # ---------------------------------------------------------------------------
 
@@ -1584,17 +1473,17 @@ class TestDownloadSkillVisibility:
 class TestPublishVisibilityPreservation:
     """POST /v1/publish -- visibility is preserved when not explicitly provided."""
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_routes.insert_audit_log")
-    @patch("decision_hub.api.registry_routes.update_skill_visibility")
-    @patch("decision_hub.api.registry_routes.update_skill_description")
-    @patch("decision_hub.api.registry_routes.insert_version")
-    @patch("decision_hub.api.registry_routes.find_version")
-    @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_visibility")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_description")
+    @patch("decision_hub.domain.publish_pipeline.insert_version")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")
@@ -1648,17 +1537,17 @@ class TestPublishVisibilityPreservation:
         # update_skill_visibility should NOT have been called
         mock_update_vis.assert_not_called()
 
-    @patch("decision_hub.api.registry_service._build_review_code_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_review_body_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_prompt_fn", return_value=None)
-    @patch("decision_hub.api.registry_service._build_analyze_fn", return_value=None)
-    @patch("decision_hub.api.registry_routes.insert_audit_log")
-    @patch("decision_hub.api.registry_routes.update_skill_visibility")
-    @patch("decision_hub.api.registry_routes.update_skill_description")
-    @patch("decision_hub.api.registry_routes.insert_version")
-    @patch("decision_hub.api.registry_routes.find_version")
-    @patch("decision_hub.api.registry_routes.find_skill")
-    @patch("decision_hub.api.registry_routes.upload_skill_zip")
+    @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_prompt_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline._build_analyze_fn", return_value=None)
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_visibility")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_description")
+    @patch("decision_hub.domain.publish_pipeline.insert_version")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
     @patch("decision_hub.api.registry_routes.compute_checksum")
     @patch("decision_hub.api.registry_service.find_org_member")
     @patch("decision_hub.api.registry_service.find_org_by_slug")

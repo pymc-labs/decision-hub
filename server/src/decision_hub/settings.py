@@ -88,11 +88,21 @@ class Settings(BaseSettings):
     download_rate_window: int = 60  # window in seconds
     audit_log_rate_limit: int = 30  # max requests per window
     audit_log_rate_window: int = 60  # window in seconds
+    publish_rate_limit: int = 10  # max requests per window
+    publish_rate_window: int = 60  # window in seconds
+    auth_rate_limit: int = 10  # max requests per window
+    auth_rate_window: int = 60  # window in seconds
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096
     sandbox_timeout_seconds: int = 900
     sandbox_cpu: float = 2.0
+
+    # Crawler: max parallel skill-processing threads per repo container.
+    # Each thread runs the gauntlet pipeline (I/O-bound Gemini calls) with
+    # its own DB connection. Higher values speed up large repos but increase
+    # concurrent Gemini API load.
+    crawler_parallel_skills: int = 10
 
     # Tracker batch size: max trackers claimed per loop iteration.
     # The cron loops until no more are due, so this controls lock granularity
@@ -113,6 +123,8 @@ class Settings(BaseSettings):
 
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
+    # Logging format: "text" (human-readable, default) or "json" (structured).
+    log_format: str = "text"
 
 
 def get_env() -> str:

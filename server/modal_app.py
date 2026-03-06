@@ -129,7 +129,7 @@ def run_eval_task(
 crawler_image = image.apt_install("git")
 
 
-@app.function(image=crawler_image, timeout=300, max_containers=50)
+@app.function(image=crawler_image, timeout=600, max_containers=50)
 def crawl_process_repo(
     repo_dict: dict,
     bot_user_id: str,

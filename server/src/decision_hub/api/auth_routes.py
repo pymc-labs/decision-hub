@@ -1,12 +1,13 @@
 """Authentication routes - GitHub Device Flow login."""
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_engine, get_settings
+from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.auth import create_jwt
 from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs
 from decision_hub.infra.database import upsert_user
@@ -23,6 +24,18 @@ from decision_hub.infra.github import (
 from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _enforce_auth_rate_limit(request: Request) -> None:
+    """Rate-limit auth endpoints."""
+    state = request.app.state
+    if not hasattr(state, "_auth_rate_limiter"):
+        settings: Settings = state.settings
+        state._auth_rate_limiter = RateLimiter(
+            max_requests=settings.auth_rate_limit,
+            window_seconds=settings.auth_rate_window,
+        )
+    state._auth_rate_limiter(request)
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +72,7 @@ class TokenResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/github/code", response_model=DeviceCodeResponseSchema)
+@router.post("/github/code", response_model=DeviceCodeResponseSchema, dependencies=[Depends(_enforce_auth_rate_limit)])
 async def start_device_flow(
     settings: Settings = Depends(get_settings),
 ) -> DeviceCodeResponseSchema:
@@ -77,7 +90,7 @@ async def start_device_flow(
     )
 
 
-@router.post("/github/token", response_model=TokenResponse)
+@router.post("/github/token", response_model=TokenResponse, dependencies=[Depends(_enforce_auth_rate_limit)])
 async def exchange_token(
     body: TokenRequest,
     conn: Connection = Depends(get_connection),

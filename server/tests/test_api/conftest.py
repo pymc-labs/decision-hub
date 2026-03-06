@@ -9,7 +9,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from decision_hub.api.app import _parse_semver
 from decision_hub.api.auth_routes import router as auth_router
 from decision_hub.api.deps import get_current_user
 from decision_hub.api.keys_routes import router as keys_router
@@ -19,6 +18,7 @@ from decision_hub.api.registry_routes import router as registry_router
 from decision_hub.api.taxonomy_routes import public_router as taxonomy_public_router
 from decision_hub.domain.auth import create_jwt
 from decision_hub.infra.cache import TTLCache
+from dhub_core.validation import parse_semver as _parse_semver
 
 
 @pytest.fixture
@@ -48,6 +48,10 @@ def test_settings() -> MagicMock:
     settings.audit_log_rate_window = 60
     settings.similar_skills_rate_limit = 30
     settings.similar_skills_rate_window = 60
+    settings.publish_rate_limit = 10
+    settings.publish_rate_window = 60
+    settings.auth_rate_limit = 10
+    settings.auth_rate_window = 60
     # Cache TTLs
     settings.cache_ttl_taxonomy = 300
     settings.cache_ttl_org_profiles = 60
@@ -80,7 +84,11 @@ def test_app(test_settings: MagicMock) -> FastAPI:
             min_ver = test_settings.min_cli_version
             if min_ver:
                 client_ver = request.headers.get("X-DHub-Client-Version", "")
-                if client_ver and _parse_semver(client_ver) < _parse_semver(min_ver):
+                try:
+                    client_parsed = _parse_semver(client_ver)
+                except ValueError:
+                    client_parsed = (0, 0, 0)
+                if client_ver and client_parsed < _parse_semver(min_ver):
                     return JSONResponse(
                         status_code=426,
                         content={
@@ -143,5 +151,5 @@ def _disable_credential_llm_judge():
     strict (regex-only) mode. Patching it globally avoids adding the mock
     parameter to every publish test.
     """
-    with patch("decision_hub.api.registry_service._build_analyze_credential_fn", return_value=None):
+    with patch("decision_hub.domain.publish_pipeline._build_analyze_credential_fn", return_value=None):
         yield

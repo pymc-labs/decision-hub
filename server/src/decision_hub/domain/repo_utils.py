@@ -10,6 +10,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from dhub_core.validation import bump_version, parse_semver  # noqa: F401 — re-exported
+
 CLONE_TIMEOUT_SECONDS = 120
 
 
@@ -103,19 +105,6 @@ def create_zip(path: Path) -> bytes:
                 continue
             zf.write(file, relative)
     return buf.getvalue()
-
-
-def bump_version(current_semver: str) -> str:
-    """Bump patch version of a semver string."""
-    parts = current_semver.split(".")
-    parts[2] = str(int(parts[2]) + 1)
-    return ".".join(parts)
-
-
-def parse_semver(v: str) -> tuple[int, int, int]:
-    """Parse a semver string into a comparable (major, minor, patch) tuple."""
-    parts = v.split(".")
-    return int(parts[0]), int(parts[1]), int(parts[2])
 
 
 def _build_authenticated_url(repo_url: str, token: str) -> str:

@@ -1,0 +1,4 @@
+[     294ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/skills/anthropics/claude-code/summary:0
+[     294ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/skills/anthropics/claude-code/audit-log:0
+[     318ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/skills/anthropics/claude-code/audit-log:0
+[     319ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/skills/anthropics/claude-code/summary:0

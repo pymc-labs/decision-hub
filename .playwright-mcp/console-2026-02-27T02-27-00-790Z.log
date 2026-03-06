@@ -1,0 +1,2 @@
+[     309ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/v1/skills/microsoft/azure-observability/download?spec=latest&allow_risky=false:0
+[     325ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/v1/skills/microsoft/azure-observability/download?spec=latest&allow_risky=false:0
