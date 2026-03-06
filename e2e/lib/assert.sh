@@ -47,9 +47,13 @@ assert_element_count_gte() {
   local selector="$1"
   local min_count="$2"
   local count
-  count=$(agent-browser eval "document.querySelectorAll('${selector}').length" 2>/dev/null)
-  if [[ "$count" -lt "$min_count" ]]; then
-    echo "ASSERT FAILED: expected >= $min_count elements for '$selector', found $count"
+  count=$(agent-browser eval --stdin <<EVALEOF
+document.querySelectorAll("${selector}").length
+EVALEOF
+  )
+  count=$(echo "$count" | tr -dc '0-9')
+  if [[ -z "$count" || "$count" -lt "$min_count" ]]; then
+    echo "ASSERT FAILED: expected >= $min_count elements for '$selector', found ${count:-empty}"
     return 1
   fi
 }

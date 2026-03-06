@@ -5,7 +5,7 @@ source "$(dirname "$0")/../lib/setup.sh"
 test_start "Mobile responsiveness"
 
 # Set mobile viewport
-agent-browser resize 400 812
+agent-browser set viewport 400 812
 
 # Homepage
 agent-browser open "$BASE_URL/"
@@ -23,13 +23,14 @@ assert_element_count_gte "a[href^='/skills/']" 1
 if [[ "$STRICT_MODE" == "true" ]]; then
   agent-browser open "$BASE_URL/skills/test-org/data-analyzer"
 else
-  agent-browser click "a[href^='/skills/']"
+  agent-browser click "a[href^='/skills/']:first-child"
 fi
 agent-browser wait --load networkidle
+assert_element_exists "button:has-text('Overview')"
 screenshot "07-mobile-detail"
-assert_snapshot_contains "Install"
+assert_snapshot_contains "dhub install"
 
 # Reset viewport
-agent-browser resize 1280 720
+agent-browser set viewport 1280 720
 
 test_pass

@@ -24,7 +24,7 @@ screenshot "03-search-results"
 assert_element_count_gte "a[href^='/skills/']" 1
 
 # Click first result and verify navigation
-agent-browser click "a[href^='/skills/']"
+agent-browser click "a[href^='/skills/']:first-child"
 agent-browser wait --load networkidle
 screenshot "03-search-click-result"
 
