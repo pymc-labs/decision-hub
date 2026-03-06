@@ -632,6 +632,18 @@ def _detect_removed_skills(
         except (ValueError, FileNotFoundError):
             continue
 
+    # Guard: if skill_dirs were provided but every parse failed,
+    # discovered_names is empty and the subtraction would incorrectly
+    # mark all DB skills as removed.  Bail out instead.
+    if skill_dirs and not discovered_names:
+        logger.warning(
+            "tracker_id={} repo={} all {} SKILL.md parses failed, skipping removal detection",
+            tracker.id,
+            tracker.repo_url,
+            len(skill_dirs),
+        )
+        return
+
     with engine.connect() as conn:
         db_names = fetch_skill_names_by_source_repo(conn, tracker.org_slug, tracker.repo_url)
         removed_names = db_names - discovered_names

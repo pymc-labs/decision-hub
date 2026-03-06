@@ -1474,3 +1474,31 @@ class TestDetectRemovedSkills:
         mock_fetch.assert_called_once()
         mock_mark.assert_not_called()
         mock_conn.commit.assert_not_called()
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_all_parses_failed_skips_removal(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """When all SKILL.md parses fail, should not mark anything as removed."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        # Every parse raises ValueError
+        mock_parse.side_effect = ValueError("bad manifest")
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a"), Path("/tmp/fake/repo/skill-b")]
+
+        mock_engine = MagicMock()
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        # Should bail out before even opening a DB connection
+        mock_engine.connect.assert_not_called()
+        mock_fetch.assert_not_called()
+        mock_mark.assert_not_called()
