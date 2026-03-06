@@ -2958,12 +2958,26 @@ def _print_results_table(label: str, results: list[dict]) -> float:
     return detection_rate
 
 
+def _run_llm_cases_parallel(
+    cases: list,
+    callbacks: dict,
+    max_workers: int = 8,
+) -> list[dict]:
+    """Run gauntlet with LLM on all cases in parallel using threads."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        results = list(pool.map(lambda c: _run_gauntlet_with_llm(c, callbacks), cases))
+    return results
+
+
 @pytest.mark.slow
 class TestFullPipelineWithLLM:
     """Run all test cases through the FULL gauntlet pipeline (regex + LLM).
 
     Skipped automatically when no GOOGLE_API_KEY is available.
-    These tests hit the real Gemini API and take ~30-60s per run.
+    These tests hit the real Gemini API. Cases are parallelized with
+    ThreadPoolExecutor since each call is I/O-bound.
     """
 
     @pytest.fixture(autouse=True)
@@ -2975,7 +2989,7 @@ class TestFullPipelineWithLLM:
 
     def test_original_set_with_llm(self):
         """All 31 original malicious skills should be caught with full pipeline."""
-        results = [_run_gauntlet_with_llm(case, self.callbacks) for case in TEST_CASES]
+        results = _run_llm_cases_parallel(TEST_CASES, self.callbacks)
         detection_rate = _print_results_table("ORIGINAL TEST SET — FULL PIPELINE (REGEX + LLM)", results)
         assert detection_rate >= 80, (
             f"Full-pipeline detection rate {detection_rate:.1f}% is below 80% — LLM should catch what regex misses"
@@ -2983,7 +2997,7 @@ class TestFullPipelineWithLLM:
 
     def test_evaded_set_with_llm(self):
         """Evaded set should be mostly caught by holistic LLM review."""
-        results = [_run_gauntlet_with_llm(case, self.callbacks) for case in EVADED_TEST_CASES]
+        results = _run_llm_cases_parallel(EVADED_TEST_CASES, self.callbacks)
         detection_rate = _print_results_table("EVADED TEST SET — FULL PIPELINE (REGEX + LLM)", results)
         # The whole point: LLM holistic review should catch what regex misses
         assert detection_rate >= 40, (
@@ -2994,7 +3008,7 @@ class TestFullPipelineWithLLM:
     def test_comparison_regex_vs_full(self):
         """Side-by-side comparison of regex-only vs full pipeline."""
         regex_results = [_run_gauntlet_no_llm(case) for case in EVADED_TEST_CASES]
-        llm_results = [_run_gauntlet_with_llm(case, self.callbacks) for case in EVADED_TEST_CASES]
+        llm_results = _run_llm_cases_parallel(EVADED_TEST_CASES, self.callbacks)
 
         regex_caught = sum(1 for r in regex_results if r["caught"])
         llm_caught = sum(1 for r in llm_results if r["caught"])
