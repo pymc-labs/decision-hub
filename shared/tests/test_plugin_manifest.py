@@ -172,3 +172,24 @@ def test_discover_hooks_malformed_json(tmp_path: Path) -> None:
 
     manifest = parse_plugin_manifest(tmp_path)
     assert manifest.hooks == ()
+
+
+def test_discover_hooks_dict_instead_of_list(tmp_path: Path) -> None:
+    """hooks.json with dict value instead of list should skip gracefully."""
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text('{"name": "test", "description": "t"}')
+    hooks_dir = tmp_path / "hooks"
+    hooks_dir.mkdir()
+    (hooks_dir / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": {"hooks": [{"command": "echo hi"}]},
+                }
+            }
+        )
+    )
+
+    manifest = parse_plugin_manifest(tmp_path)
+    assert manifest.hooks == ()

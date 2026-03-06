@@ -139,6 +139,8 @@ def _discover_hooks(root: Path) -> tuple[PluginHookRef, ...]:
             continue
         hooks_map = data.get("hooks", {})
         for event, hook_entries in hooks_map.items():
+            if not isinstance(hook_entries, list):
+                continue
             for entry in hook_entries:
                 for hook in entry.get("hooks", []):
                     command = hook.get("command", "")
