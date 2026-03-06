@@ -191,6 +191,7 @@ class ResolveResponse(BaseModel):
     version: str
     download_url: str
     checksum: str
+    kind: str = "skill"
 
 
 class DeleteResponse(BaseModel):
@@ -725,6 +726,7 @@ def resolve_skill(
             version=plugin_ver.semver,
             checksum=plugin_ver.checksum,
             download_url=download_url,
+            kind="plugin",
         )
 
     # Fall back to skill resolution

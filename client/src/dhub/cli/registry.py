@@ -127,6 +127,65 @@ def _publish_skill_directory(
     return True
 
 
+def _publish_plugin_directory(
+    path: Path,
+    org: str,
+    version: str | None,
+    bump_level: str,
+    api_url: str,
+    token: str,
+    *,
+    source_repo_url: str | None = None,
+) -> None:
+    """Publish a plugin directory to the registry."""
+    from dhub.cli.config import build_headers, raise_for_status
+    from dhub.core.validation import FIRST_VERSION, validate_semver
+    from dhub_core.plugin_manifest import parse_plugin_manifest
+
+    manifest = parse_plugin_manifest(path)
+    plugin_name = manifest.name
+
+    console.print(f"Detected plugin [cyan]{plugin_name}[/] with platforms: {', '.join(manifest.platforms)}")
+    console.print(
+        f"  Skills: {len(manifest.skills)}, Hooks: {len(manifest.hooks)}, "
+        f"Agents: {len(manifest.agents)}, Commands: {len(manifest.commands)}"
+    )
+
+    with console.status(f"Packaging {plugin_name}..."):
+        zip_data = _create_zip(path)
+
+    # Resolve version
+    if version is None:
+        version = manifest.version or FIRST_VERSION
+    validate_semver(version)
+
+    headers = build_headers(token)
+    meta: dict[str, str] = {
+        "org_slug": org,
+        "plugin_name": plugin_name,
+        "version": version,
+    }
+    if source_repo_url:
+        meta["source_repo_url"] = source_repo_url
+
+    with console.status(f"Publishing {plugin_name} v{version}..."), httpx.Client(timeout=120) as client:
+        resp = client.post(
+            f"{api_url}/v1/plugins/publish",
+            data={"metadata": json.dumps(meta)},
+            files={"zip_file": ("plugin.zip", zip_data, "application/zip")},
+            headers=headers,
+        )
+        if resp.status_code == 409:
+            console.print(f"[yellow]Version {version} already exists for {org}/{plugin_name}.[/]")
+            raise typer.Exit(1)
+        raise_for_status(resp)
+
+    result = resp.json()
+    console.print(f"[green]Published {org}/{plugin_name}@{result['version']}[/]")
+    if result.get("deprecated_skills_count", 0) > 0:
+        console.print(f"[yellow]Deprecated {result['deprecated_skills_count']} previously-indexed skills.[/]")
+
+
 def publish_command(
     source: str = typer.Argument(..., help="Path to a directory containing skills, or a git repo URL"),
     version: str = typer.Option(None, "--version", help="Explicit semver version (overrides auto-bump)"),
@@ -262,18 +321,13 @@ def _publish_from_directory(
     private: bool = False,
     org_override: str | None = None,
 ) -> None:
-    """Discover and publish all skills under a local directory."""
+    """Discover and publish all skills (or a plugin) under a local directory."""
     from dhub.cli.config import get_api_url, get_token
     from dhub.core.git_repo import discover_skills
+    from dhub_core.plugin_manifest import detect_plugin_platforms
 
     if not path.is_dir():
         console.print(f"[red]Error: '{path}' is not a directory.[/]")
-        raise typer.Exit(1)
-
-    skill_dirs = discover_skills(path)
-
-    if not skill_dirs:
-        console.print(f"[yellow]No skills found under '{path}'.[/]")
         raise typer.Exit(1)
 
     api_url = get_api_url()
@@ -284,6 +338,18 @@ def _publish_from_directory(
         org = org_override
     else:
         org = _auto_detect_org(api_url, token)
+
+    # Check for plugin structure first — plugin directories take precedence
+    platforms = detect_plugin_platforms(path)
+    if platforms:
+        _publish_plugin_directory(path, org, version, bump_level, api_url, token)
+        return
+
+    skill_dirs = discover_skills(path)
+
+    if not skill_dirs:
+        console.print(f"[yellow]No skills found under '{path}'.[/]")
+        raise typer.Exit(1)
 
     _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private)
 
@@ -299,9 +365,10 @@ def _publish_from_git_repo(
     track: bool = False,
     org_override: str | None = None,
 ) -> None:
-    """Clone a git repo, discover skills, and publish each one."""
+    """Clone a git repo, discover skills (or a plugin), and publish."""
     from dhub.cli.config import build_headers, get_api_url, get_token
     from dhub.core.git_repo import clone_repo, discover_skills, git_url_to_https
+    from dhub_core.plugin_manifest import detect_plugin_platforms
 
     api_url = get_api_url()
     token = get_token()
@@ -321,29 +388,36 @@ def _publish_from_git_repo(
 
     publish_exit: typer.Exit | None = None
     try:
-        skill_dirs = discover_skills(repo_root)
-
-        if not skill_dirs:
-            console.print("[yellow]No skills found in the repository.[/]")
-            raise typer.Exit(1)
-
         source_repo_url = git_url_to_https(repo_url)
 
-        try:
-            _publish_discovered_skills(
-                skill_dirs,
-                repo_root,
-                org,
-                version,
-                bump_level,
-                api_url,
-                token,
-                private=private,
-                source_repo_url=source_repo_url,
+        # Check for plugin structure first — plugins take precedence
+        platforms = detect_plugin_platforms(repo_root)
+        if platforms:
+            _publish_plugin_directory(
+                repo_root, org, version, bump_level, api_url, token, source_repo_url=source_repo_url
             )
-        except typer.Exit as e:
-            # Capture partial-failure exit so auto-tracking still runs
-            publish_exit = e
+        else:
+            skill_dirs = discover_skills(repo_root)
+
+            if not skill_dirs:
+                console.print("[yellow]No skills found in the repository.[/]")
+                raise typer.Exit(1)
+
+            try:
+                _publish_discovered_skills(
+                    skill_dirs,
+                    repo_root,
+                    org,
+                    version,
+                    bump_level,
+                    api_url,
+                    token,
+                    private=private,
+                    source_repo_url=source_repo_url,
+                )
+            except typer.Exit as e:
+                # Capture partial-failure exit so auto-tracking still runs
+                publish_exit = e
 
         # Detect branch before cleanup — ref=None means the repo's default branch
         branch = ref or _detect_branch(repo_root)
@@ -809,6 +883,29 @@ def eval_report_command(
             console.print(f"    Reasoning: {case['reasoning']}")
 
 
+def _install_plugin_to_cache(
+    org_slug: str,
+    plugin_name: str,
+    version: str,
+    zip_data: bytes,
+) -> None:
+    """Install a plugin to the local cache directory."""
+    from dhub_core.ziputil import validate_zip_entries
+
+    cache_dir = Path.home() / ".claude" / "plugins" / "cache" / "decision-hub" / plugin_name / version
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        try:
+            validate_zip_entries(zf, str(cache_dir))
+        except ValueError as exc:
+            console.print(f"[red]Error: Refusing to install — {exc}[/]")
+            raise typer.Exit(1) from None
+        zf.extractall(cache_dir)
+
+    console.print(f"[green]Installed plugin {org_slug}/{plugin_name}@{version} to {cache_dir}[/]")
+
+
 def _install_single_skill(
     skill_ref: str,
     *,
@@ -858,6 +955,7 @@ def _install_single_skill(
     resolved_version: str = data["version"]
     download_url: str = data["download_url"]
     expected_checksum: str = data["checksum"]
+    kind: str = data.get("kind", "skill")
 
     # Download and verify
     with (
@@ -868,6 +966,10 @@ def _install_single_skill(
         raise_for_status(resp)
         zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
+
+    if kind == "plugin":
+        _install_plugin_to_cache(org_slug, skill_name, resolved_version, zip_data)
+        return
 
     # Extract to the canonical skill path
     skill_path = get_dhub_skill_path(org_slug, skill_name)
