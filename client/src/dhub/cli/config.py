@@ -7,7 +7,6 @@ from importlib.metadata import version
 from pathlib import Path
 
 import httpx
-import typer
 
 CONFIG_DIR = Path.home() / ".dhub"
 

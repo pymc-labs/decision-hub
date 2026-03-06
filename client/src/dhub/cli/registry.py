@@ -69,16 +69,19 @@ def _publish_skill_directory(
             return False
 
     if dry_run:
+        import zipfile as _zf
+
         from dhub.cli.output import is_json, print_json
 
-        import zipfile as _zf
         with _zf.ZipFile(io.BytesIO(zip_data)) as zf:
             file_count = len(zf.namelist())
         result = {"org": org, "skill": name, "version": version, "files": file_count, "size_bytes": len(zip_data)}
         if is_json():
             print_json(result)
         else:
-            console.print(f"[yellow]Dry run:[/] Would publish {org}/{name}@{version} ({len(zip_data):,} bytes, {file_count} files)")
+            console.print(
+                f"[yellow]Dry run:[/] Would publish {org}/{name}@{version} ({len(zip_data):,} bytes, {file_count} files)"
+            )
         return True
 
     meta: dict[str, str] = {"org_slug": org, "skill_name": name, "version": version}
@@ -117,13 +120,15 @@ def _publish_skill_directory(
     from dhub.cli.output import is_json, print_json
 
     if is_json():
-        print_json({
-            "org": org,
-            "skill": name,
-            "version": version,
-            "grade": eval_status,
-            "eval_run_id": data.get("eval_run_id"),
-        })
+        print_json(
+            {
+                "org": org,
+                "skill": name,
+                "version": version,
+                "grade": eval_status,
+                "eval_run_id": data.get("eval_run_id"),
+            }
+        )
         return True
 
     grade_colors = {"A": "green", "B": "yellow", "C": "red", "F": "red"}
@@ -325,7 +330,9 @@ def _publish_from_directory(
     else:
         org = _auto_detect_org(api_url, token)
 
-    _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private, dry_run=dry_run)
+    _publish_discovered_skills(
+        skill_dirs, path, org, version, bump_level, api_url, token, private=private, dry_run=dry_run
+    )
 
 
 def _publish_from_git_repo(

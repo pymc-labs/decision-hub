@@ -6,11 +6,11 @@ for emitting machine-readable JSON to stdout/stderr.
 
 import json
 import sys
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class OutputFormat(str, Enum):
+class OutputFormat(StrEnum):
     text = "text"
     json = "json"
 
@@ -41,7 +41,7 @@ def print_json_err(data: dict) -> None:
     sys.stderr.flush()
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """Machine-readable error codes for structured CLI error output."""
 
     AUTH_REQUIRED = "AUTH_REQUIRED"

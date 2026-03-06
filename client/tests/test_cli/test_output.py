@@ -1,7 +1,6 @@
 """Tests for dhub.cli.output -- output format module and global --output flag."""
 
 import json
-import sys
 
 import pytest
 from typer.testing import CliRunner

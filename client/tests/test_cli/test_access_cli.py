@@ -165,9 +165,9 @@ class TestAccessListJsonOutput:
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_access_list_json(self, _mock_url, _mock_token) -> None:
         respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(
-            return_value=httpx.Response(200, json=[
-                {"grantee_org_slug": "partner", "granted_by": "alice", "created_at": "2026-01-01T00:00:00"}
-            ])
+            return_value=httpx.Response(
+                200, json=[{"grantee_org_slug": "partner", "granted_by": "alice", "created_at": "2026-01-01T00:00:00"}]
+            )
         )
         result = runner.invoke(app, ["--output", "json", "access", "list", "acme/my-skill"])
         assert result.exit_code == 0
@@ -279,8 +279,7 @@ class TestAccessGrantDryRun:
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_dry_run_no_post(self, _mock_url, _mock_token) -> None:
-        respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(
-            return_value=httpx.Response(200, json=[]))
+        respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(return_value=httpx.Response(200, json=[]))
         # No POST mock
 
         result = runner.invoke(app, ["access", "grant", "acme/my-skill", "partner", "--dry-run"])
@@ -291,8 +290,7 @@ class TestAccessGrantDryRun:
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_dry_run_json(self, _mock_url, _mock_token) -> None:
-        respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(
-            return_value=httpx.Response(200, json=[]))
+        respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(return_value=httpx.Response(200, json=[]))
 
         result = runner.invoke(app, ["--output", "json", "access", "grant", "acme/my-skill", "partner", "--dry-run"])
         assert result.exit_code == 0

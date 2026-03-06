@@ -45,7 +45,7 @@ def main(
         raise typer.BadParameter(
             f"Invalid output format '{output}'. Must be 'text' or 'json'.",
             param_hint="'--output'",
-        )
+        ) from None
     set_format(fmt)
 
     if output == "text":

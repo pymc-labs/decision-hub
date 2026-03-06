@@ -18,9 +18,7 @@ class TestDoctorCommand:
     @patch("dhub.cli.doctor.get_api_url", return_value="http://test:8000")
     @patch("dhub.cli.doctor.load_config")
     @patch("dhub.cli.doctor.get_client_version", return_value="0.6.0")
-    def test_doctor_json_authenticated(
-        self, _mock_ver, _mock_config, _mock_url, _mock_token
-    ) -> None:
+    def test_doctor_json_authenticated(self, _mock_ver, _mock_config, _mock_url, _mock_token) -> None:
         from dhub.cli.config import CliConfig
 
         _mock_config.return_value = CliConfig(
@@ -29,9 +27,7 @@ class TestDoctorCommand:
             orgs=("acme",),
             default_org="acme",
         )
-        respx.get("http://test:8000/health").mock(
-            return_value=httpx.Response(200)
-        )
+        respx.get("http://test:8000/health").mock(return_value=httpx.Response(200))
 
         result = runner.invoke(app, ["--output", "json", "doctor"])
 
@@ -47,15 +43,11 @@ class TestDoctorCommand:
     @patch("dhub.cli.doctor.get_api_url", return_value="http://test:8000")
     @patch("dhub.cli.doctor.load_config")
     @patch("dhub.cli.doctor.get_client_version", return_value="0.6.0")
-    def test_doctor_not_authenticated(
-        self, _mock_ver, _mock_config, _mock_url, _mock_token
-    ) -> None:
+    def test_doctor_not_authenticated(self, _mock_ver, _mock_config, _mock_url, _mock_token) -> None:
         from dhub.cli.config import CliConfig
 
         _mock_config.return_value = CliConfig(api_url="http://test:8000")
-        respx.get("http://test:8000/health").mock(
-            return_value=httpx.Response(200)
-        )
+        respx.get("http://test:8000/health").mock(return_value=httpx.Response(200))
 
         result = runner.invoke(app, ["--output", "json", "doctor"])
 
@@ -68,9 +60,7 @@ class TestDoctorCommand:
     @patch("dhub.cli.doctor.get_api_url", return_value="http://test:8000")
     @patch("dhub.cli.doctor.load_config")
     @patch("dhub.cli.doctor.get_client_version", return_value="0.6.0")
-    def test_doctor_text_mode(
-        self, _mock_ver, _mock_config, _mock_url, _mock_token
-    ) -> None:
+    def test_doctor_text_mode(self, _mock_ver, _mock_config, _mock_url, _mock_token) -> None:
         from dhub.cli.config import CliConfig
 
         _mock_config.return_value = CliConfig(
@@ -79,9 +69,7 @@ class TestDoctorCommand:
             orgs=("acme",),
             default_org="acme",
         )
-        respx.get("http://test:8000/health").mock(
-            return_value=httpx.Response(200)
-        )
+        respx.get("http://test:8000/health").mock(return_value=httpx.Response(200))
 
         result = runner.invoke(app, ["doctor"])
 
@@ -94,15 +82,11 @@ class TestDoctorCommand:
     @patch("dhub.cli.doctor.get_api_url", return_value="http://unreachable:9999")
     @patch("dhub.cli.doctor.load_config")
     @patch("dhub.cli.doctor.get_client_version", return_value="0.6.0")
-    def test_doctor_api_unreachable(
-        self, _mock_ver, _mock_config, _mock_url, _mock_token
-    ) -> None:
+    def test_doctor_api_unreachable(self, _mock_ver, _mock_config, _mock_url, _mock_token) -> None:
         from dhub.cli.config import CliConfig
 
         _mock_config.return_value = CliConfig(api_url="http://unreachable:9999")
-        respx.get("http://unreachable:9999/health").mock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        respx.get("http://unreachable:9999/health").mock(side_effect=httpx.ConnectError("Connection refused"))
 
         result = runner.invoke(app, ["--output", "json", "doctor"])
 
@@ -116,9 +100,7 @@ class TestDoctorCommand:
     @patch("dhub.cli.doctor.get_api_url", return_value="http://test:8000")
     @patch("dhub.cli.doctor.load_config")
     @patch("dhub.cli.doctor.get_client_version", return_value="0.6.0")
-    def test_doctor_org_from_single_org(
-        self, _mock_ver, _mock_config, _mock_url, _mock_token
-    ) -> None:
+    def test_doctor_org_from_single_org(self, _mock_ver, _mock_config, _mock_url, _mock_token) -> None:
         """When default_org is None but there's exactly one org, use it."""
         from dhub.cli.config import CliConfig
 
@@ -128,9 +110,7 @@ class TestDoctorCommand:
             orgs=("solo-org",),
             default_org=None,
         )
-        respx.get("http://test:8000/health").mock(
-            return_value=httpx.Response(200)
-        )
+        respx.get("http://test:8000/health").mock(return_value=httpx.Response(200))
 
         result = runner.invoke(app, ["--output", "json", "doctor"])
 
