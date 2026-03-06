@@ -93,6 +93,7 @@ def _run_retrieval(
             description=row.get("description", ""),
             latest_version=row["latest_version"],
             eval_status=row["eval_status"],
+            kind=row.get("kind", "skill"),
             author=resolve_author_display(row.get("published_by", "")),
             category=row.get("category", ""),
             download_count=row.get("download_count", 0),
@@ -191,6 +192,7 @@ class AskSkillRef(BaseModel):
     description: str
     safety_rating: str
     reason: str
+    kind: str = "skill"
     author: str = ""
     category: str = ""
     download_count: int = 0
@@ -394,6 +396,7 @@ def _ask_skills_inner(
                     candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
                 ),
                 reason="Matched your search query.",
+                kind=e.kind,
                 author=e.author,
                 category=e.category,
                 download_count=e.download_count,
@@ -467,6 +470,7 @@ def _ask_skills_inner(
                     description=row.get("description", ""),
                     safety_rating=format_trust_score(row.get("eval_status", "")),
                     reason=ref.get("reason", ""),
+                    kind=row.get("kind", "skill"),
                     author=resolve_author_display(row.get("published_by", "")),
                     category=row.get("category", ""),
                     download_count=row.get("download_count", 0),
