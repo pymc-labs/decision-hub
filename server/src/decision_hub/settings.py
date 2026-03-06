@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     # Stop processing if GitHub rate limit remaining drops below this
     tracker_rate_limit_floor: int = 500
 
+    # Claude marketplace
+    marketplace_skill_limit: int = 1000  # max skills in the marketplace
+    marketplace_cache_ttl: int = 300  # seconds between generation checks
+
     # Cache TTLs (seconds) for hot read paths. Set to 0 to disable.
     cache_ttl_taxonomy: int = 300  # taxonomy is static — 5 min
     cache_ttl_org_profiles: int = 60  # org profile listings

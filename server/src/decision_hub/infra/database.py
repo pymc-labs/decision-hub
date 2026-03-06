@@ -559,6 +559,14 @@ tracker_metrics_table = Table(
     Column("batch_duration_seconds", sa.REAL, nullable=False),
 )
 
+server_config_table = Table(
+    "server_config",
+    metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", Text, nullable=False, server_default="0"),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+)
+
 
 # ---------------------------------------------------------------------------
 # Engine factory
@@ -1841,6 +1849,58 @@ def fetch_all_skills_for_index(
     return items, total
 
 
+def fetch_marketplace_skills(conn: Connection, limit: int = 1000) -> list[dict]:
+    """Fetch top skills for the Claude plugin marketplace.
+
+    Returns the top N public skills by download count, excluding F-graded
+    skills and those without a published version. Each dict contains:
+    org_slug, skill_name, description, latest_version, category,
+    gauntlet_summary, eval_status, download_count, source_repo_url, s3_key.
+    """
+    j = skills_table.join(
+        organizations_table,
+        skills_table.c.org_id == organizations_table.c.id,
+    ).join(
+        versions_table,
+        sa.and_(
+            versions_table.c.skill_id == skills_table.c.id,
+            versions_table.c.semver == skills_table.c.latest_semver,
+        ),
+    )
+
+    stmt = (
+        sa.select(
+            organizations_table.c.slug.label("org_slug"),
+            skills_table.c.name.label("skill_name"),
+            skills_table.c.description,
+            skills_table.c.latest_semver.label("latest_version"),
+            skills_table.c.category,
+            skills_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
+            skills_table.c.latest_eval_status.label("eval_status"),
+            skills_table.c.download_count,
+            skills_table.c.source_repo_url,
+            versions_table.c.s3_key,
+        )
+        .select_from(j)
+        .where(
+            sa.and_(
+                skills_table.c.visibility == "public",
+                skills_table.c.latest_semver.isnot(None),
+                # Exclude F-graded skills from marketplace
+                sa.or_(
+                    skills_table.c.latest_gauntlet_summary.is_(None),
+                    ~skills_table.c.latest_gauntlet_summary.startswith("F"),
+                ),
+            )
+        )
+        .order_by(skills_table.c.download_count.desc(), skills_table.c.name.asc())
+        .limit(limit)
+    )
+
+    rows = conn.execute(stmt).fetchall()
+    return [dict(row._mapping) for row in rows]
+
+
 def _normalize_repo_url(url: str) -> str:
     """Strip trailing slashes and .git suffix for consistent matching."""
     url = url.rstrip("/")
@@ -2952,3 +3012,29 @@ def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMe
     stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Marketplace generation counter
+# ---------------------------------------------------------------------------
+
+
+def bump_marketplace_generation(conn: Connection) -> None:
+    """Increment the marketplace generation counter.
+
+    Called after publish, delete, or any operation that changes
+    the set of skills visible in the Claude marketplace.
+    """
+    conn.execute(
+        sa.text(
+            "UPDATE server_config "
+            "SET value = (value::int + 1)::text, updated_at = now() "
+            "WHERE key = 'marketplace_generation'"
+        )
+    )
+
+
+def get_marketplace_generation(conn: Connection) -> int:
+    """Read the current marketplace generation counter."""
+    row = conn.execute(sa.text("SELECT value FROM server_config WHERE key = 'marketplace_generation'")).fetchone()
+    return int(row[0]) if row else 0

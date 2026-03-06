@@ -39,6 +39,7 @@ from decision_hub.domain.search import format_trust_score, resolve_author_displa
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import (
+    bump_marketplace_generation,
     delete_all_versions,
     delete_skill_access_grant,
     delete_version,
@@ -542,6 +543,14 @@ def publish_skill(
     # Commit now so the version row is visible to the background eval thread.
     conn.commit()
 
+    # Bump marketplace generation so the Claude plugin marketplace
+    # picks up the new/updated skill on next git fetch.
+    try:
+        bump_marketplace_generation(conn)
+        conn.commit()
+    except Exception:
+        logger.opt(exception=True).warning("Failed to bump marketplace generation")
+
     eval_report_status, eval_run_id = maybe_trigger_agent_assessment(
         eval_config=eval_config,
         eval_cases=eval_cases,
@@ -976,6 +985,17 @@ def delete_all_skill_versions(
     for s3_key in s3_keys:
         delete_skill_zip(s3_client, settings.s3_bucket, s3_key)
 
+    # Commit the deletes before bumping marketplace generation so a
+    # failure in the bump (non-critical) cannot roll back the deletes
+    # while S3 objects have already been irreversibly removed.
+    conn.commit()
+
+    try:
+        bump_marketplace_generation(conn)
+        conn.commit()
+    except Exception:
+        logger.opt(exception=True).warning("Failed to bump marketplace generation")
+
     return DeleteAllResponse(
         org_slug=org_slug,
         skill_name=skill_name,
@@ -1016,6 +1036,17 @@ def delete_skill_version(
     # Remove the zip from S3
     s3_key = build_s3_key(org_slug, skill_name, version)
     delete_skill_zip(s3_client, settings.s3_bucket, s3_key)
+
+    # Commit the delete before bumping marketplace generation so a
+    # failure in the bump (non-critical) cannot roll back the delete
+    # while the S3 object has already been irreversibly removed.
+    conn.commit()
+
+    try:
+        bump_marketplace_generation(conn)
+        conn.commit()
+    except Exception:
+        logger.opt(exception=True).warning("Failed to bump marketplace generation")
 
     return DeleteResponse(
         org_slug=org_slug,
