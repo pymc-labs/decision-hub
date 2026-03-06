@@ -457,6 +457,16 @@ def publish_plugin(
     except VersionConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    logger.info(
+        "Published plugin {}/{} v{} by {} — grade={} deprecated_skills={}",
+        org_slug,
+        plugin_name,
+        result.version,
+        current_user.username,
+        result.eval_status,
+        result.deprecated_skills_count,
+    )
+
     return PluginPublishResponse(
         plugin_id=str(result.plugin_id),
         version_id=str(result.version_id),
