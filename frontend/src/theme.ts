@@ -15,17 +15,3 @@ export const COLORS = {
   olive: "hsl(85, 15%, 45%)",
   terracotta: "hsl(15, 45%, 55%)",
 } as const;
-
-export const FONTS = {
-  serif: "'Newsreader', Georgia, serif",
-  sans: "'Inter', system-ui, sans-serif",
-  mono: "'IBM Plex Mono', monospace",
-} as const;
-
-export const GRADE_COLORS = {
-  A: "olive",
-  B: "charcoal",
-  C: "terracotta",
-  F: "destructive",
-  pending: "muted",
-} as const;
