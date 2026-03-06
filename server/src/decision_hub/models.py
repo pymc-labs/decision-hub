@@ -68,6 +68,9 @@ class Skill:
     source_repo_url: str | None = None
     manifest_path: str | None = None
     source_repo_removed: bool = False
+    deprecated: bool = False
+    deprecated_by_plugin_id: UUID | None = None
+    deprecation_message: str | None = None
     github_stars: int | None = None
     github_forks: int | None = None
     github_watchers: int | None = None

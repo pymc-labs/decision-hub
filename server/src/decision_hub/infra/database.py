@@ -731,6 +731,9 @@ _SKILL_SUMMARY_COLUMNS = [
     skills_table.c.source_repo_url,
     skills_table.c.manifest_path,
     skills_table.c.source_repo_removed,
+    skills_table.c.deprecated,
+    skills_table.c.deprecated_by_plugin_id,
+    skills_table.c.deprecation_message,
     skills_table.c.github_stars,
     skills_table.c.github_forks,
     skills_table.c.github_watchers,
@@ -814,6 +817,9 @@ def _row_to_skill(row: sa.Row) -> Skill:
         source_repo_url=row.source_repo_url,
         manifest_path=row.manifest_path,
         source_repo_removed=row.source_repo_removed,
+        deprecated=row.deprecated,
+        deprecated_by_plugin_id=row.deprecated_by_plugin_id,
+        deprecation_message=row.deprecation_message,
         github_stars=row.github_stars,
         github_forks=row.github_forks,
         github_watchers=row.github_watchers,
@@ -1820,6 +1826,7 @@ def fetch_all_skills_for_index(
     grade: str | None = None,
     sort: str = "updated",
     sort_dir: str = "desc",
+    include_deprecated: bool = False,
 ) -> tuple[list[dict], int]:
     """Fetch skills with their latest version info, with optional filters.
 
@@ -1865,6 +1872,10 @@ def fetch_all_skills_for_index(
         )
         .where(skills_table.c.latest_semver.isnot(None))
     )
+
+    # Exclude deprecated skills by default
+    if not include_deprecated:
+        base = base.where(skills_table.c.deprecated == False)  # noqa: E712
 
     # Visibility filter
     base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
@@ -1936,6 +1947,8 @@ def fetch_all_skills_for_index(
             )
             .where(skills_table.c.latest_semver.isnot(None))
         )
+        if not include_deprecated:
+            count_q = count_q.where(skills_table.c.deprecated == False)  # noqa: E712
         count_q = _apply_visibility_filter(count_q, user_org_ids, granted_skill_ids)
         count_q = _build_skills_filters(count_q, search=search, org_slug=org_slug, category=category, grade=grade)
         total = conn.execute(count_q).scalar_one()
@@ -2043,6 +2056,7 @@ def search_skills_hybrid(
                 )
             )
             .where(skills_table.c.latest_semver.isnot(None))
+            .where(skills_table.c.deprecated == False)  # noqa: E712
         )
 
         stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
@@ -2147,6 +2161,7 @@ def fetch_similar_skills(
             skills_table.c.latest_semver.isnot(None),
             skills_table.c.embedding.isnot(None),
             skills_table.c.visibility == "public",
+            skills_table.c.deprecated == False,  # noqa: E712
             sa.not_(
                 sa.and_(
                     organizations_table.c.slug == org_slug,
@@ -3284,6 +3299,24 @@ def find_plugin_by_slug(conn: Connection, org_slug: str, name: str) -> Plugin | 
     )
     row = conn.execute(stmt).first()
     return _row_to_plugin(row) if row else None
+
+
+def fetch_plugin_display_names(conn: Connection, plugin_ids: list[UUID]) -> dict[UUID, str]:
+    """Batch-fetch display names (org_slug/name) for a list of plugin IDs.
+
+    Returns a mapping from plugin ID to "org_slug/plugin_name".
+    Missing IDs are silently omitted from the result.
+    """
+    if not plugin_ids:
+        return {}
+    join = plugins_table.join(organizations_table, plugins_table.c.org_id == organizations_table.c.id)
+    stmt = (
+        sa.select(plugins_table.c.id, organizations_table.c.slug, plugins_table.c.name)
+        .select_from(join)
+        .where(plugins_table.c.id.in_(plugin_ids))
+    )
+    rows = conn.execute(stmt).all()
+    return {row.id: f"{row.slug}/{row.name}" for row in rows}
 
 
 def update_plugin_description(conn: Connection, plugin_id: UUID, description: str) -> None:

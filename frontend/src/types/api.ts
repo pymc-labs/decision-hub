@@ -20,6 +20,9 @@ export interface SkillSummary {
   github_is_archived: boolean | null;
   github_license: string | null;
   is_auto_synced: boolean;
+  deprecated?: boolean;
+  deprecated_by_plugin_name?: string | null;
+  deprecation_message?: string | null;
 }
 
 export interface PaginatedSkillsResponse {

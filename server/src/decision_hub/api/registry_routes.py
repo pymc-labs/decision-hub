@@ -39,6 +39,7 @@ from decision_hub.infra.database import (
     delete_skill_access_grant,
     delete_version,
     fetch_all_skills_for_index,
+    fetch_plugin_display_names,
     fetch_registry_stats,
     fetch_similar_skills,
     find_active_eval_runs_for_user,
@@ -238,6 +239,9 @@ class SkillSummary(BaseModel):
     github_is_archived: bool | None = None
     github_license: str | None = None
     is_auto_synced: bool = False
+    deprecated: bool = False
+    deprecated_by_plugin_name: str | None = None
+    deprecation_message: str | None = None
 
 
 class SimilarSkillRef(BaseModel):
@@ -510,6 +514,7 @@ def list_skills(
     grade: str | None = Query(None, max_length=1),
     sort: str = Query("updated", pattern="^(updated|name|downloads|github_stars|safety_rating)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    include_deprecated: bool = Query(False),
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedSkillsResponse:
@@ -533,8 +538,14 @@ def list_skills(
         offset=offset,
         sort=sort,
         sort_dir=sort_dir,
+        include_deprecated=include_deprecated,
     )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
+
+    # Batch-resolve plugin display names for deprecated skills
+    plugin_ids = [row["deprecated_by_plugin_id"] for row in rows if row.get("deprecated_by_plugin_id")]
+    plugin_names = fetch_plugin_display_names(conn, plugin_ids) if plugin_ids else {}
+
     items = [
         SkillSummary(
             org_slug=row["org_slug"],
@@ -557,6 +568,11 @@ def list_skills(
             github_is_archived=row.get("github_is_archived"),
             github_license=row.get("github_license"),
             is_auto_synced=row.get("has_tracker", False),
+            deprecated=row.get("deprecated", False),
+            deprecated_by_plugin_name=plugin_names.get(row["deprecated_by_plugin_id"])
+            if row.get("deprecated_by_plugin_id")
+            else None,
+            deprecation_message=row.get("deprecation_message"),
         )
         for row in rows
     ]
@@ -589,6 +605,13 @@ def get_skill_summary(
         raise HTTPException(status_code=404, detail=f"No versions found for {org_slug}/{skill_name}")
 
     org = find_org_by_slug(conn, org_slug)
+
+    # Resolve deprecating plugin name if applicable
+    deprecated_by_plugin_name = None
+    if skill.deprecated_by_plugin_id:
+        names = fetch_plugin_display_names(conn, [skill.deprecated_by_plugin_id])
+        deprecated_by_plugin_name = names.get(skill.deprecated_by_plugin_id)
+
     return SkillSummary(
         org_slug=org_slug,
         skill_name=skill_name,
@@ -610,6 +633,9 @@ def get_skill_summary(
         github_is_archived=skill.github_is_archived,
         github_license=skill.github_license,
         is_auto_synced=bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url)),
+        deprecated=skill.deprecated,
+        deprecated_by_plugin_name=deprecated_by_plugin_name,
+        deprecation_message=skill.deprecation_message,
     )
 
 
