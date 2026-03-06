@@ -7,15 +7,24 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from decision_hub.api.search_routes import router as search_router
+from decision_hub.infra.gemini import GuardAndParseResult
 
 # ---------------------------------------------------------------------------
 # Fixtures -- search routes need their own app since the shared conftest
 # test_app does not include the search_router.
 # ---------------------------------------------------------------------------
 
-_GUARD_PASS = {"is_skill_query": True, "reason": ""}
+_GUARD_PASS = GuardAndParseResult(
+    is_skill_query=True,
+    reason="",
+    fts_queries=["weather forecast"],
+)
 
-_PARSED_KEYWORDS = ["weather forecast"]
+_GUARD_OFF_TOPIC = GuardAndParseResult(
+    is_skill_query=False,
+    reason="cooking recipe",
+    fts_queries=[],
+)
 
 _SAMPLE_CANDIDATES = [
     {
@@ -107,8 +116,7 @@ class TestAskSkills:
         assert resp.status_code == 503
         assert "GOOGLE_API_KEY" in resp.json()["detail"]
 
-    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
-    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     @patch("decision_hub.api.search_routes.ask_conversational")
@@ -117,7 +125,6 @@ class TestAskSkills:
         mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
-        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -144,15 +151,13 @@ class TestAskSkills:
         assert data["skills"][0]["latest_version"] == "1.0.0"
         assert data["skills"][0]["source_repo_url"] == "https://github.com/acme/weather-skill"
 
-    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
-    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     def test_ask_empty_database(
         self,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
-        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -167,10 +172,7 @@ class TestAskSkills:
         assert "couldn't find any skills" in data["answer"]
         assert data["skills"] == []
 
-    @patch(
-        "decision_hub.api.search_routes.check_query_topicality",
-        return_value={"is_skill_query": False, "reason": "cooking recipe"},
-    )
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_OFF_TOPIC)
     def test_ask_off_topic_rejected(
         self,
         _mock_guard: MagicMock,
@@ -184,10 +186,7 @@ class TestAskSkills:
         assert "doesn't look like a skill" in data["answer"]
         assert data["skills"] == []
 
-    @patch(
-        "decision_hub.api.search_routes.check_query_topicality",
-        return_value={"is_skill_query": False, "reason": "cooking recipe"},
-    )
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_OFF_TOPIC)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     def test_ask_off_topic_skips_db(
         self,
@@ -201,8 +200,7 @@ class TestAskSkills:
         assert resp.status_code == 200
         mock_hybrid.assert_not_called()
 
-    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
-    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     @patch("decision_hub.api.search_routes.ask_conversational", side_effect=Exception("Gemini down"))
@@ -211,7 +209,6 @@ class TestAskSkills:
         _mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
-        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -227,8 +224,7 @@ class TestAskSkills:
         assert data["skills"][0]["org_slug"] == "acme"
         assert data["skills"][0]["skill_name"] == "weather"
 
-    @patch("decision_hub.api.search_routes.check_query_topicality", return_value=_GUARD_PASS)
-    @patch("decision_hub.api.search_routes.parse_query_keywords", return_value=_PARSED_KEYWORDS)
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")
     @patch("decision_hub.api.search_routes.ask_conversational")
@@ -237,7 +233,6 @@ class TestAskSkills:
         mock_llm: MagicMock,
         mock_hybrid: MagicMock,
         _mock_embed: MagicMock,
-        _mock_parse: MagicMock,
         _mock_guard: MagicMock,
         search_client: TestClient,
     ) -> None:
@@ -261,8 +256,8 @@ class TestAskSkills:
         client = TestClient(search_app)
 
         with patch(
-            "decision_hub.api.search_routes.check_query_topicality",
-            return_value={"is_skill_query": False, "reason": "off-topic"},
+            "decision_hub.api.search_routes.parse_query_with_guard",
+            return_value=_GUARD_OFF_TOPIC,
         ):
             # First two requests should succeed (off-topic but allowed by rate limiter)
             for _ in range(2):
@@ -273,3 +268,102 @@ class TestAskSkills:
             resp = client.get("/v1/ask", params={"q": "cake"})
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/ask
+# ---------------------------------------------------------------------------
+
+
+class TestAskSkillsPost:
+    """POST /v1/ask -- multi-turn conversational skill discovery."""
+
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_post_ask_success(
+        self,
+        mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """POST with history passes conversation context to LLM."""
+        mock_hybrid.return_value = _SAMPLE_CANDIDATES
+        mock_llm.return_value = _LLM_RESULT
+
+        resp = search_client.post(
+            "/v1/ask",
+            json={
+                "query": "I need the drafting one",
+                "history": [
+                    {"role": "user", "content": "linkedin post tools"},
+                    {"role": "assistant", "content": "Here are my top picks..."},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["query"] == "I need the drafting one"
+        assert len(data["skills"]) == 2
+        # POST intentionally omits category (no category filter param)
+        assert data.get("category") is None
+        # Verify history was passed to ask_conversational
+        call_kwargs = mock_llm.call_args
+        assert call_kwargs[1]["history"] is not None
+        assert len(call_kwargs[1]["history"]) == 2
+
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_post_ask_empty_history(
+        self,
+        mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """POST with empty history works like GET (single-shot)."""
+        mock_hybrid.return_value = _SAMPLE_CANDIDATES
+        mock_llm.return_value = _LLM_RESULT
+
+        resp = search_client.post(
+            "/v1/ask",
+            json={
+                "query": "weather forecast",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["query"] == "weather forecast"
+        assert len(data["skills"]) == 2
+
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_OFF_TOPIC)
+    def test_post_ask_off_topic_rejected(
+        self,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Off-topic queries via POST get a friendly rejection with empty skills."""
+        resp = search_client.post("/v1/ask", json={"query": "chocolate cake recipe"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "doesn't look like a skill" in data["answer"]
+        assert data["skills"] == []
+
+    def test_post_ask_validates_query_length(self, search_client: TestClient) -> None:
+        """Query longer than 500 chars is rejected."""
+        resp = search_client.post(
+            "/v1/ask",
+            json={
+                "query": "x" * 501,
+            },
+        )
+        assert resp.status_code == 422

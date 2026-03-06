@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Search, Package, Download, Filter, User, Tag, Layers } from "lucide-react";
+import { Search, Package, Filter, User, Tag, Layers, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
+import type { SkillSortField } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useSEO } from "../hooks/useSEO";
@@ -9,6 +10,7 @@ import type { SkillSummary } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import SkillCardStats from "../components/SkillCardStats";
 import styles from "./SkillsPage.module.css";
 
 const PAGE_SIZE = 12;
@@ -20,8 +22,13 @@ export default function SkillsPage() {
   const [orgFilter, setOrgFilter] = useState<string>("all");
   const [gradeFilter, setGradeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"name" | "downloads" | "updated">("updated");
+  const [sortBy, setSortBy] = useState<SkillSortField>("updated");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [viewMode, setViewMode] = useState<"grid" | "grouped">("grid");
+
+  // Natural default direction for each sort field
+  const defaultDirFor = (field: SkillSortField): "asc" | "desc" =>
+    field === "name" || field === "safety_rating" ? "asc" : "desc";
 
   useSEO({
     title: "Skills",
@@ -58,12 +65,13 @@ export default function SkillsPage() {
         category: categoryFilter !== "all" ? categoryFilter : undefined,
         grade: gradeFilter !== "all" ? gradeFilter : undefined,
         sort: sortBy,
+        sortDir,
       }),
-    [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy],
+    [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy, sortDir],
   );
 
   const { items, total, loading, loadingMore, error, hasMore, sentinelRef, retry } =
-    useInfiniteScroll(fetchPage, [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy]);
+    useInfiniteScroll(fetchPage, [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy, sortDir]);
 
   const orgs = useMemo(
     () => (orgProfiles ?? []).map((p) => p.slug).sort(),
@@ -165,17 +173,34 @@ export default function SkillsPage() {
               );
             })}
           </select>
+        </div>
 
+        <div className={styles.sortGroup}>
           <select
             aria-label="Sort skills by"
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "name" | "downloads" | "updated")}
-            className={styles.select}
+            onChange={(e) => {
+              const field = e.target.value as SkillSortField;
+              setSortBy(field);
+              setSortDir(defaultDirFor(field));
+            }}
+            className={styles.sortSelect}
           >
             <option value="updated">Latest</option>
             <option value="name">Name</option>
             <option value="downloads">Downloads</option>
+            <option value="github_stars">Stars</option>
+            <option value="safety_rating">Safety</option>
           </select>
+
+          <button
+            className={styles.sortDirBtn}
+            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+            title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"}
+            aria-label="Toggle sort direction"
+          >
+            {sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+          </button>
 
           <button
             className={`${styles.viewToggle} ${viewMode === "grouped" ? styles.viewToggleActive : ""}`}
@@ -269,13 +294,19 @@ function SkillCard({ skill }: { skill: SkillSummary }) {
 
           <div className={styles.cardFooter}>
             <span className={styles.cardVersion}>v{skill.latest_version}</span>
-            {skill.author && (
+            {skill.author && skill.author !== "auto-sync" && (
               <span className={styles.cardAuthor}>by {skill.author}</span>
             )}
-            <span className={styles.cardDownloads}>
-              <Download size={12} />
-              {skill.download_count}
-            </span>
+            {skill.is_auto_synced && (
+              <span className={styles.cardAuthor} title="Auto-synced from GitHub">
+                <RefreshCw size={12} />
+              </span>
+            )}
+            <SkillCardStats
+              github_stars={skill.github_stars}
+              github_license={skill.github_license}
+              download_count={skill.download_count}
+            />
           </div>
         </div>
       </NeonCard>

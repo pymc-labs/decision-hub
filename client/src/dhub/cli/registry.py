@@ -27,6 +27,7 @@ def _publish_skill_directory(
     *,
     private: bool = False,
     source_repo_url: str | None = None,
+    manifest_path: str | None = None,
 ) -> bool:
     """Publish a single skill directory to the registry.
 
@@ -71,6 +72,8 @@ def _publish_skill_directory(
         meta["visibility"] = "org"
     if source_repo_url:
         meta["source_repo_url"] = source_repo_url
+    if manifest_path:
+        meta["manifest_path"] = manifest_path
     metadata = json.dumps(meta)
 
     with console.status(f"Publishing {org}/{name}@{version}..."):
@@ -217,6 +220,11 @@ def _publish_discovered_skills(
         rel = skill_dir.relative_to(root)
         console.print(f"Publishing [cyan]{name}[/] (from {rel})...")
 
+        # Compute relative path to SKILL.md within the repo (only meaningful
+        # when publishing from a git source — skip for local-only publishes
+        # to avoid overwriting a previously correct git-based path).
+        skill_manifest_path = (skill_dir / "SKILL.md").relative_to(root).as_posix() if source_repo_url else None
+
         try:
             result = _publish_skill_directory(
                 skill_dir,
@@ -228,6 +236,7 @@ def _publish_discovered_skills(
                 token,
                 private=private,
                 source_repo_url=source_repo_url,
+                manifest_path=skill_manifest_path,
             )
             if result:
                 published += 1
@@ -800,13 +809,17 @@ def eval_report_command(
             console.print(f"    Reasoning: {case['reasoning']}")
 
 
-def install_command(
-    skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
-    version: str = typer.Option("latest", "--version", "-v", help="Version spec"),
-    agent: str = typer.Option(None, "--agent", help="Target agent (e.g. claude-code, cursor) or 'all'"),
-    allow_risky: bool = typer.Option(False, "--allow-risky", help="Allow installing C-grade (risky) skills"),
+def _install_single_skill(
+    skill_ref: str,
+    *,
+    version: str = "latest",
+    agent: str | None = None,
+    allow_risky: bool = False,
 ) -> None:
-    """Install a skill from the registry."""
+    """Resolve, download, and extract a single skill.
+
+    Raises typer.Exit on errors.
+    """
     from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
     from dhub.core.install import (
         get_dhub_skill_path,
@@ -882,6 +895,92 @@ def install_command(
         else:
             link_path = link_skill_to_agent(org_slug, skill_name, agent)
             console.print(f"[green]Linked to {agent} at {link_path}[/]")
+
+
+def _install_from_repo(
+    repo_ref: str,
+    *,
+    version: str = "latest",
+    agent: str | None = None,
+    allow_risky: bool = False,
+) -> None:
+    """Install all skills from a GitHub repository."""
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+
+    headers = build_headers(get_optional_token())
+    base_url = get_api_url()
+
+    # Normalize repo_ref to full URL if it's owner/repo format
+    repo_url = f"https://github.com/{repo_ref}" if not repo_ref.startswith("http") else repo_ref
+
+    if len(repo_url) > 500:
+        console.print("[red]Error: Repository URL is too long (max 500 characters).[/]")
+        raise typer.Exit(1)
+
+    # Fetch all skills from the repo
+    with console.status(f"Fetching skills from {repo_ref}..."), httpx.Client(timeout=60) as client:
+        resp = client.get(
+            f"{base_url}/v1/skills/by-repo",
+            params={"repo_url": repo_url},
+            headers=headers,
+        )
+        raise_for_status(resp)
+        data = resp.json()
+
+    skills = data["items"]
+    if not skills:
+        console.print(f"[red]Error: No published skills found for repo '{repo_ref}'.[/]")
+        raise typer.Exit(1)
+
+    console.print(f"Found [cyan]{len(skills)}[/] skills in {repo_ref}:")
+    for s in skills:
+        console.print(f"  {s['org_slug']}/{s['skill_name']}")
+    console.print()
+
+    # Install each skill
+    succeeded = 0
+    failed = 0
+    for s in skills:
+        ref = f"{s['org_slug']}/{s['skill_name']}"
+        try:
+            _install_single_skill(ref, version=version, agent=agent, allow_risky=allow_risky)
+            succeeded += 1
+        except (typer.Exit, httpx.HTTPStatusError) as exc:
+            failed += 1
+            detail = ""
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+                detail = " (rate limited)"
+            console.print(f"[yellow]Warning: Failed to install {ref}{detail}, continuing...[/]")
+
+    console.print(f"\n[green]Installed {succeeded}/{len(skills)} skills from {repo_ref}[/]")
+    if failed:
+        console.print(f"[yellow]{failed} skills failed to install.[/]")
+
+
+def install_command(
+    skill_ref: str = typer.Argument(None, help="Skill name (e.g. 'myorg/my-skill')"),
+    version: str = typer.Option("latest", "--version", "-v", help="Version spec"),
+    agent: str = typer.Option(None, "--agent", help="Target agent (e.g. claude-code, cursor) or 'all'"),
+    allow_risky: bool = typer.Option(False, "--allow-risky", help="Allow installing C-grade (risky) skills"),
+    repo: str = typer.Option(None, "--repo", help="Install all skills from a GitHub repo (e.g. 'owner/repo')"),
+) -> None:
+    """Install a skill from the registry.
+
+    Either provide a skill reference (org/skill) or use --repo to install
+    all skills from a GitHub repository.
+    """
+    if repo and skill_ref:
+        console.print("[red]Error: Cannot use both a skill reference and --repo.[/]")
+        raise typer.Exit(1)
+    if not repo and not skill_ref:
+        console.print("[red]Error: Provide a skill reference or use --repo.[/]")
+        raise typer.Exit(1)
+
+    if repo:
+        _install_from_repo(repo, version=version, agent=agent, allow_risky=allow_risky)
+        return
+
+    _install_single_skill(skill_ref, version=version, agent=agent, allow_risky=allow_risky)
 
 
 def logs_command(

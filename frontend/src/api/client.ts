@@ -9,6 +9,7 @@ import type {
   RegistryStats,
   OrgStatsResponse,
   AskResponse,
+  AskMessage,
 } from "../types/api";
 
 // When served from Modal (same origin), use "" so fetches are relative.
@@ -30,6 +31,8 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export type SkillSortField = "updated" | "name" | "downloads" | "github_stars" | "safety_rating";
+
 export interface SkillsFilterParams {
   page?: number;
   pageSize?: number;
@@ -37,7 +40,8 @@ export interface SkillsFilterParams {
   org?: string;
   category?: string;
   grade?: string;
-  sort?: "updated" | "name" | "downloads";
+  sort?: SkillSortField;
+  sortDir?: "asc" | "desc";
 }
 
 export async function listSkillsFiltered(
@@ -51,6 +55,7 @@ export async function listSkillsFiltered(
   if (params.category) qs.set("category", params.category);
   if (params.grade) qs.set("grade", params.grade);
   if (params.sort) qs.set("sort", params.sort);
+  if (params.sortDir) qs.set("sort_dir", params.sortDir);
   return fetchJSON<PaginatedSkillsResponse>(`/v1/skills?${qs.toString()}`);
 }
 
@@ -67,13 +72,19 @@ export async function getRegistryStats(): Promise<RegistryStats> {
   return fetchJSON<RegistryStats>("/v1/stats");
 }
 
+export type OrgSortField = "slug" | "skill_count" | "total_downloads" | "latest_update";
+
 export async function listOrgStats(params: {
   search?: string;
   typeFilter?: string;
+  sort?: OrgSortField;
+  sortDir?: "asc" | "desc";
 } = {}): Promise<OrgStatsResponse> {
   const qs = new URLSearchParams();
   if (params.search) qs.set("search", params.search);
   if (params.typeFilter) qs.set("type_filter", params.typeFilter);
+  if (params.sort) qs.set("sort", params.sort);
+  if (params.sortDir) qs.set("sort_dir", params.sortDir);
   return fetchJSON<OrgStatsResponse>(`/v1/orgs/stats?${qs.toString()}`);
 }
 
@@ -121,10 +132,14 @@ export async function getAuditLog(
   );
 }
 
-export async function askQuestion(query: string): Promise<AskResponse> {
-  return fetchJSON<AskResponse>(
-    `/v1/ask?q=${encodeURIComponent(query)}`
-  );
+export async function askQuestionWithHistory(
+  query: string,
+  history: AskMessage[]
+): Promise<AskResponse> {
+  return fetchJSON<AskResponse>("/v1/ask", {
+    method: "POST",
+    body: JSON.stringify({ query, history }),
+  });
 }
 
 export async function downloadSkillZip(

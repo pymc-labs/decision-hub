@@ -2,14 +2,15 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
-from decision_hub.api.deps import get_connection, get_current_user
+from decision_hub.api.deps import get_cache, get_connection, get_current_user, get_settings
 from decision_hub.domain.orgs import validate_org_slug
+from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import (
     fetch_org_stats,
     find_org_by_slug,
@@ -21,6 +22,7 @@ from decision_hub.infra.database import (
     org_has_public_skills,
 )
 from decision_hub.models import User
+from decision_hub.settings import Settings
 
 org_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
 org_public_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
@@ -151,12 +153,26 @@ class OrgStatsResponse(BaseModel):
 
 @org_public_router.get("/stats", response_model=OrgStatsResponse)
 def get_org_stats(
+    response: Response,
     search: str | None = Query(None, max_length=200),
     type_filter: str = Query("all", pattern="^(orgs|users|all)$"),
+    sort: str = Query("slug", pattern="^(slug|skill_count|total_downloads|latest_update)$"),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     conn: Connection = Depends(get_connection),
+    cache: TTLCache = Depends(get_cache),
+    settings: Settings = Depends(get_settings),
 ) -> OrgStatsResponse:
     """Return aggregated org statistics for the orgs listing page."""
-    rows = fetch_org_stats(conn, search=search, type_filter=type_filter)
+    ttl = settings.cache_ttl_org_stats
+    if ttl:
+        response.headers["Cache-Control"] = f"public, max-age={ttl}"
+
+    cache_key = f"org_stats:{search}:{type_filter}:{sort}:{sort_dir}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = fetch_org_stats(conn, search=search, type_filter=type_filter, sort=sort, sort_dir=sort_dir)
     items = [
         OrgStatsEntry(
             slug=row["slug"],
@@ -168,16 +184,31 @@ def get_org_stats(
         )
         for row in rows
     ]
-    return OrgStatsResponse(items=items)
+    result = OrgStatsResponse(items=items)
+    if ttl:
+        cache.set(cache_key, result, ttl=ttl)
+    return result
 
 
 @org_public_router.get("/profiles", response_model=list[OrgProfile])
 def list_org_profiles(
+    response: Response,
     conn: Connection = Depends(get_connection),
+    cache: TTLCache = Depends(get_cache),
+    settings: Settings = Depends(get_settings),
 ) -> list[OrgProfile]:
     """Public profiles for all organisations (single request, no auth)."""
+    ttl = settings.cache_ttl_org_profiles
+    if ttl:
+        response.headers["Cache-Control"] = f"public, max-age={ttl}"
+
+    cache_key = "org_profiles"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     orgs = list_all_org_profiles(conn)
-    return [
+    result = [
         OrgProfile(
             slug=o.slug,
             is_personal=o.is_personal,
@@ -187,12 +218,17 @@ def list_org_profiles(
         )
         for o in orgs
     ]
+    if ttl:
+        cache.set(cache_key, result, ttl=ttl)
+    return result
 
 
 @org_public_router.get("/{slug}/profile", response_model=OrgProfile)
 def get_org_profile(
     slug: str,
+    response: Response,
     conn: Connection = Depends(get_connection),
+    settings: Settings = Depends(get_settings),
 ) -> OrgProfile:
     """Public profile for an organisation."""
     org = find_org_by_slug(conn, slug)
@@ -200,6 +236,9 @@ def get_org_profile(
         raise HTTPException(status_code=404, detail="Organisation not found")
     if not org_has_public_skills(conn, org.id):
         raise HTTPException(status_code=404, detail="Organisation not found")
+    ttl = settings.cache_ttl_org_profiles
+    if ttl:
+        response.headers["Cache-Control"] = f"public, max-age={ttl}"
     return OrgProfile(
         slug=org.slug,
         is_personal=org.is_personal,

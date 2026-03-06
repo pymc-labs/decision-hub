@@ -66,6 +66,7 @@ class Skill:
     category: str = ""
     visibility: str = "public"
     source_repo_url: str | None = None
+    manifest_path: str | None = None
     source_repo_removed: bool = False
     github_stars: int | None = None
     github_forks: int | None = None
@@ -201,13 +202,6 @@ class EvalRun:
 
 
 @dataclass(frozen=True)
-class TestCase:
-    __test__ = False  # prevent pytest from trying to collect this dataclass
-    prompt: str
-    assertions: tuple[dict, ...]
-
-
-@dataclass(frozen=True)
 class EvalResult:
     check_name: str
     severity: CheckSeverity
@@ -320,3 +314,6 @@ class SkillIndexEntry:
     download_count: int = 0
     source_repo_url: str | None = None
     gauntlet_summary: str | None = None
+    github_stars: int | None = None
+    github_forks: int | None = None
+    github_license: str | None = None

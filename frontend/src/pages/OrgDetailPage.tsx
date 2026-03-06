@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Package, Download, ArrowLeft, Globe, Github, Star, Tag } from "lucide-react";
+import { Package, ArrowLeft, Globe, Github, Star, Tag, RefreshCw } from "lucide-react";
 import { listSkillsFiltered, getOrgProfile } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
@@ -8,6 +8,7 @@ import { useSEO } from "../hooks/useSEO";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import SkillCardStats from "../components/SkillCardStats";
 import OrgAvatar from "../components/OrgAvatar";
 import { FEATURED_SET } from "../constants/featuredOrgs";
 import styles from "./OrgDetailPage.module.css";
@@ -166,13 +167,19 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
                       <span className={styles.cardVersion}>
                         v{skill.latest_version}
                       </span>
-                      {skill.author && (
+                      {skill.author && skill.author !== "auto-sync" && (
                         <span className={styles.cardAuthor}>by {skill.author}</span>
                       )}
-                      <span className={styles.cardDownloads}>
-                        <Download size={12} />
-                        {skill.download_count}
-                      </span>
+                      {skill.is_auto_synced && (
+                        <span className={styles.cardAuthor} title="Auto-synced from GitHub">
+                          <RefreshCw size={12} />
+                        </span>
+                      )}
+                      <SkillCardStats
+                        github_stars={skill.github_stars}
+                        github_license={skill.github_license}
+                        download_count={skill.download_count}
+                      />
                     </div>
                   </div>
                 </NeonCard>

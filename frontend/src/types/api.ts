@@ -12,6 +12,7 @@ export interface SkillSummary {
   is_personal_org: boolean;
   category: string;
   source_repo_url: string | null;
+  manifest_path: string | null;
   source_repo_removed: boolean;
   github_stars: number | null;
   github_forks: number | null;
@@ -74,6 +75,13 @@ export interface EvalReport {
   created_at: string | null;
 }
 
+export interface CheckResult {
+  severity?: string;
+  check_name?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
 export interface AuditLogEntry {
   id: string;
   org_slug: string;
@@ -81,7 +89,7 @@ export interface AuditLogEntry {
   semver: string;
   grade: string;
   version_id: string | null;
-  check_results: Record<string, unknown>[];
+  check_results: CheckResult[];
   llm_reasoning: Record<string, unknown> | null;
   publisher: string;
   quarantine_s3_key: string | null;
@@ -139,6 +147,8 @@ export interface AskSkillRef {
   latest_version: string;
   source_repo_url: string | null;
   gauntlet_summary: string | null;
+  github_stars: number | null;
+  github_license: string | null;
 }
 
 export interface AskResponse {
@@ -146,4 +156,9 @@ export interface AskResponse {
   answer: string;
   skills: AskSkillRef[];
   category: string | null;
+}
+
+export interface AskMessage {
+  role: "user" | "assistant";
+  content: string;
 }

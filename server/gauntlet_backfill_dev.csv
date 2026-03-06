@@ -1,0 +1,3 @@
+fqn,version,stored_grade,new_grade,grade_changed,duration_ms,num_source_files,total_source_kb,checks_failed,checks_warned,new_summary,error
+0xsojalsec/mem-search,0.1.1,B,B,False,20082,14,64.5,,,"Elevated permissions: shell, network",
+0xsojalsec/troubleshoot,0.1.1,B,B,False,35840,6,33.6,,,"Elevated permissions: shell, network",

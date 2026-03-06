@@ -6,14 +6,14 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 1.6rem;
+  font-size: var(--text-heading);
   color: var(--neon-cyan);
   text-shadow: var(--glow-text-subtle);
   margin-bottom: 8px;
 }
 
 .subtitle {
-  font-size: 0.95rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   letter-spacing: 1px;
 }
@@ -49,7 +49,7 @@
   border-radius: 8px;
   color: var(--text-primary);
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   outline: none;
   transition: all 0.2s ease;
 }
@@ -77,7 +77,7 @@
   border-radius: 8px;
   color: var(--text-primary);
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   outline: none;
   cursor: pointer;
@@ -87,6 +87,56 @@
 
 .select:focus {
   border-color: var(--neon-cyan);
+}
+
+/* Sort controls — visually distinct from filters */
+.sortGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 12px;
+  margin-left: 4px;
+}
+
+.sortSelect {
+  padding: 10px 12px;
+  background: rgba(180, 0, 255, 0.06);
+  border: 1px solid rgba(180, 0, 255, 0.3);
+  border-radius: 8px;
+  color: var(--neon-purple);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: auto;
+}
+
+.sortSelect:focus,
+.sortSelect:hover {
+  border-color: var(--neon-purple);
+  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
+}
+
+.sortDirBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 8px;
+  background: rgba(180, 0, 255, 0.06);
+  border: 1px solid rgba(180, 0, 255, 0.3);
+  border-radius: 8px;
+  color: var(--neon-purple);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sortDirBtn:hover {
+  background: rgba(180, 0, 255, 0.12);
+  border-color: var(--neon-purple);
+  box-shadow: 0 0 8px rgba(180, 0, 255, 0.2);
 }
 
 /* Grid */
@@ -123,20 +173,20 @@
   align-items: center;
   gap: 4px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.7rem;
+  font-size: var(--text-xxs);
   color: var(--neon-purple);
   letter-spacing: 1px;
 }
 
 .cardName {
-  font-size: 1.05rem;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0;
 }
 
 .cardDesc {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.5;
   flex: 1;
@@ -153,7 +203,7 @@
   gap: 12px;
   padding-top: 8px;
   border-top: 1px solid var(--border-color);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
 }
 
 .cardVersion {
@@ -166,14 +216,6 @@
   flex: 1;
 }
 
-.cardDownloads {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--text-muted);
-}
-
 /* Category badge */
 .cardCategory {
   display: inline-flex;
@@ -183,7 +225,7 @@
   border: 1px solid var(--neon-pink);
   border-radius: 4px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   color: var(--neon-pink);
   width: fit-content;
 }
@@ -197,7 +239,7 @@
   border: 1px solid var(--neon-orange);
   border-radius: 4px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   color: var(--neon-orange);
   width: fit-content;
 }
@@ -244,7 +286,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 1.1rem;
+  font-size: var(--text-body);
   color: var(--neon-pink);
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border-color);
@@ -252,7 +294,7 @@
 
 .categoryCount {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   margin-left: 4px;
 }
@@ -268,21 +310,21 @@
 
 .loadingMore {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   letter-spacing: 1px;
 }
 
 .loadMoreError {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--neon-pink);
   letter-spacing: 1px;
 }
 
 .retryBtn {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--neon-cyan);
   background: transparent;
   border: 1px solid var(--neon-cyan);
@@ -322,17 +364,36 @@
     min-width: 0;
     width: 100%;
   }
+  .filterGroup {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .select {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
+  .sortGroup {
+    border-left: none;
+    padding-left: 0;
+    margin-left: 0;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+    width: 100%;
+  }
+  .sortSelect {
+    flex: 1;
+  }
   .title {
-    font-size: 1.3rem;
+    font-size: var(--text-lg);
   }
   .pagination {
     gap: 8px;
   }
   .pageButton {
     padding: 8px 10px;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
   .pageInfo {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 }

@@ -28,6 +28,7 @@ from decision_hub.domain.skill_manifest import (
 )
 from decision_hub.infra.database import (
     _refresh_skill_latest_version,
+    create_engine,
     eval_audit_logs_table,
     insert_audit_log,
     versions_table,
@@ -386,10 +387,7 @@ def main() -> None:
 
     env = get_env()
     settings = create_settings()
-    engine = sa.create_engine(
-        settings.database_url,
-        connect_args={"options": "-c statement_timeout=30000"},
-    )
+    engine = create_engine(settings.database_url)
 
     s3_client = create_s3_client(
         region=settings.aws_region,
