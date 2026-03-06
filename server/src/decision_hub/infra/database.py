@@ -749,6 +749,30 @@ _SKILL_SUMMARY_COLUMNS = [
 # Keys present in every skill summary dict (used by _row_to_skill_summary).
 _SKILL_SUMMARY_KEYS = frozenset(col.key if hasattr(col, "key") else col.name for col in _SKILL_SUMMARY_COLUMNS)
 
+# Canonical column list for plugin summary queries (list endpoint + hybrid search).
+# Mirrors _SKILL_SUMMARY_COLUMNS for the plugins table.
+_PLUGIN_SUMMARY_COLUMNS = [
+    organizations_table.c.slug.label("org_slug"),
+    plugins_table.c.name.label("plugin_name"),
+    plugins_table.c.description,
+    plugins_table.c.download_count,
+    plugins_table.c.category,
+    plugins_table.c.platforms,
+    plugins_table.c.skill_count,
+    plugins_table.c.hook_count,
+    plugins_table.c.agent_count,
+    plugins_table.c.command_count,
+    plugins_table.c.author_name,
+    plugins_table.c.source_repo_url,
+    plugins_table.c.github_stars,
+    plugins_table.c.github_license,
+    plugins_table.c.latest_semver.label("latest_version"),
+    plugins_table.c.latest_eval_status.label("eval_status"),
+    plugins_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
+    plugins_table.c.latest_published_at.label("published_at"),
+    plugins_table.c.latest_published_by.label("published_by"),
+]
+
 
 def _row_to_skill_summary(row: sa.Row) -> dict:
     """Convert a query row to a skill summary dict.
@@ -940,21 +964,22 @@ def find_org_by_slug(conn: Connection, slug: str) -> Organization | None:
 
 
 def list_all_org_profiles(conn: Connection) -> list[Organization]:
-    """Return organizations that have at least one published public skill."""
-    stmt = (
-        sa.select(organizations_table)
+    """Return organizations that have at least one published public skill or plugin."""
+    skill_org_ids = (
+        sa.select(skills_table.c.org_id)
         .where(
-            organizations_table.c.id.in_(
-                sa.select(skills_table.c.org_id)
-                .where(
-                    sa.and_(
-                        skills_table.c.visibility == "public",
-                        skills_table.c.latest_semver.isnot(None),
-                    )
-                )
-                .distinct()
+            sa.and_(
+                skills_table.c.visibility == "public",
+                skills_table.c.latest_semver.isnot(None),
             )
         )
+        .distinct()
+    )
+    plugin_org_ids = sa.select(plugins_table.c.org_id).where(plugins_table.c.latest_semver.isnot(None)).distinct()
+    combined = sa.union(skill_org_ids, plugin_org_ids).subquery()
+    stmt = (
+        sa.select(organizations_table)
+        .where(organizations_table.c.id.in_(sa.select(combined.c.org_id)))
         .order_by(organizations_table.c.slug)
     )
     rows = conn.execute(stmt).all()
@@ -2144,30 +2169,9 @@ def search_plugins_hybrid(
     No deprecated filter (plugins have no deprecation flag).
     Results include ``kind: "plugin"`` to distinguish from skill results.
     """
-    plugin_summary_columns = [
-        organizations_table.c.slug.label("org_slug"),
-        plugins_table.c.name.label("plugin_name"),
-        plugins_table.c.description,
-        plugins_table.c.download_count,
-        plugins_table.c.category,
-        plugins_table.c.platforms,
-        plugins_table.c.skill_count,
-        plugins_table.c.hook_count,
-        plugins_table.c.agent_count,
-        plugins_table.c.command_count,
-        plugins_table.c.author_name,
-        plugins_table.c.source_repo_url,
-        plugins_table.c.github_stars,
-        plugins_table.c.github_license,
-        plugins_table.c.latest_semver.label("latest_version"),
-        plugins_table.c.latest_eval_status.label("eval_status"),
-        plugins_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
-        plugins_table.c.latest_published_at.label("published_at"),
-        plugins_table.c.latest_published_by.label("published_by"),
-    ]
 
     def _base_select(extra_columns: list):
-        columns = [*plugin_summary_columns, *extra_columns]
+        columns = [*_PLUGIN_SUMMARY_COLUMNS, *extra_columns]
         stmt = (
             sa.select(*columns)
             .select_from(
@@ -3634,26 +3638,19 @@ def fetch_paginated_plugins(
     """
     join = plugins_table.join(organizations_table, plugins_table.c.org_id == organizations_table.c.id)
 
+    # EXISTS subquery: avoid per-row tracker lookups (N+1)
+    has_tracker = sa.exists(
+        sa.select(sa.literal(1)).where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == plugins_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+    ).label("has_tracker")
+
     columns = [
-        organizations_table.c.slug.label("org_slug"),
-        plugins_table.c.name.label("plugin_name"),
-        plugins_table.c.description,
-        plugins_table.c.download_count,
-        plugins_table.c.category,
-        plugins_table.c.platforms,
-        plugins_table.c.skill_count,
-        plugins_table.c.hook_count,
-        plugins_table.c.agent_count,
-        plugins_table.c.command_count,
-        plugins_table.c.author_name,
-        plugins_table.c.source_repo_url,
-        plugins_table.c.github_stars,
-        plugins_table.c.github_license,
-        plugins_table.c.latest_semver.label("latest_version"),
-        plugins_table.c.latest_eval_status.label("eval_status"),
-        plugins_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
-        plugins_table.c.latest_published_at.label("published_at"),
-        plugins_table.c.latest_published_by.label("published_by"),
+        *_PLUGIN_SUMMARY_COLUMNS,
+        has_tracker,
         sa.func.count().over().label("total_count"),
     ]
 
