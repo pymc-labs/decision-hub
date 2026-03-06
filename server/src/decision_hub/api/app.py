@@ -131,7 +131,7 @@ def _mount_marketplace(app: FastAPI, engine, s3_client, settings) -> None:
         # Build entries and collect S3 keys for parallel download
         skill_md_contents: dict[str, str] = {}
         entries: list[SkillPluginEntry] = []
-        s3_download_tasks: list[tuple[str, str, str]] = []  # (slug, s3_key)
+        s3_download_tasks: list[tuple[str, str]] = []  # (slug, s3_key)
 
         for row in rows:
             grade = _parse_grade(row.get("gauntlet_summary", ""))
