@@ -910,6 +910,11 @@ def delete_all_skill_versions(
     for s3_key in s3_keys:
         delete_skill_zip(s3_client, settings.s3_bucket, s3_key)
 
+    # Commit the deletes before bumping marketplace generation so a
+    # failure in the bump (non-critical) cannot roll back the deletes
+    # while S3 objects have already been irreversibly removed.
+    conn.commit()
+
     try:
         bump_marketplace_generation(conn)
         conn.commit()
@@ -956,6 +961,11 @@ def delete_skill_version(
     # Remove the zip from S3
     s3_key = build_s3_key(org_slug, skill_name, version)
     delete_skill_zip(s3_client, settings.s3_bucket, s3_key)
+
+    # Commit the delete before bumping marketplace generation so a
+    # failure in the bump (non-critical) cannot roll back the delete
+    # while the S3 object has already been irreversibly removed.
+    conn.commit()
 
     try:
         bump_marketplace_generation(conn)

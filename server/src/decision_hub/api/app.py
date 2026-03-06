@@ -1,6 +1,7 @@
 """FastAPI application factory."""
 
 import json as _json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -127,9 +128,10 @@ def _mount_marketplace(app: FastAPI, engine, s3_client, settings) -> None:
         with engine.connect() as conn:
             rows = fetch_marketplace_skills(conn, limit=settings.marketplace_skill_limit)
 
-        # Fetch SKILL.md content from S3 for each skill
+        # Build entries and collect S3 keys for parallel download
         skill_md_contents: dict[str, str] = {}
         entries: list[SkillPluginEntry] = []
+        s3_download_tasks: list[tuple[str, str, str]] = []  # (slug, s3_key)
 
         for row in rows:
             grade = _parse_grade(row.get("gauntlet_summary", ""))
@@ -149,19 +151,28 @@ def _mount_marketplace(app: FastAPI, engine, s3_client, settings) -> None:
             )
             entries.append(entry)
 
-            # Download SKILL.md from S3
             s3_key = row.get("s3_key", "")
             if s3_key:
-                try:
-                    zip_bytes = download_skill_zip(s3_client, settings.s3_bucket, s3_key)
-                    skill_md, _, _, _ = extract_for_evaluation(zip_bytes)
-                    skill_md_contents[f"{row['org_slug']}/{row['skill_name']}"] = skill_md
-                except Exception:
-                    logger.opt(exception=True).warning(
-                        "Failed to fetch SKILL.md for {}/{}",
-                        row["org_slug"],
-                        row["skill_name"],
-                    )
+                slug = f"{row['org_slug']}/{row['skill_name']}"
+                s3_download_tasks.append((slug, s3_key))
+
+        # Download SKILL.md files from S3 in parallel to avoid
+        # sequential network I/O blocking the cache rebuild.
+        def _fetch_skill_md(slug: str, s3_key: str) -> tuple[str, str | None]:
+            try:
+                zip_bytes = download_skill_zip(s3_client, settings.s3_bucket, s3_key)
+                skill_md, _, _, _ = extract_for_evaluation(zip_bytes)
+                return slug, skill_md
+            except Exception:
+                logger.opt(exception=True).warning("Failed to fetch SKILL.md for {}", slug)
+                return slug, None
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_fetch_skill_md, slug, s3_key) for slug, s3_key in s3_download_tasks]
+            for future in as_completed(futures):
+                slug, content = future.result()
+                if content is not None:
+                    skill_md_contents[slug] = content
 
         return build_marketplace_repo(entries, skill_md_contents)
 
