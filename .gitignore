@@ -50,3 +50,7 @@ TRACKER_REVIEW.md
 # Screenshots from Playwright/debugging
 *.png
 .playwright-mcp/
+
+# E2E reports (generated at runtime)
+e2e/reports/*
+!e2e/reports/.gitkeep
