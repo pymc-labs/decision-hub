@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from decision_hub.scripts.crawler.processing import (
+    _prepare_skill,
     _publish_one_skill,
     process_repo_on_modal,
 )
@@ -18,16 +19,25 @@ from tests.factories import make_org
 _PROCESSING = "decision_hub.scripts.crawler.processing"
 
 
+def _make_engine_mock():
+    """Create a mock engine whose connect() works as a context manager."""
+    engine = MagicMock()
+    conn = MagicMock()
+    engine.connect.return_value.__enter__ = MagicMock(return_value=conn)
+    engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+    return engine
+
+
 @pytest.fixture
 def mock_skill_deps():
     """Patch all heavy dependencies used by _publish_one_skill.
 
     Top-level imports on the processing module are patched via the processing
-    module namespace. Locally-imported functions (inside _publish_one_skill)
-    are patched at their source modules.
+    module namespace. Locally-imported functions (inside _prepare_skill /
+    _finalize_skill) are patched at their source modules.
     """
     patches = {
-        # Locally imported inside _publish_one_skill
+        # Locally imported inside _prepare_skill
         "parse_skill_md": patch("dhub_core.manifest.parse_skill_md"),
         # Top-level imports on processing module
         "validate_skill_name": patch(f"{_PROCESSING}.validate_skill_name"),
@@ -35,7 +45,7 @@ def mock_skill_deps():
         "extract_body": patch(f"{_PROCESSING}.extract_body"),
         "extract_description": patch(f"{_PROCESSING}.extract_description"),
         "extract_for_evaluation": patch(f"{_PROCESSING}.extract_for_evaluation"),
-        # DB functions (locally imported inside _publish_one_skill)
+        # DB functions (locally imported inside _prepare_skill / _finalize_skill)
         "find_skill": patch("decision_hub.infra.database.find_skill"),
         "find_version": patch("decision_hub.infra.database.find_version"),
         "insert_skill": patch("decision_hub.infra.database.insert_skill"),
@@ -47,7 +57,7 @@ def mock_skill_deps():
         "update_skill_source_repo_url": patch("decision_hub.infra.database.update_skill_source_repo_url"),
         "compute_checksum": patch("decision_hub.infra.storage.compute_checksum"),
         "upload_skill_zip": patch("decision_hub.infra.storage.upload_skill_zip"),
-        # Locally imported inside _publish_one_skill
+        # Locally imported inside _publish_one_skill / _finalize_skill
         "run_gauntlet_pipeline": patch("decision_hub.api.registry_service.run_gauntlet_pipeline"),
         "classify_skill_category": patch("decision_hub.api.registry_service.classify_skill_category"),
         "generate_and_store_skill_embedding": patch("decision_hub.infra.embeddings.generate_and_store_skill_embedding"),
@@ -72,8 +82,8 @@ def mock_skill_deps():
         p.stop()
 
 
-class TestPublishOneSkillReturnsStatus:
-    """Verify _publish_one_skill returns the correct status string."""
+class TestPrepareSkillReturnsStatus:
+    """Verify _prepare_skill returns the correct status or _SkillPrep."""
 
     def test_returns_skipped_on_checksum_match(self, mock_skill_deps, tmp_path):
         """When the latest version has the same checksum, returns 'skipped'."""
@@ -94,14 +104,8 @@ class TestPublishOneSkillReturnsStatus:
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
 
-        status = _publish_one_skill(
-            conn,
-            MagicMock(),
-            MagicMock(),
-            org,
-            skill_dir,
-        )
-        assert status == "skipped"
+        result = _prepare_skill(conn, MagicMock(), org, skill_dir)
+        assert result == "skipped"
 
     def test_returns_skipped_on_existing_version(self, mock_skill_deps, tmp_path):
         """When the computed version already exists, returns 'skipped'."""
@@ -119,8 +123,78 @@ class TestPublishOneSkillReturnsStatus:
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
 
+        result = _prepare_skill(conn, MagicMock(), org, skill_dir)
+        assert result == "skipped"
+
+    def test_returns_failed_on_extraction_error(self, mock_skill_deps, tmp_path):
+        """When extract_for_evaluation raises ValueError, returns 'failed'."""
+        conn = MagicMock()
+        org = make_org()
+
+        skill_mock = MagicMock()
+        skill_mock.id = uuid4()
+        skill_mock.source_repo_url = None
+        mock_skill_deps["find_skill"].return_value = skill_mock
+        mock_skill_deps["resolve_latest_version"].return_value = None
+        mock_skill_deps["find_version"].return_value = None
+        mock_skill_deps["extract_for_evaluation"].side_effect = ValueError("bad zip")
+
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
+
+        result = _prepare_skill(conn, MagicMock(), org, skill_dir)
+        assert result == "failed"
+
+    def test_returns_skill_prep_when_ready(self, mock_skill_deps, tmp_path):
+        """When skill needs gauntlet, returns _SkillPrep with all data."""
+        from decision_hub.scripts.crawler.processing import _SkillPrep
+
+        conn = MagicMock()
+        org = make_org()
+
+        skill_mock = MagicMock()
+        skill_mock.id = uuid4()
+        skill_mock.source_repo_url = None
+        mock_skill_deps["find_skill"].return_value = skill_mock
+        mock_skill_deps["resolve_latest_version"].return_value = None
+        mock_skill_deps["find_version"].return_value = None
+
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
+
+        result = _prepare_skill(conn, MagicMock(), org, skill_dir)
+        assert isinstance(result, _SkillPrep)
+        assert result.name == "test-skill"
+        assert result.version == "0.1.0"
+        assert result.skill_id == skill_mock.id
+
+
+class TestPublishOneSkillReturnsStatus:
+    """Verify _publish_one_skill returns the correct status string."""
+
+    def test_returns_skipped_on_checksum_match(self, mock_skill_deps, tmp_path):
+        """When the latest version has the same checksum, returns 'skipped'."""
+        engine = _make_engine_mock()
+        org = make_org()
+
+        skill_mock = MagicMock()
+        skill_mock.id = uuid4()
+        skill_mock.source_repo_url = None
+        mock_skill_deps["find_skill"].return_value = skill_mock
+
+        latest_mock = MagicMock()
+        latest_mock.checksum = "checksum-abc"  # matches compute_checksum
+        latest_mock.semver = "0.1.0"
+        mock_skill_deps["resolve_latest_version"].return_value = latest_mock
+
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
+
         status = _publish_one_skill(
-            conn,
+            engine,
             MagicMock(),
             MagicMock(),
             org,
@@ -130,7 +204,7 @@ class TestPublishOneSkillReturnsStatus:
 
     def test_returns_quarantined_on_grade_f(self, mock_skill_deps, tmp_path):
         """When the gauntlet fails (grade F), returns 'quarantined'."""
-        conn = MagicMock()
+        engine = _make_engine_mock()
         org = make_org()
 
         skill_mock = MagicMock()
@@ -150,7 +224,7 @@ class TestPublishOneSkillReturnsStatus:
         (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
 
         status = _publish_one_skill(
-            conn,
+            engine,
             MagicMock(),
             MagicMock(),
             org,
@@ -160,7 +234,7 @@ class TestPublishOneSkillReturnsStatus:
 
     def test_returns_published_on_grade_a(self, mock_skill_deps, tmp_path):
         """When the gauntlet passes, returns 'published'."""
-        conn = MagicMock()
+        engine = _make_engine_mock()
         org = make_org()
 
         skill_mock = MagicMock()
@@ -183,7 +257,7 @@ class TestPublishOneSkillReturnsStatus:
         (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
 
         status = _publish_one_skill(
-            conn,
+            engine,
             MagicMock(),
             MagicMock(),
             org,
@@ -193,7 +267,7 @@ class TestPublishOneSkillReturnsStatus:
 
     def test_returns_failed_on_extraction_error(self, mock_skill_deps, tmp_path):
         """When extract_for_evaluation raises ValueError, returns 'failed'."""
-        conn = MagicMock()
+        engine = _make_engine_mock()
         org = make_org()
 
         skill_mock = MagicMock()
@@ -209,7 +283,7 @@ class TestPublishOneSkillReturnsStatus:
         (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
 
         status = _publish_one_skill(
-            conn,
+            engine,
             MagicMock(),
             MagicMock(),
             org,
@@ -264,10 +338,7 @@ class TestParallelProcessingCountCollection:
         mock_create_settings.return_value = settings
 
         # Set up engine mock with working connect() context manager
-        engine = MagicMock()
-        conn = MagicMock()
-        engine.connect.return_value.__enter__ = MagicMock(return_value=conn)
-        engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+        engine = _make_engine_mock()
         mock_create_engine.return_value = engine
 
         # Set up org
@@ -352,10 +423,7 @@ class TestParallelProcessingCountCollection:
         settings.crawler_parallel_skills = 5
         mock_create_settings.return_value = settings
 
-        engine = MagicMock()
-        conn = MagicMock()
-        engine.connect.return_value.__enter__ = MagicMock(return_value=conn)
-        engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+        engine = _make_engine_mock()
         mock_create_engine.return_value = engine
 
         org = make_org()
