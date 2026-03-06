@@ -370,6 +370,7 @@ def execute_plugin_publish(
             source_repo_url,
             plugin.id,
             f"Superseded by plugin {org_slug}/{plugin_name}. Install with: dhub install {org_slug}/{plugin_name}",
+            org_id=org_id,
         )
         if deprecated_count:
             conn.commit()

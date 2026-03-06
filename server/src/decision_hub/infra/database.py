@@ -168,7 +168,9 @@ skills_table = Table(
     Column("manifest_path", Text, nullable=True),
     Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
     Column("deprecated", Boolean, nullable=False, server_default="false"),
-    Column("deprecated_by_plugin_id", PG_UUID(as_uuid=True), nullable=True),
+    Column(
+        "deprecated_by_plugin_id", PG_UUID(as_uuid=True), ForeignKey("plugins.id", ondelete="SET NULL"), nullable=True
+    ),
     Column("deprecation_message", Text, nullable=True),
     Column("github_stars", sa.Integer, nullable=True),
     Column("github_forks", sa.Integer, nullable=True),
@@ -773,6 +775,8 @@ _PLUGIN_SUMMARY_COLUMNS = [
     plugins_table.c.source_repo_url,
     plugins_table.c.github_stars,
     plugins_table.c.github_license,
+    plugins_table.c.source_repo_removed,
+    plugins_table.c.github_is_archived,
     plugins_table.c.latest_semver.label("latest_version"),
     plugins_table.c.latest_eval_status.label("eval_status"),
     plugins_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
@@ -982,7 +986,16 @@ def list_all_org_profiles(conn: Connection) -> list[Organization]:
         )
         .distinct()
     )
-    plugin_org_ids = sa.select(plugins_table.c.org_id).where(plugins_table.c.latest_semver.isnot(None)).distinct()
+    plugin_org_ids = (
+        sa.select(plugins_table.c.org_id)
+        .where(
+            sa.and_(
+                plugins_table.c.visibility == "public",
+                plugins_table.c.latest_semver.isnot(None),
+            )
+        )
+        .distinct()
+    )
     combined = sa.union(skill_org_ids, plugin_org_ids).subquery()
     stmt = (
         sa.select(organizations_table)
@@ -3324,6 +3337,21 @@ def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
     return conn.execute(stmt).rowcount
 
 
+def mark_plugins_source_removed(conn: Connection, repo_urls: list[str]) -> int:
+    """Set source_repo_removed=True for plugins matching any repo URL."""
+    if not repo_urls:
+        return 0
+    conditions = [
+        sa.or_(
+            plugins_table.c.source_repo_url == url,
+            plugins_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+        )
+        for url in repo_urls
+    ]
+    stmt = sa.update(plugins_table).where(sa.or_(*conditions)).values(source_repo_removed=True)
+    return conn.execute(stmt).rowcount
+
+
 # ---------------------------------------------------------------------------
 # Tracker metrics
 # ---------------------------------------------------------------------------
@@ -3661,15 +3689,19 @@ def deprecate_skills_by_repo_url(
     source_repo_url: str,
     plugin_id: UUID,
     message: str,
+    *,
+    org_id: UUID,
 ) -> int:
     """Deprecate all skills from a given repo URL, pointing to the replacement plugin.
 
+    Only deprecates skills within the same org to prevent cross-org side effects.
     Returns number of skills deprecated.
     """
     stmt = (
         sa.update(skills_table)
         .where(
             sa.and_(
+                skills_table.c.org_id == org_id,
                 skills_table.c.source_repo_url == source_repo_url,
                 skills_table.c.deprecated == False,  # noqa: E712
             )
@@ -3749,16 +3781,24 @@ def fetch_paginated_plugins(
     if grade:
         stmt = stmt.where(plugins_table.c.latest_eval_status == grade)
 
-    # Sorting
-    sort_map = {
-        "updated": plugins_table.c.latest_published_at,
-        "name": plugins_table.c.name,
-        "downloads": plugins_table.c.download_count,
-        "github_stars": plugins_table.c.github_stars,
-    }
-    sort_col = sort_map.get(sort, plugins_table.c.latest_published_at)
-    order = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
-    stmt = stmt.order_by(order, plugins_table.c.name)
+    # Sorting — always include (org.slug, plugin.name) as tiebreaker for
+    # deterministic pagination when the primary sort column has duplicates.
+    tiebreaker = (organizations_table.c.slug, plugins_table.c.name)
+    asc = sort_dir == "asc"
+    if sort == "name":
+        col = plugins_table.c.name
+        stmt = stmt.order_by(col.asc() if asc else col.desc(), *tiebreaker)
+    elif sort == "downloads":
+        col = plugins_table.c.download_count
+        stmt = stmt.order_by(col.asc() if asc else col.desc(), *tiebreaker)
+    elif sort == "github_stars":
+        col = plugins_table.c.github_stars
+        order = col.asc().nulls_last() if asc else col.desc().nulls_last()
+        stmt = stmt.order_by(order, *tiebreaker)
+    else:
+        # "updated" — most recently published version first
+        col = plugins_table.c.latest_published_at
+        stmt = stmt.order_by(col.asc() if asc else col.desc(), *tiebreaker)
 
     base_stmt = stmt  # before LIMIT/OFFSET, used for fallback count
     stmt = stmt.limit(limit).offset(offset)
@@ -3821,6 +3861,7 @@ def list_plugin_versions(conn: Connection, plugin_id: UUID) -> list[PluginVersio
             plugin_versions_table.c.semver_minor.desc(),
             plugin_versions_table.c.semver_patch.desc(),
         )
+        .limit(100)
     )
     rows = conn.execute(stmt).all()
     return [_row_to_plugin_version(row) for row in rows]
