@@ -862,6 +862,7 @@ def _publish_plugin_from_tracker(
                 last_checked_at=now,
                 last_published_at=now,
                 last_error=None,
+                kind="plugin",
             )
             conn.commit()
             logger.info(
