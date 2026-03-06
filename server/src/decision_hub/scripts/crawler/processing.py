@@ -60,10 +60,10 @@ class _SkillPrep:
     skill_md_content: str
     skill_md_body: str
     desc: str
-    source_files: dict
-    lockfile_content: str
-    unscanned_files: list
-    allowed_tools: list
+    source_files: list[tuple[str, str]]
+    lockfile_content: str | None
+    unscanned_files: list[str]
+    allowed_tools: str | None
 
 
 def fetch_owner_metadata(
