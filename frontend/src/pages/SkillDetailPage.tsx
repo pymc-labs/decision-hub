@@ -262,6 +262,35 @@ export default function SkillDetailPage() {
         All Skills
       </Link>
 
+      {/* Deprecation banner */}
+      {skill.deprecated && (
+        <div className={styles.deprecationBanner}>
+          <AlertTriangle size={18} className={styles.deprecationIcon} />
+          <div className={styles.deprecationContent}>
+            <strong>This skill has been deprecated.</strong>
+            {skill.deprecated_by_plugin_name && (
+              <span>
+                {" "}It has been superseded by the plugin{" "}
+                {skill.deprecated_by_plugin_name.includes("/") ? (
+                  <Link
+                    to={`/plugins/${skill.deprecated_by_plugin_name}`}
+                    className={styles.deprecationLink}
+                  >
+                    {skill.deprecated_by_plugin_name}
+                  </Link>
+                ) : (
+                  <strong>{skill.deprecated_by_plugin_name}</strong>
+                )}
+                . Install with: <code className={styles.deprecationCode}>dhub install {skill.deprecated_by_plugin_name}</code>
+              </span>
+            )}
+            {!skill.deprecated_by_plugin_name && skill.deprecation_message && (
+              <span> {skill.deprecation_message}</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerTitle}>

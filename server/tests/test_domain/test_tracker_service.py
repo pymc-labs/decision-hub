@@ -195,8 +195,10 @@ class TestProcessTrackerAllFailed:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    @patch("dhub_core.plugin_manifest.detect_plugin_platforms", return_value=[])
     def test_all_failed_does_not_advance_sha(
         self,
+        _mock_detect,
         mock_publish,
         _mock_s3,
         mock_discover,
@@ -235,8 +237,10 @@ class TestProcessTrackerAllFailed:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    @patch("dhub_core.plugin_manifest.detect_plugin_platforms", return_value=[])
     def test_partial_success_advances_sha(
         self,
+        _mock_detect,
         mock_publish,
         _mock_s3,
         mock_discover,
@@ -277,8 +281,10 @@ class TestProcessTrackerAllFailed:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    @patch("dhub_core.plugin_manifest.detect_plugin_platforms", return_value=[])
     def test_all_rejected_does_not_set_published_at(
         self,
+        _mock_detect,
         mock_publish,
         _mock_s3,
         mock_discover,
@@ -320,8 +326,10 @@ class TestProcessTrackerKnownSha:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker", return_value=True)
+    @patch("dhub_core.plugin_manifest.detect_plugin_platforms", return_value=[])
     def test_known_sha_skips_rest_check(
         self,
+        _mock_detect,
         _mock_publish,
         _mock_s3,
         mock_discover,
@@ -977,8 +985,10 @@ class TestProcessTrackerNoSkillsDisables:
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
     @patch("decision_hub.domain.tracker_service.clone_repo")
     @patch("decision_hub.domain.tracker_service.discover_skills")
+    @patch("dhub_core.plugin_manifest.detect_plugin_platforms", return_value=[])
     def test_no_skills_found_disables_tracker(
         self,
+        _mock_detect,
         mock_discover,
         mock_clone,
         _mock_commits,
@@ -1382,8 +1392,10 @@ class TestProcessTrackerMultiSkillPartialFailure:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    @patch("dhub_core.plugin_manifest.detect_plugin_platforms", return_value=[])
     def test_three_of_five_succeed_advances_sha_clears_error(
         self,
+        _mock_detect,
         mock_publish,
         _mock_s3,
         mock_discover,
@@ -1436,8 +1448,10 @@ class TestProcessTrackerMultiSkillPartialFailure:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    @patch("dhub_core.plugin_manifest.detect_plugin_platforms", return_value=[])
     def test_all_five_fail_does_not_advance_sha_sets_error(
         self,
+        _mock_detect,
         mock_publish,
         _mock_s3,
         mock_discover,

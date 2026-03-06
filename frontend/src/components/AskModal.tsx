@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
-import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download, Star, Scale } from "lucide-react";
+import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download, Star, Scale, Package } from "lucide-react";
 
 const REMARK_PLUGINS: PluggableList = [remarkGfm];
 import { askQuestionWithHistory } from "../api/client";
@@ -194,15 +194,22 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
               </div>
               {msg.skills && msg.skills.length > 0 && (
                 <div className={styles.skillCards}>
-                  {msg.skills.map((skill) => (
+                  {msg.skills.map((skill) => {
+                    const isPlugin = skill.kind === "plugin";
+                    const detailPath = isPlugin
+                      ? `/plugins/${skill.org_slug}/${skill.skill_name}`
+                      : `/skills/${skill.org_slug}/${skill.skill_name}`;
+                    return (
                     <Link
                       key={`${skill.org_slug}/${skill.skill_name}`}
-                      to={`/skills/${skill.org_slug}/${skill.skill_name}`}
+                      to={detailPath}
                       className={styles.skillCard}
                       onClick={onClose}
                     >
                       <div className={styles.skillCardHeader}>
                         <span className={styles.skillName}>
+                          {isPlugin && <Package size={12} className={styles.kindIcon} />}
+                          {isPlugin && <span className={styles.kindBadge}>plugin</span>}
                           {skill.org_slug}/{skill.skill_name}
                         </span>
                         <GradeBadge grade={skill.safety_rating} size="sm" />
@@ -243,7 +250,8 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
                       )}
                       <ExternalLink size={12} className={styles.linkIcon} />
                     </Link>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
