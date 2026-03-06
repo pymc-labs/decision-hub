@@ -897,36 +897,10 @@ class TestTransientFailureClassification:
 
 
 class TestAutoDisablePermanentErrors:
-    """Verify check_all_due_trackers auto-disables permanent-error trackers and marks skills."""
+    """Verify check_all_due_trackers uses consecutive failure tracking before disabling."""
 
-    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
-    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
-    @patch("decision_hub.infra.database.batch_defer_trackers")
-    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
-    @patch("decision_hub.infra.database.batch_set_tracker_errors")
-    @patch("decision_hub.infra.database.batch_disable_trackers")
-    @patch("decision_hub.infra.database.mark_skills_source_removed")
-    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
-    @patch("decision_hub.infra.github_client.GitHubClient")
-    @patch("decision_hub.infra.database.claim_due_trackers")
-    @patch("decision_hub.infra.database.create_engine")
-    def test_permanent_errors_disable_trackers_and_mark_skills(
-        self,
-        mock_create_engine,
-        mock_claim,
-        mock_gh_class,
-        mock_batch_fetch,
-        mock_mark_removed,
-        mock_batch_disable,
-        mock_batch_set_errors,
-        mock_batch_clear_errors,
-        mock_batch_defer,
-        mock_dispatch,
-        _mock_token,
-    ):
-        """When sha_map returns None for a repo, the tracker should be disabled
-        and its skills marked as source_repo_removed."""
-        tracker_gone = SkillTracker(
+    def _make_tracker(self, **overrides):
+        defaults = dict(
             id=uuid4(),
             user_id=uuid4(),
             org_slug="myorg",
@@ -940,31 +914,119 @@ class TestAutoDisablePermanentErrors:
             last_error=None,
             created_at=datetime.now(UTC),
         )
+        defaults.update(overrides)
+        return SkillTracker(**defaults)
 
+    def _setup_mocks(self, mock_create_engine, mock_claim, mock_gh_class, mock_batch_fetch, trackers):
         mock_conn = MagicMock()
         mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
-        mock_claim.return_value = [tracker_gone]
-
-        # Repo resolves but returns no data → permanent error
+        mock_claim.return_value = trackers
+        # All repos resolve but return no data → permanent error
         mock_batch_fetch.return_value = ({}, set(), {}, {})
-
         mock_gh_instance = MagicMock()
         mock_gh_instance.rate_limit_remaining = 4000
         mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
         mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
-
         mock_settings = MagicMock()
         mock_settings.tracker_batch_size = 100
         mock_settings.tracker_jitter_seconds = 0
         mock_settings.tracker_rate_limit_floor = 500
+        mock_settings.tracker_permanent_failure_threshold = 3
+        return mock_conn, mock_settings
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    @patch("decision_hub.infra.database.batch_disable_trackers")
+    @patch("decision_hub.infra.database.batch_increment_permanent_failures")
+    @patch("decision_hub.infra.database.mark_skills_source_removed")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_single_failure_increments_counter_but_does_not_disable(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_mark_removed,
+        mock_increment,
+        mock_batch_disable,
+        mock_batch_set_errors,
+        mock_batch_clear_errors,
+        mock_batch_defer,
+        mock_dispatch,
+        _mock_token,
+    ):
+        """A single permanent error should increment the counter but NOT disable
+        the tracker or mark skills as removed."""
+        tracker = self._make_tracker()
+        mock_conn, mock_settings = self._setup_mocks(
+            mock_create_engine,
+            mock_claim,
+            mock_gh_class,
+            mock_batch_fetch,
+            [tracker],
+        )
+        # Counter below threshold — no IDs returned
+        mock_increment.return_value = []
 
         result = check_all_due_trackers(mock_settings)
 
         assert result.errored == 1
-        # batch_disable_trackers should have been called with the permanent-error tracker
-        mock_batch_disable.assert_called_once_with(mock_conn, [tracker_gone.id])
-        # mark_skills_source_removed should have been called with the repo URL
+        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=3)
+        mock_batch_disable.assert_not_called()
+        mock_mark_removed.assert_not_called()
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    @patch("decision_hub.infra.database.batch_disable_trackers")
+    @patch("decision_hub.infra.database.batch_increment_permanent_failures")
+    @patch("decision_hub.infra.database.mark_skills_source_removed")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_threshold_crossed_disables_and_marks_removed(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_mark_removed,
+        mock_increment,
+        mock_batch_disable,
+        mock_batch_set_errors,
+        mock_batch_clear_errors,
+        mock_batch_defer,
+        mock_dispatch,
+        _mock_token,
+    ):
+        """When consecutive failures cross the threshold, the tracker should be
+        disabled and skills marked as removed."""
+        tracker = self._make_tracker()
+        mock_conn, mock_settings = self._setup_mocks(
+            mock_create_engine,
+            mock_claim,
+            mock_gh_class,
+            mock_batch_fetch,
+            [tracker],
+        )
+        # Counter crossed threshold — return this tracker's ID
+        mock_increment.return_value = [tracker.id]
+
+        result = check_all_due_trackers(mock_settings)
+
+        assert result.errored == 1
+        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=3)
+        mock_batch_disable.assert_called_once_with(mock_conn, [tracker.id])
         mock_mark_removed.assert_called_once()
         removed_urls = mock_mark_removed.call_args[0][1]
         assert "https://github.com/myorg/deleted-repo" in removed_urls

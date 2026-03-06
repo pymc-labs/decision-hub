@@ -46,3 +46,7 @@ docs/plans/
 
 # Review / planning artifacts
 TRACKER_REVIEW.md
+
+# Screenshots from Playwright/debugging
+*.png
+.playwright-mcp/
