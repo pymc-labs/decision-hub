@@ -438,6 +438,12 @@ def publish_plugin(
     plugin_name = meta["plugin_name"]
     version = meta["version"]
     source_repo_url = meta.get("source_repo_url")
+    visibility = meta.get("visibility")
+    if visibility is not None and visibility not in ("public", "org"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid visibility '{visibility}'. Must be 'public' or 'org'.",
+        )
 
     try:
         validate_skill_name(plugin_name)
@@ -450,10 +456,11 @@ def publish_plugin(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     logger.info(
-        "Publishing plugin {}/{} v{} by {}",
+        "Publishing plugin {}/{} v{} visibility={} by {}",
         org_slug,
         plugin_name,
         version,
+        visibility,
         current_user.username,
     )
 
@@ -482,6 +489,7 @@ def publish_plugin(
             file_bytes=file_bytes,
             publisher=current_user.username,
             source_repo_url=source_repo_url,
+            visibility=visibility,
         )
     except (ValueError, zipfile.BadZipFile) as exc:
         logger.warning(
