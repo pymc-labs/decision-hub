@@ -386,6 +386,12 @@ eval_audit_logs_table = Table(
     Column("plugin_id", PG_UUID(as_uuid=True), nullable=True),
     Column("plugin_name", Text, nullable=True),
     Column(
+        "plugin_version_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("plugin_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column(
         "created_at",
         DateTime(timezone=True),
         nullable=False,
@@ -2487,6 +2493,7 @@ def _row_to_audit_log_entry(row: sa.Row) -> AuditLogEntry:
         llm_reasoning=row.llm_reasoning,
         publisher=row.publisher,
         quarantine_s3_key=row.quarantine_s3_key,
+        plugin_version_id=row.plugin_version_id,
         created_at=row.created_at,
     )
 
@@ -2502,6 +2509,9 @@ def insert_audit_log(
     version_id: UUID | None = None,
     llm_reasoning: dict | None = None,
     quarantine_s3_key: str | None = None,
+    plugin_version_id: UUID | None = None,
+    plugin_id: UUID | None = None,
+    plugin_name: str | None = None,
 ) -> AuditLogEntry:
     """Insert a gauntlet evaluation audit log entry.
 
@@ -2515,9 +2525,12 @@ def insert_audit_log(
         grade: A/B/C/F.
         check_results: Serialized list of EvalResult dicts.
         publisher: GitHub username of the publisher.
-        version_id: UUID of the version record (None for F-rejected).
+        version_id: UUID of the skill version record (None for F-rejected or plugins).
         llm_reasoning: Raw LLM judge responses.
         quarantine_s3_key: S3 key for quarantined rejected packages.
+        plugin_version_id: UUID of the plugin version record (None for skills).
+        plugin_id: UUID of the plugin record (None for skills).
+        plugin_name: Name of the plugin (None for skills).
 
     Returns:
         The newly created AuditLogEntry.
@@ -2536,6 +2549,12 @@ def insert_audit_log(
         values["llm_reasoning"] = llm_reasoning
     if quarantine_s3_key is not None:
         values["quarantine_s3_key"] = quarantine_s3_key
+    if plugin_version_id is not None:
+        values["plugin_version_id"] = plugin_version_id
+    if plugin_id is not None:
+        values["plugin_id"] = plugin_id
+    if plugin_name is not None:
+        values["plugin_name"] = plugin_name
 
     stmt = sa.insert(eval_audit_logs_table).values(**values).returning(*eval_audit_logs_table.c)
     row = conn.execute(stmt).one()
@@ -3108,6 +3127,7 @@ def update_skill_tracker(
     branch: str | None = None,
     poll_interval_minutes: int | None = None,
     next_check_at: datetime | None = ...,  # type: ignore[assignment]
+    kind: str | None = None,
 ) -> None:
     """Update tracker fields. Only non-None values are updated.
 
@@ -3131,6 +3151,8 @@ def update_skill_tracker(
         values["poll_interval_minutes"] = poll_interval_minutes
     if next_check_at is not ...:
         values["next_check_at"] = next_check_at
+    if kind is not None:
+        values["kind"] = kind
 
     if not values:
         return
@@ -3771,13 +3793,18 @@ def list_plugin_versions(conn: Connection, plugin_id: UUID) -> list[PluginVersio
 
 
 def find_plugin_audit_logs(conn: Connection, plugin_name: str, org_slug: str) -> list[AuditLogEntry]:
-    """Find audit logs for a plugin by name and org slug."""
+    """Find audit logs for a plugin by name and org slug.
+
+    Filters on plugin_name IS NOT NULL to exclude skill audit rows that
+    happen to share the same name.
+    """
     stmt = (
         sa.select(eval_audit_logs_table)
         .where(
             sa.and_(
                 eval_audit_logs_table.c.org_slug == org_slug,
                 eval_audit_logs_table.c.skill_name == plugin_name,
+                eval_audit_logs_table.c.plugin_name.isnot(None),
             )
         )
         .order_by(eval_audit_logs_table.c.created_at.desc())
@@ -3796,6 +3823,7 @@ def find_plugin_audit_logs(conn: Connection, plugin_name: str, org_slug: str) ->
             llm_reasoning=row.llm_reasoning,
             publisher=row.publisher,
             quarantine_s3_key=row.quarantine_s3_key,
+            plugin_version_id=row.plugin_version_id,
             created_at=row.created_at,
         )
         for row in rows
