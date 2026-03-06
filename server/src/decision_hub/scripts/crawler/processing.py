@@ -569,12 +569,13 @@ def _publish_plugin(
     from decision_hub.domain.plugin_publish_pipeline import execute_plugin_publish
     from decision_hub.domain.publish_pipeline import GauntletRejectionError, VersionConflictError
     from decision_hub.infra.storage import compute_checksum
-    from dhub_core.plugin_manifest import parse_plugin_manifest
+    from dhub_core.plugin_manifest import PLUGIN_DIR_PATTERN, parse_plugin_manifest
 
     manifest = parse_plugin_manifest(repo_root)
 
-    # Create zip of the entire repo for publishing
-    zip_bytes = create_zip(repo_root)
+    # Preserve plugin dot-directories (e.g. .claude-plugin/) in the zip
+    plugin_dot_dirs = frozenset(d.name for d in repo_root.iterdir() if d.is_dir() and PLUGIN_DIR_PATTERN.match(d.name))
+    zip_bytes = create_zip(repo_root, preserve_dot_dirs=plugin_dot_dirs)
     checksum = compute_checksum(zip_bytes)
 
     with engine.connect() as conn:

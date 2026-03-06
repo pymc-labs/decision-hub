@@ -3324,6 +3324,25 @@ def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
     return conn.execute(stmt).rowcount
 
 
+def mark_plugins_source_removed(conn: Connection, repo_urls: list[str]) -> int:
+    """Set source_repo_removed=True for plugins matching any repo URL.
+
+    Matches both exact repo URLs and subdirectory URLs
+    (e.g. https://github.com/org/repo/tree/main/subdir).
+    """
+    if not repo_urls:
+        return 0
+    conditions = [
+        sa.or_(
+            plugins_table.c.source_repo_url == url,
+            plugins_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+        )
+        for url in repo_urls
+    ]
+    stmt = sa.update(plugins_table).where(sa.or_(*conditions)).values(source_repo_removed=True)
+    return conn.execute(stmt).rowcount
+
+
 # ---------------------------------------------------------------------------
 # Tracker metrics
 # ---------------------------------------------------------------------------
