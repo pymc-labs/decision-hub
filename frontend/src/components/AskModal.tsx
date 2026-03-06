@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
 import { Search, X, Send, Loader2, ExternalLink, Sparkles, Download, Star, Scale } from "lucide-react";
+
+const REMARK_PLUGINS: PluggableList = [remarkGfm];
 import { askQuestionWithHistory } from "../api/client";
 import GradeBadge from "./GradeBadge";
 import type { AskResponse, AskSkillRef } from "../types/api";
@@ -40,7 +44,7 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
   // Re-read recently viewed from localStorage each time the modal opens
   useEffect(() => {
     if (isOpen) refreshRecentlyViewed();
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen, refreshRecentlyViewed]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -183,7 +187,7 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
             >
               <div className={styles.messageContent}>
                 {msg.role === "assistant" ? (
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{msg.content}</ReactMarkdown>
                 ) : (
                   <p>{msg.content}</p>
                 )}

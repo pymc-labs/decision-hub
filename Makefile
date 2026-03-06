@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-shared test-frontend check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-shared test-frontend test-slow check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -39,6 +39,9 @@ test-shared: ## Run shared tests
 
 test-frontend: ## Run frontend tests
 	cd frontend && npx vitest run
+
+test-slow: ## Run slow LLM regression tests (requires GOOGLE_API_KEY in env or server/.env.dev)
+	cd server && uv run --package decision-hub-server --extra dev pytest tests/ -v -m slow -s
 
 # ---------------------------------------------------------------------------
 # Migrations

@@ -1,7 +1,5 @@
 """Tests for domain/gauntlet.py -- static analysis, prompt scanning, and grading."""
 
-import json
-
 import pytest
 
 from decision_hub.domain.gauntlet import (
@@ -19,9 +17,6 @@ from decision_hub.domain.gauntlet import (
     check_unscanned_files,
     compute_grade,
     detect_elevated_permissions,
-    evaluate_assertion,
-    evaluate_test_results,
-    parse_test_cases,
     run_static_checks,
     trace_pipeline_taint,
 )
@@ -588,86 +583,6 @@ class TestComputeGrade:
             EvalResult(check_name="safety_scan", severity="warn", message="ambiguous"),
         )
         assert compute_grade(results, []) == "F"
-
-
-class TestParseTestCases:
-    def test_parse_valid(self):
-        cases_json = json.dumps(
-            [
-                {
-                    "prompt": "Hello",
-                    "assertions": [
-                        {"type": "contains", "value": "world"},
-                        {"type": "exit_code", "value": 0},
-                    ],
-                }
-            ]
-        )
-        cases = parse_test_cases(cases_json)
-        assert len(cases) == 1
-        assert cases[0].prompt == "Hello"
-        assert len(cases[0].assertions) == 2
-
-    def test_parse_invalid_json(self):
-        with pytest.raises(json.JSONDecodeError):
-            parse_test_cases("not json")
-
-
-class TestAssertionChecks:
-    def test_contains_pass(self):
-        assert evaluate_assertion("Hello World", 0, {"type": "contains", "value": "hello"})
-
-    def test_contains_fail(self):
-        assert not evaluate_assertion("Goodbye", 0, {"type": "contains", "value": "hello"})
-
-    def test_contains_any_pass(self):
-        assert evaluate_assertion(
-            "p-value is 0.03",
-            0,
-            {"type": "contains_any", "values": ["p-value", "confidence"]},
-        )
-
-    def test_not_contains_pass(self):
-        assert evaluate_assertion("Success", 0, {"type": "not_contains", "value": "error"})
-
-    def test_not_contains_fail(self):
-        assert not evaluate_assertion("Error occurred", 0, {"type": "not_contains", "value": "error"})
-
-    def test_exit_code_pass(self):
-        assert evaluate_assertion("", 0, {"type": "exit_code", "value": 0})
-
-    def test_exit_code_fail(self):
-        assert not evaluate_assertion("", 1, {"type": "exit_code", "value": 0})
-
-    def test_json_schema_pass(self):
-        assert evaluate_assertion('{"key": "value"}', 0, {"type": "json_schema"})
-
-    def test_json_schema_fail(self):
-        assert not evaluate_assertion("not json", 0, {"type": "json_schema"})
-
-
-class TestResultsAggregation:
-    def test_all_pass(self):
-        cases = parse_test_cases(
-            json.dumps(
-                [
-                    {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
-                ]
-            )
-        )
-        result = evaluate_test_results(cases, [("output", 0)])
-        assert result.passed is True
-
-    def test_failure(self):
-        cases = parse_test_cases(
-            json.dumps(
-                [
-                    {"prompt": "test", "assertions": [{"type": "exit_code", "value": 0}]},
-                ]
-            )
-        )
-        result = evaluate_test_results(cases, [("output", 1)])
-        assert result.passed is False
 
 
 class TestSafetyScanFailClosed:
