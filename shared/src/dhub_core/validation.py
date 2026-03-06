@@ -19,9 +19,19 @@ FIRST_VERSION = "0.1.0"
 
 
 def parse_semver(version: str) -> tuple[int, int, int]:
-    """Parse a semver string into a comparable (major, minor, patch) tuple."""
+    """Parse a semver string into a comparable (major, minor, patch) tuple.
+
+    Raises:
+        ValueError: If the version string does not have exactly 3 dot-separated
+            integer components.
+    """
     parts = version.split(".")
-    return int(parts[0]), int(parts[1]), int(parts[2])
+    if len(parts) != 3:
+        raise ValueError(f"Invalid semver '{version}': expected 3 dot-separated components, got {len(parts)}")
+    try:
+        return int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        raise ValueError(f"Invalid semver '{version}': components must be integers") from None
 
 
 def validate_semver(version: str) -> str:

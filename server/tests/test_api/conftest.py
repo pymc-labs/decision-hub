@@ -68,7 +68,11 @@ def test_app(test_settings: MagicMock) -> FastAPI:
             min_ver = test_settings.min_cli_version
             if min_ver:
                 client_ver = request.headers.get("X-DHub-Client-Version", "")
-                if client_ver and _parse_semver(client_ver) < _parse_semver(min_ver):
+                try:
+                    client_parsed = _parse_semver(client_ver)
+                except ValueError:
+                    client_parsed = (0, 0, 0)
+                if client_ver and client_parsed < _parse_semver(min_ver):
                     return JSONResponse(
                         status_code=426,
                         content={

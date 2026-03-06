@@ -39,6 +39,11 @@ class TestParseSemver:
         assert parse_semver("2.0.0") > parse_semver("1.9.9")
         assert parse_semver("1.0.0") < parse_semver("2.0.0")
 
+    @pytest.mark.parametrize("version", ["1.0", "1", "1.0.0.0", "abc", ""])
+    def test_invalid_raises_value_error(self, version: str) -> None:
+        with pytest.raises(ValueError, match="Invalid semver"):
+            parse_semver(version)
+
 
 class TestBumpVersion:
     """bump_version increments correct component."""
