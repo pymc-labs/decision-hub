@@ -363,6 +363,7 @@ class SkillIndexEntry:
     latest_version: str
     eval_status: str
     trust_score: str
+    kind: str = "skill"
     author: str = ""
     category: str = ""
     download_count: int = 0

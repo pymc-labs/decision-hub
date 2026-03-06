@@ -11,6 +11,7 @@ def build_index_entry(
     description: str,
     latest_version: str,
     eval_status: str,
+    kind: str = "skill",
     author: str = "",
     category: str = "",
     download_count: int = 0,
@@ -47,6 +48,7 @@ def build_index_entry(
         latest_version=latest_version,
         eval_status=eval_status,
         trust_score=format_trust_score(eval_status),
+        kind=kind,
         author=author,
         category=category,
         download_count=download_count,
@@ -101,6 +103,7 @@ def serialize_index(entries: list[SkillIndexEntry]) -> str:
         obj: dict = {
             "org": entry.org_slug,
             "skill": entry.skill_name,
+            "kind": entry.kind,
             "description": entry.description,
             "version": entry.latest_version,
             "eval_status": entry.eval_status,
