@@ -43,6 +43,7 @@ export default function HomePage() {
   const totalOrgs = stats?.total_orgs ?? 0;
   const totalPublishers = stats?.total_publishers ?? 0;
   const totalDownloads = stats?.total_downloads ?? 0;
+  const totalPlugins = stats?.total_plugins ?? 0;
 
   const jsonLd = useMemo(
     () => ({
@@ -62,6 +63,7 @@ export default function HomePage() {
   const [animatedOrgs, orgsRef] = useCountUp(totalOrgs);
   const [animatedPublishers, publishersRef] = useCountUp(totalPublishers);
   const [animatedDownloads, downloadsRef] = useCountUp(totalDownloads);
+  const [animatedPlugins, pluginsRef] = useCountUp(totalPlugins);
 
   const [osTab, setOsTab] = useState<"unix" | "windows">("unix");
   const [copied, setCopied] = useState(false);
@@ -160,7 +162,16 @@ export default function HomePage() {
             <span className={styles.statLabel}>Skills Published</span>
           </div>
         </NeonCard>
-        <NeonCard glow="pink">
+        {totalPlugins > 0 && (
+          <NeonCard glow="pink">
+            <div className={styles.statItem} ref={pluginsRef as React.RefObject<HTMLDivElement>}>
+              <Package size={24} className={styles.statIcon} />
+              <span className={styles.statNumber}>{animatedPlugins.toLocaleString()}</span>
+              <span className={styles.statLabel}>Plugins</span>
+            </div>
+          </NeonCard>
+        )}
+        <NeonCard glow={totalPlugins > 0 ? "purple" : "pink"}>
           <div className={styles.statItem} ref={orgsRef as React.RefObject<HTMLDivElement>}>
             <Building2 size={24} className={styles.statIcon} />
             <span className={styles.statNumber}>{animatedOrgs.toLocaleString()}</span>
