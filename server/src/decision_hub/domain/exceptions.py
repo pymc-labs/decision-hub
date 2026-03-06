@@ -44,5 +44,8 @@ class GauntletRejectionError(DomainError):
 
     summary: str
 
+    def __post_init__(self) -> None:
+        super().__init__(str(self))
+
     def __str__(self) -> str:
         return f"Gauntlet checks failed: {self.summary}"
