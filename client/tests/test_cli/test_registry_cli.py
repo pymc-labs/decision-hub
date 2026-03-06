@@ -1438,3 +1438,76 @@ class TestLogsJsonOutput:
         assert event1["type"] == "setup"
         event2 = json.loads(lines[1])
         assert event2["type"] == "case_start"
+
+
+# ---------------------------------------------------------------------------
+# publish --dry-run
+# ---------------------------------------------------------------------------
+
+
+class TestPublishDryRun:
+    @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_no_post(self, _mock_url, _mock_token, _mock_org, tmp_path: Path) -> None:
+        """--dry-run should NOT call the publish endpoint."""
+        _write_skill_md(tmp_path)
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
+            return_value=httpx.Response(404))
+        # No POST mock — if publish is called, respx will raise
+
+        result = runner.invoke(app, ["publish", str(tmp_path), "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower() or "would publish" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_json(self, _mock_url, _mock_token, _mock_org, tmp_path: Path) -> None:
+        _write_skill_md(tmp_path)
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(
+            return_value=httpx.Response(404))
+
+        result = runner.invoke(app, ["--output", "json", "publish", str(tmp_path), "--dry-run"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["org"] == "myorg"
+        assert data["skill"] == "test-skill"
+        assert data["version"] == "0.1.0"
+        assert "size_bytes" in data
+        assert "files" in data
+
+
+# ---------------------------------------------------------------------------
+# delete --dry-run
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteDryRun:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_no_delete(self, _mock_url, _mock_token) -> None:
+        """--dry-run should NOT call the delete endpoint."""
+        respx.get("http://test:8000/v1/skills/acme/test-skill/summary").mock(
+            return_value=httpx.Response(200, json={"org_slug": "acme", "skill_name": "test-skill", "latest_version": "1.0.0"}))
+        # No DELETE mock
+
+        result = runner.invoke(app, ["delete", "acme/test-skill", "--version", "1.0.0", "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower() or "would delete" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_json(self, _mock_url, _mock_token) -> None:
+        respx.get("http://test:8000/v1/skills/acme/test-skill/summary").mock(
+            return_value=httpx.Response(200, json={"org_slug": "acme", "skill_name": "test-skill", "latest_version": "1.0.0"}))
+
+        result = runner.invoke(app, ["--output", "json", "delete", "acme/test-skill", "--version", "1.0.0", "--dry-run"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["org"] == "acme"
+        assert data["version"] == "1.0.0"

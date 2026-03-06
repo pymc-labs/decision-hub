@@ -13,6 +13,7 @@ access_app = typer.Typer(help="Manage access grants for private skills", no_args
 def grant_command(
     skill_ref: str = typer.Argument(help="Skill reference (org/skill)"),
     grantee: str = typer.Argument(help="Organisation slug to grant access to"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate without creating the grant"),
 ) -> None:
     """Grant an organisation access to a private skill."""
     from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
@@ -26,6 +27,23 @@ def grant_command(
 
     api_url = get_api_url()
     headers = build_headers(get_token())
+
+    if dry_run:
+        from dhub.cli.output import is_json, print_json
+
+        # Just verify the skill exists
+        with httpx.Client(timeout=60) as client:
+            resp = client.get(f"{api_url}/v1/skills/{org_slug}/{skill_name}/access", headers=headers)
+            if resp.status_code == 404:
+                console.print(f"[red]Error: {resp.json().get('detail', 'Not found')}[/]")
+                raise typer.Exit(1)
+            raise_for_status(resp)
+        result = {"org": org_slug, "skill": skill_name, "grantee": grantee}
+        if is_json():
+            print_json(result)
+        else:
+            console.print(f"[yellow]Dry run:[/] Would grant access to '{grantee}' for {org_slug}/{skill_name}")
+        return
 
     with httpx.Client(timeout=60) as client:
         resp = client.post(

@@ -28,6 +28,7 @@ def _publish_skill_directory(
     private: bool = False,
     source_repo_url: str | None = None,
     manifest_path: str | None = None,
+    dry_run: bool = False,
 ) -> bool:
     """Publish a single skill directory to the registry.
 
@@ -66,6 +67,19 @@ def _publish_skill_directory(
         if latest_checksum is not None and local_checksum == latest_checksum:
             console.print(f"  No changes detected for [cyan]{name}[/]. Already at [cyan]{current_version}[/].")
             return False
+
+    if dry_run:
+        from dhub.cli.output import is_json, print_json
+
+        import zipfile as _zf
+        with _zf.ZipFile(io.BytesIO(zip_data)) as zf:
+            file_count = len(zf.namelist())
+        result = {"org": org, "skill": name, "version": version, "files": file_count, "size_bytes": len(zip_data)}
+        if is_json():
+            print_json(result)
+        else:
+            console.print(f"[yellow]Dry run:[/] Would publish {org}/{name}@{version} ({len(zip_data):,} bytes, {file_count} files)")
+        return True
 
     meta: dict[str, str] = {"org_slug": org, "skill_name": name, "version": version}
     if private:
@@ -150,6 +164,7 @@ def publish_command(
     private: bool = typer.Option(False, "--private", help="Publish as org-private (visible only to org members)"),
     no_track: bool = typer.Option(False, "--no-track", help="Don't auto-create a tracker for this GitHub repo"),
     track: bool = typer.Option(False, "--track", help="Re-enable tracking for this GitHub repo"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be published without actually publishing"),
 ) -> None:
     """Publish skills to the registry.
 
@@ -189,6 +204,7 @@ def publish_command(
             no_track=no_track,
             track=track,
             org_override=org,
+            dry_run=dry_run,
         )
         return
 
@@ -199,7 +215,7 @@ def publish_command(
         console.print("[red]Error: --track can only be used with a git repository URL.[/]")
         raise typer.Exit(1)
 
-    _publish_from_directory(Path(source), version, bump_level, private=private, org_override=org)
+    _publish_from_directory(Path(source), version, bump_level, private=private, org_override=org, dry_run=dry_run)
 
 
 def _publish_discovered_skills(
@@ -213,6 +229,7 @@ def _publish_discovered_skills(
     *,
     private: bool = False,
     source_repo_url: str | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Publish a list of discovered skill directories."""
     from dhub.cli.output import is_json
@@ -254,6 +271,7 @@ def _publish_discovered_skills(
                 private=private,
                 source_repo_url=source_repo_url,
                 manifest_path=skill_manifest_path,
+                dry_run=dry_run,
             )
             if result:
                 published += 1
@@ -280,6 +298,7 @@ def _publish_from_directory(
     *,
     private: bool = False,
     org_override: str | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Discover and publish all skills under a local directory."""
     from dhub.cli.config import get_api_url, get_token
@@ -306,7 +325,7 @@ def _publish_from_directory(
     else:
         org = _auto_detect_org(api_url, token)
 
-    _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private)
+    _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private, dry_run=dry_run)
 
 
 def _publish_from_git_repo(
@@ -319,6 +338,7 @@ def _publish_from_git_repo(
     no_track: bool = False,
     track: bool = False,
     org_override: str | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Clone a git repo, discover skills, and publish each one."""
     from dhub.cli.config import build_headers, get_api_url, get_token
@@ -361,6 +381,7 @@ def _publish_from_git_repo(
                 token,
                 private=private,
                 source_repo_url=source_repo_url,
+                dry_run=dry_run,
             )
         except typer.Exit as e:
             # Capture partial-failure exit so auto-tracking still runs
@@ -726,6 +747,7 @@ def list_command(
 def delete_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
     version: str = typer.Option(None, "--version", "-v", help="Version to delete (omit to delete all)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without actually deleting"),
 ) -> None:
     """Delete a published skill version (or all versions) from the registry."""
     from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
@@ -741,6 +763,28 @@ def delete_command(
     headers = build_headers(get_token())
 
     from dhub.cli.output import is_json, print_json
+
+    if dry_run:
+        # Verify skill exists
+        with httpx.Client(timeout=60) as client:
+            resp = client.get(f"{api_url}/v1/skills/{org_slug}/{skill_name}/summary", headers=headers)
+            if resp.status_code == 404:
+                console.print(f"[red]Error: Skill '{skill_name}' not found in {org_slug}.[/]")
+                raise typer.Exit(1)
+            raise_for_status(resp)
+        result: dict[str, object] = {"org": org_slug, "skill": skill_name}
+        if version:
+            result["version"] = version
+        else:
+            result["all_versions"] = True
+        if is_json():
+            print_json(result)
+        else:
+            if version:
+                console.print(f"[yellow]Dry run:[/] Would delete {org_slug}/{skill_name}@{version}")
+            else:
+                console.print(f"[yellow]Dry run:[/] Would delete ALL versions of {org_slug}/{skill_name}")
+        return
 
     if version is None:
         # Delete ALL versions — skip confirmation in JSON mode (agents can't confirm)

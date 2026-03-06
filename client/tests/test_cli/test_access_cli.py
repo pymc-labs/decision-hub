@@ -267,3 +267,34 @@ class TestPublishPrivateFlag:
         # The metadata field is in the multipart form — check the raw body
         body = request.content.decode("utf-8", errors="replace")
         assert '"visibility": "org"' in body or '"visibility":"org"' in body
+
+
+# ---------------------------------------------------------------------------
+# dhub access grant --dry-run
+# ---------------------------------------------------------------------------
+
+
+class TestAccessGrantDryRun:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_no_post(self, _mock_url, _mock_token) -> None:
+        respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(
+            return_value=httpx.Response(200, json=[]))
+        # No POST mock
+
+        result = runner.invoke(app, ["access", "grant", "acme/my-skill", "partner", "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower() or "would grant" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_json(self, _mock_url, _mock_token) -> None:
+        respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(
+            return_value=httpx.Response(200, json=[]))
+
+        result = runner.invoke(app, ["--output", "json", "access", "grant", "acme/my-skill", "partner", "--dry-run"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["grantee"] == "partner"
