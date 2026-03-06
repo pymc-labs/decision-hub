@@ -174,3 +174,88 @@ export interface AskMessage {
   role: "user" | "assistant";
   content: string;
 }
+
+// Plugin types
+
+export interface PluginSummary {
+  org_slug: string;
+  plugin_name: string;
+  description: string;
+  latest_version: string;
+  updated_at: string;
+  safety_rating: string;
+  author_name: string | null;
+  download_count: number;
+  category: string;
+  platforms: string[];
+  skill_count: number;
+  hook_count: number;
+  agent_count: number;
+  command_count: number;
+  source_repo_url: string | null;
+  github_stars: number | null;
+  github_license: string | null;
+  is_auto_synced: boolean;
+}
+
+export interface PaginatedPluginsResponse {
+  items: PluginSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface PluginDetail {
+  org_slug: string;
+  plugin_name: string;
+  description: string;
+  author_name: string | null;
+  homepage: string | null;
+  license: string | null;
+  keywords: string[];
+  platforms: string[];
+  category: string;
+  download_count: number;
+  source_repo_url: string | null;
+  github_stars: number | null;
+  github_license: string | null;
+  latest_version: string | null;
+  safety_rating: string;
+  skill_count: number;
+  hook_count: number;
+  agent_count: number;
+  command_count: number;
+  skills: PluginSkillRef[];
+  hooks: PluginHookRef[];
+  agents: string[];
+  commands: string[];
+}
+
+export interface PluginSkillRef {
+  name: string;
+  description: string;
+  path: string;
+}
+
+export interface PluginHookRef {
+  event: string;
+  command: string;
+  is_async: boolean;
+}
+
+export interface PluginVersionEntry {
+  semver: string;
+  published_by: string;
+  eval_status: string | null;
+  gauntlet_summary: string | null;
+  created_at: string;
+}
+
+export interface PluginAuditEntry {
+  semver: string;
+  grade: string;
+  publisher: string;
+  created_at: string;
+  quarantined: boolean;
+}
