@@ -216,14 +216,6 @@
   flex: 1;
 }
 
-.cardDownloads {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: 'Share Tech Mono', monospace;
-  color: var(--text-muted);
-}
-
 /* Category badge */
 .cardCategory {
   display: inline-flex;

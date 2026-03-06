@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 import respx
+from slow_helpers import get_default_gemini_model
 
 from decision_hub.infra.gemini import (
     CodeSafetyJudgment,
@@ -15,7 +16,8 @@ from decision_hub.infra.gemini import (
     create_gemini_client,
 )
 
-_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+_DEFAULT_MODEL = get_default_gemini_model()
+_GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{_DEFAULT_MODEL}:generateContent"
 
 
 @pytest.fixture
@@ -166,7 +168,7 @@ class TestAnalyzeCodeSafetyPromptHardening:
             ],
             skill_name="evil-skill",
             skill_description="Attempts to confuse safety scanner",
-            model="gemini-2.5-flash",
+            model=_DEFAULT_MODEL,
         )
 
         payload = json.loads(route.calls[0].request.content.decode())
@@ -237,7 +239,7 @@ class TestAnalyzeCredentialEntropyLineAttribution:
         )
 
         results = analyze_credential_entropy(
-            gemini_client, entropy_hits, skill_name="test", skill_description="test", model="gemini-2.5-flash"
+            gemini_client, entropy_hits, skill_name="test", skill_description="test", model=_DEFAULT_MODEL
         )
 
         assert len(results) == 2
@@ -273,7 +275,7 @@ class TestAnalyzeCredentialEntropyLineAttribution:
         )
 
         results = analyze_credential_entropy(
-            gemini_client, entropy_hits, skill_name="test", skill_description="test", model="gemini-2.5-flash"
+            gemini_client, entropy_hits, skill_name="test", skill_description="test", model=_DEFAULT_MODEL
         )
 
         assert len(results) == 1

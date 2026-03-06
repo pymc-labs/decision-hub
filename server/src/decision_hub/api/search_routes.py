@@ -100,6 +100,7 @@ def _run_retrieval(
             gauntlet_summary=row.get("gauntlet_summary"),
             github_stars=row.get("github_stars"),
             github_forks=row.get("github_forks"),
+            github_license=row.get("github_license"),
         )
         for row in candidates
     )
@@ -196,6 +197,8 @@ class AskSkillRef(BaseModel):
     latest_version: str = ""
     source_repo_url: str | None = None
     gauntlet_summary: str | None = None
+    github_stars: int | None = None
+    github_license: str | None = None
 
 
 class AskResponse(BaseModel):
@@ -397,6 +400,8 @@ def _ask_skills_inner(
                 latest_version=e.latest_version,
                 source_repo_url=e.source_repo_url,
                 gauntlet_summary=e.gauntlet_summary,
+                github_stars=e.github_stars,
+                github_license=e.github_license,
             )
             for e in result.entries[:5]
         ]
@@ -468,6 +473,8 @@ def _ask_skills_inner(
                     latest_version=row.get("latest_version", ""),
                     source_repo_url=row.get("source_repo_url"),
                     gauntlet_summary=row.get("gauntlet_summary"),
+                    github_stars=row.get("github_stars"),
+                    github_license=row.get("github_license"),
                 )
             )
 

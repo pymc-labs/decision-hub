@@ -202,13 +202,6 @@ class EvalRun:
 
 
 @dataclass(frozen=True)
-class TestCase:
-    __test__ = False  # prevent pytest from trying to collect this dataclass
-    prompt: str
-    assertions: tuple[dict, ...]
-
-
-@dataclass(frozen=True)
 class EvalResult:
     check_name: str
     severity: CheckSeverity
@@ -323,3 +316,4 @@ class SkillIndexEntry:
     gauntlet_summary: str | None = None
     github_stars: int | None = None
     github_forks: int | None = None
+    github_license: str | None = None
