@@ -508,6 +508,29 @@ def process_tracker(
         repo_root = clone_repo(tracker.repo_url, tracker.branch, github_token=github_token)
 
         try:
+            # Check for plugins first (matches crawler behavior)
+            from dhub_core.plugin_manifest import detect_plugin_platforms
+
+            platforms = detect_plugin_platforms(repo_root)
+
+            if platforms or tracker.kind == "plugin":
+                s3_client = create_s3_client(
+                    region=settings.aws_region,
+                    access_key_id=settings.aws_access_key_id,
+                    secret_access_key=settings.aws_secret_access_key,
+                    endpoint_url=settings.s3_endpoint_url,
+                )
+                _publish_plugin_from_tracker(
+                    repo_root=repo_root,
+                    org_slug=tracker.org_slug,
+                    tracker=tracker,
+                    settings=settings,
+                    engine=engine,
+                    s3_client=s3_client,
+                    current_sha=current_sha,
+                )
+                return
+
             skill_dirs = discover_skills(repo_root)
             if not skill_dirs:
                 with engine.connect() as conn:
@@ -751,6 +774,100 @@ def _publish_skill_from_tracker(
         result.eval_status,
     )
     return True
+
+
+def _resolve_org_id(conn: Any, org_slug: str) -> Any:
+    """Look up org UUID from slug, raising if not found."""
+    from decision_hub.infra.database import find_org_by_slug
+
+    org = find_org_by_slug(conn, org_slug)
+    if org is None:
+        raise ValueError(f"Organization '{org_slug}' not found")
+    return org.id
+
+
+def _publish_plugin_from_tracker(
+    *,
+    repo_root: Path,
+    org_slug: str,
+    tracker: SkillTracker,
+    settings: Settings,
+    engine: Any,
+    s3_client: Any,
+    current_sha: str,
+) -> None:
+    """Publish a plugin from a tracked repo."""
+    from decision_hub.domain.plugin_publish_pipeline import execute_plugin_publish
+    from decision_hub.domain.publish_pipeline import GauntletRejectionError
+    from decision_hub.infra.database import disable_skill_trackers_for_repo, update_skill_tracker
+    from decision_hub.infra.storage import compute_checksum
+    from dhub_core.plugin_manifest import parse_plugin_manifest
+
+    now = datetime.now(UTC)
+    manifest = parse_plugin_manifest(repo_root)
+    zip_bytes = create_zip(repo_root)
+    checksum = compute_checksum(zip_bytes)
+
+    source_repo_url = tracker.repo_url.replace(".git", "")
+    if not source_repo_url.startswith("https://"):
+        source_repo_url = f"https://github.com/{source_repo_url}"
+
+    with engine.connect() as conn:
+        try:
+            result = execute_plugin_publish(
+                conn=conn,
+                s3_client=s3_client,
+                settings=settings,
+                org_id=_resolve_org_id(conn, org_slug),
+                org_slug=org_slug,
+                plugin_name=manifest.name,
+                version=manifest.version,
+                checksum=checksum,
+                file_bytes=zip_bytes,
+                publisher=f"tracker:{tracker.id}",
+                source_repo_url=source_repo_url,
+                auto_bump_version=True,
+            )
+            # Disable any skill-kind trackers for this repo since it's now a plugin
+            disabled_count = disable_skill_trackers_for_repo(conn, tracker.repo_url)
+            if disabled_count:
+                logger.info(
+                    "tracker_id={} disabled {} skill trackers for repo={}",
+                    tracker.id,
+                    disabled_count,
+                    tracker.repo_url,
+                )
+            update_skill_tracker(
+                conn,
+                tracker.id,
+                last_commit_sha=current_sha,
+                last_checked_at=now,
+                last_published_at=now,
+                last_error=None,
+            )
+            conn.commit()
+            logger.info(
+                "tracker_id={} plugin={}/{} v={} status=published",
+                tracker.id,
+                org_slug,
+                manifest.name,
+                result.version,
+            )
+        except GauntletRejectionError as exc:
+            update_skill_tracker(
+                conn,
+                tracker.id,
+                last_commit_sha=current_sha,
+                last_checked_at=now,
+                last_error=f"Gauntlet rejected: {exc.summary}",
+            )
+            conn.commit()
+            logger.warning(
+                "tracker_id={} plugin={}/{} quarantined",
+                tracker.id,
+                org_slug,
+                manifest.name,
+            )
 
 
 def _resolve_github_token(settings: Settings) -> str:

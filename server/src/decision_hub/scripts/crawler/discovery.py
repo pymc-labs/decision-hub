@@ -465,4 +465,25 @@ def _run_code_search(
     return repos
 
 
+# ---------------------------------------------------------------------------
+# Strategy 6: Plugin discovery
+# ---------------------------------------------------------------------------
+
+
+def search_by_plugin(
+    gh: "GitHubClient",
+    stats: CrawlStats,
+) -> Generator[dict[str, DiscoveredRepo], None, None]:
+    """Find repos with agent plugin directories (plugin.json in *-plugin/ dirs).
+
+    Searches for plugin.json files inside directories matching the
+    ``.*-plugin/`` naming convention. Yields a single batch.
+    """
+    query = "filename:plugin.json path:-plugin"
+    found = _run_code_search(gh, query, stats)
+    logger.info("Plugin strategy found {} repos", len(found))
+    if found:
+        yield found
+
+
 # GitHubClient is imported from decision_hub.infra.github_client

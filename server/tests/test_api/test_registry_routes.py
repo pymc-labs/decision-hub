@@ -656,6 +656,7 @@ class TestPublishSkill:
 class TestResolveSkill:
     """GET /v1/resolve/{org_slug}/{skill_name} -- resolve a skill version."""
 
+    @patch("decision_hub.api.registry_routes.resolve_plugin_version", return_value=None)
     @patch("decision_hub.api.registry_routes.increment_skill_downloads")
     @patch("decision_hub.api.registry_routes.generate_presigned_url")
     @patch("decision_hub.api.registry_routes.resolve_version")
@@ -664,6 +665,7 @@ class TestResolveSkill:
         mock_resolve: MagicMock,
         mock_presign: MagicMock,
         mock_increment: MagicMock,
+        _mock_plugin_resolve: MagicMock,
         client: TestClient,
     ) -> None:
         """Resolving latest should return version info and a download URL."""
@@ -684,12 +686,14 @@ class TestResolveSkill:
         mock_increment.assert_called_once()
         assert mock_increment.call_args[0][1] == version.skill_id
 
+    @patch("decision_hub.api.registry_routes.resolve_plugin_version", return_value=None)
     @patch("decision_hub.api.registry_routes.increment_skill_downloads")
     @patch("decision_hub.api.registry_routes.resolve_version")
     def test_resolve_not_found(
         self,
         mock_resolve: MagicMock,
         mock_increment: MagicMock,
+        _mock_plugin_resolve: MagicMock,
         client: TestClient,
     ) -> None:
         """Resolving a non-existent version should return 404."""
@@ -701,6 +705,7 @@ class TestResolveSkill:
         assert "not found" in resp.json()["detail"]
         mock_increment.assert_not_called()
 
+    @patch("decision_hub.api.registry_routes.resolve_plugin_version", return_value=None)
     @patch("decision_hub.api.registry_routes.increment_skill_downloads")
     @patch("decision_hub.api.registry_routes.generate_presigned_url")
     @patch("decision_hub.api.registry_routes.resolve_version")
@@ -709,6 +714,7 @@ class TestResolveSkill:
         mock_resolve: MagicMock,
         mock_presign: MagicMock,
         mock_increment: MagicMock,
+        _mock_plugin_resolve: MagicMock,
         client: TestClient,
     ) -> None:
         """Resolving with an exact semver spec should pass it through."""
@@ -733,6 +739,7 @@ class TestResolveSkill:
         assert call_args[0][2] == "my-skill"  # skill_name
         assert call_args[0][3] == "1.2.3"  # spec
 
+    @patch("decision_hub.api.registry_routes.resolve_plugin_version", return_value=None)
     @patch("decision_hub.api.registry_routes.increment_skill_downloads")
     @patch("decision_hub.api.registry_routes.generate_presigned_url")
     @patch("decision_hub.api.registry_routes.resolve_version")
@@ -741,6 +748,7 @@ class TestResolveSkill:
         mock_resolve: MagicMock,
         mock_presign: MagicMock,
         mock_increment: MagicMock,
+        _mock_plugin_resolve: MagicMock,
         client: TestClient,
     ) -> None:
         """Resolve endpoint should work without authentication headers."""
@@ -756,6 +764,7 @@ class TestResolveSkill:
 
         assert resp.status_code == 200
 
+    @patch("decision_hub.api.registry_routes.resolve_plugin_version", return_value=None)
     @patch("decision_hub.api.registry_routes.increment_skill_downloads")
     @patch("decision_hub.api.registry_routes.generate_presigned_url")
     @patch("decision_hub.api.registry_routes.resolve_version")
@@ -764,6 +773,7 @@ class TestResolveSkill:
         mock_resolve: MagicMock,
         mock_presign: MagicMock,
         mock_increment: MagicMock,
+        _mock_plugin_resolve: MagicMock,
         client: TestClient,
     ) -> None:
         """Resolve with allow_risky=true passes the flag through."""

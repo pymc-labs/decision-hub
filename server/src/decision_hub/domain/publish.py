@@ -35,6 +35,16 @@ def build_quarantine_s3_key(org_slug: str, skill_name: str, version: str) -> str
     return f"rejected/{org_slug}/{skill_name}/{version}.zip"
 
 
+def build_plugin_s3_key(org_slug: str, plugin_name: str, version: str) -> str:
+    """Build the S3 object key for a published plugin version."""
+    return f"plugins/{org_slug}/{plugin_name}/{version}.zip"
+
+
+def build_plugin_quarantine_s3_key(org_slug: str, plugin_name: str, version: str) -> str:
+    """Build the S3 object key for a rejected plugin in quarantine."""
+    return f"rejected/plugins/{org_slug}/{plugin_name}/{version}.zip"
+
+
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per extracted file
 _MAX_TOTAL_EXTRACTED = 100 * 1024 * 1024  # 100 MB total uncompressed
 _MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
