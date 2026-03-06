@@ -330,6 +330,17 @@ def _publish_from_directory(
         console.print(f"[red]Error: '{path}' is not a directory.[/]")
         raise typer.Exit(1)
 
+    # Detect content type before auth — fail fast on empty dirs without requiring login
+    platforms = detect_plugin_platforms(path)
+    is_plugin = bool(platforms)
+
+    if not is_plugin:
+        skill_dirs = discover_skills(path)
+        if not skill_dirs:
+            console.print(f"[yellow]No skills found under '{path}'.[/]")
+            raise typer.Exit(1)
+
+    # Auth required from here on
     api_url = get_api_url()
     token = get_token()
 
@@ -339,17 +350,9 @@ def _publish_from_directory(
     else:
         org = _auto_detect_org(api_url, token)
 
-    # Check for plugin structure first — plugin directories take precedence
-    platforms = detect_plugin_platforms(path)
-    if platforms:
+    if is_plugin:
         _publish_plugin_directory(path, org, version, bump_level, api_url, token)
         return
-
-    skill_dirs = discover_skills(path)
-
-    if not skill_dirs:
-        console.print(f"[yellow]No skills found under '{path}'.[/]")
-        raise typer.Exit(1)
 
     _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private)
 
