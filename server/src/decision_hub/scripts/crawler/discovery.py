@@ -142,6 +142,9 @@ def resolve_repos(
             continue
 
         d = resp.json()
+        if d.get("archived", False):
+            logger.info("Skipping archived repo {}", full_name)
+            continue
         if d.get("private", False):
             logger.warning(
                 "Resolved repo {} is private — processing because it was explicitly requested via --repos",
@@ -288,6 +291,8 @@ def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str
             for item in items:
                 fn = item["full_name"]
                 if fn not in batch:
+                    if item.get("archived", False):
+                        continue
                     if item.get("private", False):
                         logger.debug("Skipping private repo {} found in topic search", fn)
                         continue
@@ -339,6 +344,8 @@ def scan_forks(
             for fork in forks:
                 fn = fork["full_name"]
                 if fn not in batch:
+                    if fork.get("archived", False):
+                        continue
                     if fork.get("private", False):
                         logger.debug("Skipping private repo {} found in fork scan", fn)
                         continue
@@ -401,6 +408,8 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict
             if dr.status_code != 200:
                 continue
             d = dr.json()
+            if d.get("archived", False):
+                continue
             if d.get("private", False):
                 logger.debug("Skipping private repo {} found in curated list", ref)
                 continue

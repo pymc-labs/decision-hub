@@ -100,11 +100,26 @@ def fetch_owner_metadata(
     return {}
 
 
+def _is_repo_archived(full_name: str, token: str | None) -> bool:
+    """Check if a GitHub repo is archived via the REST API."""
+    headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        resp = httpx.get(f"https://api.github.com/repos/{full_name}", headers=headers, timeout=15)
+        if resp.status_code == 200:
+            return resp.json().get("archived", False)
+    except httpx.HTTPError:
+        pass
+    return False
+
+
 def process_repo_on_modal(
     repo_dict: dict,
     bot_user_id_str: str,
     github_token: str | None,
     set_tracker: bool = True,
+    force: bool = False,
 ) -> dict:
     """Process a single repo inside a Modal container.
 
@@ -154,6 +169,14 @@ def process_repo_on_modal(
         if not _SLUG_PATTERN.match(slug):
             result["status"] = "skipped"
             result["error"] = f"Invalid org slug: {slug}"
+            return result
+
+        # Skip archived repos — code search discovery doesn't include
+        # the archived flag, so we check here as a catch-all.
+        if _is_repo_archived(repo_dict["full_name"], github_token):
+            result["status"] = "skipped"
+            result["error"] = "Repo is archived"
+            logger.info("Skipping archived repo {}", repo_dict["full_name"])
             return result
 
         bot_user_id = UUID(bot_user_id_str)
@@ -252,6 +275,7 @@ def process_repo_on_modal(
                         source_repo_url=source_repo_url,
                         bot_user_id=bot_user_id,
                         set_tracker=set_tracker,
+                        force=force,
                     )
                 except Exception:
                     logger.opt(exception=True).warning(
@@ -307,6 +331,7 @@ def _publish_one_skill(
     source_repo_url: str | None = None,
     bot_user_id: UUID | None = None,
     set_tracker: bool = False,
+    force: bool = False,
 ) -> str:
     """Parse, gauntlet-check, and publish a single skill.
 
@@ -317,7 +342,7 @@ def _publish_one_skill(
     """
     # Phase 1: prepare — DB reads + skill upsert (short connection)
     with engine.connect() as conn:
-        prep = _prepare_skill(conn, settings, org, skill_dir, source_repo_url=source_repo_url)
+        prep = _prepare_skill(conn, settings, org, skill_dir, source_repo_url=source_repo_url, force=force)
         conn.commit()
 
     if isinstance(prep, str):
@@ -370,6 +395,7 @@ def _prepare_skill(
     skill_dir: Path,
     *,
     source_repo_url: str | None = None,
+    force: bool = False,
 ) -> str | _SkillPrep:
     """Phase 1: read from disk + DB, return prep data or early-exit status."""
     from decision_hub.infra.database import (
@@ -403,14 +429,19 @@ def _prepare_skill(
     # Determine version (auto-bump patch or start at 0.1.0)
     latest = resolve_latest_version(conn, org.slug, name)
     if latest is not None:
-        if latest.checksum == checksum:
+        if latest.checksum == checksum and not force:
             return "skipped"  # identical content
-        version = bump_version(latest.semver)
+        version = bump_version(latest.semver) if latest.checksum != checksum else latest.semver
     else:
         version = "0.1.0"
 
     if find_version(conn, skill.id, version) is not None:
-        return "skipped"
+        if not force:
+            return "skipped"
+        # Force mode: delete the existing version so it can be re-created
+        from decision_hub.infra.database import delete_version
+
+        delete_version(conn, skill.id, version)
 
     # Extract content for gauntlet evaluation
     skill_md_content = (skill_dir / "SKILL.md").read_text()

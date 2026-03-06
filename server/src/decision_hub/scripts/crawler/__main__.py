@@ -99,6 +99,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Skip creating trackers for published skills (default: trackers are created)",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Skip checksum check and re-run gauntlet even if content is unchanged",
+    )
+    parser.add_argument(
         "--trusted-only",
         action="store_true",
         default=False,
@@ -302,6 +308,7 @@ def run_processing_phase(
     modal_app_name: str,
     stats: CrawlStats,
     set_tracker: bool = True,
+    force: bool = False,
 ) -> bool:
     """Fan out repo processing to Modal containers in small chunks.
 
@@ -339,7 +346,12 @@ def run_processing_phase(
 
             for result in fn.map(
                 chunk_dicts,
-                kwargs={"bot_user_id": bot_user_id, "github_token": github_token, "set_tracker": set_tracker},
+                kwargs={
+                    "bot_user_id": bot_user_id,
+                    "github_token": github_token,
+                    "set_tracker": set_tracker,
+                    "force": force,
+                },
                 return_exceptions=True,
                 wrap_returned_exceptions=False,
             ):
@@ -475,6 +487,7 @@ def run_crawler(args: argparse.Namespace) -> None:
             modal_app_name=settings.modal_app_name,
             stats=stats,
             set_tracker=args.set_tracker,
+            force=args.force,
         )
         _print_summary(stats)
         return
@@ -527,6 +540,7 @@ def run_crawler(args: argparse.Namespace) -> None:
             modal_app_name=settings.modal_app_name,
             stats=proc_stats,
             set_tracker=args.set_tracker,
+            force=args.force,
         )
         _print_summary(proc_stats)
         return
@@ -576,6 +590,7 @@ def run_crawler(args: argparse.Namespace) -> None:
             modal_app_name=settings.modal_app_name,
             stats=proc_stats,
             set_tracker=args.set_tracker,
+            force=args.force,
         )
         if hit_cap:
             break

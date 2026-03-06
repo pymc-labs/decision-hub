@@ -1756,6 +1756,13 @@ def fetch_all_skills_for_index(
             )
         )
         .where(skills_table.c.latest_semver.isnot(None))
+        .where(skills_table.c.source_repo_removed == sa.false())
+        .where(
+            sa.or_(
+                skills_table.c.github_is_archived.is_(None),
+                skills_table.c.github_is_archived == sa.false(),
+            )
+        )
     )
 
     # Visibility filter
@@ -1827,6 +1834,13 @@ def fetch_all_skills_for_index(
                 )
             )
             .where(skills_table.c.latest_semver.isnot(None))
+            .where(skills_table.c.source_repo_removed == sa.false())
+            .where(
+                sa.or_(
+                    skills_table.c.github_is_archived.is_(None),
+                    skills_table.c.github_is_archived == sa.false(),
+                )
+            )
         )
         count_q = _apply_visibility_filter(count_q, user_org_ids, granted_skill_ids)
         count_q = _build_skills_filters(count_q, search=search, org_slug=org_slug, category=category, grade=grade)
@@ -1935,6 +1949,13 @@ def search_skills_hybrid(
                 )
             )
             .where(skills_table.c.latest_semver.isnot(None))
+            .where(skills_table.c.source_repo_removed == sa.false())
+            .where(
+                sa.or_(
+                    skills_table.c.github_is_archived.is_(None),
+                    skills_table.c.github_is_archived == sa.false(),
+                )
+            )
         )
 
         stmt = _apply_visibility_filter(stmt, user_org_ids, granted)

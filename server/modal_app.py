@@ -135,6 +135,7 @@ def crawl_process_repo(
     bot_user_id: str,
     github_token: str | None = None,
     set_tracker: bool = True,
+    force: bool = False,
 ) -> dict:
     """Process a single discovered repo: clone, discover skills, gauntlet, publish.
 
@@ -160,7 +161,7 @@ def crawl_process_repo(
             settings.github_app_installation_id,
         )
 
-    return process_repo_on_modal(repo_dict, bot_user_id, github_token, set_tracker=set_tracker)
+    return process_repo_on_modal(repo_dict, bot_user_id, github_token, set_tracker=set_tracker, force=force)
 
 
 @app.function(image=crawler_image, timeout=300, max_containers=50)

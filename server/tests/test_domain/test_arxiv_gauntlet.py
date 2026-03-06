@@ -3110,6 +3110,67 @@ class TestFullPipelineWithLLM:
         )
 
 
+@pytest.mark.slow
+class TestFalsePositiveRegression:
+    """Regression tests for known false positives.
+
+    These test real-world skill code that was incorrectly flagged by the
+    gauntlet. Each test reproduces the exact code that triggered the false
+    positive and verifies the LLM judge now correctly approves it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_api_key(self):
+        self.api_key = load_google_api_key()
+        if not self.api_key:
+            pytest.skip("GOOGLE_API_KEY not available")
+        self.callbacks = _build_llm_callbacks(self.api_key)
+
+    def test_list_form_subprocess_not_flagged(self):
+        """List-form subprocess.run without shell=True is safe from injection.
+
+        Regression: pymc-labs/marimo-notebooks was rated F because the LLM
+        judged subprocess.run(["marimo", "convert", input_path, ...]) as
+        injectable. List-form calls pass arguments directly to execvp —
+        no shell interpretation occurs, so $(cmd) is a literal filename.
+        """
+        source_files = [
+            (
+                "scripts/convert_notebook.py",
+                textwrap.dedent("""\
+                    import subprocess
+                    from pathlib import Path
+
+                    def convert_jupyter_to_marimo(input_path: str, output_path: str | None = None) -> str:
+                        input_file = Path(input_path)
+                        if output_path is None:
+                            output_path = str(input_file.with_suffix(".py"))
+                        cmd = ["marimo", "convert", input_path, "-o", output_path]
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        if result.returncode != 0:
+                            raise RuntimeError(f"Conversion failed: {result.stderr}")
+                        return output_path
+                """),
+            ),
+        ]
+
+        report = run_static_checks(
+            skill_md_content="---\nname: marimo-notebooks\ndescription: Convert and create marimo notebooks\n---\n",
+            lockfile_content="",
+            source_files=source_files,
+            skill_name="marimo-notebooks",
+            skill_description="Convert and create marimo notebooks",
+            **self.callbacks,
+        )
+
+        safety_results = [r for r in report.results if r.check_name == "safety_scan"]
+        assert safety_results, "Expected a safety_scan result"
+        safety = safety_results[0]
+        assert safety.severity != "fail", (
+            f"List-form subprocess.run should not be flagged as dangerous: {safety.message}"
+        )
+
+
 def generate_report() -> str:
     """Generate a markdown report suitable for a GitHub issue."""
     results = [_run_gauntlet_no_llm(case) for case in TEST_CASES]
