@@ -107,17 +107,15 @@ def get_token() -> str:
     Raises:
         typer.Exit: If no token is available (user not logged in).
     """
-    from rich.console import Console
-
     env_token = os.environ.get("DHUB_TOKEN")
     if env_token:
         return env_token
 
     token = load_config().token
     if not token:
-        console = Console(stderr=True)
-        console.print("[red]Error: Not logged in. Run [bold]dhub login[/bold] first.[/]")
-        raise typer.Exit(1)
+        from dhub.cli.output import ErrorCode, exit_error
+
+        exit_error(ErrorCode.AUTH_REQUIRED, "Not logged in. Run 'dhub login' first.")
     return token
 
 
@@ -168,12 +166,11 @@ def raise_for_status(resp: httpx.Response) -> None:
     that status and prints an actionable message instead.
     """
     if resp.status_code == 426:
-        from rich.console import Console
+        from dhub.cli.output import ErrorCode, exit_error
 
-        Console(stderr=True).print(
-            "[red]Error: Your dhub CLI is outdated and incompatible with the server.[/]\n"
-            "Run [bold]dhub upgrade[/bold] to install the latest version.\n"
-            "Browse the registry at [link=https://hub.decision.ai]https://hub.decision.ai[/link]"
+        exit_error(
+            ErrorCode.UPGRADE_REQUIRED,
+            "Your dhub CLI is outdated and incompatible with the server. Run 'dhub upgrade'.",
+            status=426,
         )
-        raise SystemExit(1)
     resp.raise_for_status()

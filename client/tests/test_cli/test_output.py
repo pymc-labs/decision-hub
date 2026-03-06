@@ -3,6 +3,7 @@
 import json
 import sys
 
+import pytest
 from typer.testing import CliRunner
 
 from dhub.cli.app import app
@@ -86,3 +87,48 @@ class TestPrintJson:
         parsed = json.loads(captured.err)
         assert parsed == data
         assert captured.err.endswith("\n")
+
+
+class TestExitError:
+    def test_exit_error_text_mode(self) -> None:
+        """In text mode, exit_error prints a Rich error to stderr and raises typer.Exit."""
+        import typer
+
+        from dhub.cli.output import ErrorCode, exit_error
+
+        set_format(OutputFormat.text)
+        with pytest.raises(typer.Exit):
+            exit_error(ErrorCode.NOT_FOUND, "Skill not found")
+
+    def test_exit_error_json_mode(self, capsys) -> None:
+        """In JSON mode, exit_error writes structured JSON to stderr and raises typer.Exit."""
+        import typer
+
+        from dhub.cli.output import ErrorCode, exit_error
+
+        set_format(OutputFormat.json)
+        with pytest.raises(typer.Exit):
+            exit_error(ErrorCode.NOT_FOUND, "Skill not found", status=404)
+        captured = capsys.readouterr()
+        data = json.loads(captured.err)
+        assert data["error"] is True
+        assert data["code"] == "NOT_FOUND"
+        assert data["message"] == "Skill not found"
+        assert data["status"] == 404
+        set_format(OutputFormat.text)  # Reset
+
+    def test_exit_error_json_mode_without_status(self, capsys) -> None:
+        """In JSON mode without status, the status key should be absent."""
+        import typer
+
+        from dhub.cli.output import ErrorCode, exit_error
+
+        set_format(OutputFormat.json)
+        with pytest.raises(typer.Exit):
+            exit_error(ErrorCode.AUTH_REQUIRED, "Not logged in")
+        captured = capsys.readouterr()
+        data = json.loads(captured.err)
+        assert data["error"] is True
+        assert data["code"] == "AUTH_REQUIRED"
+        assert "status" not in data
+        set_format(OutputFormat.text)  # Reset

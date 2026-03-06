@@ -88,6 +88,10 @@ app.command("run")(run_command)
 app.command("ask")(ask_command)
 app.command("visibility")(visibility_command)
 
+from dhub.cli.doctor import doctor_command  # noqa: E402
+
+app.command("doctor")(doctor_command)
+
 
 def upgrade_command() -> None:
     """Upgrade dhub to the latest version from PyPI."""
