@@ -1,5 +1,6 @@
 """Tests for dhub.cli.org -- organization management commands."""
 
+import json
 from unittest.mock import patch
 
 import httpx
@@ -36,6 +37,18 @@ class TestListOrgs:
         assert result.exit_code == 0
         assert "alpha-org" in result.output
         assert "beta-org" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_org_list_json(self, _mock_url, _mock_token) -> None:
+        respx.get("http://test:8000/v1/orgs").mock(
+            return_value=httpx.Response(200, json=[{"slug": "acme", "id": "1", "is_personal": False}])
+        )
+        result = runner.invoke(app, ["--output", "json", "org", "list"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data[0]["slug"] == "acme"
 
     @respx.mock
     @patch("dhub.cli.config.get_token", return_value="test-token")

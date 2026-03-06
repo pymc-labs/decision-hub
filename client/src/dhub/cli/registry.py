@@ -28,6 +28,7 @@ def _publish_skill_directory(
     private: bool = False,
     source_repo_url: str | None = None,
     manifest_path: str | None = None,
+    dry_run: bool = False,
 ) -> bool:
     """Publish a single skill directory to the registry.
 
@@ -67,6 +68,22 @@ def _publish_skill_directory(
             console.print(f"  No changes detected for [cyan]{name}[/]. Already at [cyan]{current_version}[/].")
             return False
 
+    if dry_run:
+        import zipfile as _zf
+
+        from dhub.cli.output import is_json, print_json
+
+        with _zf.ZipFile(io.BytesIO(zip_data)) as zf:
+            file_count = len(zf.namelist())
+        result = {"org": org, "skill": name, "version": version, "files": file_count, "size_bytes": len(zip_data)}
+        if is_json():
+            print_json(result)
+        else:
+            console.print(
+                f"[yellow]Dry run:[/] Would publish {org}/{name}@{version} ({len(zip_data):,} bytes, {file_count} files)"
+            )
+        return True
+
     meta: dict[str, str] = {"org_slug": org, "skill_name": name, "version": version}
     if private:
         meta["visibility"] = "org"
@@ -99,6 +116,20 @@ def _publish_skill_directory(
     data = resp.json()
     eval_status = data.get("eval_status", "")
     eval_report_status = data.get("eval_report_status")
+
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(
+            {
+                "org": org,
+                "skill": name,
+                "version": version,
+                "grade": eval_status,
+                "eval_run_id": data.get("eval_run_id"),
+            }
+        )
+        return True
 
     grade_colors = {"A": "green", "B": "yellow", "C": "red", "F": "red"}
     grade_color = grade_colors.get(eval_status, "white")
@@ -138,6 +169,7 @@ def publish_command(
     private: bool = typer.Option(False, "--private", help="Publish as org-private (visible only to org members)"),
     no_track: bool = typer.Option(False, "--no-track", help="Don't auto-create a tracker for this GitHub repo"),
     track: bool = typer.Option(False, "--track", help="Re-enable tracking for this GitHub repo"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be published without actually publishing"),
 ) -> None:
     """Publish skills to the registry.
 
@@ -177,6 +209,7 @@ def publish_command(
             no_track=no_track,
             track=track,
             org_override=org,
+            dry_run=dry_run,
         )
         return
 
@@ -187,7 +220,7 @@ def publish_command(
         console.print("[red]Error: --track can only be used with a git repository URL.[/]")
         raise typer.Exit(1)
 
-    _publish_from_directory(Path(source), version, bump_level, private=private, org_override=org)
+    _publish_from_directory(Path(source), version, bump_level, private=private, org_override=org, dry_run=dry_run)
 
 
 def _publish_discovered_skills(
@@ -201,15 +234,20 @@ def _publish_discovered_skills(
     *,
     private: bool = False,
     source_repo_url: str | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Publish a list of discovered skill directories."""
+    from dhub.cli.output import is_json
     from dhub.core.manifest import parse_skill_md
 
-    console.print(f"Found [cyan]{len(skill_dirs)}[/] skill(s):")
-    for skill_dir in skill_dirs:
-        rel = skill_dir.relative_to(root)
-        console.print(f"  - {rel}")
-    console.print()
+    json_mode = is_json()
+
+    if not json_mode:
+        console.print(f"Found [cyan]{len(skill_dirs)}[/] skill(s):")
+        for skill_dir in skill_dirs:
+            rel = skill_dir.relative_to(root)
+            console.print(f"  - {rel}")
+        console.print()
 
     published = 0
     failed = 0
@@ -218,7 +256,8 @@ def _publish_discovered_skills(
         manifest = parse_skill_md(skill_dir / "SKILL.md")
         name = manifest.name
         rel = skill_dir.relative_to(root)
-        console.print(f"Publishing [cyan]{name}[/] (from {rel})...")
+        if not json_mode:
+            console.print(f"Publishing [cyan]{name}[/] (from {rel})...")
 
         # Compute relative path to SKILL.md within the repo (only meaningful
         # when publishing from a git source — skip for local-only publishes
@@ -237,6 +276,7 @@ def _publish_discovered_skills(
                 private=private,
                 source_repo_url=source_repo_url,
                 manifest_path=skill_manifest_path,
+                dry_run=dry_run,
             )
             if result:
                 published += 1
@@ -244,11 +284,13 @@ def _publish_discovered_skills(
                 skipped += 1
         except typer.Exit:
             failed += 1
-            console.print(f"[red]Failed to publish {name}, continuing...[/]")
+            if not json_mode:
+                console.print(f"[red]Failed to publish {name}, continuing...[/]")
             continue
 
-    console.print()
-    console.print(f"Done: [green]{published} published[/], [yellow]{skipped} skipped[/], [red]{failed} failed[/]")
+    if not json_mode:
+        console.print()
+        console.print(f"Done: [green]{published} published[/], [yellow]{skipped} skipped[/], [red]{failed} failed[/]")
 
     if failed > 0:
         raise typer.Exit(1)
@@ -261,9 +303,11 @@ def _publish_from_directory(
     *,
     private: bool = False,
     org_override: str | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Discover and publish all skills under a local directory."""
     from dhub.cli.config import get_api_url, get_token
+    from dhub.cli.output import is_json
     from dhub.core.git_repo import discover_skills
 
     if not path.is_dir():
@@ -280,12 +324,15 @@ def _publish_from_directory(
     token = get_token()
 
     if org_override:
-        console.print(f"Using namespace: [cyan]{org_override}[/]")
+        if not is_json():
+            console.print(f"Using namespace: [cyan]{org_override}[/]")
         org = org_override
     else:
         org = _auto_detect_org(api_url, token)
 
-    _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private)
+    _publish_discovered_skills(
+        skill_dirs, path, org, version, bump_level, api_url, token, private=private, dry_run=dry_run
+    )
 
 
 def _publish_from_git_repo(
@@ -298,6 +345,7 @@ def _publish_from_git_repo(
     no_track: bool = False,
     track: bool = False,
     org_override: str | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Clone a git repo, discover skills, and publish each one."""
     from dhub.cli.config import build_headers, get_api_url, get_token
@@ -340,6 +388,7 @@ def _publish_from_git_repo(
                 token,
                 private=private,
                 source_repo_url=source_repo_url,
+                dry_run=dry_run,
             )
         except typer.Exit as e:
             # Capture partial-failure exit so auto-tracking still runs
@@ -530,9 +579,12 @@ def _auto_bump_version(
             headers=build_headers(token),
         )
 
+    from dhub.cli.output import is_json
+
     if resp.status_code == 404:
         version = first_version
-        console.print(f"First publish — using version [cyan]{version}[/]")
+        if not is_json():
+            console.print(f"First publish — using version [cyan]{version}[/]")
         return version, None, None
 
     raise_for_status(resp)
@@ -540,7 +592,8 @@ def _auto_bump_version(
     current = data["version"]
     latest_checksum = data.get("checksum")
     version = bump_version_fn(current, bump_level)
-    console.print(f"Auto-bumped: {current} -> [cyan]{version}[/]")
+    if not is_json():
+        console.print(f"Auto-bumped: {current} -> [cyan]{version}[/]")
     return version, latest_checksum, current
 
 
@@ -613,15 +666,22 @@ def list_command(
 
     from dhub.cli.banner import print_banner
     from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.output import is_json, print_json
 
-    print_banner(console)
+    json_mode = is_json()
+
+    if not json_mode:
+        print_banner(console)
 
     api_url = get_api_url()
     headers = build_headers(get_optional_token())
 
-    console.print(f"Registry: [dim]{api_url}[/]")
+    if not json_mode:
+        console.print(f"Registry: [dim]{api_url}[/]")
 
+    all_items: list[dict] = []
     page = 1
+    total = 0
     found_any = False
     with httpx.Client(timeout=60) as client:
         while True:
@@ -641,6 +701,13 @@ def list_command(
             items = data["items"]
             total = data["total"]
             total_pages = data["total_pages"]
+
+            if json_mode:
+                all_items.extend(items)
+                if page >= total_pages or total == 0:
+                    break
+                page += 1
+                continue
 
             if total == 0:
                 console.print("No skills found.")
@@ -679,10 +746,15 @@ def list_command(
 
             page += 1
 
+    if json_mode:
+        print_json({"items": all_items, "total": total, "page_size": len(all_items), "total_pages": 1})
+        return
+
 
 def delete_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
     version: str = typer.Option(None, "--version", "-v", help="Version to delete (omit to delete all)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without actually deleting"),
 ) -> None:
     """Delete a published skill version (or all versions) from the registry."""
     from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
@@ -697,12 +769,37 @@ def delete_command(
     api_url = get_api_url()
     headers = build_headers(get_token())
 
+    from dhub.cli.output import is_json, print_json
+
+    if dry_run:
+        # Verify skill exists
+        with httpx.Client(timeout=60) as client:
+            resp = client.get(f"{api_url}/v1/skills/{org_slug}/{skill_name}/summary", headers=headers)
+            if resp.status_code == 404:
+                console.print(f"[red]Error: Skill '{skill_name}' not found in {org_slug}.[/]")
+                raise typer.Exit(1)
+            raise_for_status(resp)
+        result: dict[str, object] = {"org": org_slug, "skill": skill_name}
+        if version:
+            result["version"] = version
+        else:
+            result["all_versions"] = True
+        if is_json():
+            print_json(result)
+        else:
+            if version:
+                console.print(f"[yellow]Dry run:[/] Would delete {org_slug}/{skill_name}@{version}")
+            else:
+                console.print(f"[yellow]Dry run:[/] Would delete ALL versions of {org_slug}/{skill_name}")
+        return
+
     if version is None:
-        # Delete ALL versions
-        typer.confirm(
-            f"Delete ALL versions of {org_slug}/{skill_name}?",
-            abort=True,
-        )
+        # Delete ALL versions — skip confirmation in JSON mode (agents can't confirm)
+        if not is_json():
+            typer.confirm(
+                f"Delete ALL versions of {org_slug}/{skill_name}?",
+                abort=True,
+            )
 
         with httpx.Client(timeout=60) as client:
             resp = client.delete(
@@ -718,6 +815,9 @@ def delete_command(
             raise_for_status(resp)
 
         data = resp.json()
+        if is_json():
+            print_json(data)
+            return
         count = data["versions_deleted"]
         console.print(f"[green]Deleted {count} version(s) of {org_slug}/{skill_name}[/]")
     else:
@@ -735,6 +835,10 @@ def delete_command(
                 raise typer.Exit(1)
             raise_for_status(resp)
 
+        data = resp.json()
+        if is_json():
+            print_json(data)
+            return
         console.print(f"[green]Deleted: {org_slug}/{skill_name}@{version}[/]")
 
 
@@ -775,6 +879,12 @@ def eval_report_command(
     # Handle null response (no eval report yet)
     if data is None:
         console.print(f"No eval report available for {org_slug}/{skill_name}@{version}")
+        return
+
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(data)
         return
 
     # Display report summary
@@ -884,6 +994,12 @@ def _install_single_skill(
             console.print(f"[red]Error: Refusing to install — {exc}[/]")
             raise typer.Exit(1) from None
         zf.extractall(skill_path)
+
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json({"org": org_slug, "skill": skill_name, "version": resolved_version, "path": str(skill_path)})
+        return
 
     console.print(f"[green]Installed {org_slug}/{skill_name}@{resolved_version} to {skill_path}[/]")
 
@@ -1109,6 +1225,12 @@ def _list_recent_runs(api_url: str, headers: dict) -> None:
         raise_for_status(resp)
         runs = resp.json()
 
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(runs)
+        return
+
     if not runs:
         console.print("No eval runs found.")
         return
@@ -1160,6 +1282,12 @@ def _show_run_status(api_url: str, headers: dict, run_id: str) -> None:
         raise_for_status(resp)
         run = resp.json()
 
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(run)
+        return
+
     status = run["status"]
     status_colors = {
         "pending": "yellow",
@@ -1189,9 +1317,12 @@ def _tail_eval_logs(api_url: str, headers: dict, run_id: str) -> None:
     import time
 
     from dhub.cli.config import raise_for_status
+    from dhub.cli.output import is_json, print_json
 
     cursor = 0
-    console.print(f"[dim]Tailing eval run {run_id[:8]}...[/]\n")
+    json_mode = is_json()
+    if not json_mode:
+        console.print(f"[dim]Tailing eval run {run_id[:8]}...[/]\n")
 
     while True:
         with httpx.Client(timeout=60) as client:
@@ -1204,7 +1335,10 @@ def _tail_eval_logs(api_url: str, headers: dict, run_id: str) -> None:
             data = resp.json()
 
         for event in data["events"]:
-            _render_event(event)
+            if json_mode:
+                print_json(event)
+            else:
+                _render_event(event)
 
         cursor = data["next_cursor"]
 
@@ -1337,6 +1471,12 @@ def visibility_command(
             raise typer.Exit(1)
         raise_for_status(resp)
 
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json({"org": org_slug, "skill": skill_name, "visibility": visibility})
+        return
+
     label = "org-private" if visibility == "org" else "public"
     console.print(f"[green]Visibility for {org_slug}/{skill_name} set to {label}.[/]")
 
@@ -1422,6 +1562,12 @@ def info_command(
                     eval_report = resp.json()
             except httpx.HTTPError:
                 console.print("[dim]  (could not fetch eval report)[/]")
+
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json({"summary": summary, "audit_log": audit_entry, "eval_report": eval_report})
+        return
 
     _render_skill_info(org_slug, skill_name, summary, audit_entry, eval_report)
 

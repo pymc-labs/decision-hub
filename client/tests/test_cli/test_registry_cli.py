@@ -855,6 +855,94 @@ class TestListCommand:
 
 
 # ---------------------------------------------------------------------------
+# list_command JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestListJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_json_single_page(self, _mock_url, _mock_token) -> None:
+        response = {
+            "items": [
+                {
+                    "org_slug": "acme",
+                    "skill_name": "test-skill",
+                    "description": "A test",
+                    "latest_version": "1.0.0",
+                    "updated_at": "2026-01-01T00:00:00",
+                    "safety_rating": "A",
+                    "author": "alice",
+                    "download_count": 42,
+                    "category": "Testing",
+                }
+            ],
+            "total": 1,
+            "page": 1,
+            "page_size": 50,
+            "total_pages": 1,
+        }
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=response))
+        result = runner.invoke(app, ["--output", "json", "list"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["skill_name"] == "test-skill"
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_json_multi_page(self, _mock_url, _mock_token) -> None:
+        page1 = {
+            "items": [
+                {
+                    "org_slug": "a",
+                    "skill_name": "s1",
+                    "description": "",
+                    "latest_version": "1.0.0",
+                    "updated_at": "",
+                    "safety_rating": "A",
+                    "author": "",
+                    "download_count": 0,
+                    "category": "",
+                }
+            ],
+            "total": 2,
+            "page": 1,
+            "page_size": 1,
+            "total_pages": 2,
+        }
+        page2 = {
+            "items": [
+                {
+                    "org_slug": "a",
+                    "skill_name": "s2",
+                    "description": "",
+                    "latest_version": "1.0.0",
+                    "updated_at": "",
+                    "safety_rating": "A",
+                    "author": "",
+                    "download_count": 0,
+                    "category": "",
+                }
+            ],
+            "total": 2,
+            "page": 2,
+            "page_size": 1,
+            "total_pages": 2,
+        }
+        route = respx.get("http://test:8000/v1/skills")
+        route.side_effect = [httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+        result = runner.invoke(app, ["--output", "json", "list", "--page-size", "1"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
+
+
+# ---------------------------------------------------------------------------
 # publish tracking flags
 # ---------------------------------------------------------------------------
 
@@ -1167,3 +1255,364 @@ class TestDeleteCommand:
 
         assert result.exit_code == 1
         assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# info_command JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestInfoJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_info_json(self, _mock_url, _mock_token) -> None:
+        summary = {
+            "org_slug": "acme",
+            "skill_name": "test-skill",
+            "description": "A test",
+            "latest_version": "1.0.0",
+            "updated_at": "2026-01-01",
+            "safety_rating": "A",
+            "author": "alice",
+            "download_count": 42,
+            "category": "Testing",
+            "visibility": "public",
+        }
+        respx.get("http://test:8000/v1/skills/acme/test-skill/summary").mock(
+            return_value=httpx.Response(200, json=summary)
+        )
+        respx.get("http://test:8000/v1/skills/acme/test-skill/audit-log").mock(
+            return_value=httpx.Response(
+                200, json={"items": [], "total": 0, "page": 1, "page_size": 1, "total_pages": 0}
+            )
+        )
+        respx.get("http://test:8000/v1/skills/acme/test-skill/eval-report").mock(
+            return_value=httpx.Response(200, text="null", headers={"content-type": "application/json"})
+        )
+        result = runner.invoke(app, ["--output", "json", "info", "acme/test-skill"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["summary"]["skill_name"] == "test-skill"
+
+
+# ---------------------------------------------------------------------------
+# eval_report_command JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestEvalReportJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_eval_report_json(self, _mock_url, _mock_token) -> None:
+        report = {
+            "id": "r1",
+            "version_id": "v1",
+            "agent": "claude",
+            "judge_model": "claude-3",
+            "case_results": [],
+            "passed": 3,
+            "total": 3,
+            "total_duration_ms": 5000,
+            "status": "completed",
+            "error_message": None,
+            "created_at": "2026-01-01",
+        }
+        respx.get("http://test:8000/v1/skills/acme/test-skill/versions/1.0.0/eval-report").mock(
+            return_value=httpx.Response(200, json=report)
+        )
+        result = runner.invoke(app, ["--output", "json", "eval-report", "acme/test-skill@1.0.0"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["passed"] == 3
+
+
+# ---------------------------------------------------------------------------
+# publish JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestPublishJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_json(self, _mock_url, _mock_token, _mock_org, tmp_path: Path) -> None:
+        _write_skill_md(tmp_path)
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "skill_id": "s1",
+                    "version_id": "v1",
+                    "version": "0.1.0",
+                    "s3_key": "k",
+                    "checksum": "abc",
+                    "eval_status": "A",
+                    "eval_run_id": "run-1",
+                },
+            )
+        )
+        result = runner.invoke(app, ["--output", "json", "publish", str(tmp_path)])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["org"] == "myorg"
+        assert data["skill"] == "test-skill"
+        assert data["version"] == "0.1.0"
+        assert data["grade"] == "A"
+        assert data["eval_run_id"] == "run-1"
+
+
+# ---------------------------------------------------------------------------
+# delete JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_delete_version_json(self, _mock_url, _mock_token) -> None:
+        respx.delete("http://test:8000/v1/skills/acme/test-skill/1.0.0").mock(
+            return_value=httpx.Response(200, json={"org_slug": "acme", "skill_name": "test-skill", "version": "1.0.0"})
+        )
+        result = runner.invoke(app, ["--output", "json", "delete", "acme/test-skill", "--version", "1.0.0"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["version"] == "1.0.0"
+        assert data["org_slug"] == "acme"
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_delete_all_versions_json_skips_confirm(self, _mock_url, _mock_token) -> None:
+        """JSON mode should skip the interactive confirmation prompt."""
+        respx.delete("http://test:8000/v1/skills/acme/test-skill").mock(
+            return_value=httpx.Response(
+                200, json={"org_slug": "acme", "skill_name": "test-skill", "versions_deleted": 3}
+            )
+        )
+        result = runner.invoke(app, ["--output", "json", "delete", "acme/test-skill"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["versions_deleted"] == 3
+
+
+# ---------------------------------------------------------------------------
+# visibility JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestVisibilityJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_visibility_json(self, _mock_url, _mock_token) -> None:
+        respx.put("http://test:8000/v1/skills/acme/test-skill/visibility").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        result = runner.invoke(app, ["--output", "json", "visibility", "acme/test-skill", "public"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["org"] == "acme"
+        assert data["skill"] == "test-skill"
+        assert data["visibility"] == "public"
+
+
+# ---------------------------------------------------------------------------
+# install JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestInstallJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_install_json(self, _mock_url, _mock_token, tmp_path: Path) -> None:
+        import hashlib
+
+        # Build a valid zip with a SKILL.md
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: test-skill\ndescription: test\n---\nbody\n")
+        zip_bytes = buf.getvalue()
+        checksum = hashlib.sha256(zip_bytes).hexdigest()
+
+        respx.get("http://test:8000/v1/resolve/acme/test-skill").mock(
+            return_value=httpx.Response(
+                200,
+                json={"version": "1.0.0", "download_url": "http://test:8000/download/skill.zip", "checksum": checksum},
+            )
+        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
+
+        with patch("dhub.core.install.get_dhub_skill_path", return_value=tmp_path / "skills" / "acme" / "test-skill"):
+            result = runner.invoke(app, ["--output", "json", "install", "acme/test-skill"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["org"] == "acme"
+        assert data["skill"] == "test-skill"
+        assert data["version"] == "1.0.0"
+        assert "path" in data
+
+
+# ---------------------------------------------------------------------------
+# logs JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestLogsJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_logs_list_json(self, _mock_url, _mock_token) -> None:
+        runs = [
+            {
+                "id": "run-1",
+                "status": "completed",
+                "agent": "claude",
+                "total_cases": 3,
+                "current_case_index": 3,
+                "stage": "done",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        ]
+        respx.get("http://test:8000/v1/eval-runs").mock(return_value=httpx.Response(200, json=runs))
+        result = runner.invoke(app, ["--output", "json", "logs"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data[0]["id"] == "run-1"
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_logs_show_run_status_json(self, _mock_url, _mock_token) -> None:
+        run_id = "12345678-1234-1234-1234-123456789abc"
+        run = {
+            "id": run_id,
+            "status": "completed",
+            "agent": "claude",
+            "total_cases": 2,
+            "current_case_index": 2,
+            "stage": "done",
+            "created_at": "2026-01-01T00:00:00",
+        }
+        # The code first tries to resolve skill_ref as a UUID run ID
+        respx.get(f"http://test:8000/v1/eval-runs/{run_id}").mock(return_value=httpx.Response(200, json=run))
+        result = runner.invoke(app, ["--output", "json", "logs", run_id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["id"] == run_id
+        assert data["status"] == "completed"
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_logs_follow_ndjson(self, _mock_url, _mock_token) -> None:
+        run_id = "12345678-1234-1234-1234-123456789abc"
+        # Resolve the run ID
+        respx.get(f"http://test:8000/v1/eval-runs/{run_id}").mock(return_value=httpx.Response(200, json={"id": run_id}))
+        # Return two events then mark completed
+        respx.get(f"http://test:8000/v1/eval-runs/{run_id}/logs").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "events": [
+                        {"type": "setup", "content": "Provisioning..."},
+                        {"type": "case_start", "case_index": 0, "total_cases": 1, "case_name": "test-case"},
+                    ],
+                    "next_cursor": 2,
+                    "run_status": "completed",
+                },
+            )
+        )
+        result = runner.invoke(app, ["--output", "json", "logs", run_id, "--follow"])
+        assert result.exit_code == 0
+        lines = [line for line in result.output.strip().split("\n") if line.strip()]
+        assert len(lines) == 2
+        event1 = json.loads(lines[0])
+        assert event1["type"] == "setup"
+        event2 = json.loads(lines[1])
+        assert event2["type"] == "case_start"
+
+
+# ---------------------------------------------------------------------------
+# publish --dry-run
+# ---------------------------------------------------------------------------
+
+
+class TestPublishDryRun:
+    @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_no_post(self, _mock_url, _mock_token, _mock_org, tmp_path: Path) -> None:
+        """--dry-run should NOT call the publish endpoint."""
+        _write_skill_md(tmp_path)
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(return_value=httpx.Response(404))
+        # No POST mock — if publish is called, respx will raise
+
+        result = runner.invoke(app, ["publish", str(tmp_path), "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower() or "would publish" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_json(self, _mock_url, _mock_token, _mock_org, tmp_path: Path) -> None:
+        _write_skill_md(tmp_path)
+        respx.get("http://test:8000/v1/skills/myorg/test-skill/latest-version").mock(return_value=httpx.Response(404))
+
+        result = runner.invoke(app, ["--output", "json", "publish", str(tmp_path), "--dry-run"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["org"] == "myorg"
+        assert data["skill"] == "test-skill"
+        assert data["version"] == "0.1.0"
+        assert "size_bytes" in data
+        assert "files" in data
+
+
+# ---------------------------------------------------------------------------
+# delete --dry-run
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteDryRun:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_no_delete(self, _mock_url, _mock_token) -> None:
+        """--dry-run should NOT call the delete endpoint."""
+        respx.get("http://test:8000/v1/skills/acme/test-skill/summary").mock(
+            return_value=httpx.Response(
+                200, json={"org_slug": "acme", "skill_name": "test-skill", "latest_version": "1.0.0"}
+            )
+        )
+        # No DELETE mock
+
+        result = runner.invoke(app, ["delete", "acme/test-skill", "--version", "1.0.0", "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower() or "would delete" in result.output.lower()
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_dry_run_json(self, _mock_url, _mock_token) -> None:
+        respx.get("http://test:8000/v1/skills/acme/test-skill/summary").mock(
+            return_value=httpx.Response(
+                200, json={"org_slug": "acme", "skill_name": "test-skill", "latest_version": "1.0.0"}
+            )
+        )
+
+        result = runner.invoke(
+            app, ["--output", "json", "delete", "acme/test-skill", "--version", "1.0.0", "--dry-run"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["org"] == "acme"
+        assert data["version"] == "1.0.0"

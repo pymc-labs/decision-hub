@@ -51,6 +51,12 @@ def list_keys() -> None:
         raise_for_status(resp)
         keys = resp.json()
 
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(keys)
+        return
+
     if not keys:
         console.print("No API keys stored.")
         return

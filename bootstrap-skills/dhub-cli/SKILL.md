@@ -34,7 +34,9 @@ dhub config default-org Set default namespace for publishing
 dhub keys add <name>    Store an API key for evals
 dhub keys list          List stored API key names
 dhub keys remove <name> Remove a stored API key
+dhub doctor             Check auth, API connectivity, version
 dhub --version          Show CLI version
+dhub --output json CMD  Machine-readable JSON output for any command
 ```
 
 See `references/command_reference.md` for full details on every command, flag, and option.
@@ -310,6 +312,70 @@ evals:                         # optional — for testable skills
 ---
 System prompt for the agent goes here.
 ```
+
+## Agent Usage (Scripting & Automation)
+
+### Global `--output` flag
+
+Always use `--output json` when calling dhub programmatically:
+
+```bash
+dhub --output json list
+dhub --output json ask "find data science skills"
+dhub --output json info acme/my-skill
+dhub --output json doctor
+```
+
+JSON goes to stdout; errors go to stderr as structured JSON. Never parse the default text output — it contains ANSI escape codes and Rich markup.
+
+### `--dry-run` for mutations
+
+Preview destructive operations before executing:
+
+```bash
+dhub publish ./my-skill --dry-run          # see what would be published
+dhub delete acme/my-skill --dry-run        # see what would be deleted
+dhub access grant acme/skill partner --dry-run  # validate without granting
+```
+
+### Pre-flight checks
+
+Run `dhub --output json doctor` before any workflow to verify auth, connectivity, and version:
+
+```bash
+dhub --output json doctor
+# {"env": "prod", "cli_version": "0.7.0", "authenticated": true, "org": "acme", "api_reachable": true, ...}
+```
+
+### Idempotency
+
+| Command | Safe to retry? | Notes |
+|---------|---------------|-------|
+| `install` | Yes | Overwrites existing installation |
+| `publish` | Yes | Same checksum = skip (no-op) |
+| `delete` | No | Second call returns 404 |
+| `ask` | Yes | Pure query, no side effects |
+| `list` | Yes | Pure query |
+| `info` | Yes | Pure query |
+| `doctor` | Yes | Pure diagnostic |
+
+### Atomicity
+
+| Command | Atomic? | Notes |
+|---------|---------|-------|
+| `install` | Yes | Download + verify + extract all succeed or none |
+| `publish` | Partial | Skill published even if tracker creation fails |
+| `delete` | Yes | Single API call |
+
+### Error codes
+
+In `--output json` mode, errors are structured JSON on stderr:
+
+```json
+{"error": true, "code": "NOT_FOUND", "message": "Skill 'acme/foo' not found.", "status": 404}
+```
+
+Codes: `AUTH_REQUIRED`, `PERMISSION_DENIED`, `NOT_FOUND`, `VERSION_EXISTS`, `GAUNTLET_FAILED`, `UPGRADE_REQUIRED`, `VALIDATION_ERROR`, `SERVICE_UNAVAILABLE`
 
 ## Troubleshooting
 
