@@ -101,6 +101,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         batch_update_github_stars,
         claim_due_trackers,
         create_engine,
+        mark_plugins_source_removed,
         mark_skills_source_removed,
     )
     from decision_hub.infra.github_client import GitHubClient, batch_fetch_commit_shas
@@ -202,6 +203,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                     }
                 )
                 mark_skills_source_removed(conn, removed_urls)
+                mark_plugins_source_removed(conn, removed_urls)
                 logger.info(
                     "permanent_failures: {} incremented, {} crossed threshold (>={}), {} repo URLs marked removed",
                     len(errored_ids_permanent),
@@ -816,14 +818,17 @@ def _publish_plugin_from_tracker(
 ) -> None:
     """Publish a plugin from a tracked repo."""
     from decision_hub.domain.plugin_publish_pipeline import execute_plugin_publish
-    from decision_hub.domain.publish_pipeline import GauntletRejectionError
+    from decision_hub.domain.publish_pipeline import GauntletRejectionError, VersionConflictError
     from decision_hub.infra.database import disable_skill_trackers_for_repo, update_skill_tracker
     from decision_hub.infra.storage import compute_checksum
-    from dhub_core.plugin_manifest import parse_plugin_manifest
+    from dhub_core.plugin_manifest import PLUGIN_DIR_PATTERN, parse_plugin_manifest
 
     now = datetime.now(UTC)
     manifest = parse_plugin_manifest(repo_root)
-    zip_bytes = create_zip(repo_root)
+
+    # Preserve plugin dot-directories (e.g. .claude-plugin/) in the zip
+    plugin_dot_dirs = frozenset(d.name for d in repo_root.iterdir() if d.is_dir() and PLUGIN_DIR_PATTERN.match(d.name))
+    zip_bytes = create_zip(repo_root, preserve_dot_dirs=plugin_dot_dirs)
     checksum = compute_checksum(zip_bytes)
 
     source_repo_url = tracker.repo_url.replace(".git", "")
@@ -883,6 +888,21 @@ def _publish_plugin_from_tracker(
             conn.commit()
             logger.warning(
                 "tracker_id={} plugin={}/{} quarantined",
+                tracker.id,
+                org_slug,
+                manifest.name,
+            )
+        except VersionConflictError:
+            update_skill_tracker(
+                conn,
+                tracker.id,
+                last_commit_sha=current_sha,
+                last_checked_at=now,
+                last_error=None,
+            )
+            conn.commit()
+            logger.info(
+                "tracker_id={} plugin={}/{} version_conflict skipped",
                 tracker.id,
                 org_slug,
                 manifest.name,

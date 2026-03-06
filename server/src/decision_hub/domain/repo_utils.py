@@ -91,11 +91,14 @@ def discover_skills(root: Path) -> list[Path]:
     return skill_dirs
 
 
-def create_zip(path: Path) -> bytes:
+def create_zip(path: Path, *, preserve_dot_dirs: frozenset[str] | None = None) -> bytes:
     """Create an in-memory zip archive of a skill directory.
 
     Excludes hidden files/directories and __pycache__.
+    When *preserve_dot_dirs* is provided, dot-directories whose name
+    appears in the set are kept (e.g. ``{".claude-plugin"}``).
     """
+    _preserve = preserve_dot_dirs or frozenset()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(path.rglob("*")):
@@ -103,7 +106,7 @@ def create_zip(path: Path) -> bytes:
                 continue
             relative = file.relative_to(path)
             parts = relative.parts
-            if any(part.startswith(".") or part == "__pycache__" for part in parts):
+            if any((part.startswith(".") and part not in _preserve) or part == "__pycache__" for part in parts):
                 continue
             zf.write(file, relative)
     return buf.getvalue()
