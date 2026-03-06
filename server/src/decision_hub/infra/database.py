@@ -35,6 +35,8 @@ from decision_hub.models import (
     EvalRun,
     Organization,
     OrgMember,
+    Plugin,
+    PluginVersion,
     Skill,
     SkillAccessGrant,
     SkillTracker,
@@ -165,6 +167,9 @@ skills_table = Table(
     Column("source_repo_url", Text, nullable=True),
     Column("manifest_path", Text, nullable=True),
     Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
+    Column("deprecated", Boolean, nullable=False, server_default="false"),
+    Column("deprecated_by_plugin_id", PG_UUID(as_uuid=True), nullable=True),
+    Column("deprecation_message", Text, nullable=True),
     Column("github_stars", sa.Integer, nullable=True),
     Column("github_forks", sa.Integer, nullable=True),
     Column("github_watchers", sa.Integer, nullable=True),
@@ -378,6 +383,8 @@ eval_audit_logs_table = Table(
     Column("llm_reasoning", JSONB, nullable=True),
     Column("publisher", Text, nullable=False, server_default=""),
     Column("quarantine_s3_key", Text, nullable=True),
+    Column("plugin_id", PG_UUID(as_uuid=True), nullable=True),
+    Column("plugin_name", Text, nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -527,6 +534,7 @@ skill_trackers_table = Table(
     Column("last_checked_at", DateTime(timezone=True), nullable=True),
     Column("last_published_at", DateTime(timezone=True), nullable=True),
     Column("last_error", Text, nullable=True),
+    Column("kind", Text, nullable=False, server_default="skill"),
     Column("next_check_at", DateTime(timezone=True), nullable=True),
     Column(
         "created_at",
@@ -558,6 +566,107 @@ tracker_metrics_table = Table(
     Column("skipped_rate_limit", sa.Integer, nullable=False, server_default="0"),
     Column("github_rate_remaining", sa.Integer, nullable=True),
     Column("batch_duration_seconds", sa.REAL, nullable=False),
+)
+
+plugins_table = Table(
+    "plugins",
+    metadata,
+    Column("id", PG_UUID(as_uuid=True), primary_key=True, server_default=sa.func.gen_random_uuid()),
+    Column("org_id", PG_UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
+    Column("author_name", Text, nullable=True),
+    Column("homepage", Text, nullable=True),
+    Column("license", Text, nullable=True),
+    Column("keywords", sa.ARRAY(Text), nullable=False, server_default="{}"),
+    Column("platforms", sa.ARRAY(Text), nullable=False, server_default="{}"),
+    Column("skill_count", sa.Integer, nullable=False, server_default="0"),
+    Column("hook_count", sa.Integer, nullable=False, server_default="0"),
+    Column("agent_count", sa.Integer, nullable=False, server_default="0"),
+    Column("command_count", sa.Integer, nullable=False, server_default="0"),
+    Column("category", Text, nullable=False, server_default=""),
+    Column("download_count", sa.Integer, nullable=False, server_default="0"),
+    Column("visibility", String(10), nullable=False, server_default="public"),
+    Column("source_repo_url", Text, nullable=True),
+    Column("manifest_path", Text, nullable=True),
+    Column("source_repo_removed", Boolean, nullable=False, server_default="false"),
+    Column("github_stars", sa.Integer, nullable=True),
+    Column("github_forks", sa.Integer, nullable=True),
+    Column("github_watchers", sa.Integer, nullable=True),
+    Column("github_is_archived", Boolean, nullable=True),
+    Column("github_license", Text, nullable=True),
+    Column("search_vector", TSVECTOR, nullable=True),
+    Column("embedding", Vector(768), nullable=True),
+    Column("latest_semver", Text, nullable=True),
+    Column("latest_eval_status", Text, nullable=True),
+    Column("latest_gauntlet_summary", Text, nullable=True),
+    Column("latest_published_at", DateTime(timezone=True), nullable=True),
+    Column("latest_published_by", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.UniqueConstraint("org_id", "name"),
+    sa.Index("idx_plugins_created_at", "created_at"),
+    sa.Index("idx_plugins_search_vector", "search_vector", postgresql_using="gin"),
+)
+
+sa.Index(
+    "idx_plugins_embedding_hnsw",
+    plugins_table.c.embedding,
+    postgresql_using="hnsw",
+    postgresql_with={"m": 16, "ef_construction": 64},
+    postgresql_ops={"embedding": "vector_cosine_ops"},
+)
+
+sa.Index(
+    "idx_plugins_latest_published_at",
+    plugins_table.c.latest_published_at.desc(),
+    plugins_table.c.org_id,
+    plugins_table.c.name,
+    postgresql_where=plugins_table.c.latest_semver.isnot(None),
+)
+
+sa.Index(
+    "idx_plugins_visibility",
+    plugins_table.c.visibility,
+    postgresql_where=plugins_table.c.latest_semver.isnot(None),
+)
+
+sa.Index(
+    "idx_plugins_category",
+    plugins_table.c.category,
+    postgresql_where=sa.and_(
+        plugins_table.c.latest_semver.isnot(None),
+        plugins_table.c.category.isnot(None),
+        plugins_table.c.category != "",
+    ),
+)
+
+plugin_versions_table = Table(
+    "plugin_versions",
+    metadata,
+    Column("id", PG_UUID(as_uuid=True), primary_key=True, server_default=sa.func.gen_random_uuid()),
+    Column("plugin_id", PG_UUID(as_uuid=True), ForeignKey("plugins.id", ondelete="CASCADE"), nullable=False),
+    Column("semver", Text, nullable=False),
+    Column("semver_major", sa.Integer, nullable=False, server_default="0"),
+    Column("semver_minor", sa.Integer, nullable=False, server_default="0"),
+    Column("semver_patch", sa.Integer, nullable=False, server_default="0"),
+    Column("s3_key", Text, nullable=False),
+    Column("checksum", Text, nullable=False),
+    Column("plugin_manifest", JSONB, nullable=True),
+    Column("runtime_config", JSONB, nullable=True),
+    Column("published_by", Text, nullable=False),
+    Column("eval_status", Text, nullable=True),
+    Column("gauntlet_summary", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.UniqueConstraint("plugin_id", "semver"),
+    sa.Index(
+        "idx_plugin_versions_semver_parts",
+        "plugin_id",
+        sa.text("semver_major DESC"),
+        sa.text("semver_minor DESC"),
+        sa.text("semver_patch DESC"),
+    ),
 )
 
 
@@ -3047,3 +3156,289 @@ def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMe
     stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Plugin row-to-model helpers
+# ---------------------------------------------------------------------------
+
+
+def _row_to_plugin(row: sa.Row) -> Plugin:
+    """Map a database row to a Plugin model."""
+    return Plugin(
+        id=row.id,
+        org_id=row.org_id,
+        name=row.name,
+        description=row.description,
+        author_name=row.author_name,
+        homepage=row.homepage,
+        license=row.license,
+        keywords=tuple(row.keywords or []),
+        platforms=tuple(row.platforms or []),
+        skill_count=row.skill_count,
+        hook_count=row.hook_count,
+        agent_count=row.agent_count,
+        command_count=row.command_count,
+        category=row.category,
+        download_count=row.download_count,
+        visibility=row.visibility,
+        source_repo_url=row.source_repo_url,
+        manifest_path=row.manifest_path,
+        source_repo_removed=row.source_repo_removed,
+        github_stars=row.github_stars,
+        github_forks=row.github_forks,
+        github_watchers=row.github_watchers,
+        github_is_archived=row.github_is_archived,
+        github_license=row.github_license,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _row_to_plugin_version(row: sa.Row) -> PluginVersion:
+    """Map a database row to a PluginVersion model."""
+    return PluginVersion(
+        id=row.id,
+        plugin_id=row.plugin_id,
+        semver=row.semver,
+        s3_key=row.s3_key,
+        checksum=row.checksum,
+        plugin_manifest=row.plugin_manifest,
+        runtime_config=row.runtime_config,
+        eval_status=row.eval_status,
+        gauntlet_summary=row.gauntlet_summary,
+        published_by=row.published_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Plugin queries
+# ---------------------------------------------------------------------------
+
+
+def insert_plugin(
+    conn: Connection,
+    org_id: UUID,
+    name: str,
+    description: str = "",
+    category: str = "",
+    *,
+    author_name: str | None = None,
+    homepage: str | None = None,
+    license: str | None = None,
+    keywords: tuple[str, ...] = (),
+    platforms: tuple[str, ...] = (),
+    skill_count: int = 0,
+    hook_count: int = 0,
+    agent_count: int = 0,
+    command_count: int = 0,
+    visibility: str = "public",
+    source_repo_url: str | None = None,
+    manifest_path: str | None = None,
+) -> Plugin:
+    """Register a new plugin under an organization."""
+    stmt = (
+        sa.insert(plugins_table)
+        .values(
+            org_id=org_id,
+            name=name,
+            description=description,
+            category=category,
+            author_name=author_name,
+            homepage=homepage,
+            license=license,
+            keywords=list(keywords),
+            platforms=list(platforms),
+            skill_count=skill_count,
+            hook_count=hook_count,
+            agent_count=agent_count,
+            command_count=command_count,
+            visibility=visibility,
+            source_repo_url=source_repo_url,
+            manifest_path=manifest_path,
+        )
+        .returning(*plugins_table.c)
+    )
+    row = conn.execute(stmt).one()
+    plugin = _row_to_plugin(row)
+    logger.debug("Inserted plugin name={} org={} id={}", name, org_id, plugin.id)
+    return plugin
+
+
+def find_plugin(conn: Connection, org_id: UUID, name: str) -> Plugin | None:
+    """Find a plugin by organization ID and name."""
+    stmt = sa.select(plugins_table).where(sa.and_(plugins_table.c.org_id == org_id, plugins_table.c.name == name))
+    row = conn.execute(stmt).first()
+    return _row_to_plugin(row) if row else None
+
+
+def find_plugin_by_slug(conn: Connection, org_slug: str, name: str) -> Plugin | None:
+    """Find a plugin by org slug and name."""
+    join = plugins_table.join(organizations_table, plugins_table.c.org_id == organizations_table.c.id)
+    stmt = (
+        sa.select(plugins_table)
+        .select_from(join)
+        .where(sa.and_(organizations_table.c.slug == org_slug, plugins_table.c.name == name))
+    )
+    row = conn.execute(stmt).first()
+    return _row_to_plugin(row) if row else None
+
+
+def update_plugin_description(conn: Connection, plugin_id: UUID, description: str) -> None:
+    """Update the description of an existing plugin."""
+    conn.execute(sa.update(plugins_table).where(plugins_table.c.id == plugin_id).values(description=description))
+
+
+def update_plugin_category(conn: Connection, plugin_id: UUID, category: str) -> None:
+    """Update the category of an existing plugin."""
+    conn.execute(sa.update(plugins_table).where(plugins_table.c.id == plugin_id).values(category=category))
+
+
+def update_plugin_component_counts(
+    conn: Connection,
+    plugin_id: UUID,
+    *,
+    skill_count: int,
+    hook_count: int,
+    agent_count: int,
+    command_count: int,
+) -> None:
+    """Update plugin component counts."""
+    conn.execute(
+        sa.update(plugins_table)
+        .where(plugins_table.c.id == plugin_id)
+        .values(
+            skill_count=skill_count,
+            hook_count=hook_count,
+            agent_count=agent_count,
+            command_count=command_count,
+        )
+    )
+
+
+def _refresh_plugin_latest_version(conn: Connection, plugin_id: UUID) -> None:
+    """Sync the denormalized latest-version columns on the plugins row."""
+    latest = (
+        sa.select(
+            plugin_versions_table.c.semver,
+            plugin_versions_table.c.eval_status,
+            plugin_versions_table.c.gauntlet_summary,
+            plugin_versions_table.c.created_at,
+            plugin_versions_table.c.published_by,
+        )
+        .where(plugin_versions_table.c.plugin_id == plugin_id)
+        .order_by(
+            plugin_versions_table.c.semver_major.desc(),
+            plugin_versions_table.c.semver_minor.desc(),
+            plugin_versions_table.c.semver_patch.desc(),
+        )
+        .limit(1)
+    )
+    row = conn.execute(latest).first()
+    if row:
+        values = {
+            "latest_semver": row.semver,
+            "latest_eval_status": row.eval_status,
+            "latest_gauntlet_summary": row.gauntlet_summary,
+            "latest_published_at": row.created_at,
+            "latest_published_by": row.published_by,
+        }
+    else:
+        values = {
+            "latest_semver": None,
+            "latest_eval_status": None,
+            "latest_gauntlet_summary": None,
+            "latest_published_at": None,
+            "latest_published_by": None,
+        }
+    conn.execute(sa.update(plugins_table).where(plugins_table.c.id == plugin_id).values(**values))
+
+
+def find_plugin_version(conn: Connection, plugin_id: UUID, semver: str) -> PluginVersion | None:
+    """Look up a specific version of a plugin."""
+    stmt = sa.select(plugin_versions_table).where(
+        sa.and_(plugin_versions_table.c.plugin_id == plugin_id, plugin_versions_table.c.semver == semver)
+    )
+    row = conn.execute(stmt).first()
+    return _row_to_plugin_version(row) if row else None
+
+
+def insert_plugin_version(
+    conn: Connection,
+    plugin_id: UUID,
+    semver: str,
+    s3_key: str,
+    checksum: str,
+    plugin_manifest: dict | None = None,
+    runtime_config: dict | None = None,
+    published_by: str = "",
+    eval_status: str | None = None,
+    gauntlet_summary: str | None = None,
+) -> PluginVersion:
+    """Record a new published version of a plugin."""
+    major, minor, patch = parse_semver_parts(semver)
+    stmt = (
+        sa.insert(plugin_versions_table)
+        .values(
+            plugin_id=plugin_id,
+            semver=semver,
+            semver_major=major,
+            semver_minor=minor,
+            semver_patch=patch,
+            s3_key=s3_key,
+            checksum=checksum,
+            plugin_manifest=plugin_manifest,
+            runtime_config=runtime_config,
+            published_by=published_by,
+            eval_status=eval_status,
+            gauntlet_summary=gauntlet_summary,
+        )
+        .returning(*plugin_versions_table.c)
+    )
+    row = conn.execute(stmt).one()
+    ver = _row_to_plugin_version(row)
+    _refresh_plugin_latest_version(conn, plugin_id)
+    logger.debug("Inserted plugin version plugin={} semver={} id={}", plugin_id, semver, ver.id)
+    return ver
+
+
+def deprecate_skills_by_repo_url(
+    conn: Connection,
+    source_repo_url: str,
+    plugin_id: UUID,
+    message: str,
+) -> int:
+    """Deprecate all skills from a given repo URL, pointing to the replacement plugin.
+
+    Returns number of skills deprecated.
+    """
+    stmt = (
+        sa.update(skills_table)
+        .where(
+            sa.and_(
+                skills_table.c.source_repo_url == source_repo_url,
+                skills_table.c.deprecated == False,  # noqa: E712
+            )
+        )
+        .values(
+            deprecated=True,
+            deprecated_by_plugin_id=plugin_id,
+            deprecation_message=message,
+        )
+    )
+    result = conn.execute(stmt)
+    count = result.rowcount
+    if count:
+        logger.info("Deprecated {} skills from repo_url={} -> plugin_id={}", count, source_repo_url, plugin_id)
+    return count
+
+
+def increment_plugin_downloads(conn: Connection, plugin_id: UUID) -> None:
+    """Atomically increment the download counter for a plugin."""
+    conn.execute(
+        sa.update(plugins_table)
+        .where(plugins_table.c.id == plugin_id)
+        .values(download_count=plugins_table.c.download_count + 1)
+    )
