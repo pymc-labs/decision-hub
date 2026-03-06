@@ -93,10 +93,8 @@ def parse_skill_md(path: Path) -> SkillManifest:
 def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
     """Parse YAML frontmatter with a fallback for unquoted special characters.
 
-    Descriptions often contain colons which break standard YAML parsing.
-    When yaml.safe_load fails, falls back to line-by-line regex extraction
-    for the top-level scalar fields (name, description), then re-parses
-    the remaining structured blocks.
+    When yaml.safe_load fails, falls back to quoting values that contain
+    markdown links [text](url) or unquoted colons, then retries parsing.
     """
     try:
         return yaml.safe_load(frontmatter_str)
