@@ -40,6 +40,7 @@ from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import (
     delete_all_versions,
+    delete_audit_logs_by_version_id,
     delete_skill_access_grant,
     delete_version,
     fetch_all_skills_for_index,
@@ -505,9 +506,9 @@ def publish_skill(
     # Generate embedding (fail-open: never blocks publish)
     generate_and_store_skill_embedding(conn, skill.id, skill_name, org_slug, category, description, settings)
 
-    # Upload to S3 and record the version
+    # Record the version and audit log in DB, then commit before uploading
+    # to S3. This avoids orphaned S3 objects when the DB commit fails.
     s3_key = build_s3_key(org_slug, skill_name, version)
-    upload_skill_zip(s3_client, settings.s3_bucket, s3_key, file_bytes)
 
     try:
         version_record = insert_version(
@@ -539,8 +540,24 @@ def publish_skill(
         llm_reasoning=llm_reasoning,
     )
 
-    # Commit now so the version row is visible to the background eval thread.
+    # Commit DB first so the version row is visible to the background eval
+    # thread.  S3 upload follows — if it fails we roll back the DB rows.
     conn.commit()
+
+    try:
+        upload_skill_zip(s3_client, settings.s3_bucket, s3_key, file_bytes)
+    except Exception:
+        logger.opt(exception=True).error(
+            "S3 upload failed for {}/{} v{} — rolling back version {}",
+            org_slug,
+            skill_name,
+            version,
+            version_record.id,
+        )
+        delete_audit_logs_by_version_id(conn, version_record.id)
+        delete_version(conn, skill.id, version)
+        conn.commit()
+        raise
 
     eval_report_status, eval_run_id = maybe_trigger_agent_assessment(
         eval_config=eval_config,
