@@ -6,7 +6,7 @@ import httpx
 from loguru import logger
 from sqlalchemy.engine import Connection
 
-from decision_hub.infra.database import update_skill_embedding
+from decision_hub.infra.database import update_plugin_embedding, update_skill_embedding
 from decision_hub.settings import Settings
 
 # Must match the DB column: vector(768) in the migration.
@@ -158,6 +158,52 @@ def generate_and_store_skill_embedding(
         logger.opt(exception=True).warning(
             "Failed to generate embedding for skill={} ({}/{})",
             skill_id,
+            org_slug,
+            name,
+        )
+
+
+def generate_and_store_plugin_embedding(
+    conn: Connection,
+    plugin_id: UUID,
+    name: str,
+    org_slug: str,
+    category: str,
+    description: str,
+    settings: Settings,
+) -> None:
+    """Generate and store an embedding for a plugin. Fail-open: never blocks publish.
+
+    Builds the embedding text from plugin metadata, calls Gemini to embed it,
+    and stores the result in the database. Any failure is logged as a warning
+    but does not raise.
+    """
+    if not settings.google_api_key:
+        return
+
+    try:
+        from decision_hub.infra.gemini import create_gemini_client
+
+        client = create_gemini_client(settings.google_api_key)
+        text = build_embedding_text(name, org_slug, category, description)
+        embedding = embed_query(
+            client,
+            text,
+            settings.embedding_model,
+            EMBEDDING_DIMENSIONS,
+        )
+        # Use a savepoint so a DB error doesn't poison the outer transaction.
+        nested = conn.begin_nested()
+        try:
+            update_plugin_embedding(conn, plugin_id, embedding)
+            nested.commit()
+        except Exception:
+            nested.rollback()
+            raise
+    except Exception:
+        logger.opt(exception=True).warning(
+            "Failed to generate embedding for plugin={} ({}/{})",
+            plugin_id,
             org_slug,
             name,
         )

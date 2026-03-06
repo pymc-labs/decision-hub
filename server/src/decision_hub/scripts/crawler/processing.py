@@ -224,6 +224,33 @@ def process_repo_on_modal(
             result["commit_sha"] = sha_proc.stdout.strip()
 
         try:
+            # Check for plugin first — plugin takes precedence over individual skills
+            from dhub_core.plugin_manifest import detect_plugin_platforms
+
+            platforms = detect_plugin_platforms(repo_root)
+            if platforms:
+                logger.info("Detected plugin platforms {} in {}", platforms, repo_dict["full_name"])
+                source_repo_url = f"https://github.com/{repo_dict['full_name']}"
+                try:
+                    plugin_status = _publish_plugin(
+                        engine,
+                        s3_client,
+                        settings,
+                        org,
+                        repo_root,
+                        source_repo_url=source_repo_url,
+                        bot_user_id=bot_user_id,
+                    )
+                    result["status"] = "plugin_" + plugin_status
+                    if plugin_status == "published":
+                        result["skills_published"] = 1  # count the plugin as one "skill" for stats
+                    return result
+                except Exception:
+                    logger.opt(exception=True).warning("Plugin publish failed for {}", repo_dict["full_name"])
+                    result["status"] = "error"
+                    result["error"] = "Plugin publish failed"
+                    return result
+
             skill_dirs = discover_skills(repo_root)
             if not skill_dirs:
                 result["status"] = "no_skills"
@@ -520,3 +547,55 @@ def _finalize_skill(
         upsert_skill_tracker(conn, bot_user_id, org.slug, source_repo_url)
 
     return "published"
+
+
+def _publish_plugin(
+    engine,
+    s3_client,
+    settings,
+    org,
+    repo_root: Path,
+    *,
+    source_repo_url: str | None = None,
+    bot_user_id: UUID | None = None,
+) -> str:
+    """Parse and publish a plugin from a cloned repo.
+
+    Returns status string: "published", "quarantined", or "skipped".
+    Raises on unexpected errors so the caller can handle them.
+    """
+    from decision_hub.domain.plugin_publish_pipeline import execute_plugin_publish
+    from decision_hub.domain.publish_pipeline import GauntletRejectionError, VersionConflictError
+    from decision_hub.infra.storage import compute_checksum
+    from dhub_core.plugin_manifest import parse_plugin_manifest
+
+    manifest = parse_plugin_manifest(repo_root)
+
+    # Create zip of the entire repo for publishing
+    zip_bytes = create_zip(repo_root)
+    checksum = compute_checksum(zip_bytes)
+
+    with engine.connect() as conn:
+        try:
+            result = execute_plugin_publish(
+                conn=conn,
+                s3_client=s3_client,
+                settings=settings,
+                org_id=org.id,
+                org_slug=org.slug,
+                plugin_name=manifest.name,
+                version=manifest.version,
+                checksum=checksum,
+                file_bytes=zip_bytes,
+                publisher=BOT_USERNAME,
+                source_repo_url=source_repo_url,
+                auto_bump_version=True,
+            )
+            logger.info("Published plugin {}/{} v{}", org.slug, manifest.name, result.version)
+            return "published"
+        except GauntletRejectionError:
+            logger.warning("Plugin {}/{} quarantined by gauntlet", org.slug, manifest.name)
+            return "quarantined"
+        except VersionConflictError:
+            logger.info("Plugin {}/{} version conflict, skipping", org.slug, manifest.name)
+            return "skipped"
