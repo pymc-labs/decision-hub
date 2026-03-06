@@ -122,6 +122,12 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.s3_client = s3_client
 
+    # In-memory TTL cache for hot read paths (per-container, not shared
+    # across Modal replicas).
+    from decision_hub.infra.cache import TTLCache
+
+    app.state.cache = TTLCache(default_ttl=60)
+
     # Request logging with correlation IDs — outermost middleware (added first
     # so Starlette wraps it last, ensuring it runs before everything else).
     app.add_middleware(RequestLoggingMiddleware)

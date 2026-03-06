@@ -1197,17 +1197,6 @@ def delete_skill_access_grant(conn: Connection, skill_id: UUID, grantee_org_id: 
     return deleted
 
 
-def list_skill_access_grants(conn: Connection, skill_id: UUID) -> list[SkillAccessGrant]:
-    """List all access grants for a skill, ordered by created_at."""
-    stmt = (
-        sa.select(skill_access_grants_table)
-        .where(skill_access_grants_table.c.skill_id == skill_id)
-        .order_by(skill_access_grants_table.c.created_at)
-    )
-    rows = conn.execute(stmt).all()
-    return [_row_to_skill_access_grant(row) for row in rows]
-
-
 def list_skill_access_grants_with_names(conn: Connection, skill_id: UUID) -> list[tuple[str, str, datetime | None]]:
     """List access grants with resolved org slug and username in a single query.
 
@@ -1682,12 +1671,12 @@ def _build_skills_filters(
     latest_eval_status column on skills_table directly.
     """
     if search:
-        pattern = f"%{search}%"
+        pattern = f"%{_escape_like(search)}%"
         base = base.where(
             sa.or_(
-                skills_table.c.name.ilike(pattern),
-                skills_table.c.description.ilike(pattern),
-                organizations_table.c.slug.ilike(pattern),
+                skills_table.c.name.ilike(pattern, escape="\\"),
+                skills_table.c.description.ilike(pattern, escape="\\"),
+                organizations_table.c.slug.ilike(pattern, escape="\\"),
             )
         )
     if org_slug:
@@ -1845,6 +1834,69 @@ def fetch_all_skills_for_index(
         total = 0
     items = [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
     return items, total
+
+
+def _normalize_repo_url(url: str) -> str:
+    """Strip trailing slashes and .git suffix for consistent matching."""
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    return url
+
+
+def fetch_skills_by_repo(
+    conn: Connection,
+    repo_url: str,
+    *,
+    user_org_ids: list[UUID] | None = None,
+) -> list[dict]:
+    """Fetch all published skills whose source_repo_url matches the given repo.
+
+    Normalizes URLs (strips .git suffix and trailing slashes) before comparing.
+    Only returns skills with at least one published version.
+    """
+    normalized = _normalize_repo_url(repo_url)
+
+    tracker_exists = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+        .correlate(skills_table)
+        .exists()
+        .label("has_tracker")
+    )
+
+    base = (
+        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            )
+        )
+        .where(
+            sa.and_(
+                skills_table.c.latest_semver.isnot(None),
+                sa.func.rtrim(
+                    sa.func.regexp_replace(skills_table.c.source_repo_url, r"\.git$", ""),
+                    "/",
+                )
+                == normalized,
+            )
+        )
+        .order_by(organizations_table.c.slug, skills_table.c.name)
+    )
+
+    # Visibility filter
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+    base = _apply_visibility_filter(base, user_org_ids, granted)
+
+    rows = conn.execute(base).all()
+    return [{**_row_to_skill_summary(row), "has_tracker": row.has_tracker} for row in rows]
 
 
 def search_skills_hybrid(
@@ -2052,7 +2104,7 @@ def fetch_org_stats(
 
     # Filter on non-aggregate columns before grouping (WHERE, not HAVING)
     if search:
-        stmt = stmt.where(organizations_table.c.slug.ilike(f"%{search}%"))
+        stmt = stmt.where(organizations_table.c.slug.ilike(f"%{_escape_like(search)}%", escape="\\"))
 
     if type_filter == "orgs":
         stmt = stmt.where(organizations_table.c.is_personal == sa.false())
@@ -2190,6 +2242,24 @@ def insert_audit_log(
     return _row_to_audit_log_entry(row)
 
 
+def delete_audit_logs_by_version_id(conn: Connection, version_id: UUID) -> int:
+    """Delete all audit log entries referencing a specific version.
+
+    Used during rollback when an S3 upload fails after the DB commit,
+    to avoid leaving orphaned audit entries with a NULL version_id.
+
+    Args:
+        conn: Active database connection.
+        version_id: UUID of the version whose audit entries should be removed.
+
+    Returns:
+        Number of deleted rows.
+    """
+    stmt = sa.delete(eval_audit_logs_table).where(eval_audit_logs_table.c.version_id == version_id)
+    result = conn.execute(stmt)
+    return result.rowcount
+
+
 def find_audit_logs(
     conn: Connection,
     org_slug: str,
@@ -2306,23 +2376,6 @@ def insert_eval_report(
     )
     row = conn.execute(stmt).one()
     logger.debug("Inserted eval report version={} status={} passed={}/{}", version_id, status, passed, total)
-    return _row_to_eval_report(row)
-
-
-def find_eval_report_by_version(conn: Connection, version_id: UUID) -> EvalReport | None:
-    """Find an eval report by version ID.
-
-    Args:
-        conn: Active database connection.
-        version_id: UUID of the skill version.
-
-    Returns:
-        The EvalReport if found, or None.
-    """
-    stmt = sa.select(eval_reports_table).where(eval_reports_table.c.version_id == version_id)
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
     return _row_to_eval_report(row)
 
 
@@ -2466,29 +2519,9 @@ def update_eval_run_status(
         logger.debug("Eval run {} → status={} stage={}", run_id, status, stage)
 
 
-def update_eval_run_heartbeat(conn: Connection, run_id: UUID) -> None:
-    """Lightweight heartbeat-only update."""
-    stmt = sa.update(eval_runs_table).where(eval_runs_table.c.id == run_id).values(heartbeat_at=sa.func.now())
-    conn.execute(stmt)
-
-
 def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     """Find an eval run by its ID."""
     stmt = sa.select(eval_runs_table).where(eval_runs_table.c.id == run_id)
-    row = conn.execute(stmt).first()
-    if row is None:
-        return None
-    return _row_to_eval_run(row)
-
-
-def find_latest_eval_run_for_version(conn: Connection, version_id: UUID) -> EvalRun | None:
-    """Find the most recent eval run for a given version."""
-    stmt = (
-        sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
-        .limit(1)
-    )
     row = conn.execute(stmt).first()
     if row is None:
         return None

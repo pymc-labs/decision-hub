@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run client tests
-        run: uv run --package dhub-cli --extra dev pytest client/tests/ -v
+        run: uv run --package dhub-cli --extra dev pytest client/tests/ -v --cov=dhub --cov-report=term-missing --cov-fail-under=50
 
   test-server:
     runs-on: ubuntu-latest
@@ -48,7 +48,20 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run server tests
-        run: uv run --package decision-hub-server --extra dev pytest server/tests/ -v -m "not slow"
+        run: uv run --package decision-hub-server --extra dev pytest server/tests/ -v -m "not slow" --cov=decision_hub --cov-report=term-missing --cov-fail-under=50
+
+  test-shared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run shared tests
+        run: uv run --package dhub-core --extra dev pytest shared/tests/ -v
 
   typecheck:
     runs-on: ubuntu-latest

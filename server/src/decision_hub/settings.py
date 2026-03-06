@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # Sprint 4: Gemini Search
     google_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.1-flash-lite-preview"
 
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     tracker_jitter_seconds: int = 120
     # Stop processing if GitHub rate limit remaining drops below this
     tracker_rate_limit_floor: int = 500
+
+    # Cache TTLs (seconds) for hot read paths. Set to 0 to disable.
+    cache_ttl_taxonomy: int = 300  # taxonomy is static — 5 min
+    cache_ttl_org_profiles: int = 60  # org profile listings
+    cache_ttl_org_stats: int = 60  # org stats page
+    cache_ttl_skill_list: int = 30  # paginated skill list
+    cache_ttl_stats: int = 60  # registry stats (existing behaviour)
+    cache_ttl_sitemap: int = 300  # sitemap.xml — 5 min
 
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
