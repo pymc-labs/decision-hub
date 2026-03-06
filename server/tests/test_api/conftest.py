@@ -13,6 +13,8 @@ from decision_hub.api.auth_routes import router as auth_router
 from decision_hub.api.deps import get_current_user
 from decision_hub.api.keys_routes import router as keys_router
 from decision_hub.api.org_routes import org_public_router, org_router
+from decision_hub.api.plugin_routes import public_router as plugin_public_router
+from decision_hub.api.plugin_routes import router as plugin_router
 from decision_hub.api.registry_routes import public_router as registry_public_router
 from decision_hub.api.registry_routes import router as registry_router
 from decision_hub.api.taxonomy_routes import public_router as taxonomy_public_router
@@ -52,6 +54,19 @@ def test_settings() -> MagicMock:
     settings.publish_rate_window = 60
     settings.auth_rate_limit = 10
     settings.auth_rate_window = 60
+    # Plugin rate limiting
+    settings.list_plugins_rate_limit = 30
+    settings.list_plugins_rate_window = 60
+    settings.resolve_plugin_rate_limit = 30
+    settings.resolve_plugin_rate_window = 60
+    settings.publish_plugin_rate_limit = 10
+    settings.publish_plugin_rate_window = 60
+    settings.plugin_detail_rate_limit = 30
+    settings.plugin_detail_rate_window = 60
+    settings.plugin_versions_rate_limit = 30
+    settings.plugin_versions_rate_window = 60
+    settings.plugin_audit_rate_limit = 30
+    settings.plugin_audit_rate_window = 60
     # Cache TTLs
     settings.cache_ttl_taxonomy = 300
     settings.cache_ttl_org_profiles = 60
@@ -105,6 +120,7 @@ def test_app(test_settings: MagicMock) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(org_public_router)
     app.include_router(registry_public_router)
+    app.include_router(plugin_public_router)
     app.include_router(taxonomy_public_router)
 
     # Mirror production app.py: write routers get unconditional auth deps
@@ -112,6 +128,7 @@ def test_app(test_settings: MagicMock) -> FastAPI:
     write_deps = [Depends(get_current_user)]
     app.include_router(org_router, dependencies=write_deps)
     app.include_router(registry_router, dependencies=write_deps)
+    app.include_router(plugin_router, dependencies=write_deps)
     app.include_router(keys_router, dependencies=write_deps)
 
     return app

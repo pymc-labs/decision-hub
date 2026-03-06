@@ -715,8 +715,10 @@ def resolve_skill(
     """
     logger.debug("Resolving {}/{} spec={}", org_slug, skill_name, spec)
 
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+
     # Try plugin first — plugins take precedence when name matches both
-    plugin_ver = resolve_plugin_version(conn, org_slug, skill_name, spec)
+    plugin_ver = resolve_plugin_version(conn, org_slug, skill_name, spec, user_org_ids=user_org_ids)
     if plugin_ver is not None:
         plugin = find_plugin_by_slug(conn, org_slug, skill_name)
         if plugin:
@@ -730,7 +732,6 @@ def resolve_skill(
         )
 
     # Fall back to skill resolution
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     version = resolve_version(
         conn,
         org_slug,

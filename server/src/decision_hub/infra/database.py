@@ -1424,6 +1424,26 @@ def _apply_visibility_filter(
     return stmt
 
 
+def _apply_plugin_visibility_filter(
+    stmt: sa.Select,
+    user_org_ids: list[UUID] | None,
+) -> sa.Select:
+    """Filter plugins by visibility -- mirrors _apply_visibility_filter for skills."""
+    if user_org_ids is not None:
+        stmt = stmt.where(
+            sa.or_(
+                plugins_table.c.visibility == "public",
+                sa.and_(
+                    plugins_table.c.visibility == "org",
+                    plugins_table.c.org_id.in_(user_org_ids),
+                ),
+            )
+        )
+    else:
+        stmt = stmt.where(plugins_table.c.visibility == "public")
+    return stmt
+
+
 # ---------------------------------------------------------------------------
 # Version queries
 # ---------------------------------------------------------------------------
@@ -2160,13 +2180,13 @@ def search_plugins_hybrid(
     fts_queries: list[str],
     query_embedding: list[float] | None,
     *,
+    user_org_ids: list[UUID] | None = None,
     category: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
     """Hybrid retrieval for plugins: FTS + vector search, union + dedup.
 
     Mirrors search_skills_hybrid but operates on the plugins table.
-    No visibility filter (plugins are public only in v1).
     No deprecated filter (plugins have no deprecation flag).
     Results include ``kind: "plugin"`` to distinguish from skill results.
     """
@@ -2183,6 +2203,7 @@ def search_plugins_hybrid(
             )
             .where(plugins_table.c.latest_semver.isnot(None))
         )
+        stmt = _apply_plugin_visibility_filter(stmt, user_org_ids)
         if category:
             stmt = stmt.where(plugins_table.c.category == category)
         return stmt
@@ -3663,6 +3684,7 @@ def fetch_paginated_plugins(
     offset: int = 0,
     sort: str = "updated",
     sort_dir: str = "desc",
+    user_org_ids: list[UUID] | None = None,
 ) -> tuple[list[dict], int]:
     """Fetch paginated plugin summaries with optional filters.
 
@@ -3690,6 +3712,7 @@ def fetch_paginated_plugins(
 
     # Only show published plugins
     stmt = stmt.where(plugins_table.c.latest_semver.isnot(None))
+    stmt = _apply_plugin_visibility_filter(stmt, user_org_ids)
 
     if search:
         stmt = stmt.where(plugins_table.c.search_vector.op("@@")(sa.func.plainto_tsquery("english", search)))
@@ -3725,6 +3748,8 @@ def resolve_plugin_version(
     org_slug: str,
     plugin_name: str,
     spec: str = "latest",
+    *,
+    user_org_ids: list[UUID] | None = None,
 ) -> PluginVersion | None:
     """Resolve a plugin version spec to a concrete PluginVersion record."""
     join = plugin_versions_table.join(plugins_table, plugin_versions_table.c.plugin_id == plugins_table.c.id).join(
@@ -3741,6 +3766,7 @@ def resolve_plugin_version(
             )
         )
     )
+    base = _apply_plugin_visibility_filter(base, user_org_ids)
 
     if spec == "latest":
         stmt = base.order_by(

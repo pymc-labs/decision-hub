@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection
 from decision_hub.api.deps import (
     get_connection,
     get_current_user,
+    get_current_user_optional,
     get_s3_client,
     get_settings,
 )
@@ -30,6 +31,7 @@ from decision_hub.infra.database import (
     find_plugin_by_slug,
     increment_plugin_downloads,
     list_plugin_versions,
+    list_user_org_ids,
     resolve_plugin_version,
 )
 from decision_hub.infra.storage import compute_checksum, generate_presigned_url
@@ -221,8 +223,10 @@ def list_plugins(
     sort: str = Query("updated", pattern="^(updated|name|downloads|github_stars)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedPluginsResponse:
     """List published plugins with pagination and filtering."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     offset = (page - 1) * page_size
     rows, total = fetch_paginated_plugins(
         conn,
@@ -235,6 +239,7 @@ def list_plugins(
         offset=offset,
         sort=sort,
         sort_dir=sort_dir,
+        user_org_ids=user_org_ids,
     )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     items = [
@@ -277,13 +282,19 @@ def get_plugin_detail(
     org_slug: str,
     plugin_name: str,
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> dict:
     """Return detailed plugin info including component lists."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     plugin = find_plugin_by_slug(conn, org_slug, plugin_name)
     if plugin is None:
         raise HTTPException(status_code=404, detail=f"Plugin '{plugin_name}' not found in {org_slug}")
 
-    version = resolve_plugin_version(conn, org_slug, plugin_name, "latest")
+    # Enforce visibility: if the plugin is org-private, only members can see it
+    if plugin.visibility == "org" and (user_org_ids is None or plugin.org_id not in user_org_ids):
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_name}' not found in {org_slug}")
+
+    version = resolve_plugin_version(conn, org_slug, plugin_name, "latest", user_org_ids=user_org_ids)
     manifest = version.plugin_manifest if version else None
 
     return {
@@ -325,9 +336,11 @@ def resolve_plugin(
     conn: Connection = Depends(get_connection),
     s3_client=Depends(get_s3_client),
     settings: Settings = Depends(get_settings),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> PluginResolveResponse:
     """Resolve a plugin version and return a download URL."""
-    version = resolve_plugin_version(conn, org_slug, plugin_name, spec)
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    version = resolve_plugin_version(conn, org_slug, plugin_name, spec, user_org_ids=user_org_ids)
     if version is None:
         raise HTTPException(
             status_code=404,
@@ -355,10 +368,14 @@ def get_plugin_versions(
     org_slug: str,
     plugin_name: str,
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> list[PluginVersionResponse]:
     """List all versions for a plugin, newest first."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     plugin = find_plugin_by_slug(conn, org_slug, plugin_name)
     if plugin is None:
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_name}' not found in {org_slug}")
+    if plugin.visibility == "org" and (user_org_ids is None or plugin.org_id not in user_org_ids):
         raise HTTPException(status_code=404, detail=f"Plugin '{plugin_name}' not found in {org_slug}")
 
     versions = list_plugin_versions(conn, plugin.id)
@@ -383,8 +400,15 @@ def get_plugin_audit_log(
     org_slug: str,
     plugin_name: str,
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> list[PluginAuditEntry]:
     """Return audit log entries for a plugin."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    plugin = find_plugin_by_slug(conn, org_slug, plugin_name)
+    if plugin is None:
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_name}' not found in {org_slug}")
+    if plugin.visibility == "org" and (user_org_ids is None or plugin.org_id not in user_org_ids):
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_name}' not found in {org_slug}")
     entries = find_plugin_audit_logs(conn, plugin_name, org_slug)
     return [
         PluginAuditEntry(
