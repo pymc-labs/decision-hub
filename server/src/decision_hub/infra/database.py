@@ -2980,6 +2980,7 @@ def upsert_skill_tracker(
     repo_url: str,
     branch: str = "main",
     poll_interval_minutes: int = 60,
+    kind: str = "skill",
 ) -> bool:
     """Insert a tracker if one doesn't already exist. Returns True if created."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -2992,6 +2993,7 @@ def upsert_skill_tracker(
             repo_url=repo_url,
             branch=branch,
             poll_interval_minutes=poll_interval_minutes,
+            kind=kind,
         )
         .on_conflict_do_nothing(constraint="skill_trackers_user_id_repo_url_branch_key")
         .returning(skill_trackers_table.c.id)
@@ -3735,10 +3737,16 @@ def fetch_paginated_plugins(
     order = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
     stmt = stmt.order_by(order, plugins_table.c.name)
 
+    base_stmt = stmt  # before LIMIT/OFFSET, used for fallback count
     stmt = stmt.limit(limit).offset(offset)
 
     rows = conn.execute(stmt).all()
-    total = rows[0].total_count if rows else 0
+    if rows:
+        total = rows[0].total_count
+    else:
+        # Out-of-range page — window function unavailable, run count fallback
+        count_stmt = sa.select(sa.func.count()).select_from(base_stmt.subquery())
+        total = conn.execute(count_stmt).scalar() or 0
     return [{k: v for k, v in row._mapping.items() if k != "total_count"} for row in rows], total
 
 
