@@ -3442,3 +3442,161 @@ def increment_plugin_downloads(conn: Connection, plugin_id: UUID) -> None:
         .where(plugins_table.c.id == plugin_id)
         .values(download_count=plugins_table.c.download_count + 1)
     )
+
+
+def fetch_paginated_plugins(
+    conn: Connection,
+    *,
+    search: str | None = None,
+    org_slug: str | None = None,
+    category: str | None = None,
+    platform: str | None = None,
+    grade: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    sort: str = "updated",
+    sort_dir: str = "desc",
+) -> tuple[list[dict], int]:
+    """Fetch paginated plugin summaries with optional filters.
+
+    Returns (rows, total_count) where rows are dicts.
+    """
+    join = plugins_table.join(organizations_table, plugins_table.c.org_id == organizations_table.c.id)
+
+    columns = [
+        organizations_table.c.slug.label("org_slug"),
+        plugins_table.c.name.label("plugin_name"),
+        plugins_table.c.description,
+        plugins_table.c.download_count,
+        plugins_table.c.category,
+        plugins_table.c.platforms,
+        plugins_table.c.skill_count,
+        plugins_table.c.hook_count,
+        plugins_table.c.agent_count,
+        plugins_table.c.command_count,
+        plugins_table.c.author_name,
+        plugins_table.c.source_repo_url,
+        plugins_table.c.github_stars,
+        plugins_table.c.github_license,
+        plugins_table.c.latest_semver.label("latest_version"),
+        plugins_table.c.latest_eval_status.label("eval_status"),
+        plugins_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
+        plugins_table.c.latest_published_at.label("published_at"),
+        plugins_table.c.latest_published_by.label("published_by"),
+        sa.func.count().over().label("total_count"),
+    ]
+
+    stmt = sa.select(*columns).select_from(join)
+
+    # Only show published plugins
+    stmt = stmt.where(plugins_table.c.latest_semver.isnot(None))
+
+    if search:
+        stmt = stmt.where(plugins_table.c.search_vector.op("@@")(sa.func.plainto_tsquery("english", search)))
+    if org_slug:
+        stmt = stmt.where(organizations_table.c.slug == org_slug)
+    if category:
+        stmt = stmt.where(plugins_table.c.category == category)
+    if platform:
+        stmt = stmt.where(plugins_table.c.platforms.any(platform))
+    if grade:
+        stmt = stmt.where(plugins_table.c.latest_eval_status == grade)
+
+    # Sorting
+    sort_map = {
+        "updated": plugins_table.c.latest_published_at,
+        "name": plugins_table.c.name,
+        "downloads": plugins_table.c.download_count,
+        "github_stars": plugins_table.c.github_stars,
+    }
+    sort_col = sort_map.get(sort, plugins_table.c.latest_published_at)
+    order = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+    stmt = stmt.order_by(order, plugins_table.c.name)
+
+    stmt = stmt.limit(limit).offset(offset)
+
+    rows = conn.execute(stmt).all()
+    total = rows[0].total_count if rows else 0
+    return [{k: v for k, v in row._mapping.items() if k != "total_count"} for row in rows], total
+
+
+def resolve_plugin_version(
+    conn: Connection,
+    org_slug: str,
+    plugin_name: str,
+    spec: str = "latest",
+) -> PluginVersion | None:
+    """Resolve a plugin version spec to a concrete PluginVersion record."""
+    join = plugin_versions_table.join(plugins_table, plugin_versions_table.c.plugin_id == plugins_table.c.id).join(
+        organizations_table, plugins_table.c.org_id == organizations_table.c.id
+    )
+
+    base = (
+        sa.select(plugin_versions_table)
+        .select_from(join)
+        .where(
+            sa.and_(
+                organizations_table.c.slug == org_slug,
+                plugins_table.c.name == plugin_name,
+            )
+        )
+    )
+
+    if spec == "latest":
+        stmt = base.order_by(
+            plugin_versions_table.c.semver_major.desc(),
+            plugin_versions_table.c.semver_minor.desc(),
+            plugin_versions_table.c.semver_patch.desc(),
+        ).limit(1)
+    else:
+        stmt = base.where(plugin_versions_table.c.semver == spec)
+
+    row = conn.execute(stmt).first()
+    return _row_to_plugin_version(row) if row else None
+
+
+def list_plugin_versions(conn: Connection, plugin_id: UUID) -> list[PluginVersion]:
+    """List all versions for a plugin, newest first."""
+    stmt = (
+        sa.select(plugin_versions_table)
+        .where(plugin_versions_table.c.plugin_id == plugin_id)
+        .order_by(
+            plugin_versions_table.c.semver_major.desc(),
+            plugin_versions_table.c.semver_minor.desc(),
+            plugin_versions_table.c.semver_patch.desc(),
+        )
+    )
+    rows = conn.execute(stmt).all()
+    return [_row_to_plugin_version(row) for row in rows]
+
+
+def find_plugin_audit_logs(conn: Connection, plugin_name: str, org_slug: str) -> list[AuditLogEntry]:
+    """Find audit logs for a plugin by name and org slug."""
+    stmt = (
+        sa.select(eval_audit_logs_table)
+        .where(
+            sa.and_(
+                eval_audit_logs_table.c.org_slug == org_slug,
+                eval_audit_logs_table.c.skill_name == plugin_name,
+            )
+        )
+        .order_by(eval_audit_logs_table.c.created_at.desc())
+        .limit(50)
+    )
+    rows = conn.execute(stmt).all()
+    return [
+        AuditLogEntry(
+            id=row.id,
+            org_slug=row.org_slug,
+            skill_name=row.skill_name,
+            semver=row.semver,
+            grade=row.grade,
+            version_id=row.version_id,
+            check_results=row.check_results,
+            llm_reasoning=row.llm_reasoning,
+            publisher=row.publisher,
+            quarantine_s3_key=row.quarantine_s3_key,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]

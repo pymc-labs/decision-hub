@@ -47,15 +47,18 @@ from decision_hub.infra.database import (
     find_eval_run,
     find_eval_runs_for_version,
     find_org_by_slug,
+    find_plugin_by_slug,
     find_skill,
     find_skill_by_slug,
     has_active_tracker_for_repo,
+    increment_plugin_downloads,
     increment_skill_downloads,
     insert_skill_access_grant,
     list_granted_skill_ids,
     list_skill_access_grants_with_names,
     list_user_org_ids,
     resolve_latest_version,
+    resolve_plugin_version,
     resolve_version,
     update_eval_run_status,
     update_skill_visibility,
@@ -678,8 +681,27 @@ def resolve_skill(
     settings: Settings = Depends(get_settings),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> ResolveResponse:
-    """Resolve a skill version and return a pre-signed download URL."""
+    """Resolve a skill (or plugin) version and return a pre-signed download URL.
+
+    Tries to match a plugin first, then falls back to skill resolution.
+    This makes the endpoint a unified resolver for both entity types.
+    """
     logger.debug("Resolving {}/{} spec={}", org_slug, skill_name, spec)
+
+    # Try plugin first — plugins take precedence when name matches both
+    plugin_ver = resolve_plugin_version(conn, org_slug, skill_name, spec)
+    if plugin_ver is not None:
+        plugin = find_plugin_by_slug(conn, org_slug, skill_name)
+        if plugin:
+            increment_plugin_downloads(conn, plugin.id)
+        download_url = generate_presigned_url(s3_client, settings.s3_bucket, plugin_ver.s3_key)
+        return ResolveResponse(
+            version=plugin_ver.semver,
+            checksum=plugin_ver.checksum,
+            download_url=download_url,
+        )
+
+    # Fall back to skill resolution
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     version = resolve_version(
         conn,
