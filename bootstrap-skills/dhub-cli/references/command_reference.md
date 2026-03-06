@@ -372,7 +372,38 @@ dhub -V
 
 ---
 
+## dhub doctor
+
+Check CLI configuration, authentication, and API connectivity.
+
+```
+dhub doctor
+```
+
+Reports: environment, CLI version, authentication status, default org, API reachability with latency.
+
+---
+
 ## Global Behavior
+
+**Output format:** All data-returning commands support `--output json` (global flag):
+
+```bash
+dhub --output json list                    # JSON to stdout
+dhub --output json ask "query"             # JSON to stdout
+dhub --output json info org/skill          # JSON to stdout
+dhub --output json doctor                  # JSON to stdout
+```
+
+In JSON mode: no Rich markup, no banners, no interactive prompts. Errors go to stderr as structured JSON. Default is `text` (existing Rich-formatted output).
+
+**Dry-run:** Mutating commands support `--dry-run`:
+
+```bash
+dhub publish ./skill --dry-run             # show what would be published
+dhub delete org/skill --dry-run            # show what would be deleted
+dhub access grant org/skill partner --dry-run  # validate without granting
+```
 
 **Timeouts:** All HTTP requests use 60-second timeouts to handle Modal cold starts.
 
@@ -386,3 +417,21 @@ dhub -V
 1. `DHUB_API_URL` env var (highest)
 2. Saved config file (`~/.dhub/config.{env}.json`)
 3. Default URL for environment
+
+**Error codes (JSON mode):**
+
+Errors in `--output json` mode are structured JSON on stderr:
+```json
+{"error": true, "code": "NOT_FOUND", "message": "...", "status": 404}
+```
+
+| Code | Meaning |
+|------|---------|
+| `AUTH_REQUIRED` | Not logged in |
+| `PERMISSION_DENIED` | No permission for this action |
+| `NOT_FOUND` | Skill/version/key not found |
+| `VERSION_EXISTS` | Version already published |
+| `GAUNTLET_FAILED` | Safety checks failed (Grade F) |
+| `UPGRADE_REQUIRED` | CLI too old for server |
+| `VALIDATION_ERROR` | Invalid input |
+| `SERVICE_UNAVAILABLE` | Server not configured |
