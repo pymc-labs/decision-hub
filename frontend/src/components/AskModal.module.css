@@ -383,10 +383,32 @@
 }
 
 .skillName {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-sm);
   color: var(--neon-cyan) !important;
   text-shadow: var(--glow-text-subtle);
+}
+
+.kindIcon {
+  color: var(--neon-purple);
+  flex-shrink: 0;
+}
+
+.kindBadge {
+  font-family: 'Orbitron', sans-serif;
+  font-size: var(--text-xxs);
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--neon-purple) !important;
+  background: rgba(180, 0, 255, 0.1);
+  border: 1px solid rgba(180, 0, 255, 0.3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  text-shadow: none;
 }
 
 .skillDescription {

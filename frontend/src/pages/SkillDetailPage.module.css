@@ -9,6 +9,54 @@
   margin-bottom: 24px;
 }
 
+/* Deprecation banner */
+.deprecationBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  border-radius: 8px;
+  background: rgba(255, 230, 0, 0.06);
+  border: 1px solid rgba(255, 230, 0, 0.25);
+  color: var(--neon-yellow);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.deprecationIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.deprecationContent {
+  color: var(--text-secondary);
+}
+
+.deprecationContent strong {
+  color: var(--neon-yellow);
+}
+
+.deprecationLink {
+  color: var(--neon-cyan) !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.deprecationLink:hover {
+  color: var(--neon-pink) !important;
+}
+
+.deprecationCode {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.9em;
+  color: var(--neon-green);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
 /* Header */
 .header {
   margin-bottom: 32px;
