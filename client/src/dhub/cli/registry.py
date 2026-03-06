@@ -136,11 +136,12 @@ def _publish_plugin_directory(
     token: str,
     *,
     source_repo_url: str | None = None,
+    private: bool = False,
 ) -> None:
     """Publish a plugin directory to the registry."""
     from dhub.cli.config import build_headers, raise_for_status
-    from dhub.core.validation import FIRST_VERSION, validate_semver
-    from dhub_core.plugin_manifest import parse_plugin_manifest
+    from dhub.core.validation import FIRST_VERSION, bump_version, validate_semver
+    from dhub_core.plugin_manifest import PLUGIN_DIR_PATTERN, parse_plugin_manifest
 
     manifest = parse_plugin_manifest(path)
     plugin_name = manifest.name
@@ -151,13 +152,33 @@ def _publish_plugin_directory(
         f"Agents: {len(manifest.agents)}, Commands: {len(manifest.commands)}"
     )
 
+    # Detect plugin dot dirs (e.g. .claude-plugin/) so they survive zip packaging
+    plugin_dot_dirs = frozenset(d.name for d in path.iterdir() if d.is_dir() and PLUGIN_DIR_PATTERN.match(d.name))
+
     with console.status(f"Packaging {plugin_name}..."):
-        zip_data = _create_zip(path)
+        zip_data = _create_zip(path, preserve_dot_dirs=plugin_dot_dirs)
 
     # Resolve version
     if version is None:
         version = manifest.version or FIRST_VERSION
     validate_semver(version)
+
+    # Auto-bump: query registry for latest version (mirrors skill path)
+    if version == (manifest.version or FIRST_VERSION) and bump_level != "none":
+        try:
+            headers = build_headers(token)
+            with httpx.Client(timeout=60) as client:
+                resp = client.get(
+                    f"{api_url}/v1/plugins/{org}/{plugin_name}",
+                    headers=headers,
+                )
+                if resp.status_code == 200:
+                    latest = resp.json().get("latest_version")
+                    if latest:
+                        version = bump_version(latest, bump_level)
+                        console.print(f"Auto-bumped: {latest} -> [cyan]{version}[/]")
+        except httpx.HTTPError:
+            pass  # New plugin — use manifest version
 
     headers = build_headers(token)
     meta: dict[str, str] = {
@@ -165,6 +186,8 @@ def _publish_plugin_directory(
         "plugin_name": plugin_name,
         "version": version,
     }
+    if private:
+        meta["visibility"] = "private"
     if source_repo_url:
         meta["source_repo_url"] = source_repo_url
 
@@ -351,7 +374,7 @@ def _publish_from_directory(
         org = _auto_detect_org(api_url, token)
 
     if is_plugin:
-        _publish_plugin_directory(path, org, version, bump_level, api_url, token)
+        _publish_plugin_directory(path, org, version, bump_level, api_url, token, private=private)
         return
 
     _publish_discovered_skills(skill_dirs, path, org, version, bump_level, api_url, token, private=private)
@@ -397,7 +420,14 @@ def _publish_from_git_repo(
         platforms = detect_plugin_platforms(repo_root)
         if platforms:
             _publish_plugin_directory(
-                repo_root, org, version, bump_level, api_url, token, source_repo_url=source_repo_url
+                repo_root,
+                org,
+                version,
+                bump_level,
+                api_url,
+                token,
+                source_repo_url=source_repo_url,
+                private=private,
             )
         else:
             skill_dirs = discover_skills(repo_root)
@@ -621,27 +651,30 @@ def _auto_bump_version(
     return version, latest_checksum, current
 
 
-def _create_zip(path: Path) -> bytes:
+def _create_zip(path: Path, *, preserve_dot_dirs: frozenset[str] | None = None) -> bytes:
     """Create an in-memory zip archive of a directory.
 
     Skips hidden files (names starting with '.') and __pycache__
-    directories.
+    directories, unless their top-level directory name is in
+    *preserve_dot_dirs*.
 
     Args:
         path: Root directory to archive.
+        preserve_dot_dirs: Set of dot-directory names to keep
+            (e.g. {".claude-plugin", ".cursor-plugin"}).
 
     Returns:
         Raw bytes of the zip file.
     """
+    _preserve = preserve_dot_dirs or frozenset()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(path.rglob("*")):
             if not file.is_file():
                 continue
-            # Skip hidden files and __pycache__
             relative = file.relative_to(path)
             parts = relative.parts
-            if any(part.startswith(".") or part == "__pycache__" for part in parts):
+            if any((part.startswith(".") and part not in _preserve) or part == "__pycache__" for part in parts):
                 continue
             zf.write(file, relative)
     return buf.getvalue()
@@ -893,9 +926,10 @@ def _install_plugin_to_cache(
     zip_data: bytes,
 ) -> None:
     """Install a plugin to the local cache directory."""
+    from dhub.core.install import get_dhub_plugin_path
     from dhub_core.ziputil import validate_zip_entries
 
-    cache_dir = Path.home() / ".claude" / "plugins" / "cache" / "decision-hub" / plugin_name / version
+    cache_dir = get_dhub_plugin_path(org_slug, plugin_name, version)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
