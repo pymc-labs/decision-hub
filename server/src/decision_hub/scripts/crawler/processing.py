@@ -240,6 +240,7 @@ def process_repo_on_modal(
                         repo_root,
                         source_repo_url=source_repo_url,
                         bot_user_id=bot_user_id,
+                        set_tracker=set_tracker,
                     )
                     result["status"] = "plugin_" + plugin_status
                     if plugin_status == "published":
@@ -558,6 +559,7 @@ def _publish_plugin(
     *,
     source_repo_url: str | None = None,
     bot_user_id: UUID | None = None,
+    set_tracker: bool = False,
 ) -> str:
     """Parse and publish a plugin from a cloned repo.
 
@@ -592,6 +594,13 @@ def _publish_plugin(
                 auto_bump_version=True,
             )
             logger.info("Published plugin {}/{} v{}", org.slug, manifest.name, result.version)
+
+            if set_tracker and source_repo_url and bot_user_id is not None:
+                from decision_hub.infra.database import upsert_skill_tracker
+
+                upsert_skill_tracker(conn, bot_user_id, org.slug, source_repo_url, kind="plugin")
+
+            conn.commit()
             return "published"
         except GauntletRejectionError:
             logger.warning("Plugin {}/{} quarantined by gauntlet", org.slug, manifest.name)

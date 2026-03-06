@@ -2961,6 +2961,7 @@ def upsert_skill_tracker(
     repo_url: str,
     branch: str = "main",
     poll_interval_minutes: int = 60,
+    kind: str = "skill",
 ) -> bool:
     """Insert a tracker if one doesn't already exist. Returns True if created."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -2973,6 +2974,7 @@ def upsert_skill_tracker(
             repo_url=repo_url,
             branch=branch,
             poll_interval_minutes=poll_interval_minutes,
+            kind=kind,
         )
         .on_conflict_do_nothing(constraint="skill_trackers_user_id_repo_url_branch_key")
         .returning(skill_trackers_table.c.id)
