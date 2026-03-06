@@ -2195,6 +2195,24 @@ def insert_audit_log(
     return _row_to_audit_log_entry(row)
 
 
+def delete_audit_logs_by_version_id(conn: Connection, version_id: UUID) -> int:
+    """Delete all audit log entries referencing a specific version.
+
+    Used during rollback when an S3 upload fails after the DB commit,
+    to avoid leaving orphaned audit entries with a NULL version_id.
+
+    Args:
+        conn: Active database connection.
+        version_id: UUID of the version whose audit entries should be removed.
+
+    Returns:
+        Number of deleted rows.
+    """
+    stmt = sa.delete(eval_audit_logs_table).where(eval_audit_logs_table.c.version_id == version_id)
+    result = conn.execute(stmt)
+    return result.rowcount
+
+
 def find_audit_logs(
     conn: Connection,
     org_slug: str,

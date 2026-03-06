@@ -37,6 +37,7 @@ from decision_hub.domain.search import format_trust_score, resolve_author_displa
 from decision_hub.domain.skill_manifest import extract_body, extract_description
 from decision_hub.infra.database import (
     delete_all_versions,
+    delete_audit_logs_by_version_id,
     delete_skill_access_grant,
     delete_version,
     fetch_all_skills_for_index,
@@ -536,8 +537,12 @@ def publish_skill(
     except Exception:
         logger.opt(exception=True).error(
             "S3 upload failed for {}/{} v{} — rolling back version {}",
-            org_slug, skill_name, version, version_record.id,
+            org_slug,
+            skill_name,
+            version,
+            version_record.id,
         )
+        delete_audit_logs_by_version_id(conn, version_record.id)
         delete_version(conn, skill.id, version)
         conn.commit()
         raise
