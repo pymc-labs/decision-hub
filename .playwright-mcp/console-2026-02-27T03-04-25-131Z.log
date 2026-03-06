@@ -1,0 +1,4 @@
+[ 2051998ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/src/pages/SkillsPage.module.css?t=1772163517070:0
+[ 2052000ms] [ERROR] [vite] Failed to reload /src/pages/SkillsPage.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:808
+[ 2052015ms] [ERROR] [vite] Failed to reload /src/pages/SkillsPage.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:808
+[ 2052019ms] [ERROR] [vite] Failed to reload /src/pages/SkillsPage.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:808

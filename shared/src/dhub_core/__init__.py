@@ -20,7 +20,16 @@ from dhub_core.taxonomy import (
     SUBCATEGORY_TO_GROUP,
     SkillClassification,
 )
-from dhub_core.validation import FIRST_VERSION, validate_semver, validate_skill_name
+from dhub_core.validation import (
+    _SLUG_PATTERN,
+    FIRST_VERSION,
+    bump_version,
+    parse_semver,
+    validate_org_slug,
+    validate_semver,
+    validate_skill_name,
+    validate_slug,
+)
 from dhub_core.ziputil import validate_zip_entries
 
 __all__ = [
@@ -29,6 +38,7 @@ __all__ = [
     "DEFAULT_CATEGORY",
     "FIRST_VERSION",
     "SUBCATEGORY_TO_GROUP",
+    "_SLUG_PATTERN",
     "AgentTestTarget",
     "DependencySpec",
     "EvalConfig",
@@ -36,9 +46,13 @@ __all__ = [
     "SkillClassification",
     "SkillManifest",
     "TestingConfig",
+    "bump_version",
+    "parse_semver",
     "parse_skill_md",
     "validate_manifest",
+    "validate_org_slug",
     "validate_semver",
     "validate_skill_name",
+    "validate_slug",
     "validate_zip_entries",
 ]

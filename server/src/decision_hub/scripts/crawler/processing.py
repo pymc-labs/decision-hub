@@ -2,10 +2,17 @@
 
 Each Modal container processes exactly one repo: clone, discover skills,
 run gauntlet, publish or quarantine. No shared state between containers.
+
+Skills within a repo are processed in parallel using ThreadPoolExecutor.
+The gauntlet pipeline is I/O-bound (HTTP calls to Gemini), so threading
+gives a large speedup for repos with many skills. DB connections are held
+only for short read/write phases — never during the slow Gemini calls.
 """
 
-import re
 import shutil
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -27,11 +34,35 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
 )
 from decision_hub.domain.skill_manifest import extract_body, extract_description
+from dhub_core.validation import _SLUG_PATTERN
 
 CLONE_TIMEOUT_SECONDS = 120
 BOT_GITHUB_ID = "0"
 BOT_USERNAME = "dhub-crawler"
-_SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
+
+
+@dataclass(frozen=True)
+class _SkillPrep:
+    """Intermediate data between prepare and finalize phases.
+
+    Carries everything needed by the gauntlet pipeline (phase 2) and
+    the DB write phase (phase 3) so the connection can be released
+    between phases.
+    """
+
+    skill_id: UUID
+    name: str
+    description: str
+    version: str
+    checksum: str
+    zip_data: bytes
+    skill_md_content: str
+    skill_md_body: str
+    desc: str
+    source_files: list[tuple[str, str]]
+    lockfile_content: str | None
+    unscanned_files: list[str]
+    allowed_tools: str | None
 
 
 def fetch_owner_metadata(
@@ -199,24 +230,57 @@ def process_repo_on_modal(
                 return result
 
             source_repo_url = f"https://github.com/{repo_dict['full_name']}"
-            with engine.connect() as conn:
-                for skill_dir in skill_dirs:
-                    try:
-                        _publish_one_skill(
-                            conn,
-                            s3_client,
-                            settings,
-                            org,
-                            skill_dir,
-                            result,
-                            source_repo_url=source_repo_url,
-                            bot_user_id=bot_user_id,
-                            set_tracker=set_tracker,
+            max_workers = settings.crawler_parallel_skills
+
+            def _process_skill(skill_dir: Path) -> str:
+                """Process a single skill in three phases.
+
+                Phase 1 (prepare): short DB connection for reads + skill upsert.
+                Phase 2 (gauntlet): Gemini API calls with NO DB connection held.
+                Phase 3 (finalize): short DB connection for writes + S3 upload.
+
+                Returns a status string: "published", "skipped",
+                "quarantined", or "failed".
+                """
+                try:
+                    return _publish_one_skill(
+                        engine,
+                        s3_client,
+                        settings,
+                        org,
+                        skill_dir,
+                        source_repo_url=source_repo_url,
+                        bot_user_id=bot_user_id,
+                        set_tracker=set_tracker,
+                    )
+                except Exception:
+                    logger.opt(exception=True).warning(
+                        "Failed to process skill dir {}",
+                        skill_dir.name,
+                    )
+                    return "failed"
+
+            counts: Counter[str] = Counter()
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {pool.submit(_process_skill, sd): sd for sd in skill_dirs}
+                for i, future in enumerate(as_completed(futures), 1):
+                    status = future.result()
+                    counts[status] += 1
+                    if i % 10 == 0 or i == len(skill_dirs):
+                        logger.info(
+                            "Skill progress {}/{}: pub={} skip={} quar={} fail={}",
+                            i,
+                            len(skill_dirs),
+                            counts["published"],
+                            counts["skipped"],
+                            counts["quarantined"],
+                            counts["failed"],
                         )
-                        conn.commit()
-                    except Exception:
-                        result["skills_failed"] += 1
-                        conn.rollback()
+
+            result["skills_published"] = counts["published"]
+            result["skills_skipped"] = counts["skipped"]
+            result["skills_quarantined"] = counts["quarantined"]
+            result["skills_failed"] = counts["failed"]
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -234,31 +298,89 @@ def process_repo_on_modal(
 
 
 def _publish_one_skill(
-    conn,
+    engine,
     s3_client,
     settings,
     org,
     skill_dir: Path,
-    result: dict,
     *,
     source_repo_url: str | None = None,
     bot_user_id: UUID | None = None,
     set_tracker: bool = False,
-) -> None:
-    """Parse, gauntlet-check, and publish a single skill. Mutates result counts."""
+) -> str:
+    """Parse, gauntlet-check, and publish a single skill.
+
+    Uses three short-lived DB connections so the connection is NOT held
+    during the I/O-bound gauntlet pipeline (Gemini API calls, 5-10s each).
+
+    Returns a status string: "published", "skipped", "quarantined", or "failed".
+    """
+    # Phase 1: prepare — DB reads + skill upsert (short connection)
+    with engine.connect() as conn:
+        prep = _prepare_skill(conn, settings, org, skill_dir, source_repo_url=source_repo_url)
+        conn.commit()
+
+    if isinstance(prep, str):
+        return prep  # "skipped" or "failed"
+
+    # Phase 2: gauntlet pipeline — NO DB connection held
     from decision_hub.api.registry_service import classify_skill_category, run_gauntlet_pipeline
+
+    report, check_results, llm_reasoning = run_gauntlet_pipeline(
+        prep.skill_md_content,
+        prep.lockfile_content,
+        prep.source_files,
+        prep.name,
+        prep.desc,
+        prep.skill_md_body,
+        settings,
+        allowed_tools=prep.allowed_tools,
+        unscanned_files=prep.unscanned_files,
+    )
+
+    # Category classification only for passing skills (also hits Gemini API)
+    category = ""
+    if report.passed:
+        category = classify_skill_category(prep.name, prep.desc, prep.skill_md_body, settings)
+
+    # Phase 3: write results — DB writes + S3 upload (short connection)
+    with engine.connect() as conn:
+        status = _finalize_skill(
+            conn,
+            s3_client,
+            settings,
+            org,
+            prep,
+            report,
+            check_results,
+            llm_reasoning,
+            category,
+            bot_user_id=bot_user_id,
+            set_tracker=set_tracker,
+            source_repo_url=source_repo_url,
+        )
+        conn.commit()
+        return status
+
+
+def _prepare_skill(
+    conn,
+    settings,
+    org,
+    skill_dir: Path,
+    *,
+    source_repo_url: str | None = None,
+) -> str | _SkillPrep:
+    """Phase 1: read from disk + DB, return prep data or early-exit status."""
     from decision_hub.infra.database import (
         find_skill,
         find_version,
-        insert_audit_log,
         insert_skill,
-        insert_version,
         resolve_latest_version,
-        update_skill_category,
         update_skill_description,
         update_skill_source_repo_url,
     )
-    from decision_hub.infra.storage import compute_checksum, upload_skill_zip
+    from decision_hub.infra.storage import compute_checksum
     from dhub_core.manifest import parse_skill_md
 
     manifest = parse_skill_md(skill_dir / "SKILL.md")
@@ -266,7 +388,6 @@ def _publish_one_skill(
     description = manifest.description
     validate_skill_name(name)
 
-    # Create zip
     zip_data = create_zip(skill_dir)
     checksum = compute_checksum(zip_data)
 
@@ -283,15 +404,13 @@ def _publish_one_skill(
     latest = resolve_latest_version(conn, org.slug, name)
     if latest is not None:
         if latest.checksum == checksum:
-            result["skills_skipped"] += 1
-            return  # identical content — skip
+            return "skipped"  # identical content
         version = bump_version(latest.semver)
     else:
         version = "0.1.0"
 
     if find_version(conn, skill.id, version) is not None:
-        result["skills_skipped"] += 1
-        return
+        return "skipped"
 
     # Extract content for gauntlet evaluation
     skill_md_content = (skill_dir / "SKILL.md").read_text()
@@ -301,30 +420,56 @@ def _publish_one_skill(
         _, source_files, lockfile_content, unscanned_files = extract_for_evaluation(zip_data)
     except ValueError as exc:
         logger.warning("Skipping {}/{}: extraction failed: {}", org.slug, name, exc)
-        result["skills_failed"] += 1
-        return
+        return "failed"
 
-    # Run Gauntlet
-    report, check_results, llm_reasoning = run_gauntlet_pipeline(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        name,
-        desc,
-        skill_md_body,
-        settings,
-        allowed_tools=manifest.allowed_tools,
+    return _SkillPrep(
+        skill_id=skill.id,
+        name=name,
+        description=description,
+        version=version,
+        checksum=checksum,
+        zip_data=zip_data,
+        skill_md_content=skill_md_content,
+        skill_md_body=skill_md_body,
+        desc=desc,
+        source_files=source_files,
+        lockfile_content=lockfile_content,
         unscanned_files=unscanned_files,
+        allowed_tools=manifest.allowed_tools,
     )
+
+
+def _finalize_skill(
+    conn,
+    s3_client,
+    settings,
+    org,
+    prep: _SkillPrep,
+    report,
+    check_results,
+    llm_reasoning,
+    category: str,
+    *,
+    bot_user_id: UUID | None = None,
+    set_tracker: bool = False,
+    source_repo_url: str | None = None,
+) -> str:
+    """Phase 3: write gauntlet results to DB + S3. Returns final status."""
+    from decision_hub.infra.database import (
+        insert_audit_log,
+        insert_version,
+        update_skill_category,
+    )
+    from decision_hub.infra.storage import upload_skill_zip
 
     if not report.passed:
         # Grade F — quarantine
-        q_key = build_quarantine_s3_key(org.slug, name, version)
+        q_key = build_quarantine_s3_key(org.slug, prep.name, prep.version)
         insert_audit_log(
             conn,
             org_slug=org.slug,
-            skill_name=name,
-            semver=version,
+            skill_name=prep.name,
+            semver=prep.version,
             grade=report.grade,
             check_results=check_results,
             publisher=BOT_USERNAME,
@@ -332,29 +477,25 @@ def _publish_one_skill(
             llm_reasoning=llm_reasoning,
             quarantine_s3_key=q_key,
         )
-        conn.commit()
-        upload_skill_zip(s3_client, settings.s3_bucket, q_key, zip_data)
-        result["skills_quarantined"] += 1
-        return
+        upload_skill_zip(s3_client, settings.s3_bucket, q_key, prep.zip_data)
+        return "quarantined"
 
     # Grade A/B/C — publish
-    # Classify category (non-critical, graceful fallback to empty string)
-    category = classify_skill_category(name, desc, skill_md_body, settings)
-    update_skill_category(conn, skill.id, category)
+    update_skill_category(conn, prep.skill_id, category)
 
-    # Generate embedding only for approved skills (fail-open: never blocks publish)
+    # Generate embedding (fail-open: never blocks publish)
     from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 
-    generate_and_store_skill_embedding(conn, skill.id, name, org.slug, category, description, settings)
+    generate_and_store_skill_embedding(conn, prep.skill_id, prep.name, org.slug, category, prep.description, settings)
 
-    s3_key = build_s3_key(org.slug, name, version)
-    upload_skill_zip(s3_client, settings.s3_bucket, s3_key, zip_data)
+    s3_key = build_s3_key(org.slug, prep.name, prep.version)
+    upload_skill_zip(s3_client, settings.s3_bucket, s3_key, prep.zip_data)
     version_record = insert_version(
         conn,
-        skill_id=skill.id,
-        semver=version,
+        skill_id=prep.skill_id,
+        semver=prep.version,
         s3_key=s3_key,
-        checksum=checksum,
+        checksum=prep.checksum,
         runtime_config=None,
         published_by=BOT_USERNAME,
         eval_status=report.grade,
@@ -363,8 +504,8 @@ def _publish_one_skill(
     insert_audit_log(
         conn,
         org_slug=org.slug,
-        skill_name=name,
-        semver=version,
+        skill_name=prep.name,
+        semver=prep.version,
         grade=report.grade,
         check_results=check_results,
         publisher=BOT_USERNAME,
@@ -372,9 +513,10 @@ def _publish_one_skill(
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=None,
     )
-    result["skills_published"] += 1
 
     if set_tracker and source_repo_url and bot_user_id is not None:
         from decision_hub.infra.database import upsert_skill_tracker
 
         upsert_skill_tracker(conn, bot_user_id, org.slug, source_repo_url)
+
+    return "published"

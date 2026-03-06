@@ -277,3 +277,72 @@ class TestRedactSecrets:
         result = _redact_secrets(text)
         assert "sk-ant" not in result
         assert "[REDACTED]" in result
+
+
+class TestInsertEvalReportConflict:
+    """Verify that insert_eval_report raises IntegrityError on duplicate version_id.
+
+    The eval_reports table has a UNIQUE constraint on version_id. When
+    insert_eval_report is called twice for the same version_id (e.g. due
+    to a retry or race condition), the second call should raise
+    IntegrityError from the database constraint, not silently overwrite.
+    """
+
+    @patch("decision_hub.domain.evals.run_eval_case_in_sandbox")
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    @patch("decision_hub.domain.evals.get_agent_config")
+    def test_duplicate_eval_report_raises_integrity_error(
+        self,
+        mock_get_config: MagicMock,
+        mock_judge: MagicMock,
+        mock_sandbox: MagicMock,
+    ) -> None:
+        """Two pipeline runs for the same version_id: second insert should propagate IntegrityError.
+
+        Since insert_eval_report does a plain INSERT (no ON CONFLICT),
+        the unique constraint on version_id will cause IntegrityError.
+        The caller (registry_service) wraps this in a try/except.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        mock_get_config.return_value = MagicMock(key_env_var="ANTHROPIC_API_KEY")
+        mock_sandbox.return_value = ("output", "", 0, 5000)
+        mock_judge.return_value = {"verdict": "pass", "reasoning": "ok"}
+
+        # Run the pipeline twice -- both produce results
+        for _ in range(2):
+            _case_results, passed, total, _ = run_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_eval_config(),
+                eval_cases=(_make_eval_cases()[0],),
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+                runtime=None,
+            )
+            assert passed == 1
+            assert total == 1
+
+        # Now simulate the DB layer: the second insert_eval_report call
+        # for the same version_id would raise IntegrityError
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = IntegrityError(
+            "duplicate key value violates unique constraint",
+            params=None,
+            orig=Exception(),
+        )
+
+        from decision_hub.infra.database import insert_eval_report
+
+        with pytest.raises(IntegrityError):
+            insert_eval_report(
+                mock_conn,
+                version_id=MagicMock(),
+                agent="claude",
+                judge_model="claude-sonnet-4-5-20250929",
+                case_results=[{"verdict": "pass"}],
+                passed=1,
+                total=1,
+                total_duration_ms=5000,
+                status="completed",
+            )

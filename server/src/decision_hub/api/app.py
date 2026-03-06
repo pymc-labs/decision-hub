@@ -2,7 +2,9 @@
 
 import json as _json
 from pathlib import Path
+from typing import ClassVar
 
+import sqlalchemy as sa
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,15 +16,46 @@ from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
 from decision_hub.logging import RequestLoggingMiddleware, setup_logging
 from decision_hub.settings import create_settings
+from dhub_core.validation import parse_semver as _parse_semver
 
 # Frontend dist directory — populated at deploy time by the build script.
 # When the directory exists the app serves the SPA; otherwise API-only mode.
 _FRONTEND_DIR = Path("/root/frontend_dist")
 
 
-def _parse_semver(v: str) -> tuple[int, ...]:
-    """Parse '1.2.3' into (1, 2, 3) for comparison."""
-    return tuple(int(x) for x in v.split("."))
+class SecurityHeadersMiddleware:
+    """Pure ASGI middleware that adds standard security headers to every response.
+
+    Adds:
+    - X-Frame-Options: DENY — prevents clickjacking by disallowing iframe embedding
+    - X-Content-Type-Options: nosniff — prevents MIME-type sniffing attacks
+    - Strict-Transport-Security — enforces HTTPS for 1 year (with subdomains)
+
+    Implemented as raw ASGI to avoid the receive-wrapping deadlock with UploadFile.
+    """
+
+    _HEADERS: ClassVar[list[list[bytes]]] = [
+        [b"x-frame-options", b"DENY"],
+        [b"x-content-type-options", b"nosniff"],
+        [b"strict-transport-security", b"max-age=31536000; includeSubDomains"],
+    ]
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.extend(self._HEADERS)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 class CLIVersionMiddleware:
@@ -63,7 +96,14 @@ class CLIVersionMiddleware:
 
         # Only enforce version check for CLI requests (those sending the header).
         # Browser / frontend requests don't send the header and should pass through.
-        if client_ver and _parse_semver(client_ver) < self._min_parsed:
+        # Malformed version headers are treated as outdated — return 426 so the
+        # client upgrades to a version that sends a valid semver header.
+        if client_ver:
+            try:
+                client_parsed = _parse_semver(client_ver)
+            except ValueError:
+                client_parsed = (0, 0, 0)
+        if client_ver and client_parsed < self._min_parsed:
             body = _json.dumps(
                 {
                     "detail": (
@@ -103,7 +143,7 @@ def create_app() -> FastAPI:
         A fully-configured FastAPI instance.
     """
     settings = create_settings()
-    setup_logging(settings.log_level)
+    setup_logging(settings.log_level, log_format=settings.log_format)
 
     engine = create_engine(settings.database_url)
 
@@ -119,9 +159,20 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.s3_client = s3_client
 
+    # In-memory TTL cache for hot read paths (per-container, not shared
+    # across Modal replicas).
+    from decision_hub.infra.cache import TTLCache
+
+    app.state.cache = TTLCache(default_ttl=60)
+
     # Request logging with correlation IDs — outermost middleware (added first
     # so Starlette wraps it last, ensuring it runs before everything else).
     app.add_middleware(RequestLoggingMiddleware)
+
+    # Security headers on every response (X-Frame-Options, X-Content-Type-Options,
+    # Strict-Transport-Security). Added after logging so headers appear on all
+    # responses including error pages and middleware rejections.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     if settings.min_cli_version:
         app.add_middleware(
@@ -133,6 +184,25 @@ def create_app() -> FastAPI:
     def latest_version() -> dict[str, str]:
         """Return the latest published CLI version for upgrade checks."""
         return {"latest_version": settings.latest_cli_version}
+
+    @app.get("/health", tags=["ops"])
+    def health_check() -> dict:
+        """Verify service and database connectivity.
+
+        Returns HTTP 200 with ``{"status": "ok", "database": "ok"}`` when
+        healthy.  Returns HTTP 503 when the database is unreachable.
+        """
+        try:
+            with engine.connect() as conn:
+                conn.execute(sa.text("SELECT 1"))
+            db_status = "ok"
+        except Exception:
+            logger.opt(exception=True).warning("Health check: database unreachable")
+            raise HTTPException(
+                status_code=503,
+                detail={"status": "degraded", "database": "unreachable"},
+            ) from None
+        return {"status": "ok", "database": db_status}
 
     from decision_hub.api.auth_routes import router as auth_router
     from decision_hub.api.keys_routes import router as keys_router

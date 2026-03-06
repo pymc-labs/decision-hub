@@ -1,0 +1,96 @@
+{
+  "label": "before",
+  "base_url": "https://hub-dev.decision.ai",
+  "results": [
+    {
+      "query": "video editing tools",
+      "run": 1,
+      "status": 200,
+      "time_s": 8.32,
+      "answer_len": 442,
+      "num_skills": 2,
+      "answer_preview": "For video editing tasks such as cutting, trimming, concatenating segments, and re-encoding, you can use the **benchflow-"
+    },
+    {
+      "query": "video editing tools",
+      "run": 2,
+      "status": 200,
+      "time_s": 11.24,
+      "answer_len": 954,
+      "num_skills": 3,
+      "answer_preview": "For video editing tasks, I found a few highly-rated skills that could be useful:\n\n*   **benchflow-ai/ffmpeg-video-editin"
+    },
+    {
+      "query": "help me build a Bayesian model",
+      "run": 1,
+      "status": 200,
+      "time_s": 6.92,
+      "answer_len": 588,
+      "num_skills": 2,
+      "answer_preview": "To help you build a Bayesian model, I recommend the **pymc-labs/pymc-modeling** skill. It is specifically designed for B"
+    },
+    {
+      "query": "help me build a Bayesian model",
+      "run": 2,
+      "status": 200,
+      "time_s": 7.32,
+      "answer_len": 792,
+      "num_skills": 3,
+      "answer_preview": "To help you build a Bayesian model, I recommend the **pymc-labs/pymc-modeling** skill. It's specifically designed for Ba"
+    },
+    {
+      "query": "chocolate cake recipe",
+      "run": 1,
+      "status": 200,
+      "time_s": 7.89,
+      "answer_len": 403,
+      "num_skills": 1,
+      "answer_preview": "I couldn't find any skills specifically designed to generate a chocolate cake recipe with cooking instructions. However,"
+    },
+    {
+      "query": "chocolate cake recipe",
+      "run": 2,
+      "status": 200,
+      "time_s": 7.51,
+      "answer_len": 411,
+      "num_skills": 1,
+      "answer_preview": "I couldn't find a skill that directly provides a chocolate cake recipe. However, if you're looking to format a recipe fo"
+    },
+    {
+      "query": "data validation library for python",
+      "run": 1,
+      "status": 200,
+      "time_s": 28.31,
+      "answer_len": 3123,
+      "num_skills": 15,
+      "answer_preview": "For data validation in Python, several excellent skills can help you ensure data quality and integrity. Here are some to"
+    },
+    {
+      "query": "data validation library for python",
+      "run": 2,
+      "status": 200,
+      "time_s": 25.32,
+      "answer_len": 1752,
+      "num_skills": 7,
+      "answer_preview": "For data validation in Python, several excellent skills are available, catering to different aspects of data quality and"
+    },
+    {
+      "query": "create presentation slides",
+      "run": 1,
+      "status": 200,
+      "time_s": 20.46,
+      "answer_len": 2948,
+      "num_skills": 26,
+      "answer_preview": "To help you create presentation slides, I've found several skills with different functionalities and security grades. I "
+    },
+    {
+      "query": "create presentation slides",
+      "run": 2,
+      "status": 200,
+      "time_s": 15.11,
+      "answer_len": 1709,
+      "num_skills": 12,
+      "answer_preview": "To help you create presentation slides, I've found several excellent skills. For general slide creation, consider **soft"
+    }
+  ]
+}

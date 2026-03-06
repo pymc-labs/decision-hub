@@ -1355,3 +1355,279 @@ class TestMetricsMathContract:
         assert result.skipped_rate_limit == result.changed
         assert result.processed == 0
         assert result.checked == result.unchanged + result.changed + result.errored
+
+
+class TestProcessTrackerMultiSkillPartialFailure:
+    """Verify SHA handling when a multi-skill repo has partial failures (3/5 succeed, 2 fail)."""
+
+    def _make_tracker(self) -> SkillTracker:
+        return SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/multi-skills",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=5,
+            last_commit_sha="old_sha_abc",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_multi"))
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
+    @patch("decision_hub.infra.storage.create_s3_client")
+    @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    def test_three_of_five_succeed_advances_sha_clears_error(
+        self,
+        mock_publish,
+        _mock_s3,
+        mock_discover,
+        mock_clone,
+        _mock_commits,
+        _mock_token,
+    ):
+        """When 3 out of 5 skills succeed and 2 fail, SHA advances and last_error is cleared."""
+        tracker = self._make_tracker()
+        mock_clone.return_value = Path("/tmp/fake/repo")
+        mock_discover.return_value = [
+            Path("/tmp/fake/repo/skill-a"),
+            Path("/tmp/fake/repo/skill-b"),
+            Path("/tmp/fake/repo/skill-c"),
+            Path("/tmp/fake/repo/skill-d"),
+            Path("/tmp/fake/repo/skill-e"),
+        ]
+        # 3 succeed (return True), 2 fail with errors
+        mock_publish.side_effect = [
+            True,
+            RuntimeError("gauntlet error on skill-b"),
+            True,
+            True,
+            RuntimeError("S3 timeout on skill-e"),
+        ]
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = "postgresql://test"
+
+        with patch("decision_hub.infra.database.update_skill_tracker") as mock_update:
+            process_tracker(tracker, mock_settings, mock_engine)
+
+            mock_update.assert_called_once()
+            _, kwargs = mock_update.call_args
+            # SHA advances because at least one skill succeeded
+            assert kwargs["last_commit_sha"] == "new_sha_multi"
+            # last_error is None because not all failed
+            assert kwargs["last_error"] is None
+            # last_published_at should be set because 3 skills were published
+            assert kwargs["last_published_at"] is not None
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_all_fail"))
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
+    @patch("decision_hub.infra.storage.create_s3_client")
+    @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    def test_all_five_fail_does_not_advance_sha_sets_error(
+        self,
+        mock_publish,
+        _mock_s3,
+        mock_discover,
+        mock_clone,
+        _mock_commits,
+        _mock_token,
+    ):
+        """When all 5 skills fail, SHA does NOT advance and last_error captures all failures."""
+        tracker = self._make_tracker()
+        mock_clone.return_value = Path("/tmp/fake/repo")
+        mock_discover.return_value = [
+            Path("/tmp/fake/repo/skill-a"),
+            Path("/tmp/fake/repo/skill-b"),
+            Path("/tmp/fake/repo/skill-c"),
+            Path("/tmp/fake/repo/skill-d"),
+            Path("/tmp/fake/repo/skill-e"),
+        ]
+        mock_publish.side_effect = [
+            RuntimeError("fail-a"),
+            RuntimeError("fail-b"),
+            RuntimeError("fail-c"),
+            RuntimeError("fail-d"),
+            RuntimeError("fail-e"),
+        ]
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = "postgresql://test"
+
+        with patch("decision_hub.infra.database.update_skill_tracker") as mock_update:
+            process_tracker(tracker, mock_settings, mock_engine)
+
+            mock_update.assert_called_once()
+            _, kwargs = mock_update.call_args
+            # SHA should NOT advance when all failed
+            assert kwargs["last_commit_sha"] is None
+            # Error should be recorded with all failure messages
+            assert kwargs["last_error"] is not None
+            assert "fail-a" in kwargs["last_error"]
+            assert "fail-e" in kwargs["last_error"]
+            # last_published_at should be None
+            assert kwargs["last_published_at"] is None
+
+
+class TestDetectRemovedSkills:
+    """Verify _detect_removed_skills marks DB skills missing from repo discovery."""
+
+    def _make_tracker(self) -> SkillTracker:
+        return SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url="https://github.com/myorg/myrepo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=5,
+            last_commit_sha="abc123",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_missing_skills_are_marked_removed(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """Skills in DB but not in discovered dirs should be marked as removed."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        manifest_a = MagicMock()
+        manifest_a.name = "skill-a"
+        mock_parse.return_value = manifest_a
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a")]
+
+        # DB has skill-a and skill-b
+        mock_fetch.return_value = {"skill-a", "skill-b"}
+        mock_mark.return_value = 1
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        mock_fetch.assert_called_once_with(mock_conn, "myorg", "https://github.com/myorg/myrepo")
+        mock_mark.assert_called_once_with(mock_conn, "myorg", {"skill-b"})
+        mock_conn.commit.assert_called_once()
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_no_removal_when_all_present(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """When all DB skills are still discovered, mark function should not be called."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        manifest_a = MagicMock()
+        manifest_a.name = "skill-a"
+        mock_parse.return_value = manifest_a
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a")]
+        mock_fetch.return_value = {"skill-a"}
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        mock_fetch.assert_called_once()
+        mock_mark.assert_not_called()
+        mock_conn.commit.assert_not_called()
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_no_removal_when_no_db_skills(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """Fresh repo with no prior DB skills should not trigger any removal."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        manifest_a = MagicMock()
+        manifest_a.name = "skill-a"
+        mock_parse.return_value = manifest_a
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a")]
+        mock_fetch.return_value = set()
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        mock_fetch.assert_called_once()
+        mock_mark.assert_not_called()
+        mock_conn.commit.assert_not_called()
+
+    @patch("decision_hub.domain.tracker_service.parse_skill_md")
+    @patch("decision_hub.infra.database.fetch_skill_names_by_source_repo")
+    @patch("decision_hub.infra.database.mark_skills_removed_by_name")
+    def test_all_parses_failed_skips_removal(
+        self,
+        mock_mark,
+        mock_fetch,
+        mock_parse,
+    ):
+        """When all SKILL.md parses fail, should not mark anything as removed."""
+        from decision_hub.domain.tracker_service import _detect_removed_skills
+
+        tracker = self._make_tracker()
+
+        # Every parse raises ValueError
+        mock_parse.side_effect = ValueError("bad manifest")
+
+        skill_dirs = [Path("/tmp/fake/repo/skill-a"), Path("/tmp/fake/repo/skill-b")]
+
+        mock_engine = MagicMock()
+
+        _detect_removed_skills(skill_dirs, tracker, mock_engine)
+
+        # Should bail out before even opening a DB connection
+        mock_engine.connect.assert_not_called()
+        mock_fetch.assert_not_called()
+        mock_mark.assert_not_called()

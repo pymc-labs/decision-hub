@@ -39,12 +39,83 @@ Three sophistication levels:
 from __future__ import annotations
 
 import json
+import os
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
+from slow_helpers import LatencyTracker, get_default_gemini_model, load_google_api_key
 
 from decision_hub.domain.gauntlet import run_static_checks
+
+# ---------------------------------------------------------------------------
+# Snapshot comparison infrastructure
+# ---------------------------------------------------------------------------
+
+_SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
+_SNAPSHOT_FILE = _SNAPSHOT_DIR / "gauntlet_baseline.json"
+
+# Accumulates results across test methods for snapshot generation
+_COLLECTED_RESULTS: dict[str, list[dict]] = {}
+
+
+def _load_baseline() -> dict | None:
+    """Load the gauntlet baseline snapshot, if it exists."""
+    if _SNAPSHOT_FILE.exists():
+        return json.loads(_SNAPSHOT_FILE.read_text())
+    return None
+
+
+def _save_baseline(model: str) -> None:
+    """Write accumulated results as the new baseline snapshot."""
+    _SNAPSHOT_DIR.mkdir(exist_ok=True)
+    baseline = {
+        "_meta": {"model": model},
+    }
+    for set_name, results in _COLLECTED_RESULTS.items():
+        baseline[set_name] = {
+            r["case_id"]: {
+                "caught": r["caught"],
+                "grade": r["grade"],
+                "failed_checks": r["failed_checks"],
+            }
+            for r in results
+        }
+    _SNAPSHOT_FILE.write_text(json.dumps(baseline, indent=2) + "\n")
+
+
+def _compare_against_baseline(results: list[dict], baseline_set: dict) -> tuple[list[str], list[str]]:
+    """Compare current results against a baseline set.
+
+    Returns (regressions, uplifts) — lists of case_id strings.
+    A regression is a case that was caught in the baseline but not now.
+    An uplift is a case that was missed in the baseline but caught now.
+    """
+    regressions = []
+    uplifts = []
+    for r in results:
+        cid = r["case_id"]
+        if cid not in baseline_set:
+            continue
+        was_caught = baseline_set[cid]["caught"]
+        now_caught = r["caught"]
+        if was_caught and not now_caught:
+            regressions.append(cid)
+        elif not was_caught and now_caught:
+            uplifts.append(cid)
+    return regressions, uplifts
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _maybe_update_snapshot():
+    """After all tests in this module, write baseline if UPDATE_GAUNTLET_BASELINE=1."""
+    yield
+    if os.environ.get("UPDATE_GAUNTLET_BASELINE") == "1" and _COLLECTED_RESULTS:
+        model = get_default_gemini_model()
+        _save_baseline(model)
+        print(f"\n[snapshot] Wrote gauntlet baseline to {_SNAPSHOT_FILE}")
+
 
 # ---------------------------------------------------------------------------
 # Test case model
@@ -2814,43 +2885,7 @@ class TestEvadedSkillsPassGauntlet:
         )
 
 
-def _load_google_api_key() -> str | None:
-    """Try to load GOOGLE_API_KEY from server/.env.dev or environment.
-
-    Returns the key string, or None if unavailable.
-    """
-    import os
-    from pathlib import Path
-
-    # 1. Already in environment
-    key = os.environ.get("GOOGLE_API_KEY", "")
-    if key:
-        return key
-
-    # 2. Try server/.env.dev
-    env_dev = Path(__file__).resolve().parents[2] / ".env.dev"
-    if env_dev.exists():
-        for line in env_dev.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("GOOGLE_API_KEY="):
-                val = line.split("=", 1)[1].strip().strip("\"'")
-                if val:
-                    return val
-
-    # 3. Try server/.env.prod
-    env_prod = Path(__file__).resolve().parents[2] / ".env.prod"
-    if env_prod.exists():
-        for line in env_prod.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("GOOGLE_API_KEY="):
-                val = line.split("=", 1)[1].strip().strip("\"'")
-                if val:
-                    return val
-
-    return None
-
-
-def _build_llm_callbacks(api_key: str, model: str = "gemini-2.5-flash") -> dict:
+def _build_llm_callbacks(api_key: str, model: str | None = None) -> dict:
     """Build all LLM callback functions for the full gauntlet pipeline."""
     from decision_hub.infra.gemini import (
         analyze_code_safety,
@@ -2861,17 +2896,24 @@ def _build_llm_callbacks(api_key: str, model: str = "gemini-2.5-flash") -> dict:
         review_prompt_body_safety,
     )
 
+    resolved_model = model or get_default_gemini_model()
     client = create_gemini_client(api_key)
 
     return {
         "analyze_fn": lambda snippets, source_files, name, desc: analyze_code_safety(
-            client, snippets, source_files, name, desc, model=model
+            client, snippets, source_files, name, desc, model=resolved_model
         ),
-        "analyze_prompt_fn": lambda hits, name, desc: analyze_prompt_safety(client, hits, name, desc, model=model),
-        "review_body_fn": lambda body, name, desc: review_prompt_body_safety(client, body, name, desc, model=model),
-        "review_code_fn": lambda files, name, desc: review_code_body_safety(client, files, name, desc, model=model),
+        "analyze_prompt_fn": lambda hits, name, desc: analyze_prompt_safety(
+            client, hits, name, desc, model=resolved_model
+        ),
+        "review_body_fn": lambda body, name, desc: review_prompt_body_safety(
+            client, body, name, desc, model=resolved_model
+        ),
+        "review_code_fn": lambda files, name, desc: review_code_body_safety(
+            client, files, name, desc, model=resolved_model
+        ),
         "analyze_credential_fn": lambda hits, name, desc: analyze_credential_entropy(
-            client, hits, name, desc, model=model
+            client, hits, name, desc, model=resolved_model
         ),
     }
 
@@ -2982,15 +3024,25 @@ class TestFullPipelineWithLLM:
 
     @pytest.fixture(autouse=True)
     def _require_api_key(self):
-        self.api_key = _load_google_api_key()
+        self.api_key = load_google_api_key()
         if not self.api_key:
             pytest.skip("GOOGLE_API_KEY not available (set env var or provide server/.env.dev)")
         self.callbacks = _build_llm_callbacks(self.api_key)
+        self.latency = LatencyTracker("gauntlet_llm", soft_p95_limit=30.0)
 
     def test_original_set_with_llm(self):
         """All 31 original malicious skills should be caught with full pipeline."""
         results = _run_llm_cases_parallel(TEST_CASES, self.callbacks)
         detection_rate = _print_results_table("ORIGINAL TEST SET — FULL PIPELINE (REGEX + LLM)", results)
+        print(self.latency.summary())
+
+        # Snapshot comparison
+        baseline = _load_baseline()
+        if baseline and "original" in baseline:
+            regressions, _ = _compare_against_baseline(results, baseline["original"])
+            assert not regressions, f"Gauntlet regressions vs baseline: {regressions}"
+
+        _COLLECTED_RESULTS["original"] = results
         assert detection_rate >= 80, (
             f"Full-pipeline detection rate {detection_rate:.1f}% is below 80% — LLM should catch what regex misses"
         )
@@ -2999,6 +3051,15 @@ class TestFullPipelineWithLLM:
         """Evaded set should be mostly caught by holistic LLM review."""
         results = _run_llm_cases_parallel(EVADED_TEST_CASES, self.callbacks)
         detection_rate = _print_results_table("EVADED TEST SET — FULL PIPELINE (REGEX + LLM)", results)
+        print(self.latency.summary())
+
+        # Snapshot comparison
+        baseline = _load_baseline()
+        if baseline and "evaded" in baseline:
+            regressions, _ = _compare_against_baseline(results, baseline["evaded"])
+            assert not regressions, f"Gauntlet regressions vs baseline: {regressions}"
+
+        _COLLECTED_RESULTS["evaded"] = results
         # The whole point: LLM holistic review should catch what regex misses
         assert detection_rate >= 40, (
             f"Full-pipeline evaded detection rate {detection_rate:.1f}% is below 40% — "

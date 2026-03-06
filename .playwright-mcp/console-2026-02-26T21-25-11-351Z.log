@@ -1,0 +1,2 @@
+[    6402ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://hub-dev.decision.ai/v1/skills/boboc135612/skill-creator/summary:0
+[    6402ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://hub-dev.decision.ai/v1/skills/boboc135612/skill-creator/audit-log:0
