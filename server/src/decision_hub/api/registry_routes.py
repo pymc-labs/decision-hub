@@ -41,7 +41,6 @@ from decision_hub.infra.database import (
     fetch_all_skills_for_index,
     fetch_registry_stats,
     fetch_similar_skills,
-    fetch_skills_by_repo,
     find_active_eval_runs_for_user,
     find_audit_logs,
     find_eval_report_by_skill,
