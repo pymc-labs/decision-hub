@@ -97,6 +97,33 @@ def test_extract_plugin_too_many_entries():
         extract_plugin_for_evaluation(zip_bytes)
 
 
+def test_extract_plugin_for_evaluation_binary_with_scannable_ext():
+    """Binary content in a .py file goes to unscanned_files instead of crashing."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        # Binary content with a .py extension
+        zf.writestr("src/binary.py", b"\x80\x81\x82\xff\xfe")
+        zf.writestr("plugin.json", '{"name": "test"}')
+    zip_bytes = buf.getvalue()
+
+    source_files, unscanned_files = extract_plugin_for_evaluation(zip_bytes)
+    # binary.py should end up in unscanned_files due to decode failure
+    assert "src/binary.py" in unscanned_files
+    # plugin.json is valid UTF-8, should be in source_files
+    assert any(name == "plugin.json" for name, _ in source_files)
+
+
+def test_extract_plugin_to_dir_path_traversal(tmp_path: Path):
+    """Zip with path traversal entries is rejected."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("../../etc/malicious", "pwned")
+    zip_bytes = buf.getvalue()
+
+    with pytest.raises(ValueError, match="escapes target directory"):
+        extract_plugin_to_dir(zip_bytes, str(tmp_path))
+
+
 def test_plugin_publish_result_is_frozen():
     """PluginPublishResult is immutable."""
     from uuid import uuid4

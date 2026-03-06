@@ -141,3 +141,34 @@ def test_parse_plugin_manifest_minimal(tmp_path: Path):
 def test_parse_plugin_manifest_no_plugin_dirs(tmp_path: Path):
     with pytest.raises(ValueError, match="No plugin platform directories found"):
         parse_plugin_manifest(tmp_path)
+
+
+def test_parse_plugin_manifest_missing_name(tmp_path: Path) -> None:
+    """plugin.json without 'name' raises ValueError, not KeyError."""
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text('{"description": "no name"}')
+    with pytest.raises(ValueError, match="missing required 'name'"):
+        parse_plugin_manifest(tmp_path)
+
+
+def test_parse_plugin_manifest_invalid_json(tmp_path: Path) -> None:
+    """Malformed JSON in plugin.json raises json.JSONDecodeError."""
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text("{not valid json")
+    with pytest.raises(json.JSONDecodeError):
+        parse_plugin_manifest(tmp_path)
+
+
+def test_discover_hooks_malformed_json(tmp_path: Path) -> None:
+    """Malformed hooks.json is skipped, not crashed on."""
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text('{"name": "test", "description": "t"}')
+    hooks_dir = tmp_path / "hooks"
+    hooks_dir.mkdir()
+    (hooks_dir / "hooks.json").write_text("{broken")
+
+    manifest = parse_plugin_manifest(tmp_path)
+    assert manifest.hooks == ()

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -36,11 +36,6 @@ export default function PluginDetailPage() {
   }>();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    setActiveTab("overview");
-    setCopied(false);
-  }, [orgSlug, pluginName]);
 
   const { data: plugin, loading: pluginLoading } = useApi<PluginDetail>(
     () => getPluginDetail(orgSlug!, pluginName!),
