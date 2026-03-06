@@ -192,6 +192,7 @@ def create_app() -> FastAPI:
     try:
         _has_frontend = _FRONTEND_DIR.is_dir() and _index_html.is_file()
     except PermissionError:
+        logger.warning("Cannot access frontend directory {}: permission denied, running API-only", _FRONTEND_DIR)
         _has_frontend = False
     if _has_frontend:
         app.mount(

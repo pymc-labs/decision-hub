@@ -2010,7 +2010,7 @@ def fetch_similar_skills(
     org_slug: str,
     skill_name: str,
     *,
-    limit: int = 3,
+    limit: int = 10,
 ) -> list[dict]:
     """Find published public skills whose embeddings are closest to the given skill.
 
@@ -2024,6 +2024,7 @@ def fetch_similar_skills(
             organizations_table.c.slug == org_slug,
             skills_table.c.name == skill_name,
             skills_table.c.latest_semver.isnot(None),
+            skills_table.c.visibility == "public",
         )
     )
     row = conn.execute(emb_stmt).first()

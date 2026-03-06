@@ -122,7 +122,7 @@ export default function SkillDetailPage() {
   );
   const auditLog = auditLogResponse?.items ?? [];
 
-  const { data: similarSkills } = useApi<SimilarSkillRef[]>(
+  const { data: similarSkills, error: similarError } = useApi<SimilarSkillRef[]>(
     () =>
       orgSlug && skillName
         ? getSimilarSkills(orgSlug, skillName)
@@ -402,6 +402,13 @@ export default function SkillDetailPage() {
             </div>
           </NeonCard>
 
+          {similarError && (
+            <NeonCard glow="pink">
+              <p style={{ color: "var(--neon-pink)", fontSize: "var(--text-xs)" }}>
+                Could not load similar skills.
+              </p>
+            </NeonCard>
+          )}
           {similarSkills && similarSkills.length > 0 && (
             <NeonCard glow="purple">
               <div className={styles.similarHeader}>Similar Skills</div>
