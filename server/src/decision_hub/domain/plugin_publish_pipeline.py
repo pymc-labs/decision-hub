@@ -120,7 +120,10 @@ def extract_plugin_for_evaluation(
 
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
             if _is_scannable_file(basename):
-                source_files.append((name, zf.read(name).decode()))
+                try:
+                    source_files.append((name, zf.read(name).decode()))
+                except UnicodeDecodeError:
+                    unscanned_files.append(name)
             else:
                 unscanned_files.append(name)
 
@@ -130,7 +133,22 @@ def extract_plugin_for_evaluation(
 
 def extract_plugin_to_dir(zip_bytes: bytes, dest: str) -> None:
     """Extract a plugin zip to a directory for manifest parsing."""
+    from dhub_core.ziputil import validate_zip_entries
+
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        # Validate: no path traversal, entry count, and total size limits
+        validate_zip_entries(zf, dest)
+
+        entries = zf.infolist()
+        if len(entries) > _MAX_ZIP_ENTRIES:
+            raise ValueError(f"Zip contains {len(entries)} entries, exceeding limit of {_MAX_ZIP_ENTRIES}")
+        total_uncompressed = sum(info.file_size for info in entries)
+        if total_uncompressed > _MAX_TOTAL_EXTRACTED:
+            raise ValueError(
+                f"Total uncompressed size ({total_uncompressed // (1024 * 1024)} MB) "
+                f"exceeds limit of {_MAX_TOTAL_EXTRACTED // (1024 * 1024)} MB"
+            )
+
         zf.extractall(dest)
 
 
@@ -199,15 +217,6 @@ def execute_plugin_publish(
         skill_md_body=manifest.description,
         unscanned_files=unscanned_files,
     )
-    logger.info(
-        "Plugin gauntlet result for {}/{} v{}: grade={} passed={}",
-        org_slug,
-        plugin_name,
-        version,
-        report.grade,
-        report.passed,
-    )
-
     # 4. Quarantine if rejected
     if not report.passed:
         quarantine_s3_key = build_plugin_quarantine_s3_key(org_slug, plugin_name, version)
@@ -329,7 +338,11 @@ def execute_plugin_publish(
         version_id=version_record.id,
     )
 
-    # 10. Commit DB, then upload to S3
+    # 10. Commit DB, then upload to S3.
+    # NOTE: Not atomic — if S3 upload fails, the DB version record persists
+    # pointing to a missing S3 key (ghost version). This matches the skill
+    # publish pipeline behavior. A cleanup job or retry mechanism would be
+    # needed for full atomicity.
     conn.commit()
 
     try:
@@ -354,16 +367,6 @@ def execute_plugin_publish(
         )
         if deprecated_count:
             conn.commit()
-
-    logger.info(
-        "Published plugin {}/{} v{} — plugin_id={} grade={} deprecated_skills={}",
-        org_slug,
-        plugin_name,
-        version,
-        plugin.id,
-        report.grade,
-        deprecated_count,
-    )
 
     return PluginPublishResult(
         plugin_id=plugin.id,
