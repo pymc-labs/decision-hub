@@ -96,8 +96,6 @@ a.metaItem:hover {
   gap: 12px;
   position: sticky;
   top: calc(var(--header-height) + 24px);
-  max-height: calc(100vh - var(--header-height) - 48px);
-  overflow-y: auto;
 }
 
 .sidebarGrade {
@@ -548,6 +546,8 @@ a.metaItem:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 .similarItem {
