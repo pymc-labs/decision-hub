@@ -187,7 +187,7 @@ def _publish_plugin_directory(
         "version": version,
     }
     if private:
-        meta["visibility"] = "private"
+        meta["visibility"] = "org"
     if source_repo_url:
         meta["source_repo_url"] = source_repo_url
 
