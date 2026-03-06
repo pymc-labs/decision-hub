@@ -97,6 +97,7 @@ def _run_retrieval(
         conn,
         fts_queries,
         query_embedding,
+        user_org_ids=user_org_ids,
         category=category,
         limit=settings.search_candidate_limit,
     )

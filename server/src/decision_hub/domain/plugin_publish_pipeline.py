@@ -167,6 +167,7 @@ def execute_plugin_publish(
     source_repo_url: str | None = None,
     manifest_path: str | None = None,
     auto_bump_version: bool = False,
+    visibility: str | None = None,
 ) -> PluginPublishResult:
     """Run the full publish pipeline for a plugin version.
 
@@ -184,6 +185,7 @@ def execute_plugin_publish(
         source_repo_url: GitHub repo URL.
         manifest_path: Relative path to plugin dir.
         auto_bump_version: Auto-bump patch if version exists.
+        visibility: "public" or "org". Defaults to "public" if None.
 
     Returns:
         PluginPublishResult with IDs, version, S3 key, and deprecation count.
@@ -267,6 +269,7 @@ def execute_plugin_publish(
             hook_count=len(manifest.hooks),
             agent_count=len(manifest.agents),
             command_count=len(manifest.commands),
+            visibility=visibility or "public",
             source_repo_url=source_repo_url,
             manifest_path=manifest_path,
         )
