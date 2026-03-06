@@ -16,7 +16,11 @@ const NAV_ITEMS = [
 ];
 
 function formatStars(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  if (n >= 1000) {
+    const divided = n / 1000;
+    // Use integer display once the rounded value reaches 10k to avoid "10.0k"
+    return divided >= 9.95 ? `${Math.round(divided)}k` : `${divided.toFixed(1)}k`;
+  }
   return n.toString();
 }
 
