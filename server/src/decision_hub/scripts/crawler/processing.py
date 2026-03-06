@@ -4,7 +4,6 @@ Each Modal container processes exactly one repo: clone, discover skills,
 run gauntlet, publish or quarantine. No shared state between containers.
 """
 
-import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,11 +26,11 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
 )
 from decision_hub.domain.skill_manifest import extract_body, extract_description
+from dhub_core.validation import _SLUG_PATTERN
 
 CLONE_TIMEOUT_SECONDS = 120
 BOT_GITHUB_ID = "0"
 BOT_USERNAME = "dhub-crawler"
-_SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
 
 
 def fetch_owner_metadata(
