@@ -101,6 +101,7 @@ export default function PluginsPage() {
           <input
             type="text"
             placeholder="Search plugins..."
+            aria-label="Search plugins"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className={styles.searchInput}

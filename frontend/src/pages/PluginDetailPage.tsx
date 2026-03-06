@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -37,19 +37,24 @@ export default function PluginDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    setActiveTab("overview");
+    setCopied(false);
+  }, [orgSlug, pluginName]);
+
   const { data: plugin, loading: pluginLoading } = useApi<PluginDetail>(
     () => getPluginDetail(orgSlug!, pluginName!),
     [orgSlug, pluginName],
   );
 
   const { data: versions, loading: versionsLoading } = useApi<PluginVersionEntry[]>(
-    () => getPluginVersions(orgSlug!, pluginName!),
-    [orgSlug, pluginName],
+    () => activeTab === "versions" ? getPluginVersions(orgSlug!, pluginName!) : Promise.resolve(null as unknown as PluginVersionEntry[]),
+    [orgSlug, pluginName, activeTab],
   );
 
   const { data: auditLog, loading: auditLoading } = useApi<PluginAuditEntry[]>(
-    () => getPluginAuditLog(orgSlug!, pluginName!),
-    [orgSlug, pluginName],
+    () => activeTab === "audit" ? getPluginAuditLog(orgSlug!, pluginName!) : Promise.resolve(null as unknown as PluginAuditEntry[]),
+    [orgSlug, pluginName, activeTab],
   );
 
   const seoTitle = `${orgSlug}/${pluginName}`;
@@ -439,9 +444,9 @@ function AuditTab({
 
   return (
     <div className={styles.auditList}>
-      {entries.map((entry, i) => (
+      {entries.map((entry) => (
         <NeonCard
-          key={i}
+          key={`${entry.semver}-${entry.created_at}`}
           glow={entry.grade === "F" ? "pink" : entry.grade === "A" ? "green" : "purple"}
         >
           <div className={styles.auditEntry}>

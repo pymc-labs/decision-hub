@@ -115,6 +115,7 @@ export default function Layout() {
             <div className={styles.footerColumn}>
               <h4 className={styles.footerColumnTitle}>Product</h4>
               <Link to="/skills">Skills</Link>
+              <Link to="/plugins">Plugins</Link>
               <Link to="/orgs">Organizations</Link>
               <Link to="/how-it-works">How It Works</Link>
             </div>
