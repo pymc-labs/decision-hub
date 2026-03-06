@@ -2010,7 +2010,7 @@ def fetch_similar_skills(
     org_slug: str,
     skill_name: str,
     *,
-    limit: int = 10,
+    limit: int = 5,
 ) -> list[dict]:
     """Find published public skills whose embeddings are closest to the given skill.
 

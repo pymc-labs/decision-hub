@@ -789,7 +789,7 @@ def get_similar_skills(
     skill_name: str,
     conn: Connection = Depends(get_connection),
 ) -> list[SimilarSkillRef]:
-    """Return up to 10 similar public skills by vector distance.
+    """Return up to 5 similar public skills by vector distance.
 
     Returns 404 if the skill does not exist or is not public.
     Returns an empty list if the skill has no stored embedding.
@@ -797,7 +797,7 @@ def get_similar_skills(
     skill = find_skill_by_slug(conn, org_slug, skill_name)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    rows = fetch_similar_skills(conn, org_slug, skill_name, limit=10)
+    rows = fetch_similar_skills(conn, org_slug, skill_name, limit=5)
     return [
         SimilarSkillRef(
             org_slug=row["org_slug"],

@@ -81,7 +81,7 @@ a.metaItem:hover {
 /* Two-column layout */
 .pageBody {
   display: grid;
-  grid-template-columns: 1fr 260px;
+  grid-template-columns: 1fr 300px;
   gap: 32px;
   align-items: start;
 }
@@ -587,6 +587,15 @@ a.metaItem:hover {
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin: 0;
+}
+
+.similarMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xxs);
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 
 @media (max-width: 768px) {
