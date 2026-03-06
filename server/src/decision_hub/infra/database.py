@@ -2345,11 +2345,18 @@ def fetch_registry_stats(conn: Connection) -> dict:
     )
     active_categories = [r[0] for r in conn.execute(cat_stmt)]
 
+    # Count published plugins
+    plugin_count_stmt = (
+        sa.select(sa.func.count()).select_from(plugins_table).where(plugins_table.c.latest_semver.isnot(None))
+    )
+    total_plugins = conn.execute(plugin_count_stmt).scalar() or 0
+
     return {
         "total_skills": row.total_skills,
         "total_orgs": row.total_orgs,
         "total_publishers": row.total_publishers,
         "total_downloads": row.total_downloads,
+        "total_plugins": total_plugins,
         "active_categories": active_categories,
     }
 
