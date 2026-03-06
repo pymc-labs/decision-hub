@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-shared test-frontend test-slow check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-shared test-frontend test-slow e2e-local e2e-dev check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -42,6 +42,16 @@ test-frontend: ## Run frontend tests
 
 test-slow: ## Run slow LLM regression tests (requires GOOGLE_API_KEY in env or server/.env.dev)
 	cd server && uv run --package decision-hub-server --extra dev pytest tests/ -v -m slow -s
+
+# ---------------------------------------------------------------------------
+# E2E browser tests (agent-browser)
+# ---------------------------------------------------------------------------
+
+e2e-local: ## Run E2E smoke tests against local stack (requires make deploy-local)
+	BASE_URL=http://localhost:5173 STRICT_MODE=true bash e2e/run-smoke.sh
+
+e2e-dev: ## Run E2E smoke tests against dev (loose assertions, no seeding)
+	BASE_URL=https://hub-dev.decision.ai STRICT_MODE=false bash e2e/run-smoke.sh
 
 # ---------------------------------------------------------------------------
 # Migrations
