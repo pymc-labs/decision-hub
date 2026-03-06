@@ -426,12 +426,10 @@ export default function SkillDetailPage() {
                     {s.description && (
                       <p className={styles.similarDesc}>{s.description}</p>
                     )}
-                    {s.download_count > 0 && (
-                      <div className={styles.similarMeta}>
-                        <Download size={11} />
-                        <span>{s.download_count.toLocaleString()}</span>
-                      </div>
-                    )}
+                    <div className={styles.similarMeta}>
+                      <Download size={11} />
+                      <span>{s.download_count.toLocaleString()} downloads</span>
+                    </div>
                   </Link>
                 ))}
               </div>

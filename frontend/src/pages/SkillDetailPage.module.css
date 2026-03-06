@@ -81,7 +81,7 @@ a.metaItem:hover {
 /* Two-column layout */
 .pageBody {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: 1fr 320px;
   gap: 32px;
   align-items: start;
 }
@@ -553,8 +553,8 @@ a.metaItem:hover {
 .similarItem {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 12px 14px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--border-color);
@@ -571,7 +571,7 @@ a.metaItem:hover {
   align-items: center;
   gap: 6px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--neon-purple);
   white-space: nowrap;
   overflow: hidden;
@@ -583,7 +583,7 @@ a.metaItem:hover {
   color: var(--text-muted);
   line-height: 1.4;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 5;
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin: 0;
