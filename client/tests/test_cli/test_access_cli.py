@@ -1,5 +1,6 @@
 """Tests for dhub.cli.access -- access grant management commands."""
 
+import json
 from unittest.mock import patch
 
 import httpx
@@ -151,6 +152,27 @@ class TestAccessList:
 
         assert result.exit_code == 0
         assert "partner" in result.output
+
+
+# ---------------------------------------------------------------------------
+# dhub access list JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestAccessListJsonOutput:
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_access_list_json(self, _mock_url, _mock_token) -> None:
+        respx.get("http://test:8000/v1/skills/acme/my-skill/access").mock(
+            return_value=httpx.Response(200, json=[
+                {"grantee_org_slug": "partner", "granted_by": "alice", "created_at": "2026-01-01T00:00:00"}
+            ])
+        )
+        result = runner.invoke(app, ["--output", "json", "access", "list", "acme/my-skill"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data[0]["grantee_org_slug"] == "partner"
 
 
 # ---------------------------------------------------------------------------

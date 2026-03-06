@@ -1,5 +1,6 @@
 """Tests for dhub.cli.search -- ask command."""
 
+import json
 from unittest.mock import patch
 
 import httpx
@@ -122,6 +123,19 @@ class TestAskCommand:
         assert result.exit_code == 0
         # Verify the category was sent as a query parameter
         assert "category=Data+Science" in str(route.calls[0].request.url)
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_ask_json_output(self, _mock_url, _mock_token) -> None:
+        respx.get("http://test:8000/v1/ask").mock(
+            return_value=httpx.Response(200, json=_ASK_RESPONSE)
+        )
+        result = runner.invoke(app, ["--output", "json", "ask", "analyze A/B test results"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["query"] == "analyze A/B test results"
+        assert len(data["skills"]) == 2
 
     @respx.mock
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")

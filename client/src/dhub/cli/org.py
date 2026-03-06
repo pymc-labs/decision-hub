@@ -22,6 +22,12 @@ def list_orgs() -> None:
         raise_for_status(resp)
         orgs = resp.json()
 
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(orgs)
+        return
+
     if not orgs:
         console.print("No namespaces available.")
         return

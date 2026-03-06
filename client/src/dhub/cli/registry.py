@@ -613,15 +613,22 @@ def list_command(
 
     from dhub.cli.banner import print_banner
     from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.output import is_json, print_json
 
-    print_banner(console)
+    json_mode = is_json()
+
+    if not json_mode:
+        print_banner(console)
 
     api_url = get_api_url()
     headers = build_headers(get_optional_token())
 
-    console.print(f"Registry: [dim]{api_url}[/]")
+    if not json_mode:
+        console.print(f"Registry: [dim]{api_url}[/]")
 
+    all_items: list[dict] = []
     page = 1
+    total = 0
     found_any = False
     with httpx.Client(timeout=60) as client:
         while True:
@@ -641,6 +648,13 @@ def list_command(
             items = data["items"]
             total = data["total"]
             total_pages = data["total_pages"]
+
+            if json_mode:
+                all_items.extend(items)
+                if page >= total_pages or total == 0:
+                    break
+                page += 1
+                continue
 
             if total == 0:
                 console.print("No skills found.")
@@ -678,6 +692,10 @@ def list_command(
                 break
 
             page += 1
+
+    if json_mode:
+        print_json({"items": all_items, "total": total, "page_size": len(all_items), "total_pages": 1})
+        return
 
 
 def delete_command(
@@ -775,6 +793,12 @@ def eval_report_command(
     # Handle null response (no eval report yet)
     if data is None:
         console.print(f"No eval report available for {org_slug}/{skill_name}@{version}")
+        return
+
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(data)
         return
 
     # Display report summary
@@ -1422,6 +1446,12 @@ def info_command(
                     eval_report = resp.json()
             except httpx.HTTPError:
                 console.print("[dim]  (could not fetch eval report)[/]")
+
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json({"summary": summary, "audit_log": audit_entry, "eval_report": eval_report})
+        return
 
     _render_skill_info(org_slug, skill_name, summary, audit_entry, eval_report)
 

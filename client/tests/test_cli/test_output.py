@@ -46,6 +46,16 @@ class TestGlobalOutputFlag:
         assert result.exit_code != 0
 
 
+class TestEnvJsonOutput:
+    def test_env_json_output(self) -> None:
+        result = runner.invoke(app, ["--output", "json", "env"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "environment" in data
+        assert "config_file" in data
+        assert "api_url" in data
+
+
 class TestPrintJson:
     def test_print_json_writes_valid_json_to_stdout(self, capsys) -> None:
         """print_json should write valid JSON followed by a newline to stdout."""

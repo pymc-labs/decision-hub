@@ -112,6 +112,12 @@ def list_command(
         raise_for_status(resp)
         grants = resp.json()
 
+    from dhub.cli.output import is_json, print_json
+
+    if is_json():
+        print_json(grants)
+        return
+
     if not grants:
         console.print(f"No access grants for {org_slug}/{skill_name}.")
         return
