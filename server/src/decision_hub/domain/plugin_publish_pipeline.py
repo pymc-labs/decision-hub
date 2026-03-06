@@ -241,6 +241,7 @@ def execute_plugin_publish(
             check_results=check_results_dicts,
             publisher=publisher,
             quarantine_s3_key=quarantine_s3_key,
+            plugin_name=plugin_name,
         )
         conn.commit()
         raise GauntletRejectionError(report.summary)
@@ -335,7 +336,9 @@ def execute_plugin_publish(
         grade=report.grade,
         check_results=check_results_dicts,
         publisher=publisher,
-        version_id=version_record.id,
+        plugin_version_id=version_record.id,
+        plugin_id=plugin.id,
+        plugin_name=plugin_name,
     )
 
     # 10. Commit DB, then upload to S3.

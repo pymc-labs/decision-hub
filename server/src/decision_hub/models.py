@@ -245,6 +245,7 @@ class AuditLogEntry:
     llm_reasoning: dict | None
     publisher: str
     quarantine_s3_key: str | None = None
+    plugin_version_id: UUID | None = None
     created_at: datetime | None = None
 
 
