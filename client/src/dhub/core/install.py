@@ -97,9 +97,9 @@ def get_dhub_plugin_path(org: str, plugin: str, version: str) -> Path:
         version: The plugin version.
 
     Returns:
-        Path to ~/.claude/plugins/cache/decision-hub/{plugin}/{version}/.
+        Path to ~/.claude/plugins/cache/decision-hub/{org}/{plugin}/{version}/.
     """
-    return Path.home() / ".claude" / "plugins" / "cache" / "decision-hub" / plugin / version
+    return Path.home() / ".claude" / "plugins" / "cache" / "decision-hub" / org / plugin / version
 
 
 def get_agent_skill_paths() -> dict[str, Path]:
