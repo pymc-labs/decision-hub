@@ -272,6 +272,13 @@ def execute_plugin_publish(
             command_count=len(manifest.commands),
         )
 
+    # 6b. Generate embedding (fail-open)
+    from decision_hub.infra.embeddings import generate_and_store_plugin_embedding
+
+    generate_and_store_plugin_embedding(
+        conn, plugin.id, manifest.name, org_slug, category, manifest.description, settings
+    )
+
     # 7. Handle duplicate version
     if find_plugin_version(conn, plugin.id, version) is not None:
         if auto_bump_version:

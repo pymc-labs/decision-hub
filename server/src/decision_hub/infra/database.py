@@ -2123,6 +2123,119 @@ def update_skill_embedding(conn: Connection, skill_id: UUID, embedding: list[flo
     conn.execute(stmt)
 
 
+def update_plugin_embedding(conn: Connection, plugin_id: UUID, embedding: list[float]) -> None:
+    """Store an embedding vector for a plugin."""
+    stmt = sa.update(plugins_table).where(plugins_table.c.id == plugin_id).values(embedding=embedding)
+    conn.execute(stmt)
+
+
+def search_plugins_hybrid(
+    conn: Connection,
+    fts_queries: list[str],
+    query_embedding: list[float] | None,
+    *,
+    category: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Hybrid retrieval for plugins: FTS + vector search, union + dedup.
+
+    Mirrors search_skills_hybrid but operates on the plugins table.
+    No visibility filter (plugins are public only in v1).
+    No deprecated filter (plugins have no deprecation flag).
+    Results include ``kind: "plugin"`` to distinguish from skill results.
+    """
+    plugin_summary_columns = [
+        organizations_table.c.slug.label("org_slug"),
+        plugins_table.c.name.label("plugin_name"),
+        plugins_table.c.description,
+        plugins_table.c.download_count,
+        plugins_table.c.category,
+        plugins_table.c.platforms,
+        plugins_table.c.skill_count,
+        plugins_table.c.hook_count,
+        plugins_table.c.agent_count,
+        plugins_table.c.command_count,
+        plugins_table.c.author_name,
+        plugins_table.c.source_repo_url,
+        plugins_table.c.github_stars,
+        plugins_table.c.github_license,
+        plugins_table.c.latest_semver.label("latest_version"),
+        plugins_table.c.latest_eval_status.label("eval_status"),
+        plugins_table.c.latest_gauntlet_summary.label("gauntlet_summary"),
+        plugins_table.c.latest_published_at.label("published_at"),
+        plugins_table.c.latest_published_by.label("published_by"),
+    ]
+
+    def _base_select(extra_columns: list):
+        columns = [*plugin_summary_columns, *extra_columns]
+        stmt = (
+            sa.select(*columns)
+            .select_from(
+                plugins_table.join(
+                    organizations_table,
+                    plugins_table.c.org_id == organizations_table.c.id,
+                )
+            )
+            .where(plugins_table.c.latest_semver.isnot(None))
+        )
+        if category:
+            stmt = stmt.where(plugins_table.c.category == category)
+        return stmt
+
+    # --- 1. FTS query ---
+    fts_rows: list = []
+    if fts_queries:
+        combined_tsquery = sa.func.websearch_to_tsquery("english", fts_queries[0])
+        for fts_q in fts_queries[1:]:
+            combined_tsquery = combined_tsquery.op("||")(sa.func.websearch_to_tsquery("english", fts_q))
+
+        fts_stmt = _base_select(
+            [
+                sa.func.ts_rank_cd(
+                    plugins_table.c.search_vector,
+                    combined_tsquery,
+                ).label("fts_rank"),
+            ]
+        )
+        fts_stmt = fts_stmt.where(plugins_table.c.search_vector.op("@@")(combined_tsquery))
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        fts_rows = conn.execute(fts_stmt).all()
+
+    # --- 2. Vector query ---
+    vec_rows: list = []
+    if query_embedding is not None:
+        vec_stmt = _base_select(
+            [
+                plugins_table.c.embedding.cosine_distance(query_embedding).label("vec_dist"),
+            ]
+        )
+        vec_stmt = vec_stmt.where(plugins_table.c.embedding.isnot(None))
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        vec_rows = conn.execute(vec_stmt).all()
+
+    # --- 3. Union + dedup (vector first, then FTS-only) ---
+    seen: set[tuple[str, str]] = set()
+    results: list[dict] = []
+
+    for row in vec_rows:
+        key = (row.org_slug, row.plugin_name)
+        if key not in seen:
+            seen.add(key)
+            d = {k: v for k, v in row._mapping.items() if k not in ("fts_rank", "vec_dist")}
+            d["kind"] = "plugin"
+            results.append(d)
+
+    for row in fts_rows:
+        key = (row.org_slug, row.plugin_name)
+        if key not in seen:
+            seen.add(key)
+            d = {k: v for k, v in row._mapping.items() if k not in ("fts_rank", "vec_dist")}
+            d["kind"] = "plugin"
+            results.append(d)
+
+    return results
+
+
 def fetch_similar_skills(
     conn: Connection,
     org_slug: str,
