@@ -74,6 +74,8 @@ def discover_skills(root: Path) -> list[Path]:
     Skips hidden directories, node_modules, and __pycache__.
     Only includes directories where SKILL.md parses successfully.
     """
+    import yaml
+
     from decision_hub.domain.skill_manifest import parse_skill_md
 
     skill_dirs: list[Path] = []
@@ -84,7 +86,7 @@ def discover_skills(root: Path) -> list[Path]:
         try:
             parse_skill_md(skill_md)
             skill_dirs.append(skill_md.parent)
-        except (ValueError, FileNotFoundError):
+        except (ValueError, FileNotFoundError, yaml.YAMLError):
             continue
     return skill_dirs
 

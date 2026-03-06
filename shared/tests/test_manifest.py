@@ -67,6 +67,19 @@ class TestParseFrontmatterYaml:
         assert result["name"] == "my-skill"
         assert "great" in result["description"]
 
+    def test_fallback_markdown_link_in_metadata(self) -> None:
+        yaml_str = (
+            "name: my-skill\n"
+            "description: A tool\n"
+            "metadata:\n"
+            "  author: [Alexandre Andorra](https://example.com/)\n"
+            '  version: "1.0"'
+        )
+        result = parse_frontmatter_yaml(yaml_str)
+        assert result["name"] == "my-skill"
+        assert result["metadata"]["author"] == "[Alexandre Andorra](https://example.com/)"
+        assert result["metadata"]["version"] == "1.0"
+
     def test_unparseable_yaml(self) -> None:
         import yaml
 
