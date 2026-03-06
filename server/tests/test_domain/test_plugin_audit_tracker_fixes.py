@@ -231,6 +231,8 @@ class TestTrackerKindUpdate:
 
     def test_update_skill_tracker_called_with_kind_plugin(self):
         """After successful plugin publish, update_skill_tracker must be called with kind='plugin'."""
+        import tempfile
+
         from decision_hub.domain.plugin_publish_pipeline import PluginPublishResult
         from decision_hub.domain.tracker_service import _publish_plugin_from_tracker
 
@@ -257,6 +259,8 @@ class TestTrackerKindUpdate:
         manifest.name = "my-plugin"
         manifest.version = "1.0.0"
 
+        repo_root = Path(tempfile.mkdtemp())
+
         with (
             patch("decision_hub.domain.tracker_service.create_zip", return_value=b"zipdata"),
             patch("decision_hub.infra.storage.compute_checksum", return_value="sha256abc"),
@@ -270,7 +274,7 @@ class TestTrackerKindUpdate:
             patch("decision_hub.domain.tracker_service._resolve_org_id", return_value=uuid4()),
         ):
             _publish_plugin_from_tracker(
-                repo_root=Path("/tmp/fake"),
+                repo_root=repo_root,
                 org_slug="test-org",
                 tracker=tracker,
                 settings=mock_settings,
