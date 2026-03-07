@@ -15,7 +15,7 @@ GITHUB_API = "https://api.github.com"
 GITHUB_GRAPHQL = "https://api.github.com/graphql"
 
 # Maximum aliases per GraphQL request (GitHub hard-limits at 500 nodes).
-_GRAPHQL_BATCH_CHUNK = 250
+_GRAPHQL_BATCH_CHUNK = 50
 
 
 class GitHubClient:

@@ -379,6 +379,7 @@ def _dispatch_changed_trackers(
             known_shas,
             return_exceptions=True,
             order_outputs=False,
+            wrap_returned_exceptions=False,
         ):
             # Process the already-received result before checking the deadline —
             # the for-loop already blocked to receive it, so discarding it would
