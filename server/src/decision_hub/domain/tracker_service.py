@@ -11,7 +11,10 @@ import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from decision_hub.infra.github_client import GitHubClient
 
 from loguru import logger
 
@@ -32,6 +35,112 @@ from decision_hub.settings import Settings
 # outer loop in modal_app.py (via check_all_due_trackers) and the dispatch
 # function to avoid overrunning the hard Modal timeout.
 DEADLINE_BUFFER_SECONDS = 30
+
+
+# ---------------------------------------------------------------------------
+# REST verification helpers
+# ---------------------------------------------------------------------------
+
+
+def _verify_repos_removed(
+    gh: GitHubClient,
+    candidate_urls: list[str],
+) -> list[str]:
+    """Filter candidate URLs to only those confirmed deleted by REST API.
+
+    GraphQL returning null for a repo does NOT reliably mean the repo is
+    deleted — it can also mean renamed, transient outage, or permission gap.
+    A REST GET returning 404 is a much stronger signal.
+    """
+    if not candidate_urls:
+        return []
+    verified: list[str] = []
+    for url in candidate_urls:
+        try:
+            owner, repo = parse_github_repo_url(url)
+        except ValueError:
+            verified.append(url)
+            continue
+        resp = gh.get(f"/repos/{owner}/{repo}")
+        if resp.status_code == 404:
+            verified.append(url)
+        else:
+            logger.info(
+                "REST check says {} still exists (HTTP {}), skipping removal",
+                url,
+                resp.status_code,
+            )
+    return verified
+
+
+def resurrect_removed_skills(settings: Settings) -> dict[str, int]:
+    """Re-check all skills marked source_repo_removed and clear false positives.
+
+    Queries all distinct source_repo_url values where source_repo_removed=true,
+    checks each via REST API, and clears the flag + re-enables trackers for
+    repos that are still accessible.
+
+    Returns a summary dict with counts.
+    """
+    from decision_hub.infra.database import (
+        clear_source_removed_for_urls,
+        create_engine,
+        fetch_removed_source_repo_urls,
+        reenable_trackers_for_urls,
+    )
+
+    engine = create_engine(settings.database_url)
+
+    with engine.connect() as conn:
+        removed_urls = fetch_removed_source_repo_urls(conn)
+
+    if not removed_urls:
+        logger.info("resurrect_removed_skills: no removed skills to check")
+        return {"checked": 0, "resurrected": 0, "confirmed_removed": 0}
+
+    logger.info("resurrect_removed_skills: checking {} removed repo URLs", len(removed_urls))
+
+    from decision_hub.infra.github_client import GitHubClient
+
+    github_token = _resolve_github_token(settings)
+    still_alive: list[str] = []
+
+    with GitHubClient(token=github_token) as gh:
+        for url in removed_urls:
+            try:
+                owner, repo = parse_github_repo_url(url)
+            except ValueError:
+                continue
+            resp = gh.get(f"/repos/{owner}/{repo}")
+            if resp.status_code != 404:
+                still_alive.append(url)
+
+    resurrected_skills = 0
+    resurrected_trackers = 0
+    if still_alive:
+        with engine.connect() as conn:
+            resurrected_skills = clear_source_removed_for_urls(conn, still_alive)
+            resurrected_trackers = reenable_trackers_for_urls(conn, still_alive)
+            conn.commit()
+
+    confirmed_removed = len(removed_urls) - len(still_alive)
+    logger.info(
+        "resurrect_removed_skills: checked={} alive={} confirmed_removed={} "
+        "skills_resurrected={} trackers_reenabled={}",
+        len(removed_urls),
+        len(still_alive),
+        confirmed_removed,
+        resurrected_skills,
+        resurrected_trackers,
+    )
+    return {
+        "checked": len(removed_urls),
+        "resurrected": len(still_alive),
+        "confirmed_removed": confirmed_removed,
+        "skills_resurrected": resurrected_skills,
+        "trackers_reenabled": resurrected_trackers,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Serialization helpers for Modal transport
@@ -149,73 +258,79 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         sha_map, failed_chunk_keys, stars_map, repo_metadata_map = batch_fetch_commit_shas(gh, unique_repos)
         rate_remaining = gh.rate_limit_remaining
 
-    # Classify trackers with transient awareness
-    unchanged_ids: list = []
-    errored_ids_transient: list = []
-    errored_ids_permanent: list = []
-    changed_trackers: list[tuple[SkillTracker, str]] = []
+        # Classify trackers with transient awareness
+        unchanged_ids: list = []
+        errored_ids_transient: list = []
+        errored_ids_permanent: list = []
+        changed_trackers: list[tuple[SkillTracker, str]] = []
 
-    for key, key_trackers in repo_key_to_trackers.items():
-        if key in failed_chunk_keys:
-            # Entire GraphQL chunk failed — transient error, will retry
-            errored_ids_transient.extend(t.id for t in key_trackers)
-            continue
+        for key, key_trackers in repo_key_to_trackers.items():
+            if key in failed_chunk_keys:
+                # Entire GraphQL chunk failed — transient error, will retry
+                errored_ids_transient.extend(t.id for t in key_trackers)
+                continue
 
-        current_sha = sha_map.get(key)
-        if current_sha is None:
-            # Repo resolved but returned no data — permanent error
-            errored_ids_permanent.extend(t.id for t in key_trackers)
-            continue
+            current_sha = sha_map.get(key)
+            if current_sha is None:
+                # Repo resolved but returned no data — permanent error
+                errored_ids_permanent.extend(t.id for t in key_trackers)
+                continue
 
-        for t in key_trackers:
-            if current_sha == t.last_commit_sha:
-                unchanged_ids.append(t.id)
-            else:
-                changed_trackers.append((t, current_sha))
+            for t in key_trackers:
+                if current_sha == t.last_commit_sha:
+                    unchanged_ids.append(t.id)
+                else:
+                    changed_trackers.append((t, current_sha))
 
-    errored = len(errored_ids_transient) + len(errored_ids_permanent)
-    unchanged = len(unchanged_ids)
+        errored = len(errored_ids_transient) + len(errored_ids_permanent)
+        unchanged = len(unchanged_ids)
 
-    # Batch DB writes — one UPDATE per category, single commit
-    with engine.connect() as conn:
-        batch_clear_tracker_errors(conn, unchanged_ids)
-        batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
-        batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
-        # Increment consecutive failure counter; only disable after threshold
-        if errored_ids_permanent:
-            threshold = settings.tracker_permanent_failure_threshold
-            over_threshold_ids = batch_increment_permanent_failures(
-                conn,
-                errored_ids_permanent,
-                threshold=threshold,
-            )
-            if over_threshold_ids:
-                over_threshold_set = set(over_threshold_ids)
-                batch_disable_trackers(conn, over_threshold_ids)
-                removed_urls = list(
-                    {
-                        t.repo_url
-                        for key, kts in repo_key_to_trackers.items()
-                        if key not in failed_chunk_keys and sha_map.get(key) is None
-                        for t in kts
-                        if t.id in over_threshold_set
-                    }
+        # Batch DB writes — one UPDATE per category, single commit
+        with engine.connect() as conn:
+            batch_clear_tracker_errors(conn, unchanged_ids)
+            batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
+            batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
+            # Increment consecutive failure counter; only disable after threshold
+            if errored_ids_permanent:
+                threshold = settings.tracker_permanent_failure_threshold
+                over_threshold_ids = batch_increment_permanent_failures(
+                    conn,
+                    errored_ids_permanent,
+                    threshold=threshold,
                 )
-                mark_skills_source_removed(conn, removed_urls)
-                logger.info(
-                    "permanent_failures: {} incremented, {} crossed threshold (>={}), {} repo URLs marked removed",
-                    len(errored_ids_permanent),
-                    len(over_threshold_ids),
-                    threshold,
-                    len(removed_urls),
-                )
-            else:
-                logger.info(
-                    "permanent_failures: {} incremented (threshold={}, none crossed yet)",
-                    len(errored_ids_permanent),
-                    threshold,
-                )
-        conn.commit()
+                if over_threshold_ids:
+                    over_threshold_set = set(over_threshold_ids)
+                    batch_disable_trackers(conn, over_threshold_ids)
+                    candidate_urls = list(
+                        {
+                            t.repo_url
+                            for key, kts in repo_key_to_trackers.items()
+                            if key not in failed_chunk_keys and sha_map.get(key) is None
+                            for t in kts
+                            if t.id in over_threshold_set
+                        }
+                    )
+                    # REST verification: only mark removed if GitHub REST API
+                    # confirms 404.  GraphQL null can be caused by renames,
+                    # transient issues, or permission gaps — not just deletion.
+                    verified_removed = _verify_repos_removed(gh, candidate_urls)
+                    mark_skills_source_removed(conn, verified_removed)
+                    logger.info(
+                        "permanent_failures: {} incremented, {} crossed threshold (>={}), "
+                        "{} candidates, {} verified removed via REST",
+                        len(errored_ids_permanent),
+                        len(over_threshold_ids),
+                        threshold,
+                        len(candidate_urls),
+                        len(verified_removed),
+                    )
+                else:
+                    logger.info(
+                        "permanent_failures: {} incremented (threshold={}, none crossed yet)",
+                        len(errored_ids_permanent),
+                        threshold,
+                    )
+            conn.commit()
 
     # Update github_stars on skills whose source_repo_url matches the tracked repos.
     # This runs every tick for all resolved repos — star counts change independently
