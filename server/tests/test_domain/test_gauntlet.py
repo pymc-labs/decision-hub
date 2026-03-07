@@ -1599,6 +1599,42 @@ class TestDecoyHitBypass:
         )
         assert result.severity == "pass"
 
+    def test_non_hit_review_receives_cleared_file_context(self):
+        """Holistic review receives context about already-cleared hit files.
+
+        Regression: pymc-labs/second-opinion was graded F because main.py
+        imports from api_clients.py, but the holistic review didn't know
+        api_clients.py existed in the package (it had regex hits and was
+        reviewed separately). The LLM hallucinated that the module was
+        missing/unverifiable.
+        """
+        source_files = [
+            ("scripts/api_clients.py", "error_lines.append(\"  export OPENAI_API_KEY='your-openai-key'\")\n"),
+            ("scripts/main.py", "from api_clients import validate_api_keys\nvalidate_api_keys()\n"),
+        ]
+
+        def approve_hits(snippets, hit_files, name, desc):
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "placeholder"} for s in snippets]
+
+        received_files = []
+
+        def capture_review(files, name, desc):
+            received_files.extend(f for f, _ in files)
+            return {"dangerous": False, "reason": "safe"}
+
+        check_safety_scan(
+            source_files,
+            skill_name="second-opinion",
+            skill_description="Query multiple LLMs",
+            analyze_fn=approve_hits,
+            review_code_fn=capture_review,
+        )
+        # The holistic review should receive context about cleared files
+        assert "_CLEARED_FILES.txt" in received_files, (
+            "Holistic review should receive a context note listing cleared hit files"
+        )
+        assert "scripts/main.py" in received_files, "Non-hit file should still be included in holistic review"
+
     def test_non_hit_review_not_called_when_stage2_fails(self):
         """Non-hit review is skipped when Stage 2 already fails."""
         call_count = 0
@@ -1863,3 +1899,348 @@ class TestSubprocessListFormTaintBypass:
 
         result = check_pipeline_taint(files)
         assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# Regression: real-world false positives from published skills
+# ---------------------------------------------------------------------------
+
+
+class TestRealWorldFalsePositives:
+    """Regression tests for skills that were incorrectly graded F.
+
+    These reproduce the exact patterns from published skills that triggered
+    false positives in earlier gauntlet versions. Each test verifies the
+    skill would now receive grade B (elevated permissions, but safe).
+    """
+
+    def test_slide_generator_fstring_url_not_credential(self):
+        """pymc-labs/slide-generator: f-string URL with {api_key} is not a hardcoded credential.
+
+        The entropy scanner previously flagged the f-string URL
+        ``f"{API_BASE}/...?key={api_key}"`` as a hardcoded credential.
+        The f-string allowlist now correctly recognizes {api_key} as
+        an interpolation variable, not a secret.
+        """
+        skill_md = (
+            "---\n"
+            "name: slide-generator\n"
+            "description: Generate presentation slides using Gemini Image Generation API\n"
+            "---\n"
+            "Generate slides with the Gemini API.\n"
+        )
+        source = (
+            "import os\n"
+            "from urllib.request import Request, urlopen\n"
+            "\n"
+            'API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"\n'
+            "\n"
+            'def generate_slide(api_key: str, model: str = "gemini-2.0-flash-exp"):\n'
+            '    model_id = "gemini-2.0-flash-exp"\n'
+            '    url = f"{API_BASE}/{model_id}:generateContent?key={api_key}"\n'
+            '    request = Request(url, method="POST")\n'
+            "    with urlopen(request, timeout=180) as response:\n"
+            "        return response.read()\n"
+            "\n"
+            'if __name__ == "__main__":\n'
+            "    import argparse\n"
+            "    parser = argparse.ArgumentParser()\n"
+            '    parser.add_argument("--api-key", default=os.environ.get("GEMINI_API_KEY"))\n'
+            "    args = parser.parse_args()\n"
+            "    if not args.api_key:\n"
+            '        print("Error: API key required. Use --api-key or set GEMINI_API_KEY")\n'
+        )
+
+        report = run_static_checks(
+            skill_md_content=skill_md,
+            lockfile_content=None,
+            source_files=[("scripts/generate_slides.py", source)],
+            skill_name="slide-generator",
+            skill_description="Generate presentation slides using Gemini Image Generation API",
+        )
+        assert report.grade == "B", (
+            f"slide-generator should be grade B (elevated permissions), got {report.grade}: "
+            + "; ".join(f"{r.check_name}={r.severity}" for r in report.results if r.severity != "pass")
+        )
+        cred_result = next(r for r in report.results if r.check_name == "embedded_credentials")
+        assert cred_result.passed is True, f"Credential check should pass: {cred_result.message}"
+
+    def test_second_opinion_placeholder_keys_not_credentials(self):
+        r"""pymc-labs/second-opinion: placeholder strings in error messages are not credentials.
+
+        The regex ``api_key=\s*['"]`` matched example env-var instructions
+        like ``export OPENAI_API_KEY='your-openai-key'``. These are clearly
+        placeholder values, not real secrets.
+
+        Additionally, the holistic review of non-hit files must not
+        hallucinate about "missing" modules that are in the package.
+        """
+        skill_md = (
+            "---\n"
+            "name: second-opinion\n"
+            "description: Query GPT-5.2 Pro and Gemini 3 Pro for alternative perspectives\n"
+            "---\n"
+            "Get a second opinion from other LLMs.\n"
+        )
+        api_clients = (
+            "import os\n"
+            "import httpx\n"
+            "\n"
+            "def validate_api_keys() -> tuple[bool, str]:\n"
+            '    openai_key = os.getenv("OPENAI_API_KEY")\n'
+            '    gemini_key = os.getenv("GEMINI_API_KEY")\n'
+            "    missing = []\n"
+            "    if not openai_key:\n"
+            '        missing.append("OPENAI_API_KEY")\n'
+            "    if not gemini_key:\n"
+            '        missing.append("GEMINI_API_KEY")\n'
+            "    if missing:\n"
+            '        error_lines = ["Missing API keys:"]\n'
+            '        if "OPENAI_API_KEY" in missing:\n'
+            "            error_lines.append(\"  export OPENAI_API_KEY='your-openai-key'\")\n"
+            '        if "GEMINI_API_KEY" in missing:\n'
+            "            error_lines.append(\"  export GEMINI_API_KEY='your-gemini-key'\")\n"
+            '        return False, "\\n".join(error_lines)\n'
+            '    return True, ""\n'
+            "\n"
+            "def query_openai(api_key: str, prompt: str) -> str:\n"
+            "    response = httpx.post(\n"
+            '        "https://api.openai.com/v1/chat/completions",\n'
+            '        headers={"Authorization": f"Bearer {api_key}"},\n'
+            '        json={"model": "gpt-5.2-pro", "messages": [{"role": "user", "content": prompt}]},\n'
+            "    )\n"
+            '    return response.json()["choices"][0]["message"]["content"]\n'
+        )
+        main_py = (
+            "from api_clients import validate_api_keys, query_openai\n"
+            "\n"
+            "def main():\n"
+            "    ok, err = validate_api_keys()\n"
+            "    if not ok:\n"
+            "        print(err)\n"
+            "        return\n"
+            '    result = query_openai("key", "hello")\n'
+            "    print(result)\n"
+        )
+        source_files = [
+            ("scripts/api_clients.py", api_clients),
+            ("scripts/main.py", main_py),
+        ]
+
+        # With LLM mocks that behave correctly (approve placeholders, safe review)
+        def approve_placeholders(snippets, hit_files, name, desc):
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "placeholder"} for s in snippets]
+
+        def safe_review(files, name, desc):
+            return {"dangerous": False, "reason": "safe"}
+
+        report = run_static_checks(
+            skill_md_content=skill_md,
+            lockfile_content=None,
+            source_files=source_files,
+            skill_name="second-opinion",
+            skill_description="Query GPT-5.2 Pro and Gemini 3 Pro for alternative perspectives",
+            analyze_fn=approve_placeholders,
+            review_code_fn=safe_review,
+        )
+        assert report.grade == "B", (
+            f"second-opinion should be grade B (elevated permissions), got {report.grade}: "
+            + "; ".join(
+                f"{r.check_name}={r.severity}: {r.message[:80]}" for r in report.results if r.severity != "pass"
+            )
+        )
+        cred_result = next(r for r in report.results if r.check_name == "embedded_credentials")
+        assert cred_result.passed is True, f"Credential check should pass: {cred_result.message}"
+        safety_result = next(r for r in report.results if r.check_name == "safety_scan")
+        assert safety_result.passed is True, f"Safety scan should pass: {safety_result.message}"
+
+    def test_sha256_hash_in_report_not_credential(self):
+        """aiskillstore/data-visualization: SHA-256 hashes are integrity checksums, not secrets.
+
+        skill-report.json often contains SHA-256 hashes for file integrity.
+        The entropy scanner flags these (high entropy) and the LLM judge
+        was confirming them as credentials.
+        """
+        report_json = (
+            "{\n"
+            '  "name": "data-visualization",\n'
+            '  "checksum": "52cbc5c8cc2a57c63e02b7d7890ea81f23656f1a3b2e4d5f6a7b8c9d0e1f2a3b",\n'
+            '  "files": {\n'
+            '    "main.py": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"\n'
+            "  }\n"
+            "}\n"
+        )
+        result = check_embedded_credentials(
+            "---\nname: test\ndescription: test\n---\n",
+            [("skill-report.json", report_json)],
+            skill_name="data-visualization",
+            skill_description="Create data visualizations",
+        )
+        assert result.passed is True, f"SHA-256 hashes should not be flagged: {result.message}"
+
+    def test_graphviz_subprocess_not_dangerous(self):
+        """aiskillstore/writing-skills: subprocess calls to Graphviz dot are legitimate.
+
+        Skills that render Graphviz diagrams use subprocess.run(["dot", ...]).
+        The safety scan should not flag well-known CLI tools.
+        """
+        source = (
+            "import subprocess\n"
+            "import os\n"
+            "\n"
+            "def render_graph(dot_file: str, output: str) -> None:\n"
+            "    subprocess.run(\n"
+            '        ["dot", "-Tpng", dot_file, "-o", output],\n'
+            "        check=True,\n"
+            "    )\n"
+        )
+
+        def approve_graphviz(snippets, hit_files, name, desc):
+            return [
+                {**s, "dangerous": False, "ambiguous": False, "reason": "graphviz dot invocation"} for s in snippets
+            ]
+
+        result = check_safety_scan(
+            [("render-graphs.py", source)],
+            skill_name="writing-skills",
+            skill_description="Skill for writing documentation with diagrams",
+            analyze_fn=approve_graphviz,
+        )
+        assert result.passed is True, f"Graphviz subprocess should pass: {result.message}"
+
+    def test_ffmpeg_subprocess_not_dangerous(self):
+        """hainamchung/media-processing: subprocess calls to ffmpeg are legitimate.
+
+        Media processing skills invoke ffmpeg via subprocess. This is
+        standard CLI tool usage, not a security risk.
+        """
+        source = (
+            "import subprocess\n"
+            "\n"
+            "def convert_video(input_path: str, output_path: str) -> None:\n"
+            "    subprocess.run(\n"
+            '        ["ffmpeg", "-i", input_path, "-c:v", "libx264", output_path],\n'
+            "        check=True,\n"
+            "    )\n"
+        )
+
+        def approve_ffmpeg(snippets, hit_files, name, desc):
+            return [
+                {**s, "dangerous": False, "ambiguous": False, "reason": "ffmpeg media conversion"} for s in snippets
+            ]
+
+        result = check_safety_scan(
+            [("media_convert.py", source)],
+            skill_name="media-processing",
+            skill_description="Convert and process media files",
+            analyze_fn=approve_ffmpeg,
+        )
+        assert result.passed is True, f"ffmpeg subprocess should pass: {result.message}"
+
+    def test_libreoffice_subprocess_not_dangerous(self):
+        """wenjunduan/xlsx: subprocess calls to libreoffice for recalc are legitimate."""
+        source = (
+            "import subprocess\n"
+            "\n"
+            "def recalc_spreadsheet(filepath: str) -> None:\n"
+            "    subprocess.run(\n"
+            '        ["libreoffice", "--headless", "--calc", "--convert-to", "xlsx", filepath],\n'
+            "        check=True,\n"
+            "    )\n"
+        )
+
+        def approve_libreoffice(snippets, hit_files, name, desc):
+            return [{**s, "dangerous": False, "ambiguous": False, "reason": "libreoffice recalc"} for s in snippets]
+
+        result = check_safety_scan(
+            [("recalc.py", source)],
+            skill_name="xlsx",
+            skill_description="Excel file processor",
+            analyze_fn=approve_libreoffice,
+        )
+        assert result.passed is True, f"libreoffice subprocess should pass: {result.message}"
+
+    def test_localhost_curl_not_exfiltration(self):
+        """aiskillstore/ai-maestro: curl to localhost is not exfiltration.
+
+        Documentation showing curl to localhost APIs should not trigger
+        the exfiltration URL pattern.
+        """
+        body = (
+            "## Usage\n\n"
+            "Start the local server, then query it:\n\n"
+            "```bash\n"
+            "curl http://localhost:23000/api/agents\n"
+            "```\n"
+        )
+
+        def approve_localhost(hits, name, desc):
+            return [
+                {
+                    **h,
+                    "dangerous": False,
+                    "ambiguous": False,
+                    "reason": "localhost URL",
+                }
+                for h in hits
+            ]
+
+        result = check_prompt_safety(
+            body,
+            skill_name="ai-maestro",
+            skill_description="Documentation search tool",
+            analyze_prompt_fn=approve_localhost,
+        )
+        assert result.passed is True, f"localhost curl should pass: {result.message}"
+
+    def test_documentation_credential_example_not_flagged(self):
+        """a5c-ai/mlflow-experiment-tracker: example credentials in README are not real.
+
+        README setup instructions with placeholder passwords like
+        password="example" should not be flagged as hardcoded credentials.
+        """
+        readme = (
+            "# MLflow Setup\n\n"
+            "## Quick Start\n\n"
+            "```python\n"
+            "import mlflow\n"
+            'mlflow.set_tracking_uri("http://localhost:5000")\n'
+            'mlflow.set_experiment("my-experiment")\n'
+            "```\n\n"
+            "## Configuration\n\n"
+            "```yaml\n"
+            "artifact_store:\n"
+            "  type: s3\n"
+            "  bucket: mlflow-artifacts\n"
+            "```\n"
+        )
+        result = check_embedded_credentials(
+            "---\nname: test\ndescription: test\n---\n",
+            [("README.md", readme)],
+            skill_name="mlflow-experiment-tracker",
+            skill_description="Track ML experiments with MLflow",
+        )
+        assert result.passed is True, f"README examples should not be flagged: {result.message}"
+
+    def test_grep_for_api_key_not_credential(self):
+        """coffelix2023/build-app-step01: code that searches for API keys is not embedding them.
+
+        A preflight script that checks if OPENAI_API_KEY is set via grep/regex
+        should not be flagged as containing hardcoded credentials.
+        """
+        preflight = (
+            "#!/bin/bash\n"
+            'if [ -z "$OPENAI_API_KEY" ]; then\n'
+            '  echo "Error: OPENAI_API_KEY is not set"\n'
+            '  echo "Run: export OPENAI_API_KEY=your-key-here"\n'
+            "  exit 1\n"
+            "fi\n"
+            'echo "All API keys are configured"\n'
+        )
+        result = check_embedded_credentials(
+            "---\nname: test\ndescription: test\n---\n",
+            [("scripts/preflight_check.sh", preflight)],
+            skill_name="build-app-step01",
+            skill_description="Build application step by step",
+        )
+        assert result.passed is True, f"Preflight key check should not be flagged: {result.message}"
