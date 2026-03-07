@@ -17,6 +17,8 @@ import uuid
 from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+_SENSITIVE_URL_PARAM_RE = re.compile(r"(\bkey=)[^&\s\"']+")
+
 
 class _InterceptHandler(logging.Handler):
     """Bridge stdlib logging → loguru.
@@ -43,7 +45,8 @@ class _InterceptHandler(logging.Handler):
                 continue
             break
 
-        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+        msg = _SENSITIVE_URL_PARAM_RE.sub(r"\1[REDACTED]", record.getMessage())
+        logger.opt(depth=depth, exception=record.exc_info).log(level, msg)
 
 
 def _format_record(record: dict) -> str:

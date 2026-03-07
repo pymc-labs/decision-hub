@@ -9,6 +9,7 @@ from loguru import logger
 
 from decision_hub.logging import (
     _PATH_CONTEXT_RE,
+    _SENSITIVE_URL_PARAM_RE,
     _extract_username_from_jwt,
     setup_logging,
 )
@@ -125,6 +126,32 @@ class TestPathContextRegex:
         org, skill = _extract_org_skill(path)
         assert org == ""
         assert skill == ""
+
+
+class TestSensitiveUrlParamRedaction:
+    def test_redacts_gemini_api_key_in_url(self):
+        msg = 'HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyCreSRWwVxshBxiy5ZnmlxrED7HmW-ouRs "HTTP/1.1 200 OK"'
+        result = _SENSITIVE_URL_PARAM_RE.sub(r"\1[REDACTED]", msg)
+        assert "AIzaSy" not in result
+        assert "key=[REDACTED]" in result
+
+    def test_redacts_key_preserving_other_params(self):
+        msg = "GET https://api.example.com/v1?key=secret123&other=value"
+        result = _SENSITIVE_URL_PARAM_RE.sub(r"\1[REDACTED]", msg)
+        assert "secret123" not in result
+        assert "key=[REDACTED]&other=value" in result
+
+    def test_no_change_when_no_key_param(self):
+        msg = "Normal log message with no sensitive data"
+        result = _SENSITIVE_URL_PARAM_RE.sub(r"\1[REDACTED]", msg)
+        assert result == msg
+
+    def test_redacts_multiple_keys(self):
+        msg = "key=abc123 and key=def456"
+        result = _SENSITIVE_URL_PARAM_RE.sub(r"\1[REDACTED]", msg)
+        assert "abc123" not in result
+        assert "def456" not in result
+        assert result.count("[REDACTED]") == 2
 
 
 class TestExtractUsernameFromJwt:
