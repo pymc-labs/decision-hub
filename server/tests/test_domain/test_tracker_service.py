@@ -994,7 +994,7 @@ class TestAutoDisablePermanentErrors:
     @patch("decision_hub.infra.github_client.GitHubClient")
     @patch("decision_hub.infra.database.claim_due_trackers")
     @patch("decision_hub.infra.database.create_engine")
-    def test_threshold_crossed_disables_and_marks_removed(
+    def test_threshold_crossed_disables_and_marks_removed_when_rest_confirms_404(
         self,
         mock_create_engine,
         mock_claim,
@@ -1009,8 +1009,8 @@ class TestAutoDisablePermanentErrors:
         mock_dispatch,
         _mock_token,
     ):
-        """When consecutive failures cross the threshold, the tracker should be
-        disabled and skills marked as removed."""
+        """When consecutive failures cross the threshold AND REST confirms 404,
+        the tracker should be disabled and skills marked as removed."""
         tracker = self._make_tracker()
         mock_conn, mock_settings = self._setup_mocks(
             mock_create_engine,
@@ -1022,6 +1022,12 @@ class TestAutoDisablePermanentErrors:
         # Counter crossed threshold — return this tracker's ID
         mock_increment.return_value = [tracker.id]
 
+        # REST verification returns 404 — repo is truly gone
+        mock_gh_instance = mock_gh_class.return_value.__enter__.return_value
+        mock_rest_resp = MagicMock()
+        mock_rest_resp.status_code = 404
+        mock_gh_instance.get.return_value = mock_rest_resp
+
         result = check_all_due_trackers(mock_settings)
 
         assert result.errored == 1
@@ -1030,6 +1036,172 @@ class TestAutoDisablePermanentErrors:
         mock_mark_removed.assert_called_once()
         removed_urls = mock_mark_removed.call_args[0][1]
         assert "https://github.com/myorg/deleted-repo" in removed_urls
+        # REST was called to verify
+        mock_gh_instance.get.assert_called_once_with("/repos/myorg/deleted-repo")
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    @patch("decision_hub.infra.database.batch_disable_trackers")
+    @patch("decision_hub.infra.database.batch_increment_permanent_failures")
+    @patch("decision_hub.infra.database.mark_skills_source_removed")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_threshold_crossed_but_rest_says_alive_skips_removal(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_mark_removed,
+        mock_increment,
+        mock_batch_disable,
+        mock_batch_set_errors,
+        mock_batch_clear_errors,
+        mock_batch_defer,
+        mock_dispatch,
+        _mock_token,
+    ):
+        """When consecutive failures cross the threshold but REST returns 200,
+        the tracker should be disabled but skills should NOT be marked removed."""
+        tracker = self._make_tracker()
+        mock_conn, mock_settings = self._setup_mocks(
+            mock_create_engine,
+            mock_claim,
+            mock_gh_class,
+            mock_batch_fetch,
+            [tracker],
+        )
+        mock_increment.return_value = [tracker.id]
+
+        # REST verification returns 200 — repo still exists
+        mock_gh_instance = mock_gh_class.return_value.__enter__.return_value
+        mock_rest_resp = MagicMock()
+        mock_rest_resp.status_code = 200
+        mock_gh_instance.get.return_value = mock_rest_resp
+
+        result = check_all_due_trackers(mock_settings)
+
+        assert result.errored == 1
+        mock_batch_disable.assert_called_once_with(mock_conn, [tracker.id])
+        # mark_skills_source_removed should be called with an EMPTY list
+        mock_mark_removed.assert_called_once_with(mock_conn, [])
+        mock_gh_instance.get.assert_called_once_with("/repos/myorg/deleted-repo")
+
+
+class TestVerifyReposRemoved:
+    """Unit tests for _verify_repos_removed."""
+
+    def test_filters_to_only_404_repos(self):
+        from decision_hub.domain.tracker_service import _verify_repos_removed
+
+        mock_gh = MagicMock()
+        resp_404 = MagicMock(status_code=404)
+        resp_200 = MagicMock(status_code=200)
+        mock_gh.get.side_effect = [resp_404, resp_200, resp_404]
+
+        urls = [
+            "https://github.com/org/gone1",
+            "https://github.com/org/still-alive",
+            "https://github.com/org/gone2",
+        ]
+        result = _verify_repos_removed(mock_gh, urls)
+
+        assert result == [
+            "https://github.com/org/gone1",
+            "https://github.com/org/gone2",
+        ]
+        assert mock_gh.get.call_count == 3
+
+    def test_empty_list_returns_empty(self):
+        from decision_hub.domain.tracker_service import _verify_repos_removed
+
+        mock_gh = MagicMock()
+        assert _verify_repos_removed(mock_gh, []) == []
+        mock_gh.get.assert_not_called()
+
+    def test_invalid_url_treated_as_removed(self):
+        from decision_hub.domain.tracker_service import _verify_repos_removed
+
+        mock_gh = MagicMock()
+        result = _verify_repos_removed(mock_gh, ["not-a-github-url"])
+        assert result == ["not-a-github-url"]
+        mock_gh.get.assert_not_called()
+
+
+class TestResurrectRemovedSkills:
+    """Unit tests for resurrect_removed_skills."""
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.reenable_trackers_for_urls", return_value=2)
+    @patch("decision_hub.infra.database.clear_source_removed_for_urls", return_value=5)
+    @patch("decision_hub.infra.database.fetch_removed_source_repo_urls")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_resurrects_alive_repos(
+        self,
+        mock_engine,
+        mock_fetch_removed,
+        mock_clear_removed,
+        mock_reenable,
+        mock_gh_class,
+        _mock_token,
+    ):
+        from decision_hub.domain.tracker_service import resurrect_removed_skills
+
+        mock_conn = MagicMock()
+        mock_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_fetch_removed.return_value = [
+            "https://github.com/org/alive-repo",
+            "https://github.com/org/gone-repo",
+        ]
+
+        # First call (alive-repo) returns 200, second (gone-repo) returns 404
+        mock_gh_instance = MagicMock()
+        resp_200 = MagicMock(status_code=200)
+        resp_404 = MagicMock(status_code=404)
+        mock_gh_instance.get.side_effect = [resp_200, resp_404]
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        result = resurrect_removed_skills(mock_settings)
+
+        assert result["checked"] == 2
+        assert result["resurrected"] == 1
+        assert result["confirmed_removed"] == 1
+        assert result["skills_resurrected"] == 5
+        assert result["trackers_reenabled"] == 2
+
+        mock_clear_removed.assert_called_once_with(mock_conn, ["https://github.com/org/alive-repo"])
+        mock_reenable.assert_called_once_with(mock_conn, ["https://github.com/org/alive-repo"])
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test")
+    @patch("decision_hub.infra.database.fetch_removed_source_repo_urls")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_no_removed_skills_is_noop(
+        self,
+        mock_engine,
+        mock_fetch_removed,
+        _mock_token,
+    ):
+        from decision_hub.domain.tracker_service import resurrect_removed_skills
+
+        mock_conn = MagicMock()
+        mock_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_fetch_removed.return_value = []
+
+        mock_settings = MagicMock()
+        result = resurrect_removed_skills(mock_settings)
+
+        assert result == {"checked": 0, "resurrected": 0, "confirmed_removed": 0}
 
 
 class TestProcessTrackerNoSkillsDisables:

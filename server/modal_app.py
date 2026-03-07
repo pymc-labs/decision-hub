@@ -366,3 +366,25 @@ def check_trackers():
         elapsed,
     )
     print(f"[check_trackers] Checked {total_checked} tracker(s) in {iterations} iteration(s)", flush=True)
+
+
+@app.function(image=crawler_image, timeout=600, schedule=modal.Cron("0 5 * * 0"))
+def resurrect_removed_skills():
+    """Weekly sweep (Sunday 5am UTC): re-check skills marked source_repo_removed.
+
+    Queries all removed repo URLs, verifies each via REST API, and clears the
+    flag for repos that are still accessible. Self-healing for false positives
+    caused by transient GraphQL failures, repo renames, or permission gaps.
+    """
+    from loguru import logger
+
+    from decision_hub.domain.tracker_service import resurrect_removed_skills as _resurrect
+    from decision_hub.logging import setup_logging
+    from decision_hub.settings import create_settings
+
+    settings = create_settings()
+    setup_logging(settings.log_level)
+
+    result = _resurrect(settings)
+    logger.info("resurrect_removed_skills result={}", result)
+    print(f"[resurrect_removed_skills] {result}", flush=True)

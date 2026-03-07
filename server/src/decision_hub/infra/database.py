@@ -3031,6 +3031,49 @@ def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
     return conn.execute(stmt).rowcount
 
 
+def fetch_removed_source_repo_urls(conn: Connection) -> list[str]:
+    """Return distinct source_repo_url values for skills marked as removed."""
+    stmt = (
+        sa.select(sa.distinct(skills_table.c.source_repo_url))
+        .where(
+            skills_table.c.source_repo_removed == sa.true(),
+            skills_table.c.source_repo_url.isnot(None),
+        )
+        .order_by(skills_table.c.source_repo_url)
+    )
+    return [row[0] for row in conn.execute(stmt)]
+
+
+def clear_source_removed_for_urls(conn: Connection, repo_urls: list[str]) -> int:
+    """Set source_repo_removed=False for skills matching any of the given repo URLs."""
+    if not repo_urls:
+        return 0
+    conditions = [
+        sa.or_(
+            skills_table.c.source_repo_url == url,
+            skills_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+        )
+        for url in repo_urls
+    ]
+    stmt = sa.update(skills_table).where(sa.or_(*conditions)).values(source_repo_removed=False)
+    return conn.execute(stmt).rowcount
+
+
+def reenable_trackers_for_urls(conn: Connection, repo_urls: list[str]) -> int:
+    """Re-enable disabled trackers and reset failure counters for the given repo URLs."""
+    if not repo_urls:
+        return 0
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(
+            skill_trackers_table.c.repo_url.in_(repo_urls),
+            skill_trackers_table.c.enabled == sa.false(),
+        )
+        .values(enabled=True, consecutive_permanent_failures=0, last_error=None)
+    )
+    return conn.execute(stmt).rowcount
+
+
 # ---------------------------------------------------------------------------
 # Tracker metrics
 # ---------------------------------------------------------------------------
