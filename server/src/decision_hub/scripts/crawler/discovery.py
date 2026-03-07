@@ -157,6 +157,7 @@ def resolve_repos(
             clone_url=d["clone_url"],
             stars=d.get("stargazers_count", 0),
             description=d.get("description") or "",
+            archived=False,
         )
         logger.info("Resolved repo: {} ({}★)", full_name, repos[full_name].stars)
 
@@ -303,6 +304,7 @@ def search_by_topic(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict[str
                         clone_url=item["clone_url"],
                         stars=item.get("stargazers_count", 0),
                         description=item.get("description") or "",
+                        archived=False,
                     )
             if len(items) < 100:
                 break
@@ -356,6 +358,7 @@ def scan_forks(
                         clone_url=fork["clone_url"],
                         stars=fork.get("stargazers_count", 0),
                         description=fork.get("description") or "",
+                        archived=False,
                     )
             if len(forks) < 100:
                 break
@@ -420,6 +423,7 @@ def parse_curated_lists(gh: "GitHubClient", stats: CrawlStats) -> Generator[dict
                 clone_url=d["clone_url"],
                 stars=d.get("stargazers_count", 0),
                 description=d.get("description") or "",
+                archived=False,
             )
         logger.info("Curated '{}': {} refs", list_repo, len(refs))
         if batch:

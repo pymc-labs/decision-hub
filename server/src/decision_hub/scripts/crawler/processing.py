@@ -171,9 +171,13 @@ def process_repo_on_modal(
             result["error"] = f"Invalid org slug: {slug}"
             return result
 
-        # Skip archived repos — code search discovery doesn't include
-        # the archived flag, so we check here as a catch-all.
-        if _is_repo_archived(repo_dict["full_name"], github_token):
+        # Skip archived repos. Most discovery strategies filter archived
+        # repos during discovery, but code search (size/path) doesn't have
+        # the archived flag — only call the API when we don't already know.
+        is_archived = repo_dict.get("archived")
+        if is_archived is None:
+            is_archived = _is_repo_archived(repo_dict["full_name"], github_token)
+        if is_archived:
             result["status"] = "skipped"
             result["error"] = "Repo is archived"
             logger.info("Skipping archived repo {}", repo_dict["full_name"])
@@ -341,6 +345,10 @@ def _publish_one_skill(
     Returns a status string: "published", "skipped", "quarantined", or "failed".
     """
     # Phase 1: prepare — DB reads + skill upsert (short connection)
+    # Note: in force mode, _prepare_skill may delete the existing version.
+    # This commit makes the deletion visible before _finalize_skill re-creates
+    # it, so there's a brief window where the version doesn't exist. This is
+    # acceptable because force mode is only used in manual crawler runs.
     with engine.connect() as conn:
         prep = _prepare_skill(conn, settings, org, skill_dir, source_repo_url=source_repo_url, force=force)
         conn.commit()

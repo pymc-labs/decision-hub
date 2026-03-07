@@ -1246,6 +1246,21 @@ def list_user_org_ids(conn: Connection, user_id: UUID) -> list[UUID]:
     return [row.org_id for row in rows]
 
 
+def _exclude_removed_or_archived(stmt: sa.Select) -> sa.Select:
+    """Exclude skills whose source repo was removed or is archived on GitHub.
+
+    source_repo_removed is NOT NULL (server_default=false), so a simple == check
+    suffices. github_is_archived is nullable — NULL means "unknown", treated as
+    not-archived to avoid hiding skills that predate the column.
+    """
+    return stmt.where(skills_table.c.source_repo_removed == sa.false()).where(
+        sa.or_(
+            skills_table.c.github_is_archived.is_(None),
+            skills_table.c.github_is_archived == sa.false(),
+        )
+    )
+
+
 def _apply_visibility_filter(
     stmt: sa.Select,
     user_org_ids: list[UUID] | None,
@@ -1756,14 +1771,8 @@ def fetch_all_skills_for_index(
             )
         )
         .where(skills_table.c.latest_semver.isnot(None))
-        .where(skills_table.c.source_repo_removed == sa.false())
-        .where(
-            sa.or_(
-                skills_table.c.github_is_archived.is_(None),
-                skills_table.c.github_is_archived == sa.false(),
-            )
-        )
     )
+    base = _exclude_removed_or_archived(base)
 
     # Visibility filter
     base = _apply_visibility_filter(base, user_org_ids, granted_skill_ids)
@@ -1834,14 +1843,8 @@ def fetch_all_skills_for_index(
                 )
             )
             .where(skills_table.c.latest_semver.isnot(None))
-            .where(skills_table.c.source_repo_removed == sa.false())
-            .where(
-                sa.or_(
-                    skills_table.c.github_is_archived.is_(None),
-                    skills_table.c.github_is_archived == sa.false(),
-                )
-            )
         )
+        count_q = _exclude_removed_or_archived(count_q)
         count_q = _apply_visibility_filter(count_q, user_org_ids, granted_skill_ids)
         count_q = _build_skills_filters(count_q, search=search, org_slug=org_slug, category=category, grade=grade)
         total = conn.execute(count_q).scalar_one()
@@ -1949,14 +1952,8 @@ def search_skills_hybrid(
                 )
             )
             .where(skills_table.c.latest_semver.isnot(None))
-            .where(skills_table.c.source_repo_removed == sa.false())
-            .where(
-                sa.or_(
-                    skills_table.c.github_is_archived.is_(None),
-                    skills_table.c.github_is_archived == sa.false(),
-                )
-            )
         )
+        stmt = _exclude_removed_or_archived(stmt)
 
         stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
         if category:

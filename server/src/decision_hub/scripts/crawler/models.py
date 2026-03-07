@@ -14,6 +14,7 @@ class DiscoveredRepo:
     stars: int = 0
     description: str = ""
     is_trusted: bool = False
+    archived: bool | None = None  # None = unknown (code search doesn't provide it)
 
 
 @dataclass
@@ -57,6 +58,7 @@ def repo_to_dict(repo: DiscoveredRepo) -> dict:
         "stars": repo.stars,
         "description": repo.description,
         "is_trusted": repo.is_trusted,
+        "archived": repo.archived,
     }
 
 
@@ -70,4 +72,5 @@ def dict_to_repo(d: dict) -> DiscoveredRepo:
         stars=d.get("stars", 0),
         description=d.get("description", ""),
         is_trusted=d.get("is_trusted", False),
+        archived=d.get("archived", False),
     )
