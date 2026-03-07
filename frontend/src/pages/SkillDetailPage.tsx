@@ -17,8 +17,6 @@ import {
   Star,
   Scale,
   RefreshCw,
-  CheckCircle,
-  XCircle,
   AlertTriangle,
 } from "lucide-react";
 import JSZip from "jszip";
@@ -36,13 +34,13 @@ import {
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
 import { useRecentlyViewed } from "../hooks/useRecentlyViewed";
-import type { SkillSummary, EvalReport, AuditLogEntry, CheckResult, PaginatedAuditLogResponse, SkillFile, SimilarSkillRef } from "../types/api";
+import type { SkillSummary, EvalReport, AuditLogEntry, PaginatedAuditLogResponse, SkillFile, SimilarSkillRef } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import EvalReportView from "../components/EvalReportView";
 import FileBrowser from "../components/FileBrowser";
-import { formatCheckName } from "./auditUtils";
+import CheckResultsGrid from "../components/CheckResultsGrid";
 import { LINK_TO_MANIFEST } from "../featureFlags";
 import styles from "./SkillDetailPage.module.css";
 
@@ -603,50 +601,8 @@ function FilesTab({
   return <FileBrowser files={files} />;
 }
 
-export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
-
-  return (
-    <div className={styles.auditChecks}>
-      <h5 className={styles.auditCheckTitle}>Safety Checks</h5>
-      <div className={styles.checkGrid}>
-        {checks.map((check, i) => {
-          const severity = check.severity ?? "";
-          const checkName = check.check_name ?? "unknown";
-          const message = check.message ?? "";
-          const SeverityIcon =
-            severity === "pass"
-              ? CheckCircle
-              : severity === "fail"
-                ? XCircle
-                : AlertTriangle;
-          const severityClass =
-            severity === "pass"
-              ? styles.severityPass
-              : severity === "fail"
-                ? styles.severityFail
-                : styles.severityWarn;
-          const isExpanded = expandedIndex === i;
-          return (
-            <div
-              key={i}
-              className={`${styles.checkCard} ${severityClass}`}
-              onClick={() => setExpandedIndex(isExpanded ? null : i)}
-            >
-              <div className={styles.checkHeader}>
-                <SeverityIcon size={14} className={styles.checkIcon} />
-                <span className={styles.checkName}>{formatCheckName(checkName)}</span>
-              </div>
-              <span className={`${styles.checkMessage} ${isExpanded ? styles.checkMessageExpanded : ""}`}>
-                {message}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// Re-export for backward compatibility with tests
+export { default as CheckResultsGrid } from "../components/CheckResultsGrid";
 
 function AuditTab({
   entries,

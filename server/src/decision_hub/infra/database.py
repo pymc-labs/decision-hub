@@ -3728,6 +3728,24 @@ def increment_plugin_downloads(conn: Connection, plugin_id: UUID) -> None:
     )
 
 
+def fetch_plugin_skills(conn: Connection, plugin_id: UUID) -> list[dict]:
+    """Return published skills that belong to a plugin (via deprecated_by_plugin_id)."""
+    stmt = (
+        sa.select(
+            organizations_table.c.slug.label("org_slug"),
+            skills_table.c.name.label("skill_name"),
+            skills_table.c.description,
+            skills_table.c.latest_semver.label("latest_version"),
+            skills_table.c.latest_eval_status.label("eval_status"),
+            skills_table.c.download_count,
+        )
+        .join(organizations_table, skills_table.c.org_id == organizations_table.c.id)
+        .where(skills_table.c.deprecated_by_plugin_id == plugin_id)
+        .order_by(skills_table.c.name)
+    )
+    return [dict(row._mapping) for row in conn.execute(stmt).all()]
+
+
 def fetch_paginated_plugins(
     conn: Connection,
     *,

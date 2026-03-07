@@ -212,6 +212,116 @@
   animation: fadeIn 0.2s ease;
 }
 
+/* README markdown */
+.readmeSection {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 28px;
+}
+
+.readmeSection > :first-child {
+  margin-top: 0;
+}
+
+.readmeSection h1, .readmeSection h2, .readmeSection h3, .readmeSection h4 {
+  color: var(--text-primary);
+  margin: 1.5em 0 0.5em;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.readmeSection h1 { font-size: var(--text-heading); color: var(--neon-cyan); }
+.readmeSection h2 { font-size: var(--text-lg); border-bottom: 1px solid var(--border-color); padding-bottom: 6px; }
+.readmeSection h3 { font-size: var(--text-body); }
+
+.readmeSection p { margin: 0 0 1em; }
+
+.readmeSection ul, .readmeSection ol {
+  margin: 0 0 1em 1.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.readmeSection code {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85em;
+  color: var(--neon-green);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.readmeSection pre {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0 0 1em;
+}
+
+.readmeSection pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+.readmeSection blockquote {
+  border-left: 3px solid var(--neon-cyan);
+  margin: 0 0 1em;
+  padding: 4px 16px;
+  color: var(--text-muted);
+}
+
+.readmeSection a { color: var(--neon-cyan); }
+.readmeSection a:hover { text-decoration: underline; }
+
+.readmeSection hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 1.5em 0;
+}
+
+.readmeSection table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  font-size: var(--text-sm);
+  overflow-x: auto;
+  display: block;
+}
+
+.readmeSection th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--neon-cyan);
+  font-weight: 600;
+  font-family: 'Orbitron', sans-serif;
+  font-size: var(--text-xs);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.readmeSection td {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.readmeSection tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.readmeSection img {
+  max-width: 100%;
+  height: auto;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -248,6 +358,20 @@
   overflow-x: auto;
 }
 
+.codeBlock + .codeBlock {
+  margin-top: 6px;
+}
+
+.installHint {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.installHint:not(:first-child) {
+  margin-top: 16px;
+}
+
 .descText {
   font-size: var(--text-body);
   color: var(--text-secondary);
@@ -261,10 +385,15 @@
   gap: 12px;
 }
 
+.skillLink {
+  text-decoration: none !important;
+  color: inherit !important;
+}
+
 .skillCard {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   padding: 12px 14px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -274,6 +403,13 @@
 
 .skillCard:hover {
   border-color: rgba(180, 0, 255, 0.4);
+}
+
+.skillCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .skillName {
@@ -292,9 +428,27 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  flex: 1;
 }
 
-.skillPath {
+.skillCardMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color);
+}
+
+.skillVersion {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--text-xxs);
+  color: var(--neon-cyan);
+}
+
+.skillDownloads {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-xxs);
   color: var(--text-muted);
@@ -344,7 +498,37 @@
   padding: 1px 6px;
 }
 
-/* Tag lists (agents, commands, keywords) */
+/* Component lists (agents, commands) */
+.componentList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.componentItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  transition: border-color 0.15s ease;
+}
+
+.componentItem:hover {
+  border-color: rgba(180, 0, 255, 0.4);
+}
+
+.componentItem svg {
+  color: var(--neon-cyan);
+  flex-shrink: 0;
+}
+
+/* Tag lists (keywords) */
 .tagList {
   display: flex;
   gap: 8px;

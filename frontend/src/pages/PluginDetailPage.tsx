@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -17,17 +17,26 @@ import {
   Terminal,
   Bot,
   Webhook,
+  FolderOpen,
 } from "lucide-react";
-import { getPluginDetail, getPluginVersions, getPluginAuditLog } from "../api/client";
+import JSZip from "jszip";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
+import { getPluginDetail, getPluginVersions, getPluginAuditLog, downloadPluginZip } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
-import type { PluginDetail, PluginVersionEntry, PluginAuditEntry } from "../types/api";
+import type { PluginDetail, PluginVersionEntry, PluginAuditEntry, SkillFile } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import CheckResultsGrid from "../components/CheckResultsGrid";
+import FileBrowser from "../components/FileBrowser";
 import styles from "./PluginDetailPage.module.css";
 
-type Tab = "overview" | "versions" | "audit";
+const REMARK_PLUGINS: PluggableList = [remarkGfm];
+
+type Tab = "overview" | "files" | "versions" | "audit";
 
 export default function PluginDetailPage() {
   const { orgSlug, pluginName } = useParams<{
@@ -36,6 +45,28 @@ export default function PluginDetailPage() {
   }>();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [copied, setCopied] = useState(false);
+  const [zipData, setZipData] = useState<ArrayBuffer | null>(null);
+  const [zipLoading, setZipLoading] = useState(false);
+  const [zipError, setZipError] = useState<string | null>(null);
+  const [files, setFiles] = useState<SkillFile[]>([]);
+  const [readmeContent, setReadmeContent] = useState<string | null>(null);
+  const zipRetries = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const MAX_ZIP_ATTEMPTS = 3;
+
+  // Reset zip state when navigating to a different plugin
+  useEffect(() => {
+    setZipData(null);
+    setZipError(null);
+    setZipLoading(false);
+    setFiles([]);
+    setReadmeContent(null);
+    zipRetries.current = 0;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  }, [orgSlug, pluginName]);
 
   const { data: plugin, loading: pluginLoading } = useApi<PluginDetail>(
     () => getPluginDetail(orgSlug!, pluginName!),
@@ -84,6 +115,57 @@ export default function PluginDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const loadZip = useCallback(async () => {
+    if (!orgSlug || !pluginName || zipData || zipLoading) return;
+    setZipLoading(true);
+    setZipError(null);
+    try {
+      const buf = await downloadPluginZip(orgSlug, pluginName);
+      const zip = await JSZip.loadAsync(buf);
+
+      // Extract README.md (case-insensitive)
+      const readmeEntry = Object.values(zip.files).find(
+        (f) => !f.dir && /^readme\.md$/i.test(f.name.split("/").pop() ?? ""),
+      );
+      if (readmeEntry) {
+        const raw = await readmeEntry.async("string");
+        setReadmeContent(raw);
+      }
+
+      const fileList: SkillFile[] = [];
+      for (const [path, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        const content = await entry.async("string");
+        fileList.push({ path, content, size: content.length });
+      }
+      setFiles(fileList);
+      setZipData(buf);
+      zipRetries.current = 0;
+    } catch (err) {
+      zipRetries.current += 1;
+      if (zipRetries.current < MAX_ZIP_ATTEMPTS) {
+        const delay = 2000 * zipRetries.current;
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          setZipLoading(false);
+        }, delay);
+        return;
+      }
+      setZipError(err instanceof Error ? err.message : "Failed to load package");
+    } finally {
+      if (zipRetries.current === 0 || zipRetries.current >= MAX_ZIP_ATTEMPTS) {
+        setZipLoading(false);
+      }
+    }
+  }, [orgSlug, pluginName, zipData, zipLoading]);
+
+  // Trigger zip download when overview or files tab is first visited
+  useEffect(() => {
+    if ((activeTab === "overview" || activeTab === "files") && !zipData && !zipLoading && !zipError) {
+      loadZip();
+    }
+  }, [activeTab, zipData, zipLoading, zipError, loadZip]);
+
   if (pluginLoading) {
     return <LoadingSpinner text={`Loading ${orgSlug}/${pluginName}...`} />;
   }
@@ -102,6 +184,7 @@ export default function PluginDetailPage() {
 
   const tabs: { id: Tab; label: string; icon: typeof Puzzle }[] = [
     { id: "overview", label: "Overview", icon: FileText },
+    { id: "files", label: "Files", icon: FolderOpen },
     { id: "versions", label: "Versions", icon: Clock },
     { id: "audit", label: "Audit Log", icon: Shield },
   ];
@@ -146,11 +229,17 @@ export default function PluginDetailPage() {
         ))}
       </div>
 
-      {/* Two-column body with sidebar */}
+      {/* Files tab — full width, no sidebar */}
+      {activeTab === "files" && (
+        <FilesTab files={files} loading={zipLoading} error={zipError} />
+      )}
+
+      {/* Other tabs — two-column body with sidebar */}
+      {activeTab !== "files" && (
       <div className={styles.pageBody}>
         <div className={styles.main}>
           <div className={styles.content}>
-            {activeTab === "overview" && <OverviewTab plugin={plugin} />}
+            {activeTab === "overview" && <OverviewTab plugin={plugin} readmeContent={readmeContent} readmeLoading={zipLoading} sourceRepoUrl={plugin.source_repo_url} />}
             {activeTab === "versions" && <VersionsTab versions={versions ?? []} loading={versionsLoading} />}
             {activeTab === "audit" && <AuditTab entries={auditLog ?? []} loading={auditLoading} />}
           </div>
@@ -220,7 +309,7 @@ export default function PluginDetailPage() {
                   </a>
                 </div>
               )}
-              {plugin.homepage && (
+              {plugin.homepage && plugin.homepage.replace(/\/+$/, "") !== (plugin.source_repo_url ?? "").replace(/\/+$/, "") && (
                 <div className={styles.sidebarRow}>
                   <span className={styles.sidebarLabel}>Homepage</span>
                   <a
@@ -259,47 +348,110 @@ export default function PluginDetailPage() {
           </NeonCard>
         </aside>
       </div>
+      )}
     </div>
   );
 }
 
 /* --- Tab components --- */
 
-function OverviewTab({ plugin }: { plugin: PluginDetail }) {
+function OverviewTab({
+  plugin,
+  readmeContent,
+  readmeLoading,
+  sourceRepoUrl,
+}: {
+  plugin: PluginDetail;
+  readmeContent: string | null;
+  readmeLoading: boolean;
+  sourceRepoUrl: string | null;
+}) {
   return (
     <div className={styles.overview}>
-      {/* Install command */}
-      <div className={styles.installSection}>
-        <h3 className={styles.sectionTitle}>Install</h3>
-        <code className={styles.codeBlock}>
-          dhub install {plugin.org_slug}/{plugin.plugin_name} --agent all
-        </code>
-      </div>
-
-      {/* Description */}
-      {plugin.description && (
-        <div className={styles.descSection}>
-          <h3 className={styles.sectionTitle}>Description</h3>
-          <p className={styles.descText}>{plugin.description}</p>
+      {/* README */}
+      {readmeLoading && <LoadingSpinner text="Loading README..." />}
+      {!readmeLoading && readmeContent && (
+        <div className={styles.readmeSection}>
+          <ReactMarkdown
+            remarkPlugins={REMARK_PLUGINS}
+            components={{
+              a: ({ href, children, ...props }) => {
+                const isExternal = href && /^https?:\/\//.test(href);
+                return (
+                  <a
+                    href={href}
+                    {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              },
+              img: ({ src, ...props }) => {
+                // Resolve relative image URLs to raw GitHub URLs
+                const resolved = src && sourceRepoUrl && !/^https?:\/\//.test(src)
+                  ? `${sourceRepoUrl}/raw/main/${src}`
+                  : src;
+                return <img src={resolved} {...props} />;
+              },
+            }}
+          >
+            {readmeContent}
+          </ReactMarkdown>
         </div>
       )}
 
-      {/* Skills grid */}
-      {plugin.skills.length > 0 && (
+      {/* Install */}
+      <div className={styles.installSection}>
+        <h3 className={styles.sectionTitle}>
+          <Package size={16} />
+          Install
+        </h3>
+        <p className={styles.installHint}>Install the entire plugin:</p>
+        <code className={styles.codeBlock}>
+          dhub install {plugin.org_slug}/{plugin.plugin_name} --agent all
+        </code>
+        {plugin.published_skills.length > 0 && (
+          <p className={styles.installHint}>Or install individual skills:</p>
+        )}
+        {plugin.published_skills.map((s) => (
+          <code key={`${s.org_slug}/${s.skill_name}`} className={styles.codeBlock}>
+            dhub install {s.org_slug}/{s.skill_name} --agent all
+          </code>
+        ))}
+      </div>
+
+      {/* Published Skills */}
+      {plugin.published_skills.length > 0 && (
         <div className={styles.skillsSection}>
           <h3 className={styles.sectionTitle}>
             <Package size={16} />
-            Included Skills ({plugin.skills.length})
+            Included Skills ({plugin.published_skills.length})
           </h3>
           <div className={styles.skillsGrid}>
-            {plugin.skills.map((skill) => (
-              <div key={skill.name} className={styles.skillCard}>
-                <span className={styles.skillName}>{skill.name}</span>
-                {skill.description && (
-                  <p className={styles.skillDesc}>{skill.description}</p>
-                )}
-                <span className={styles.skillPath}>{skill.path}</span>
-              </div>
+            {plugin.published_skills.map((skill) => (
+              <Link
+                key={`${skill.org_slug}/${skill.skill_name}`}
+                to={`/skills/${skill.org_slug}/${skill.skill_name}`}
+                className={styles.skillLink}
+              >
+                <div className={styles.skillCard}>
+                  <div className={styles.skillCardHeader}>
+                    <span className={styles.skillName}>{skill.skill_name}</span>
+                    <GradeBadge grade={skill.safety_rating} size="sm" />
+                  </div>
+                  {skill.description && (
+                    <p className={styles.skillDesc}>{skill.description}</p>
+                  )}
+                  <div className={styles.skillCardMeta}>
+                    <span className={styles.skillVersion}>v{skill.latest_version}</span>
+                    <span className={styles.skillDownloads}>
+                      <Download size={11} />
+                      {skill.download_count.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -331,9 +483,12 @@ function OverviewTab({ plugin }: { plugin: PluginDetail }) {
             <Bot size={16} />
             Agents ({plugin.agents.length})
           </h3>
-          <div className={styles.tagList}>
+          <div className={styles.componentList}>
             {plugin.agents.map((a) => (
-              <span key={a} className={styles.tagItem}>{a}</span>
+              <div key={a} className={styles.componentItem}>
+                <Bot size={14} />
+                <span>{a}</span>
+              </div>
             ))}
           </div>
         </div>
@@ -346,9 +501,12 @@ function OverviewTab({ plugin }: { plugin: PluginDetail }) {
             <Terminal size={16} />
             Commands ({plugin.commands.length})
           </h3>
-          <div className={styles.tagList}>
+          <div className={styles.componentList}>
             {plugin.commands.map((c) => (
-              <span key={c} className={styles.tagItem}>{c}</span>
+              <div key={c} className={styles.componentItem}>
+                <Terminal size={14} />
+                <span>{c}</span>
+              </div>
             ))}
           </div>
         </div>
@@ -455,6 +613,9 @@ function AuditTab({
                 {new Date(entry.created_at).toLocaleDateString()}
               </span>
             </div>
+            {entry.check_results && entry.check_results.length > 0 && (
+              <CheckResultsGrid checks={entry.check_results} />
+            )}
             {entry.quarantined && (
               <span className={styles.auditQuarantine}>Quarantined</span>
             )}
@@ -463,4 +624,32 @@ function AuditTab({
       ))}
     </div>
   );
+}
+
+function FilesTab({
+  files,
+  loading,
+  error,
+}: {
+  files: SkillFile[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading) return <LoadingSpinner text="Extracting files from package..." />;
+  if (error) {
+    return (
+      <NeonCard glow="pink">
+        <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+      </NeonCard>
+    );
+  }
+  if (files.length === 0) {
+    return (
+      <div className={styles.emptyTab}>
+        <FolderOpen size={48} />
+        <p>No files to display.</p>
+      </div>
+    );
+  }
+  return <FileBrowser files={files} />;
 }

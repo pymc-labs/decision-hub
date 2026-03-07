@@ -212,3 +212,9 @@ export async function getPluginVersions(org: string, name: string): Promise<Plug
 export async function getPluginAuditLog(org: string, name: string): Promise<PluginAuditEntry[]> {
   return fetchJSON<PluginAuditEntry[]>(`/v1/plugins/${org}/${name}/audit`);
 }
+
+export async function downloadPluginZip(org: string, name: string, spec = "latest"): Promise<ArrayBuffer> {
+  const res = await fetch(`${API_BASE}/v1/plugins/${org}/${name}/download?spec=${encodeURIComponent(spec)}`);
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  return res.arrayBuffer();
+}

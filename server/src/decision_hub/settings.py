@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     plugin_versions_rate_window: int = 60  # window in seconds
     plugin_audit_rate_limit: int = 30  # max requests per window
     plugin_audit_rate_window: int = 60  # window in seconds
+    plugin_download_rate_limit: int = 20  # max requests per window
+    plugin_download_rate_window: int = 60  # window in seconds
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

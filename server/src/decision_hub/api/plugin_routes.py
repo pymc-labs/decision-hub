@@ -4,7 +4,7 @@ import json
 import math
 import zipfile
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
@@ -27,6 +27,7 @@ from decision_hub.domain.publish_pipeline import (
 from decision_hub.domain.search import format_trust_score, resolve_author_display
 from decision_hub.infra.database import (
     fetch_paginated_plugins,
+    fetch_plugin_skills,
     find_plugin_audit_logs,
     find_plugin_by_slug,
     increment_plugin_downloads,
@@ -34,7 +35,13 @@ from decision_hub.infra.database import (
     list_user_org_ids,
     resolve_plugin_version,
 )
-from decision_hub.infra.storage import compute_checksum, generate_presigned_url
+from decision_hub.infra.storage import (
+    compute_checksum,
+    generate_presigned_url,
+)
+from decision_hub.infra.storage import (
+    download_skill_zip as download_zip_from_s3,
+)
 from decision_hub.models import User
 from decision_hub.settings import Settings
 from dhub_core.validation import validate_skill_name
@@ -116,6 +123,7 @@ class PluginAuditEntry(BaseModel):
     publisher: str
     created_at: str
     quarantined: bool = False
+    check_results: list[dict] = []
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +201,18 @@ def _enforce_plugin_audit_rate_limit(request: Request) -> None:
             window_seconds=settings.plugin_audit_rate_window,
         )
     state._plugin_audit_rate_limiter(request)
+
+
+def _enforce_plugin_download_rate_limit(request: Request) -> None:
+    """Rate-limit the plugin download endpoint."""
+    state = request.app.state
+    if not hasattr(state, "_plugin_download_rate_limiter"):
+        settings: Settings = state.settings
+        state._plugin_download_rate_limiter = RateLimiter(
+            max_requests=settings.plugin_download_rate_limit,
+            window_seconds=settings.plugin_download_rate_window,
+        )
+    state._plugin_download_rate_limiter(request)
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +318,19 @@ def get_plugin_detail(
     version = resolve_plugin_version(conn, org_slug, plugin_name, "latest", user_org_ids=user_org_ids)
     manifest = version.plugin_manifest if version else None
 
+    # Fetch published skills that belong to this plugin
+    published_skills = [
+        {
+            "org_slug": s["org_slug"],
+            "skill_name": s["skill_name"],
+            "description": s.get("description", ""),
+            "latest_version": s.get("latest_version", ""),
+            "safety_rating": format_trust_score(s.get("eval_status") or ""),
+            "download_count": s.get("download_count", 0),
+        }
+        for s in fetch_plugin_skills(conn, plugin.id)
+    ]
+
     return {
         "org_slug": org_slug,
         "plugin_name": plugin.name,
@@ -322,6 +355,7 @@ def get_plugin_detail(
         "hooks": manifest.get("hooks", []) if manifest else [],
         "agents": manifest.get("agents", []) if manifest else [],
         "commands": manifest.get("commands", []) if manifest else [],
+        "published_skills": published_skills,
     }
 
 
@@ -418,9 +452,45 @@ def get_plugin_audit_log(
             publisher=e.publisher,
             created_at=e.created_at.strftime("%Y-%m-%d %H:%M:%S") if e.created_at else "",
             quarantined=e.quarantine_s3_key is not None,
+            check_results=e.check_results or [],
         )
         for e in entries
     ]
+
+
+@public_router.get(
+    "/{org_slug}/{plugin_name}/download",
+    dependencies=[Depends(_enforce_plugin_download_rate_limit)],
+)
+def download_plugin(
+    org_slug: str,
+    plugin_name: str,
+    spec: str = Query("latest", max_length=50),
+    conn: Connection = Depends(get_connection),
+    s3_client=Depends(get_s3_client),
+    settings: Settings = Depends(get_settings),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> Response:
+    """Download a plugin zip file, proxied through the server to avoid CORS issues."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    version = resolve_plugin_version(conn, org_slug, plugin_name, spec, user_org_ids=user_org_ids)
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version '{spec}' not found for {org_slug}/{plugin_name}",
+        )
+
+    plugin = find_plugin_by_slug(conn, org_slug, plugin_name)
+    if plugin:
+        increment_plugin_downloads(conn, plugin.id)
+
+    data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
+    filename = f"{org_slug}_{plugin_name}_{version.semver}.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------

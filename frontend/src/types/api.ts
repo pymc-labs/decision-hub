@@ -232,6 +232,16 @@ export interface PluginDetail {
   hooks: PluginHookRef[];
   agents: string[];
   commands: string[];
+  published_skills: PublishedSkillRef[];
+}
+
+export interface PublishedSkillRef {
+  org_slug: string;
+  skill_name: string;
+  description: string;
+  latest_version: string;
+  safety_rating: string;
+  download_count: number;
 }
 
 export interface PluginSkillRef {
@@ -260,4 +270,5 @@ export interface PluginAuditEntry {
   publisher: string;
   created_at: string;
   quarantined: boolean;
+  check_results: CheckResult[];
 }
