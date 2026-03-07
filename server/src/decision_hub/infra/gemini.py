@@ -1,6 +1,8 @@
 """Gemini LLM client for skill search."""
 
 import json
+import random
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -60,21 +62,58 @@ def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = Non
     }
 
 
-def _gemini_post(client: dict, model: str, payload: dict, *, timeout: int = 60) -> dict:
-    """POST to the Gemini API, reusing the shared http_client when available."""
+_RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
+
+
+def _gemini_post(
+    client: dict,
+    model: str,
+    payload: dict,
+    *,
+    timeout: int = 60,
+    max_retries: int = 3,
+) -> dict:
+    """POST to the Gemini API, reusing the shared http_client when available.
+
+    Retries with exponential backoff on transient HTTP errors (403 rate-limit,
+    429, 500, 502, 503).  Non-retriable errors propagate immediately.
+    """
     url = f"{client['base_url']}/{model}:generateContent"
     params = {"key": client["api_key"]}
-
     shared = client.get("http_client")
-    if shared is not None:
-        resp = shared.post(url, params=params, json=payload, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
 
-    with httpx.Client(timeout=timeout) as http_client:
-        resp = http_client.post(url, params=params, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+    last_exc: httpx.HTTPStatusError | None = None
+    for attempt in range(1 + max_retries):
+        if shared is not None:
+            resp = shared.post(url, params=params, json=payload, timeout=timeout)
+        else:
+            with httpx.Client(timeout=timeout) as http_client:
+                resp = http_client.post(url, params=params, json=payload)
+
+        if resp.status_code < 400:
+            return resp.json()
+
+        if resp.status_code not in _RETRIABLE_STATUS_CODES:
+            resp.raise_for_status()
+
+        last_exc = httpx.HTTPStatusError(
+            message=f"HTTP {resp.status_code}",
+            request=resp.request,
+            response=resp,
+        )
+        if attempt < max_retries:
+            delay = 2**attempt + random.uniform(0, 0.5)  # ~1s, ~2s, ~4s
+            logger.warning(
+                "Gemini API returned {} for {}, retrying in {}s (attempt {}/{})",
+                resp.status_code,
+                model,
+                delay,
+                attempt + 1,
+                max_retries,
+            )
+            time.sleep(delay)
+
+    raise last_exc  # type: ignore[misc]
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -201,7 +240,7 @@ def parse_query_with_guard(
     }
 
     try:
-        data = _gemini_post(client, model, payload, timeout=10)
+        data = _gemini_post(client, model, payload, timeout=10, max_retries=1)
         text = _extract_text(data)
         result = json.loads(text)
 
@@ -391,7 +430,7 @@ def ask_conversational(
     }
 
     logger.debug("Gemini ask query: '{}' model={}", query[:100], model)
-    data = _gemini_post(client, model, payload, timeout=30)
+    data = _gemini_post(client, model, payload, timeout=30, max_retries=1)
 
     text = _extract_text(data)
     if not text:
