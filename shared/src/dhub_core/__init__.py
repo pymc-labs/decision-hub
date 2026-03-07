@@ -13,6 +13,13 @@ from dhub_core.models import (
     SkillManifest,
     TestingConfig,
 )
+from dhub_core.plugin_manifest import (
+    PluginHookRef,
+    PluginManifest,
+    PluginSkillRef,
+    detect_plugin_platforms,
+    parse_plugin_manifest,
+)
 from dhub_core.taxonomy import (
     ALL_SUBCATEGORIES,
     CATEGORY_TAXONOMY,
@@ -42,11 +49,16 @@ __all__ = [
     "AgentTestTarget",
     "DependencySpec",
     "EvalConfig",
+    "PluginHookRef",
+    "PluginManifest",
+    "PluginSkillRef",
     "RuntimeConfig",
     "SkillClassification",
     "SkillManifest",
     "TestingConfig",
     "bump_version",
+    "detect_plugin_platforms",
+    "parse_plugin_manifest",
     "parse_semver",
     "parse_skill_md",
     "validate_manifest",

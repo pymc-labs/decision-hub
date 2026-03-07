@@ -15,7 +15,12 @@ from sqlalchemy.engine import Connection, Engine
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
-from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
+from decision_hub.infra.database import (
+    insert_search_log,
+    list_user_org_ids,
+    search_plugins_hybrid,
+    search_skills_hybrid,
+)
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import (
     ask_conversational,
@@ -68,12 +73,27 @@ def _run_retrieval(
 ) -> RetrievalResult | None:
     """Run hybrid search and build index from pre-computed FTS queries and embedding.
 
+    Searches both skills and plugins, merges the results (skills first, then
+    plugins appended), and builds a unified index for the LLM.
     Returns None when the candidate set is empty.
     """
-    # Hybrid retrieval
+    # Hybrid retrieval — skills
     user_org_ids = list_user_org_ids(conn, user_id) if user_id else None
     db_start = time.monotonic()
-    candidates = search_skills_hybrid(
+    skill_candidates = search_skills_hybrid(
+        conn,
+        fts_queries,
+        query_embedding,
+        user_org_ids=user_org_ids,
+        category=category,
+        limit=settings.search_candidate_limit,
+    )
+    # Tag skill results
+    for row in skill_candidates:
+        row["kind"] = "skill"
+
+    # Hybrid retrieval — plugins
+    plugin_candidates = search_plugins_hybrid(
         conn,
         fts_queries,
         query_embedding,
@@ -83,16 +103,20 @@ def _run_retrieval(
     )
     db_ms = int((time.monotonic() - db_start) * 1000)
 
+    # Merge: skills first, then plugins
+    candidates = skill_candidates + plugin_candidates
+
     if not candidates:
         return None
 
     entries = tuple(
         build_index_entry(
             org_slug=row["org_slug"],
-            skill_name=row["skill_name"],
+            skill_name=row.get("skill_name") or row.get("plugin_name", ""),
             description=row.get("description", ""),
-            latest_version=row["latest_version"],
-            eval_status=row["eval_status"],
+            latest_version=row.get("latest_version", ""),
+            eval_status=row.get("eval_status", ""),
+            kind=row.get("kind", "skill"),
             author=resolve_author_display(row.get("published_by", "")),
             category=row.get("category", ""),
             download_count=row.get("download_count", 0),
@@ -193,6 +217,7 @@ class AskSkillRef(BaseModel):
     description: str
     safety_rating: str
     reason: str
+    kind: str = "skill"
     author: str = ""
     category: str = ""
     download_count: int = 0
@@ -369,8 +394,9 @@ def _ask_skills_inner(
         return AskResponse(query=q, answer=msg, skills=[], category=category)
 
     # Build lookup map for enriching LLM skill refs with DB metadata
-    candidate_map: dict[tuple[str, str], dict] = {
-        (row["org_slug"], row["skill_name"]): row for row in result.candidates
+    candidate_map: dict[tuple[str, str, str], dict] = {
+        (row["org_slug"], row.get("skill_name") or row.get("plugin_name", ""), row.get("kind", "skill")): row
+        for row in result.candidates
     }
 
     # Conversational answer with structured output
@@ -393,9 +419,10 @@ def _ask_skills_inner(
                 skill_name=e.skill_name,
                 description=e.description,
                 safety_rating=format_trust_score(
-                    candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
+                    candidate_map.get((e.org_slug, e.skill_name, e.kind), {}).get("eval_status", "")
                 ),
                 reason="Matched your search query.",
+                kind=e.kind,
                 author=e.author,
                 category=e.category,
                 download_count=e.download_count,
@@ -459,7 +486,7 @@ def _ask_skills_inner(
     # Enrich LLM skill references with metadata from DB candidates
     skill_refs = []
     for ref in llm_result.get("referenced_skills", []):
-        key = (ref["org_slug"], ref["skill_name"])
+        key = (ref["org_slug"], ref["skill_name"], ref.get("kind", "skill"))
         row = candidate_map.get(key)
         if row:
             skill_refs.append(
@@ -469,6 +496,7 @@ def _ask_skills_inner(
                     description=row.get("description", ""),
                     safety_rating=format_trust_score(row.get("eval_status", "")),
                     reason=ref.get("reason", ""),
+                    kind=row.get("kind", "skill"),
                     author=resolve_author_display(row.get("published_by", "")),
                     category=row.get("category", ""),
                     download_count=row.get("download_count", 0),

@@ -119,10 +119,9 @@ describe("HomePage", () => {
 
     // Wait for data to load. The stat labels are always present once rendered.
     await waitFor(() => {
-      expect(screen.getByText("Skills Published")).toBeInTheDocument();
+      expect(screen.getByText("Published")).toBeInTheDocument();
       expect(screen.getByText("Organizations")).toBeInTheDocument();
       expect(screen.getByText("Downloads")).toBeInTheDocument();
-      expect(screen.getByText("Publishers")).toBeInTheDocument();
     });
   });
 

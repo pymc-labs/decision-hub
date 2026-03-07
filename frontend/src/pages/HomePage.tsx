@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-  Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
+  Building2, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
   ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
@@ -39,9 +39,8 @@ export default function HomePage() {
     if (catItems.length >= HOME_PAGE_SIZE) return catItems;
     return allSkills?.items ?? [];
   }, [categorySkills, allSkills]);
-  const totalSkills = stats?.total_skills ?? 0;
+  const totalPublished = (stats?.total_skills ?? 0) + (stats?.total_plugins ?? 0);
   const totalOrgs = stats?.total_orgs ?? 0;
-  const totalPublishers = stats?.total_publishers ?? 0;
   const totalDownloads = stats?.total_downloads ?? 0;
 
   const jsonLd = useMemo(
@@ -58,9 +57,8 @@ export default function HomePage() {
 
   useSEO({ path: "/", jsonLd });
 
-  const [animatedSkills, skillsRef] = useCountUp(totalSkills);
+  const [animatedPublished, publishedRef] = useCountUp(totalPublished);
   const [animatedOrgs, orgsRef] = useCountUp(totalOrgs);
-  const [animatedPublishers, publishersRef] = useCountUp(totalPublishers);
   const [animatedDownloads, downloadsRef] = useCountUp(totalDownloads);
 
   const [osTab, setOsTab] = useState<"unix" | "windows">("unix");
@@ -154,10 +152,10 @@ export default function HomePage() {
       {/* Stats */}
       <section className={styles.stats}>
         <NeonCard glow="cyan">
-          <div className={styles.statItem} ref={skillsRef as React.RefObject<HTMLDivElement>}>
+          <div className={styles.statItem} ref={publishedRef as React.RefObject<HTMLDivElement>}>
             <Package size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedSkills.toLocaleString()}</span>
-            <span className={styles.statLabel}>Skills Published</span>
+            <span className={styles.statNumber}>{animatedPublished.toLocaleString()}</span>
+            <span className={styles.statLabel}>Published</span>
           </div>
         </NeonCard>
         <NeonCard glow="pink">
@@ -172,13 +170,6 @@ export default function HomePage() {
             <Download size={24} className={styles.statIcon} />
             <span className={styles.statNumber}>{animatedDownloads.toLocaleString()}</span>
             <span className={styles.statLabel}>Downloads</span>
-          </div>
-        </NeonCard>
-        <NeonCard glow="green">
-          <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
-            <Users size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
-            <span className={styles.statLabel}>Publishers</span>
           </div>
         </NeonCard>
       </section>

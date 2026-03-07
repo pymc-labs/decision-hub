@@ -88,6 +88,20 @@ def get_dhub_skill_path(org: str, skill: str) -> Path:
     return Path.home() / ".dhub" / "skills" / org / skill
 
 
+def get_dhub_plugin_path(org: str, plugin: str, version: str) -> Path:
+    """Return the canonical local path for an installed plugin.
+
+    Args:
+        org: The organization slug.
+        plugin: The plugin name.
+        version: The plugin version.
+
+    Returns:
+        Path to ~/.claude/plugins/cache/decision-hub/{org}/{plugin}/{version}/.
+    """
+    return Path.home() / ".claude" / "plugins" / "cache" / "decision-hub" / org / plugin / version
+
+
 def get_agent_skill_paths() -> dict[str, Path]:
     """Return a copy of the mapping of agent names to their skill directories."""
     return dict(AGENT_SKILL_PATHS)

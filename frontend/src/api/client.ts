@@ -11,6 +11,10 @@ import type {
   AskResponse,
   AskMessage,
   SimilarSkillRef,
+  PaginatedPluginsResponse,
+  PluginDetail,
+  PluginVersionEntry,
+  PluginAuditEntry,
 } from "../types/api";
 
 // When served from Modal (same origin), use "" so fetches are relative.
@@ -161,6 +165,56 @@ export async function downloadSkillZip(
   const res = await fetch(
     `${API_BASE}/v1/skills/${orgSlug}/${skillName}/download?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
   );
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  return res.arrayBuffer();
+}
+
+// Plugin API
+
+export type PluginSortField = "updated" | "name" | "downloads" | "github_stars";
+
+export interface PluginsFilterParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  org?: string;
+  category?: string;
+  platform?: string;
+  grade?: string;
+  sort?: PluginSortField;
+  sortDir?: "asc" | "desc";
+}
+
+export async function listPluginsFiltered(
+  params: PluginsFilterParams = {}
+): Promise<PaginatedPluginsResponse> {
+  const qs = new URLSearchParams();
+  qs.set("page", String(params.page ?? 1));
+  qs.set("page_size", String(params.pageSize ?? 20));
+  if (params.search) qs.set("search", params.search);
+  if (params.org) qs.set("org", params.org);
+  if (params.category) qs.set("category", params.category);
+  if (params.platform) qs.set("platform", params.platform);
+  if (params.grade) qs.set("grade", params.grade);
+  if (params.sort) qs.set("sort", params.sort);
+  if (params.sortDir) qs.set("sort_dir", params.sortDir);
+  return fetchJSON<PaginatedPluginsResponse>(`/v1/plugins?${qs.toString()}`);
+}
+
+export async function getPluginDetail(org: string, name: string): Promise<PluginDetail> {
+  return fetchJSON<PluginDetail>(`/v1/plugins/${org}/${name}`);
+}
+
+export async function getPluginVersions(org: string, name: string): Promise<PluginVersionEntry[]> {
+  return fetchJSON<PluginVersionEntry[]>(`/v1/plugins/${org}/${name}/versions`);
+}
+
+export async function getPluginAuditLog(org: string, name: string): Promise<PluginAuditEntry[]> {
+  return fetchJSON<PluginAuditEntry[]>(`/v1/plugins/${org}/${name}/audit`);
+}
+
+export async function downloadPluginZip(org: string, name: string, spec = "latest"): Promise<ArrayBuffer> {
+  const res = await fetch(`${API_BASE}/v1/plugins/${org}/${name}/download?spec=${encodeURIComponent(spec)}`);
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   return res.arrayBuffer();
 }

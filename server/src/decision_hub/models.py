@@ -68,6 +68,9 @@ class Skill:
     source_repo_url: str | None = None
     manifest_path: str | None = None
     source_repo_removed: bool = False
+    deprecated: bool = False
+    deprecated_by_plugin_id: UUID | None = None
+    deprecation_message: str | None = None
     github_stars: int | None = None
     github_forks: int | None = None
     github_watchers: int | None = None
@@ -242,6 +245,7 @@ class AuditLogEntry:
     llm_reasoning: dict | None
     publisher: str
     quarantine_s3_key: str | None = None
+    plugin_version_id: UUID | None = None
     created_at: datetime | None = None
 
 
@@ -260,6 +264,7 @@ class SkillTracker:
     last_checked_at: datetime | None
     last_published_at: datetime | None
     last_error: str | None
+    kind: str = "skill"  # "skill" | "plugin"
     next_check_at: datetime | None = None
     consecutive_permanent_failures: int = 0
     created_at: datetime | None = None
@@ -301,6 +306,56 @@ class TrackerMetrics:
 
 
 @dataclass(frozen=True)
+class Plugin:
+    """A registered plugin."""
+
+    id: UUID
+    org_id: UUID
+    name: str
+    description: str
+    author_name: str | None = None
+    homepage: str | None = None
+    license: str | None = None
+    keywords: tuple[str, ...] = ()
+    platforms: tuple[str, ...] = ()
+    skill_count: int = 0
+    hook_count: int = 0
+    agent_count: int = 0
+    command_count: int = 0
+    category: str = ""
+    download_count: int = 0
+    visibility: str = "public"
+    source_repo_url: str | None = None
+    manifest_path: str | None = None
+    source_repo_removed: bool = False
+    github_stars: int | None = None
+    github_forks: int | None = None
+    github_watchers: int | None = None
+    github_is_archived: bool | None = None
+    github_license: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class PluginVersion:
+    """A published version of a plugin."""
+
+    id: UUID
+    plugin_id: UUID
+    semver: str
+    s3_key: str
+    checksum: str
+    plugin_manifest: dict | None
+    runtime_config: dict | None
+    eval_status: str | None
+    gauntlet_summary: str | None = None
+    published_by: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class SkillIndexEntry:
     """Entry in the search index."""
 
@@ -310,6 +365,7 @@ class SkillIndexEntry:
     latest_version: str
     eval_status: str
     trust_score: str
+    kind: str = "skill"
     author: str = ""
     category: str = ""
     download_count: int = 0

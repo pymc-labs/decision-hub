@@ -8,6 +8,7 @@ import pytest
 from decision_hub.scripts.crawler.processing import (
     _prepare_skill,
     _publish_one_skill,
+    _publish_plugin,
     process_repo_on_modal,
 )
 from tests.factories import make_org
@@ -459,3 +460,146 @@ class TestParallelProcessingCountCollection:
         assert result["skills_skipped"] == 3
         assert result["skills_quarantined"] == 0
         assert result["skills_failed"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Plugin tracker creation after publish
+# ---------------------------------------------------------------------------
+
+_PLUGIN_PIPELINE = "decision_hub.domain.plugin_publish_pipeline"
+_PLUGIN_STORAGE = "decision_hub.infra.storage"
+
+
+class TestPublishPluginCreatesTracker:
+    """Verify _publish_plugin creates a plugin tracker after successful publish."""
+
+    @patch("decision_hub.infra.database.upsert_skill_tracker")
+    @patch(f"{_PLUGIN_PIPELINE}.execute_plugin_publish")
+    @patch(f"{_PLUGIN_STORAGE}.compute_checksum", return_value="abc123")
+    @patch(f"{_PROCESSING}.create_zip", return_value=b"fake-zip")
+    @patch("dhub_core.plugin_manifest.parse_plugin_manifest")
+    def test_tracker_created_with_kind_plugin(
+        self,
+        mock_parse_manifest,
+        mock_create_zip,
+        mock_checksum,
+        mock_execute_publish,
+        mock_upsert_tracker,
+        tmp_path,
+    ):
+        """After successful plugin publish, upsert_skill_tracker is called with kind='plugin'."""
+        manifest = MagicMock()
+        manifest.name = "test-plugin"
+        manifest.version = "1.0.0"
+        mock_parse_manifest.return_value = manifest
+
+        publish_result = MagicMock()
+        publish_result.version = "1.0.0"
+        mock_execute_publish.return_value = publish_result
+
+        engine = _make_engine_mock()
+        org = make_org()
+        bot_user_id = uuid4()
+        source_url = "https://github.com/test-org/test-repo"
+
+        status = _publish_plugin(
+            engine,
+            MagicMock(),
+            MagicMock(),
+            org,
+            tmp_path,
+            source_repo_url=source_url,
+            bot_user_id=bot_user_id,
+            set_tracker=True,
+        )
+
+        assert status == "published"
+        mock_upsert_tracker.assert_called_once_with(
+            engine.connect.return_value.__enter__.return_value,
+            bot_user_id,
+            org.slug,
+            source_url,
+            kind="plugin",
+        )
+
+    @patch("decision_hub.infra.database.upsert_skill_tracker")
+    @patch(f"{_PLUGIN_PIPELINE}.execute_plugin_publish")
+    @patch(f"{_PLUGIN_STORAGE}.compute_checksum", return_value="abc123")
+    @patch(f"{_PROCESSING}.create_zip", return_value=b"fake-zip")
+    @patch("dhub_core.plugin_manifest.parse_plugin_manifest")
+    def test_tracker_not_created_when_set_tracker_false(
+        self,
+        mock_parse_manifest,
+        mock_create_zip,
+        mock_checksum,
+        mock_execute_publish,
+        mock_upsert_tracker,
+        tmp_path,
+    ):
+        """When set_tracker=False, no tracker is created."""
+        manifest = MagicMock()
+        manifest.name = "test-plugin"
+        manifest.version = "1.0.0"
+        mock_parse_manifest.return_value = manifest
+
+        publish_result = MagicMock()
+        publish_result.version = "1.0.0"
+        mock_execute_publish.return_value = publish_result
+
+        engine = _make_engine_mock()
+        org = make_org()
+
+        status = _publish_plugin(
+            engine,
+            MagicMock(),
+            MagicMock(),
+            org,
+            tmp_path,
+            source_repo_url="https://github.com/test-org/test-repo",
+            bot_user_id=uuid4(),
+            set_tracker=False,
+        )
+
+        assert status == "published"
+        mock_upsert_tracker.assert_not_called()
+
+    @patch("decision_hub.infra.database.upsert_skill_tracker")
+    @patch(f"{_PLUGIN_PIPELINE}.execute_plugin_publish")
+    @patch(f"{_PLUGIN_STORAGE}.compute_checksum", return_value="abc123")
+    @patch(f"{_PROCESSING}.create_zip", return_value=b"fake-zip")
+    @patch("dhub_core.plugin_manifest.parse_plugin_manifest")
+    def test_tracker_not_created_without_source_repo_url(
+        self,
+        mock_parse_manifest,
+        mock_create_zip,
+        mock_checksum,
+        mock_execute_publish,
+        mock_upsert_tracker,
+        tmp_path,
+    ):
+        """When source_repo_url is None, no tracker is created."""
+        manifest = MagicMock()
+        manifest.name = "test-plugin"
+        manifest.version = "1.0.0"
+        mock_parse_manifest.return_value = manifest
+
+        publish_result = MagicMock()
+        publish_result.version = "1.0.0"
+        mock_execute_publish.return_value = publish_result
+
+        engine = _make_engine_mock()
+        org = make_org()
+
+        status = _publish_plugin(
+            engine,
+            MagicMock(),
+            MagicMock(),
+            org,
+            tmp_path,
+            source_repo_url=None,
+            bot_user_id=uuid4(),
+            set_tracker=True,
+        )
+
+        assert status == "published"
+        mock_upsert_tracker.assert_not_called()

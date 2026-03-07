@@ -39,6 +39,7 @@ from decision_hub.infra.database import (
     delete_skill_access_grant,
     delete_version,
     fetch_all_skills_for_index,
+    fetch_plugin_display_names,
     fetch_registry_stats,
     fetch_similar_skills,
     find_active_eval_runs_for_user,
@@ -47,15 +48,18 @@ from decision_hub.infra.database import (
     find_eval_run,
     find_eval_runs_for_version,
     find_org_by_slug,
+    find_plugin_by_slug,
     find_skill,
     find_skill_by_slug,
     has_active_tracker_for_repo,
+    increment_plugin_downloads,
     increment_skill_downloads,
     insert_skill_access_grant,
     list_granted_skill_ids,
     list_skill_access_grants_with_names,
     list_user_org_ids,
     resolve_latest_version,
+    resolve_plugin_version,
     resolve_version,
     update_eval_run_status,
     update_skill_visibility,
@@ -187,6 +191,7 @@ class ResolveResponse(BaseModel):
     version: str
     download_url: str
     checksum: str
+    kind: str = "skill"
 
 
 class DeleteResponse(BaseModel):
@@ -235,6 +240,9 @@ class SkillSummary(BaseModel):
     github_is_archived: bool | None = None
     github_license: str | None = None
     is_auto_synced: bool = False
+    deprecated: bool = False
+    deprecated_by_plugin_name: str | None = None
+    deprecation_message: str | None = None
 
 
 class SimilarSkillRef(BaseModel):
@@ -507,6 +515,7 @@ def list_skills(
     grade: str | None = Query(None, max_length=1),
     sort: str = Query("updated", pattern="^(updated|name|downloads|github_stars|safety_rating)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    include_deprecated: bool = Query(False),
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedSkillsResponse:
@@ -530,8 +539,14 @@ def list_skills(
         offset=offset,
         sort=sort,
         sort_dir=sort_dir,
+        include_deprecated=include_deprecated,
     )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
+
+    # Batch-resolve plugin display names for deprecated skills
+    plugin_ids = [row["deprecated_by_plugin_id"] for row in rows if row.get("deprecated_by_plugin_id")]
+    plugin_names = fetch_plugin_display_names(conn, plugin_ids) if plugin_ids else {}
+
     items = [
         SkillSummary(
             org_slug=row["org_slug"],
@@ -554,6 +569,11 @@ def list_skills(
             github_is_archived=row.get("github_is_archived"),
             github_license=row.get("github_license"),
             is_auto_synced=row.get("has_tracker", False),
+            deprecated=row.get("deprecated", False),
+            deprecated_by_plugin_name=plugin_names.get(row["deprecated_by_plugin_id"])
+            if row.get("deprecated_by_plugin_id")
+            else None,
+            deprecation_message=row.get("deprecation_message"),
         )
         for row in rows
     ]
@@ -586,6 +606,13 @@ def get_skill_summary(
         raise HTTPException(status_code=404, detail=f"No versions found for {org_slug}/{skill_name}")
 
     org = find_org_by_slug(conn, org_slug)
+
+    # Resolve deprecating plugin name if applicable
+    deprecated_by_plugin_name = None
+    if skill.deprecated_by_plugin_id:
+        names = fetch_plugin_display_names(conn, [skill.deprecated_by_plugin_id])
+        deprecated_by_plugin_name = names.get(skill.deprecated_by_plugin_id)
+
     return SkillSummary(
         org_slug=org_slug,
         skill_name=skill_name,
@@ -607,6 +634,9 @@ def get_skill_summary(
         github_is_archived=skill.github_is_archived,
         github_license=skill.github_license,
         is_auto_synced=bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url)),
+        deprecated=skill.deprecated,
+        deprecated_by_plugin_name=deprecated_by_plugin_name,
+        deprecation_message=skill.deprecation_message,
     )
 
 
@@ -678,9 +708,30 @@ def resolve_skill(
     settings: Settings = Depends(get_settings),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> ResolveResponse:
-    """Resolve a skill version and return a pre-signed download URL."""
+    """Resolve a skill (or plugin) version and return a pre-signed download URL.
+
+    Tries to match a plugin first, then falls back to skill resolution.
+    This makes the endpoint a unified resolver for both entity types.
+    """
     logger.debug("Resolving {}/{} spec={}", org_slug, skill_name, spec)
+
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+
+    # Try plugin first — plugins take precedence when name matches both
+    plugin_ver = resolve_plugin_version(conn, org_slug, skill_name, spec, user_org_ids=user_org_ids)
+    if plugin_ver is not None:
+        plugin = find_plugin_by_slug(conn, org_slug, skill_name)
+        if plugin:
+            increment_plugin_downloads(conn, plugin.id)
+        download_url = generate_presigned_url(s3_client, settings.s3_bucket, plugin_ver.s3_key)
+        return ResolveResponse(
+            version=plugin_ver.semver,
+            checksum=plugin_ver.checksum,
+            download_url=download_url,
+            kind="plugin",
+        )
+
+    # Fall back to skill resolution
     version = resolve_version(
         conn,
         org_slug,
