@@ -3170,6 +3170,352 @@ class TestFalsePositiveRegression:
             f"List-form subprocess.run should not be flagged as dangerous: {safety.message}"
         )
 
+    def test_graphviz_subprocess_not_flagged(self):
+        """subprocess.run(["dot", ...]) for Graphviz rendering is safe.
+
+        Regression: aiskillstore/writing-skills was rated F because the LLM
+        judged subprocess.run(["dot", "-Tpng", ...]) as dangerous. Graphviz
+        dot is a well-known CLI tool for rendering diagrams.
+        """
+        source_files = [
+            (
+                "scripts/render_diagrams.py",
+                textwrap.dedent("""\
+                    import subprocess
+                    from pathlib import Path
+
+                    def render_dot_to_png(dot_file: str, output_dir: str = "output") -> str:
+                        output_path = str(Path(output_dir) / Path(dot_file).with_suffix(".png").name)
+                        subprocess.run(
+                            ["dot", "-Tpng", dot_file, "-o", output_path],
+                            check=True,
+                            capture_output=True,
+                        )
+                        return output_path
+
+                    def render_dot_to_svg(dot_content: str, output_path: str) -> None:
+                        subprocess.run(
+                            ["dot", "-Tsvg", "-o", output_path],
+                            input=dot_content,
+                            text=True,
+                            check=True,
+                        )
+                """),
+            ),
+        ]
+
+        report = run_static_checks(
+            skill_md_content="---\nname: writing-skills\ndescription: Documentation with diagrams\n---\n",
+            lockfile_content="",
+            source_files=source_files,
+            skill_name="writing-skills",
+            skill_description="Documentation with diagrams",
+            **self.callbacks,
+        )
+
+        safety_results = [r for r in report.results if r.check_name == "safety_scan"]
+        assert safety_results, "Expected a safety_scan result"
+        safety = safety_results[0]
+        assert safety.severity != "fail", (
+            f"Graphviz dot subprocess should not be flagged as dangerous: {safety.message}"
+        )
+
+    def test_placeholder_api_keys_not_flagged(self):
+        """Placeholder API keys in error messages are not real credentials.
+
+        Regression: pymc-labs/second-opinion was rated F because the entropy
+        scanner flagged 'your-openai-key' and the LLM confirmed it as a
+        credential. Placeholder values are clearly not real secrets.
+        """
+        source_files = [
+            (
+                "scripts/api_clients.py",
+                textwrap.dedent("""\
+                    import os
+                    import httpx
+
+                    def validate_api_keys() -> tuple[bool, str]:
+                        openai_key = os.getenv("OPENAI_API_KEY")
+                        gemini_key = os.getenv("GEMINI_API_KEY")
+                        missing = []
+                        if not openai_key:
+                            missing.append("OPENAI_API_KEY")
+                        if not gemini_key:
+                            missing.append("GEMINI_API_KEY")
+                        if missing:
+                            error_lines = ["Missing API keys:"]
+                            if "OPENAI_API_KEY" in missing:
+                                error_lines.append("  export OPENAI_API_KEY='your-openai-key'")
+                            if "GEMINI_API_KEY" in missing:
+                                error_lines.append("  export GEMINI_API_KEY='your-gemini-key'")
+                            return False, "\\n".join(error_lines)
+                        return True, ""
+
+                    def query_openai(api_key: str, prompt: str) -> str:
+                        response = httpx.post(
+                            "https://api.openai.com/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {api_key}"},
+                            json={"model": "gpt-4o", "messages": [{"role": "user", "content": prompt}]},
+                        )
+                        return response.json()["choices"][0]["message"]["content"]
+                """),
+            ),
+            (
+                "scripts/main.py",
+                textwrap.dedent("""\
+                    from api_clients import validate_api_keys, query_openai
+
+                    def main():
+                        ok, err = validate_api_keys()
+                        if not ok:
+                            print(err)
+                            return
+                        result = query_openai(os.getenv("OPENAI_API_KEY"), "hello")
+                        print(result)
+                """),
+            ),
+        ]
+
+        report = run_static_checks(
+            skill_md_content="---\nname: second-opinion\ndescription: Query multiple LLMs for alternative perspectives\n---\n",
+            lockfile_content="",
+            source_files=source_files,
+            skill_name="second-opinion",
+            skill_description="Query multiple LLMs for alternative perspectives",
+            **self.callbacks,
+        )
+
+        cred_results = [r for r in report.results if r.check_name == "embedded_credentials"]
+        assert cred_results, "Expected an embedded_credentials result"
+        cred = cred_results[0]
+        assert cred.severity != "fail", f"Placeholder API keys should not be flagged as credentials: {cred.message}"
+
+    def test_fstring_url_with_api_key_not_flagged(self):
+        """f-string URL interpolation like f"...?key={api_key}" is not a hardcoded credential.
+
+        Regression: pymc-labs/slide-generator was rated F because the entropy
+        scanner flagged the f-string URL and the LLM confirmed it as a
+        credential. The {api_key} is a variable reference, not a secret.
+        """
+        source_files = [
+            (
+                "scripts/generate_slides.py",
+                textwrap.dedent("""\
+                    import os
+                    from urllib.request import Request, urlopen
+
+                    API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+                    def generate_slide(api_key: str, prompt: str) -> bytes:
+                        model_id = "gemini-2.0-flash-exp"
+                        url = f"{API_BASE}/{model_id}:generateContent?key={api_key}"
+                        request = Request(url, method="POST")
+                        request.add_header("Content-Type", "application/json")
+                        with urlopen(request, timeout=180) as response:
+                            return response.read()
+
+                    if __name__ == "__main__":
+                        import argparse
+                        parser = argparse.ArgumentParser()
+                        parser.add_argument("--api-key", default=os.environ.get("GEMINI_API_KEY"))
+                        args = parser.parse_args()
+                        if not args.api_key:
+                            print("Error: API key required. Use --api-key or set GEMINI_API_KEY")
+                """),
+            ),
+        ]
+
+        report = run_static_checks(
+            skill_md_content="---\nname: slide-generator\ndescription: Generate slides using Gemini API\n---\n",
+            lockfile_content="",
+            source_files=source_files,
+            skill_name="slide-generator",
+            skill_description="Generate slides using Gemini API",
+            **self.callbacks,
+        )
+
+        cred_results = [r for r in report.results if r.check_name == "embedded_credentials"]
+        assert cred_results, "Expected an embedded_credentials result"
+        cred = cred_results[0]
+        assert cred.severity != "fail", (
+            f"f-string URL interpolation should not be flagged as credential: {cred.message}"
+        )
+
+    def test_cross_file_holistic_review_with_cleared_hits(self):
+        """Holistic review of non-hit files must not hallucinate about cleared hit files.
+
+        Regression: pymc-labs/second-opinion was rated F because the holistic
+        code review of main.py didn't know api_clients.py existed (it had
+        regex hits and was reviewed separately). The LLM hallucinated that
+        imports from api_clients were "unverifiable".
+        """
+        source_files = [
+            (
+                "scripts/api_clients.py",
+                textwrap.dedent("""\
+                    import os
+                    import httpx
+
+                    def validate_api_keys() -> tuple[bool, str]:
+                        key = os.getenv("OPENAI_API_KEY")
+                        if not key:
+                            return False, "Run: export OPENAI_API_KEY='your-openai-key'"
+                        return True, ""
+
+                    def query_openai(api_key: str, prompt: str) -> str:
+                        response = httpx.post(
+                            "https://api.openai.com/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {api_key}"},
+                            json={"model": "gpt-4o", "messages": [{"role": "user", "content": prompt}]},
+                        )
+                        return response.json()["choices"][0]["message"]["content"]
+                """),
+            ),
+            (
+                "scripts/main.py",
+                textwrap.dedent("""\
+                    import os
+                    from api_clients import validate_api_keys, query_openai
+
+                    def main():
+                        ok, err = validate_api_keys()
+                        if not ok:
+                            print(err)
+                            return
+                        result = query_openai(os.getenv("OPENAI_API_KEY"), "hello")
+                        print(result)
+                """),
+            ),
+        ]
+
+        report = run_static_checks(
+            skill_md_content="---\nname: second-opinion\ndescription: Query multiple LLMs\n---\n",
+            lockfile_content="",
+            source_files=source_files,
+            skill_name="second-opinion",
+            skill_description="Query multiple LLMs",
+            **self.callbacks,
+        )
+
+        safety_results = [r for r in report.results if r.check_name == "safety_scan"]
+        assert safety_results, "Expected a safety_scan result"
+        safety = safety_results[0]
+        assert safety.severity != "fail", (
+            f"Cross-file holistic review should not flag imports from cleared files: {safety.message}"
+        )
+
+    def test_sha256_checksums_not_flagged_as_credentials(self):
+        """SHA-256 hex hashes in skill-report.json are integrity checksums, not secrets.
+
+        Regression: aiskillstore/data-visualization was rated F because
+        64-char hex strings in skill-report.json triggered the entropy
+        scanner and the LLM confirmed them as API keys.
+        """
+        source_files = [
+            (
+                "skill-report.json",
+                textwrap.dedent("""\
+                    {
+                      "name": "data-visualization",
+                      "version": "0.3.0",
+                      "checksum": "52cbc5c8cc2a57c63e02b7d7890ea81f23656f1a3b2e4d5f6a7b8c9d0e1f2a3b",
+                      "files": {
+                        "main.py": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+                        "utils.py": "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d"
+                      }
+                    }
+                """),
+            ),
+            (
+                "scripts/main.py",
+                textwrap.dedent("""\
+                    import matplotlib.pyplot as plt
+
+                    def create_bar_chart(data: dict, title: str = "Chart") -> None:
+                        fig, ax = plt.subplots()
+                        ax.bar(data.keys(), data.values())
+                        ax.set_title(title)
+                        plt.tight_layout()
+                        plt.savefig("output.png")
+                """),
+            ),
+        ]
+
+        report = run_static_checks(
+            skill_md_content="---\nname: data-visualization\ndescription: Create data visualizations\n---\n",
+            lockfile_content="",
+            source_files=source_files,
+            skill_name="data-visualization",
+            skill_description="Create data visualizations",
+            **self.callbacks,
+        )
+
+        cred_results = [r for r in report.results if r.check_name == "embedded_credentials"]
+        assert cred_results, "Expected an embedded_credentials result"
+        cred = cred_results[0]
+        assert cred.severity != "fail", f"SHA-256 checksums should not be flagged as credentials: {cred.message}"
+
+    def test_localhost_url_in_docs_not_exfiltration(self):
+        """curl to localhost in SKILL.md documentation is not data exfiltration.
+
+        Regression: aiskillstore/ai-maestro was rated F because curl to
+        localhost:23000 in the usage docs triggered the exfiltration URL
+        pattern and the LLM confirmed it.
+        """
+        skill_md = textwrap.dedent("""\
+            ---
+            name: ai-maestro
+            description: Documentation search tool for local AI agents
+            ---
+
+            ## Usage
+
+            Start the local server, then query it:
+
+            ```bash
+            curl http://localhost:23000/api/agents
+            curl http://localhost:23000/api/search?q=example
+            ```
+
+            ## Configuration
+
+            Set the port via environment variable:
+
+            ```bash
+            export MAESTRO_PORT=23000
+            ```
+        """)
+
+        source_files = [
+            (
+                "scripts/server.py",
+                textwrap.dedent("""\
+                    from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+                    def start_server(port: int = 23000) -> None:
+                        server = HTTPServer(("localhost", port), SimpleHTTPRequestHandler)
+                        server.serve_forever()
+                """),
+            ),
+        ]
+
+        report = run_static_checks(
+            skill_md_content=skill_md,
+            lockfile_content="",
+            source_files=source_files,
+            skill_name="ai-maestro",
+            skill_description="Documentation search tool for local AI agents",
+            skill_md_body=skill_md.split("---", 2)[2].strip(),
+            **self.callbacks,
+        )
+
+        prompt_results = [r for r in report.results if r.check_name == "prompt_safety"]
+        assert prompt_results, "Expected a prompt_safety result"
+        prompt = prompt_results[0]
+        assert prompt.severity != "fail", (
+            f"localhost URLs in docs should not be flagged as exfiltration: {prompt.message}"
+        )
+
 
 def generate_report() -> str:
     """Generate a markdown report suitable for a GitHub issue."""
