@@ -1,6 +1,7 @@
 """Tests for decision_hub.infra.gemini -- schema validation of LLM safety responses."""
 
 import json
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -11,6 +12,7 @@ from decision_hub.infra.gemini import (
     CodeSafetyJudgment,
     CredentialJudgment,
     PromptSafetyJudgment,
+    _gemini_post,
     analyze_code_safety,
     analyze_credential_entropy,
     create_gemini_client,
@@ -23,6 +25,61 @@ _GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{_DEFAUL
 @pytest.fixture
 def gemini_client() -> dict:
     return create_gemini_client("test-api-key")
+
+
+class TestGeminiPostRetry:
+    """Tests for _gemini_post retry with exponential backoff on transient errors."""
+
+    @respx.mock
+    def test_retries_on_403_then_succeeds(self, gemini_client: dict) -> None:
+        route = respx.post(_GEMINI_URL).mock(
+            side_effect=[
+                httpx.Response(403, text="Forbidden"),
+                httpx.Response(200, json={"candidates": []}),
+            ]
+        )
+        with patch("decision_hub.infra.gemini.time.sleep") as mock_sleep:
+            result = _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
+        assert result == {"candidates": []}
+        assert route.call_count == 2
+        mock_sleep.assert_called_once_with(1)
+
+    @respx.mock
+    def test_retries_on_429_with_backoff(self, gemini_client: dict) -> None:
+        route = respx.post(_GEMINI_URL).mock(
+            side_effect=[
+                httpx.Response(429, text="Rate limited"),
+                httpx.Response(429, text="Rate limited"),
+                httpx.Response(200, json={"candidates": []}),
+            ]
+        )
+        with patch("decision_hub.infra.gemini.time.sleep") as mock_sleep:
+            result = _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
+        assert result == {"candidates": []}
+        assert route.call_count == 3
+        assert mock_sleep.call_args_list == [
+            ((1,),),
+            ((2,),),
+        ]
+
+    @respx.mock
+    def test_raises_after_max_retries_exhausted(self, gemini_client: dict) -> None:
+        respx.post(_GEMINI_URL).mock(return_value=httpx.Response(503, text="Unavailable"))
+        with patch("decision_hub.infra.gemini.time.sleep"), pytest.raises(httpx.HTTPStatusError) as exc_info:
+            _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=2)
+        assert exc_info.value.response.status_code == 503
+
+    @respx.mock
+    def test_non_retriable_error_raises_immediately(self, gemini_client: dict) -> None:
+        route = respx.post(_GEMINI_URL).mock(return_value=httpx.Response(400, text="Bad Request"))
+        with (
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
+            pytest.raises(httpx.HTTPStatusError) as exc_info,
+        ):
+            _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
+        assert exc_info.value.response.status_code == 400
+        assert route.call_count == 1
+        mock_sleep.assert_not_called()
 
 
 class TestCodeSafetyJudgmentValidation:
