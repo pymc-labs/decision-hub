@@ -144,7 +144,9 @@ _ENTROPY_ALLOWLIST_RE = re.compile(
     r"|[a-z]+\.[a-z]"  # dotted module paths
     r"|(?-i:[A-Z_]{20,})$"  # ALL_CAPS constants / env var names (case-sensitive)
     r"|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"  # UUIDs
+    r"|[a-f0-9]{64}$"  # SHA-256 hex hashes (64 chars, integrity checksums)
     r"|YOUR_|CHANGE_ME|REPLACE|PLACEHOLDER|TODO|FIXME|EXAMPLE|DUMMY|FAKE|TEST"
+    r"|.*your-"  # placeholder values like "your-key-here", "your-openai-key"
     r"|.*\{[a-zA-Z_]\w*\}"  # f-string/template interpolation ({var_name})
     r")",
     re.IGNORECASE,
@@ -851,11 +853,16 @@ def check_safety_scan(
             )
 
         # Stage 2 didn't fail — run holistic review on files that had no
-        # regex hits. This prevents the "decoy" bypass where an attacker
-        # places a benign regex trigger in one file so that malicious code
-        # in other files is never sent to the LLM for review.
+        # regex hits. Prepend a context note listing the already-cleared
+        # hit files so the LLM doesn't hallucinate about "missing" modules.
         non_hit_files = [(f, c) for f, c in source_files if f not in hit_filenames]
         if non_hit_files and review_code_fn is not None:
+            if hit_filenames:
+                cleared_note = (
+                    "Other files in this package (already reviewed and cleared by per-file security scan):\n"
+                    + "\n".join(f"- {f}" for f in sorted(hit_filenames))
+                )
+                non_hit_files = [("_CLEARED_FILES.txt", cleared_note), *non_hit_files]
             non_hit_review = review_code_fn(non_hit_files, skill_name, skill_description)
             if non_hit_review.get("dangerous", False):
                 return EvalResult(
