@@ -1,6 +1,7 @@
 """Gemini LLM client for skill search."""
 
 import json
+import random
 import time
 from dataclasses import dataclass
 
@@ -101,7 +102,7 @@ def _gemini_post(
             response=resp,
         )
         if attempt < max_retries:
-            delay = 2**attempt  # 1s, 2s, 4s
+            delay = 2**attempt + random.uniform(0, 0.5)  # ~1s, ~2s, ~4s
             logger.warning(
                 "Gemini API returned {} for {}, retrying in {}s (attempt {}/{})",
                 resp.status_code,
@@ -239,7 +240,7 @@ def parse_query_with_guard(
     }
 
     try:
-        data = _gemini_post(client, model, payload, timeout=10)
+        data = _gemini_post(client, model, payload, timeout=10, max_retries=1)
         text = _extract_text(data)
         result = json.loads(text)
 
@@ -429,7 +430,7 @@ def ask_conversational(
     }
 
     logger.debug("Gemini ask query: '{}' model={}", query[:100], model)
-    data = _gemini_post(client, model, payload, timeout=30)
+    data = _gemini_post(client, model, payload, timeout=30, max_retries=1)
 
     text = _extract_text(data)
     if not text:

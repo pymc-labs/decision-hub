@@ -38,11 +38,14 @@ class TestGeminiPostRetry:
                 httpx.Response(200, json={"candidates": []}),
             ]
         )
-        with patch("decision_hub.infra.gemini.time.sleep") as mock_sleep:
+        with (
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.gemini.random.uniform", return_value=0.25),
+        ):
             result = _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
         assert result == {"candidates": []}
         assert route.call_count == 2
-        mock_sleep.assert_called_once_with(1)
+        mock_sleep.assert_called_once_with(1.25)
 
     @respx.mock
     def test_retries_on_429_with_backoff(self, gemini_client: dict) -> None:
@@ -53,13 +56,16 @@ class TestGeminiPostRetry:
                 httpx.Response(200, json={"candidates": []}),
             ]
         )
-        with patch("decision_hub.infra.gemini.time.sleep") as mock_sleep:
+        with (
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.gemini.random.uniform", return_value=0.25),
+        ):
             result = _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
         assert result == {"candidates": []}
         assert route.call_count == 3
         assert mock_sleep.call_args_list == [
-            ((1,),),
-            ((2,),),
+            ((1.25,),),
+            ((2.25,),),
         ]
 
     @respx.mock
