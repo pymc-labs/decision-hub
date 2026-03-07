@@ -2178,7 +2178,6 @@ class TestRealWorldFalsePositives:
             return [
                 {
                     **h,
-                    "pattern": h["pattern"].pattern if hasattr(h["pattern"], "pattern") else str(h["pattern"]),
                     "dangerous": False,
                     "ambiguous": False,
                     "reason": "localhost URL",

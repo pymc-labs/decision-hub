@@ -853,8 +853,11 @@ def check_safety_scan(
             )
 
         # Stage 2 didn't fail — run holistic review on files that had no
-        # regex hits. Prepend a context note listing the already-cleared
-        # hit files so the LLM doesn't hallucinate about "missing" modules.
+        # regex hits. This prevents the "decoy" bypass where an attacker
+        # places a benign regex trigger in one file so that malicious code
+        # in other files is never sent to the LLM for review.
+        # Prepend a context note listing the already-cleared hit files so
+        # the LLM doesn't hallucinate about "missing" modules.
         non_hit_files = [(f, c) for f, c in source_files if f not in hit_filenames]
         if non_hit_files and review_code_fn is not None:
             if hit_filenames:
@@ -912,7 +915,7 @@ def _find_prompt_injection_hits(body: str) -> list[dict]:
             if match:
                 hits.append(
                     {
-                        "pattern": pattern,
+                        "pattern": pattern.pattern,
                         "label": label,
                         "context": line.strip()[:200],
                     }
