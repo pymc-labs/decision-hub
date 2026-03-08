@@ -265,15 +265,15 @@ def crawl_trusted_orgs_nightly() -> None:
 
 # Budget for the outer while-loop that claims batches of trackers.
 # fn.map() blocks the thread while waiting for tracker_process_repo results
-# (up to 300s container timeout + ~60s cold start = 360s worst case).  The
+# (up to 600s container timeout + ~60s cold start = 660s worst case).  The
 # deadline check inside the for-loop only fires BETWEEN results, so a single
-# blocking wait can consume the entire 360s.  The budget must satisfy:
+# blocking wait can consume the entire 660s.  The budget must satisfy:
 #   max_loop_entry + pre_dispatch_overhead + max_fn_map_block < hard_timeout
-#   (180 - 30) + ~30 + 360 = 540 < 600  ✓
+#   (180 - 30) + ~30 + 660 = 840 < 900  ✓
 _TRACKER_LOOP_BUDGET_SECONDS = 180
 
 
-@app.function(image=crawler_image, timeout=600, schedule=modal.Period(seconds=600))
+@app.function(image=crawler_image, timeout=900, schedule=modal.Period(seconds=600))
 def check_trackers():
     """Poll GitHub repos for skill updates every 10 minutes.
 
