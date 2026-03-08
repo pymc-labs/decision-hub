@@ -279,11 +279,38 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         errored = len(errored_ids_transient) + len(errored_ids_permanent)
         unchanged = len(unchanged_ids)
 
+        # Circuit breaker: if permanent errors dominate, it's likely a
+        # systemic GitHub issue (outage, token failure), not mass deletion.
+        # Downgrade all permanent errors to transient so they retry next tick
+        # without incrementing the consecutive failure counter.
+        total_resolved = len(unchanged_ids) + len(errored_ids_permanent) + len(changed_trackers)
+        if (
+            errored_ids_permanent
+            and total_resolved > 0
+            and len(errored_ids_permanent) / total_resolved > settings.tracker_circuit_breaker_ratio
+        ):
+            logger.warning(
+                "Circuit breaker tripped: {}/{} resolved trackers returned permanent errors, "
+                "downgrading all to transient",
+                len(errored_ids_permanent),
+                total_resolved,
+            )
+            circuit_breaker_ids = list(errored_ids_permanent)
+            errored_ids_permanent = []
+        else:
+            circuit_breaker_ids = []
+
         # Batch DB writes — one UPDATE per category, single commit
         with engine.connect() as conn:
             batch_clear_tracker_errors(conn, unchanged_ids)
             batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
             batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
+            if circuit_breaker_ids:
+                batch_set_tracker_errors(
+                    conn,
+                    circuit_breaker_ids,
+                    "transient: circuit breaker tripped, mass permanent errors downgraded",
+                )
             # Increment consecutive failure counter; only disable after threshold
             if errored_ids_permanent:
                 threshold = settings.tracker_permanent_failure_threshold

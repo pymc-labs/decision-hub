@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     # and marking its skills as removed. Prevents transient token/API
     # issues from mass-disabling trackers on a single bad tick.
     tracker_permanent_failure_threshold: int = 10
+    # Circuit breaker: if the ratio of permanent errors to total resolved
+    # trackers exceeds this threshold, treat all permanent errors as
+    # transient (likely systemic GitHub issue, not mass repo deletion).
+    tracker_circuit_breaker_ratio: float = 0.5
 
     # Cache TTLs (seconds) for hot read paths. Set to 0 to disable.
     cache_ttl_taxonomy: int = 300  # taxonomy is static — 5 min
