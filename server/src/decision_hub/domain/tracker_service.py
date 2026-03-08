@@ -277,6 +277,10 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                 else:
                     changed_trackers.append((t, current_sha))
 
+        # Note: `errored` is computed before the circuit breaker check, so it
+        # includes IDs that may be downgraded to transient below.  This is
+        # intentional — they did error, even if we choose not to count them as
+        # permanent for failure-counter purposes.
         errored = len(errored_ids_transient) + len(errored_ids_permanent)
         unchanged = len(unchanged_ids)
 

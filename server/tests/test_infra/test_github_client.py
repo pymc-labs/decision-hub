@@ -245,8 +245,9 @@ class TestBatchFetchTransientFailures:
         """When the first chunk fails, its keys are in failed_keys; second chunk succeeds."""
         client = MagicMock(spec=GitHubClient)
 
-        # Build 251 repos: first 250 in chunk 0, last 1 in chunk 1
-        repos = [(f"org{i}", f"repo{i}", "main") for i in range(251)]
+        # Build 51 repos: first 50 in chunk 0, last 1 in chunk 1
+        # (_GRAPHQL_BATCH_CHUNK = 50)
+        repos = [(f"org{i}", f"repo{i}", "main") for i in range(51)]
 
         # First call (chunk 0) fails, second call (chunk 1) succeeds
         client.graphql.side_effect = [
@@ -257,14 +258,14 @@ class TestBatchFetchTransientFailures:
         sha_map, failed_keys, stars, _repo_meta = batch_fetch_commit_shas(client, repos)
 
         # Last repo succeeds
-        assert sha_map == {"org250/repo250:main": "sha_last"}
-        assert stars == {"org250/repo250": 1}
-        # First 250 repos are in failed_keys
-        assert len(failed_keys) == 250
+        assert sha_map == {"org50/repo50:main": "sha_last"}
+        assert stars == {"org50/repo50": 1}
+        # First 50 repos are in failed_keys
+        assert len(failed_keys) == 50
         assert "org0/repo0:main" in failed_keys
-        assert "org249/repo249:main" in failed_keys
+        assert "org49/repo49:main" in failed_keys
         # Last repo is NOT in failed_keys
-        assert "org250/repo250:main" not in failed_keys
+        assert "org50/repo50:main" not in failed_keys
 
     def test_missing_repo_not_in_failed_keys(self):
         """A repo that returns null data (not found) is NOT in failed_keys."""

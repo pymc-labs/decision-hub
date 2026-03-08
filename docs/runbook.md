@@ -198,10 +198,19 @@ ORDER BY recorded_at DESC;
 SELECT date_trunc('day', recorded_at) AS day,
        count(*) AS ticks,
        avg(batch_duration_seconds)::numeric(5,1) AS avg_dur_s,
-       sum(trackers_failed) AS total_failed
+       sum(trackers_failed) AS total_failed,
+       sum(trackers_disabled) AS total_disabled
 FROM tracker_metrics
 WHERE recorded_at > now() - interval '7 days'
 GROUP BY 1 ORDER BY 1 DESC;
+
+-- Check if circuit breaker has tripped (look for mass downgrades)
+-- The circuit breaker has no dedicated metric column; it writes a
+-- "transient: circuit breaker tripped" error message on affected trackers.
+SELECT id, repo_url, last_error, updated_at
+FROM skill_trackers
+WHERE last_error LIKE '%circuit breaker%'
+ORDER BY updated_at DESC;
 ```
 
 ## Troubleshooting
