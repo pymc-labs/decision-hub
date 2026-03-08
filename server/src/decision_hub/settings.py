@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     # Consecutive permanent GraphQL failures before disabling a tracker
     # and marking its skills as removed. Prevents transient token/API
     # issues from mass-disabling trackers on a single bad tick.
-    tracker_permanent_failure_threshold: int = 3
+    tracker_permanent_failure_threshold: int = 10
 
     # Cache TTLs (seconds) for hot read paths. Set to 0 to disable.
     cache_ttl_taxonomy: int = 300  # taxonomy is static — 5 min

@@ -932,7 +932,7 @@ class TestAutoDisablePermanentErrors:
         mock_settings.tracker_batch_size = 100
         mock_settings.tracker_jitter_seconds = 0
         mock_settings.tracker_rate_limit_floor = 500
-        mock_settings.tracker_permanent_failure_threshold = 3
+        mock_settings.tracker_permanent_failure_threshold = 10
         return mock_conn, mock_settings
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
@@ -978,7 +978,7 @@ class TestAutoDisablePermanentErrors:
         result = check_all_due_trackers(mock_settings)
 
         assert result.errored == 1
-        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=3)
+        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=10)
         mock_batch_disable.assert_not_called()
         mock_mark_removed.assert_not_called()
 
@@ -1031,7 +1031,7 @@ class TestAutoDisablePermanentErrors:
         result = check_all_due_trackers(mock_settings)
 
         assert result.errored == 1
-        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=3)
+        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=10)
         mock_batch_disable.assert_called_once_with(mock_conn, [tracker.id])
         mock_mark_removed.assert_called_once()
         removed_urls = mock_mark_removed.call_args[0][1]
