@@ -69,39 +69,6 @@ Common commands are available via `make`. Read the `Makefile` to see all targets
 
 Install pre-commit hooks once after cloning: `make install-hooks`.
 
-### Crawler
-
-Discovers GitHub repos containing `SKILL.md` files and publishes them through the gauntlet pipeline via Modal. Run from `server/`:
-
-```bash
-# Crawl up to 100 skills on dev (use a single fast strategy)
-cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-  python -m decision_hub.scripts.github_crawler \
-  --max-skills 100 --strategies size --github-token "$(gh auth token)"
-
-# Full discovery (all 5 strategies — slow, ~15 min due to rate limits)
-cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-  python -m decision_hub.scripts.github_crawler \
-  --github-token "$(gh auth token)"
-
-# Resume from checkpoint (skip discovery, go straight to processing)
-cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-  python -m decision_hub.scripts.github_crawler \
-  --resume --github-token "$(gh auth token)"
-
-# Process specific repos (skip discovery)
-cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-  python -m decision_hub.scripts.github_crawler \
-  --repos git@github.com:machina-sports/sports-skills.git owner/repo \
-  --github-token "$(gh auth token)"
-
-# Dry-run (discovery only, no processing)
-cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-  python -m decision_hub.scripts.github_crawler --dry-run
-```
-
-**Key flags:** `--max-skills N` (stop after N published), `--strategies size|path|topic|fork|curated` (pick subset), `--fresh` (delete checkpoint), `--resume` (skip discovery), `--repos REPO [REPO ...]` (process specific repos, accepts `owner/repo`, HTTPS, or SSH URLs). A GitHub token is required — unauthenticated rate limit is only 60 req/hr.
-
 ## Code Standards
 
 ### Design Principles & Conventions
@@ -148,7 +115,7 @@ logger.info("Publishing {}/{} version={}", org_slug, skill_name, version_id)
 
 ### Rate Limiting & DOS Protection
 
-Public endpoints use in-memory per-IP sliding-window rate limiters (see `rate_limit.py`). Limiters are lazily initialized on `app.state` from settings. Limits are per-container (not shared across Modal replicas). Defaults and setting names are defined in `server/src/decision_hub/settings.py` (`*_rate_limit` / `*_rate_window` fields). Enforcement functions (`_enforce_*_rate_limit`) live alongside their routes in `server/src/decision_hub/api/registry_routes.py` and `search_routes.py`.
+Public endpoints use in-memory per-IP sliding-window rate limiters (see `rate_limit.py`). Limiters are lazily initialized on `app.state` from settings. Limits are per-container (not shared across Modal replicas). Defaults and setting names are defined in `server/src/decision_hub/settings.py` (`*_rate_limit` / `*_rate_window` fields). Enforcement functions (`_enforce_*_rate_limit`) live alongside their routes in `server/src/decision_hub/api/registry_routes.py`, `search_routes.py`, and `auth_routes.py`.
 
 All DB queries have a 30s `statement_timeout` (set in engine `connect_args` in `database.py`). Query parameters on public endpoints have `max_length` constraints to prevent oversized payloads reaching the DB or LLM APIs.
 
@@ -171,6 +138,7 @@ GitHub Actions runs on every PR to `main`:
 - **typecheck**: mypy type checks
 - **test-client**: client pytest suite
 - **test-server**: server pytest suite
+- **test-shared**: shared pytest suite
 - **test-frontend**: frontend vitest suite
 - **lint-frontend**: TypeScript type check + ESLint
 - **check-migrations**: validates migration filename formats and detects duplicates
@@ -295,125 +263,6 @@ After implementing significant changes, check whether these need updating:
 - **`README.md`** — new/changed CLI commands, API endpoints, features, setup requirements, or architecture
 - **`bootstrap-skills/dhub-cli/SKILL.md`** and **`bootstrap-skills/dhub-cli/references/command_reference.md`** — new/changed CLI commands, flags, or behavior
 
-## Data Maintenance
+## Operations & Troubleshooting
 
-Use the `backfill` target from the `Makefile` to run all backfills (categories, embeddings, org metadata). Defaults to dev; override with `DHUB_ENV=prod`. Individual backfill scripts can also be run directly from `server/` — see `server/scripts/backfill_categories.py` and `server/src/decision_hub/scripts/backfill_embeddings.py`.
-
-## Monitoring Trackers
-
-Trackers (`skill_trackers` table) poll GitHub repos for new commits and republish changed skills. Trackers are created automatically when publishing from a GitHub URL (`dhub publish --track`, enabled by default) or via the API (`POST /v1/trackers`).
-
-**Key source files:**
-- Cron schedule & fan-out: `server/modal_app.py` (`check_trackers`, `tracker_process_repo`)
-- Orchestration & republish logic: `server/src/decision_hub/domain/tracker_service.py`
-- CRUD routes: `server/src/decision_hub/api/tracker_routes.py`
-- DB table & queries: `server/src/decision_hub/infra/database.py` (search `skill_trackers`)
-- Settings (batch size, jitter, rate-limit floor): `server/src/decision_hub/settings.py` (search `tracker_`)
-
-### GitHub App Authentication
-
-Trackers authenticate to GitHub using **GitHub App installation tokens** instead of a personal access token (PAT). Each cron tick / Modal container mints its own short-lived token (~1 hr) from the App's private key. This gives dev and prod independent 12,500 req/hr rate-limit budgets.
-
-**Apps:** App IDs, Installation IDs, and PEM keys are stored inline in `server/.env.dev` and `server/.env.prod` (git-ignored). The PEM is embedded as a multi-line quoted value (`GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA..."`). Original PEM files are also kept at `server/decision-hub-dev.*.pem` / `server/decision-hub.*.pem` (git-ignored).
-
-**Note:** The crawler and backfill scripts still use a PAT passed via `--github-token`. Only the tracker cron uses App tokens.
-
-**Quick health check:** Use the `tracker-health` target from the `Makefile`. Defaults to dev; override with `DHUB_ENV=prod`.
-
-**Check Modal logs for failures:**
-```bash
-modal app logs decision-hub 2>&1 | grep -i "tracker\|check_trackers"     # prod
-modal app logs decision-hub-dev 2>&1 | grep -i "tracker\|check_trackers"  # dev
-```
-
-**Query tracker health in DB:**
-```sql
--- Failed trackers
-SELECT repo_url, last_checked_at, last_error
-FROM skill_trackers WHERE last_error IS NOT NULL AND enabled = true;
-```
-
-### Tracker Metrics
-
-The `tracker_metrics` table records one row per `check_trackers` cron tick with key counters for historical observability. Metrics are written at the end of each cron invocation.
-
-**Useful queries:**
-```sql
--- Recent cron ticks (last 24h)
-SELECT recorded_at, total_checked, trackers_changed, trackers_failed,
-       github_rate_remaining, batch_duration_seconds
-FROM tracker_metrics
-WHERE recorded_at > now() - interval '24 hours'
-ORDER BY recorded_at DESC;
-
--- Average duration and failure rate over last 7 days
-SELECT date_trunc('day', recorded_at) AS day,
-       count(*) AS ticks,
-       avg(batch_duration_seconds)::numeric(5,1) AS avg_dur_s,
-       sum(trackers_failed) AS total_failed
-FROM tracker_metrics
-WHERE recorded_at > now() - interval '7 days'
-GROUP BY 1 ORDER BY 1 DESC;
-```
-
-## Troubleshooting
-
-### Modal Cold Starts
-
-Modal containers spin down after inactivity. The first HTTP request after a cold start can take 30-60 seconds. Always use `timeout=60` (or higher) when making HTTP requests to Modal endpoints. Do NOT use default timeouts — they will fail on cold starts.
-
-### Inspecting Logs
-
-```bash
-# Stream live logs from Modal
-modal app logs decision-hub          # prod
-modal app logs decision-hub-dev      # dev
-
-# Filter by request ID to trace a single request
-modal app logs decision-hub-dev 2>&1 | grep "a1b2c3d4"
-```
-
-### Debugging Modal Sandboxes
-
-When eval pipelines fail or hang, **do not** blindly poll the eval-report endpoint. Spin up a sandbox interactively and test each step in isolation:
-
-```python
-# From server/ directory:
-# DHUB_ENV=dev uv run --package decision-hub-server python3 -c "..."
-
-import modal
-from decision_hub.infra.modal_client import build_eval_image, AGENT_CONFIGS
-
-config = AGENT_CONFIGS['claude']
-image = build_eval_image(config)
-app = modal.App.lookup('decision-hub-eval', create_if_missing=True)
-sb = modal.Sandbox.create(image=image, app=app, timeout=120)
-
-# 1. Verify the agent binary
-proc = sb.exec('which', 'claude'); proc.wait()
-print(proc.stdout.read())
-
-# 2. Run agent with output to file (avoids I/O blocking)
-proc = sb.exec('bash', '-c',
-    'nohup claude -p --dangerously-skip-permissions "Say hi" '
-    '> /tmp/out.txt 2>/tmp/err.txt &')
-proc.wait()
-
-import time; time.sleep(15)
-
-# 3. Read stdout AND stderr
-proc = sb.exec('bash', '-c',
-    'echo STDOUT: && cat /tmp/out.txt '
-    '&& echo STDERR: && cat /tmp/err.txt')
-proc.wait()
-print(proc.stdout.read())
-
-sb.terminate()
-```
-
-**Common issues:**
-- **Exit 137 near the timeout duration** = sandbox timeout kill, not OOM. Correlate duration with the configured timeout.
-- **Exit 137 well before timeout** = actual OOM. Increase `memory` in `Sandbox.create`.
-- **`Invalid API key`** = stored `ANTHROPIC_API_KEY` expired/revoked. Claude Code hangs waiting for user input. Verify the key directly: `httpx.post('https://api.anthropic.com/v1/messages', headers={'x-api-key': key, 'anthropic-version': '2023-06-01'}, ...)`
-- **`--dangerously-skip-permissions cannot be used with root`** = the sandbox image creates a `sandbox` user; agent commands must run via `sudo -E -u sandbox`.
-- **Zero stdout from agent** = always check stderr. Use `nohup` + file redirect and inspect after a few seconds instead of waiting for the full timeout.
+See `docs/runbook.md` for DB access boilerplate, common queries, republishing skills, GitHub App token verification, crawler usage, tracker monitoring, data maintenance/backfills, Modal debugging, and troubleshooting.

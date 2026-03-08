@@ -345,6 +345,7 @@ def _make_metrics_row(
     row.trackers_errored = 0
     row.trackers_processed = 2
     row.trackers_failed = 0
+    row.trackers_disabled = 0
     row.skipped_rate_limit = 0
     row.github_rate_remaining = github_rate_remaining
     row.batch_duration_seconds = 3.2
@@ -384,6 +385,7 @@ class TestInsertTrackerMetrics:
             trackers_errored=0,
             trackers_processed=2,
             trackers_failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             github_rate_remaining=4800,
             batch_duration_seconds=3.2,

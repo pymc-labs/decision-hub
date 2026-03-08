@@ -115,7 +115,11 @@ class Settings(BaseSettings):
     # Consecutive permanent GraphQL failures before disabling a tracker
     # and marking its skills as removed. Prevents transient token/API
     # issues from mass-disabling trackers on a single bad tick.
-    tracker_permanent_failure_threshold: int = 3
+    tracker_permanent_failure_threshold: int = 10
+    # Circuit breaker: if the ratio of permanent errors to total resolved
+    # trackers exceeds this threshold, treat all permanent errors as
+    # transient (likely systemic GitHub issue, not mass repo deletion).
+    tracker_circuit_breaker_ratio: float = 0.5
     # Hours to skip re-evaluating quarantined content with the same checksum.
     # Set to 0 to disable (always re-evaluate).
     tracker_quarantine_skip_hours: int = 24

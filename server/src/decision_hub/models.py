@@ -277,6 +277,7 @@ class TrackerBatchResult:
     errored: int
     processed: int
     failed: int
+    trackers_disabled: int
     skipped_rate_limit: int
     deadline_deferred: int
     github_rate_remaining: int | None
@@ -296,6 +297,7 @@ class TrackerMetrics:
     trackers_errored: int
     trackers_processed: int
     trackers_failed: int
+    trackers_disabled: int
     skipped_rate_limit: int
     github_rate_remaining: int | None
     batch_duration_seconds: float

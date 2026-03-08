@@ -227,6 +227,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             errored=0,
             processed=0,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=None,
@@ -276,15 +277,47 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                 else:
                     changed_trackers.append((t, current_sha))
 
+        # Note: `errored` is computed before the circuit breaker check, so it
+        # includes IDs that may be downgraded to transient below.  This is
+        # intentional — they did error, even if we choose not to count them as
+        # permanent for failure-counter purposes.
         errored = len(errored_ids_transient) + len(errored_ids_permanent)
         unchanged = len(unchanged_ids)
+
+        # Circuit breaker: if permanent errors dominate, it's likely a
+        # systemic GitHub issue (outage, token failure), not mass deletion.
+        # Downgrade all permanent errors to transient so they retry next tick
+        # without incrementing the consecutive failure counter.
+        total_resolved = len(unchanged_ids) + len(errored_ids_permanent) + len(changed_trackers)
+        if (
+            errored_ids_permanent
+            and total_resolved > 0
+            and len(errored_ids_permanent) / total_resolved > settings.tracker_circuit_breaker_ratio
+        ):
+            logger.warning(
+                "Circuit breaker tripped: {}/{} resolved trackers returned permanent errors, "
+                "downgrading all to transient",
+                len(errored_ids_permanent),
+                total_resolved,
+            )
+            circuit_breaker_ids = list(errored_ids_permanent)
+            errored_ids_permanent = []
+        else:
+            circuit_breaker_ids = []
 
         # Batch DB writes — one UPDATE per category, single commit
         with engine.connect() as conn:
             batch_clear_tracker_errors(conn, unchanged_ids)
             batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
             batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
+            if circuit_breaker_ids:
+                batch_set_tracker_errors(
+                    conn,
+                    circuit_breaker_ids,
+                    "transient: circuit breaker tripped, mass permanent errors downgraded",
+                )
             # Increment consecutive failure counter; only disable after threshold
+            disabled_count = 0
             if errored_ids_permanent:
                 threshold = settings.tracker_permanent_failure_threshold
                 over_threshold_ids = batch_increment_permanent_failures(
@@ -293,6 +326,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                     threshold=threshold,
                 )
                 if over_threshold_ids:
+                    disabled_count = len(over_threshold_ids)
                     over_threshold_set = set(over_threshold_ids)
                     batch_disable_trackers(conn, over_threshold_ids)
                     candidate_urls = list(
@@ -382,6 +416,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             errored=errored,
             processed=0,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=len(changed_trackers),
             deadline_deferred=0,
             github_rate_remaining=rate_remaining,
@@ -413,6 +448,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                 errored=errored,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=len(changed_trackers),
                 github_rate_remaining=rate_remaining,
@@ -438,6 +474,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         errored=errored,
         processed=processed,
         failed=failed,
+        trackers_disabled=disabled_count,
         skipped_rate_limit=0,
         deadline_deferred=0,
         github_rate_remaining=rate_remaining,

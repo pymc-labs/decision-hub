@@ -872,6 +872,7 @@ class TestTransientFailureClassification:
         mock_settings.tracker_batch_size = 100
         mock_settings.tracker_jitter_seconds = 0
         mock_settings.tracker_rate_limit_floor = 500
+        mock_settings.tracker_circuit_breaker_ratio = 0.5
 
         result = check_all_due_trackers(mock_settings)
 
@@ -932,7 +933,8 @@ class TestAutoDisablePermanentErrors:
         mock_settings.tracker_batch_size = 100
         mock_settings.tracker_jitter_seconds = 0
         mock_settings.tracker_rate_limit_floor = 500
-        mock_settings.tracker_permanent_failure_threshold = 3
+        mock_settings.tracker_permanent_failure_threshold = 10
+        mock_settings.tracker_circuit_breaker_ratio = 1.0  # disable circuit breaker for these tests
         return mock_conn, mock_settings
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
@@ -978,7 +980,7 @@ class TestAutoDisablePermanentErrors:
         result = check_all_due_trackers(mock_settings)
 
         assert result.errored == 1
-        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=3)
+        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=10)
         mock_batch_disable.assert_not_called()
         mock_mark_removed.assert_not_called()
 
@@ -1031,7 +1033,7 @@ class TestAutoDisablePermanentErrors:
         result = check_all_due_trackers(mock_settings)
 
         assert result.errored == 1
-        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=3)
+        mock_increment.assert_called_once_with(mock_conn, [tracker.id], threshold=10)
         mock_batch_disable.assert_called_once_with(mock_conn, [tracker.id])
         mock_mark_removed.assert_called_once()
         removed_urls = mock_mark_removed.call_args[0][1]
@@ -1352,6 +1354,7 @@ class TestCronLoopBehavior:
         total_processed = 0
         total_failed = 0
         total_skipped_rate_limit = 0
+        total_disabled = 0
         iterations = 0
 
         for result in results:
@@ -1363,6 +1366,7 @@ class TestCronLoopBehavior:
             total_processed += result.processed
             total_failed += result.failed
             total_skipped_rate_limit += result.skipped_rate_limit
+            total_disabled += result.trackers_disabled
             iterations += 1
             if result.checked == 0:
                 break
@@ -1381,6 +1385,7 @@ class TestCronLoopBehavior:
             "total_processed": total_processed,
             "total_failed": total_failed,
             "total_skipped_rate_limit": total_skipped_rate_limit,
+            "total_disabled": total_disabled,
         }
 
     def test_loop_stops_when_checked_is_zero(self):
@@ -1394,6 +1399,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=4000,
@@ -1406,6 +1412,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=3900,
@@ -1418,6 +1425,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=None,
@@ -1438,6 +1446,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=2,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=600,
@@ -1450,6 +1459,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=3,
                 deadline_deferred=0,
                 github_rate_remaining=100,
@@ -1463,6 +1473,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=50,
@@ -1483,6 +1494,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=2,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=4000,
@@ -1495,6 +1507,7 @@ class TestCronLoopBehavior:
                 errored=2,
                 processed=1,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=3900,
@@ -1507,6 +1520,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=None,
@@ -1533,6 +1547,7 @@ class TestMetricsMathContract:
             errored=1,
             processed=3,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=4000,
@@ -1550,6 +1565,7 @@ class TestMetricsMathContract:
             errored=5,
             processed=4,
             failed=1,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=3000,
@@ -1566,6 +1582,7 @@ class TestMetricsMathContract:
             errored=0,
             processed=3,
             failed=2,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=4000,
@@ -1582,6 +1599,7 @@ class TestMetricsMathContract:
             errored=0,
             processed=0,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=3,
             deadline_deferred=0,
             github_rate_remaining=100,
@@ -1865,3 +1883,176 @@ class TestDetectRemovedSkills:
         mock_engine.connect.assert_not_called()
         mock_fetch.assert_not_called()
         mock_mark.assert_not_called()
+
+
+class TestCircuitBreaker:
+    """When >50% of trackers return permanent errors, treat all as transient."""
+
+    def _make_tracker(self, repo_name: str) -> SkillTracker:
+        return SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url=f"https://github.com/myorg/{repo_name}",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=60,
+            last_commit_sha="old_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test")
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    @patch("decision_hub.infra.database.batch_update_github_stars")
+    @patch("decision_hub.infra.database.batch_update_github_repo_metadata")
+    @patch("decision_hub.infra.database.batch_increment_permanent_failures")
+    @patch("decision_hub.infra.database.batch_disable_trackers")
+    @patch("decision_hub.infra.database.mark_skills_source_removed")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_circuit_breaker_downgrades_permanent_to_transient(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_mark_removed,
+        mock_batch_disable,
+        mock_increment,
+        mock_batch_meta,
+        mock_batch_stars,
+        mock_batch_set_errors,
+        mock_batch_clear_errors,
+        mock_batch_defer,
+        mock_dispatch,
+        _mock_token,
+    ):
+        """When 3 out of 4 trackers return permanent errors (>50%),
+        circuit breaker should treat all as transient — no increment, no disable."""
+        trackers = [self._make_tracker(f"repo-{i}") for i in range(4)]
+
+        mock_conn = MagicMock()
+        mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = trackers
+
+        # Only 1 tracker gets a SHA (unchanged), 3 return None (would be permanent)
+        mock_batch_fetch.return_value = (
+            {"myorg/repo-0:main": "old_sha"},  # repo-0 unchanged
+            set(),  # no chunk failures
+            {},
+            {},
+        )
+
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.rate_limit_remaining = 5000
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 100
+        mock_settings.tracker_jitter_seconds = 0
+        mock_settings.tracker_rate_limit_floor = 500
+        mock_settings.tracker_permanent_failure_threshold = 10
+        mock_settings.tracker_circuit_breaker_ratio = 0.5
+
+        check_all_due_trackers(mock_settings)
+
+        # All 3 "permanent" errors should be downgraded to transient
+        # So batch_increment_permanent_failures should NOT be called
+        mock_increment.assert_not_called()
+        mock_batch_disable.assert_not_called()
+        mock_mark_removed.assert_not_called()
+
+        # The 3 permanent errors were downgraded to transient, verify via batch_set_tracker_errors calls
+        # There should be a call with the "circuit breaker" message for 3 trackers
+        all_set_error_calls = mock_batch_set_errors.call_args_list
+        circuit_breaker_calls = [c for c in all_set_error_calls if "circuit breaker" in str(c).lower()]
+        assert len(circuit_breaker_calls) == 1
+        # Should contain the 3 tracker IDs that were downgraded
+        downgraded_ids = circuit_breaker_calls[0][0][1]
+        assert len(downgraded_ids) == 3
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test")
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(0, 0))
+    @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    @patch("decision_hub.infra.database.batch_update_github_stars")
+    @patch("decision_hub.infra.database.batch_update_github_repo_metadata")
+    @patch("decision_hub.infra.database.batch_increment_permanent_failures")
+    @patch("decision_hub.infra.database.batch_disable_trackers")
+    @patch("decision_hub.infra.database.mark_skills_source_removed")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_circuit_breaker_does_not_trip_below_threshold(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_mark_removed,
+        mock_batch_disable,
+        mock_increment,
+        mock_batch_meta,
+        mock_batch_stars,
+        mock_batch_set_errors,
+        mock_batch_clear_errors,
+        mock_batch_defer,
+        mock_dispatch,
+        _mock_token,
+    ):
+        """When only 1 out of 4 trackers returns permanent error (25% < 50%),
+        circuit breaker should NOT trip — permanent errors processed normally."""
+        trackers = [self._make_tracker(f"repo-{i}") for i in range(4)]
+
+        mock_conn = MagicMock()
+        mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = trackers
+
+        # 3 trackers get SHAs (unchanged), 1 returns None (permanent)
+        mock_batch_fetch.return_value = (
+            {
+                "myorg/repo-0:main": "old_sha",
+                "myorg/repo-1:main": "old_sha",
+                "myorg/repo-2:main": "old_sha",
+            },
+            set(),
+            {},
+            {},
+        )
+
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.rate_limit_remaining = 5000
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 100
+        mock_settings.tracker_jitter_seconds = 0
+        mock_settings.tracker_rate_limit_floor = 500
+        mock_settings.tracker_permanent_failure_threshold = 10
+        mock_settings.tracker_circuit_breaker_ratio = 0.5
+
+        # batch_increment returns empty (no threshold crossed)
+        mock_increment.return_value = []
+
+        check_all_due_trackers(mock_settings)
+
+        # Circuit breaker should NOT trip — only 25% permanent errors
+        # batch_increment_permanent_failures SHOULD be called (normal path)
+        mock_increment.assert_called_once()
+        # The permanent error call should have 1 tracker ID
+        perm_ids = mock_increment.call_args[0][1]
+        assert len(perm_ids) == 1

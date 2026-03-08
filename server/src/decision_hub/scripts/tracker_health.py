@@ -92,7 +92,8 @@ def _print_cron_metrics(engine: sa.engine.Engine) -> None:
         rate_str = str(m.github_rate_remaining) if m.github_rate_remaining is not None else "n/a"
         print(
             f"  {ts}  checked={m.total_checked}  changed={m.trackers_changed}"
-            f"  failed={m.trackers_failed}  rate={rate_str}  dur={m.batch_duration_seconds:.1f}s"
+            f"  failed={m.trackers_failed}  disabled={m.trackers_disabled}"
+            f"  rate={rate_str}  dur={m.batch_duration_seconds:.1f}s"
         )
     print()
 
