@@ -694,7 +694,7 @@ def _publish_skill_from_tracker(
     Returns True if a new version was actually published to S3,
     False if skipped (no content changes) or rejected by the gauntlet.
     """
-    from decision_hub.domain.publish_pipeline import GauntletRejectionError, execute_publish
+    from decision_hub.domain.publish_pipeline import GauntletRejectionError, VersionConflictError, execute_publish
     from decision_hub.infra.database import (
         find_org_by_slug,
         resolve_latest_version,
@@ -751,6 +751,16 @@ def _publish_skill_from_tracker(
         except GauntletRejectionError:
             logger.warning(
                 "tracker_id={} repo={} skill={}/{}@{} status=rejected",
+                tracker.id,
+                tracker.repo_url,
+                org_slug,
+                skill_name,
+                version,
+            )
+            return False
+        except VersionConflictError:
+            logger.warning(
+                "tracker_id={} repo={} skill={}/{}@{} status=version_conflict (race condition)",
                 tracker.id,
                 tracker.repo_url,
                 org_slug,

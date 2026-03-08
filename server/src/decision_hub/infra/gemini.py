@@ -82,13 +82,27 @@ def _gemini_post(
     params = {"key": client["api_key"]}
     shared = client.get("http_client")
 
-    last_exc: httpx.HTTPStatusError | None = None
+    last_exc: Exception | None = None
     for attempt in range(1 + max_retries):
-        if shared is not None:
-            resp = shared.post(url, params=params, json=payload, timeout=timeout)
-        else:
-            with httpx.Client(timeout=timeout) as http_client:
-                resp = http_client.post(url, params=params, json=payload)
+        try:
+            if shared is not None:
+                resp = shared.post(url, params=params, json=payload, timeout=timeout)
+            else:
+                with httpx.Client(timeout=timeout) as http_client:
+                    resp = http_client.post(url, params=params, json=payload)
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                delay = 2**attempt + random.uniform(0, 0.5)
+                logger.warning(
+                    "Gemini API timeout for {}, retrying in {:.1f}s (attempt {}/{})",
+                    model,
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(delay)
+            continue
 
         if resp.status_code < 400:
             return resp.json()
@@ -104,7 +118,7 @@ def _gemini_post(
         if attempt < max_retries:
             delay = 2**attempt + random.uniform(0, 0.5)  # ~1s, ~2s, ~4s
             logger.warning(
-                "Gemini API returned {} for {}, retrying in {}s (attempt {}/{})",
+                "Gemini API returned {} for {}, retrying in {:.1f}s (attempt {}/{})",
                 resp.status_code,
                 model,
                 delay,
