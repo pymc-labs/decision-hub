@@ -1354,6 +1354,7 @@ class TestCronLoopBehavior:
         total_processed = 0
         total_failed = 0
         total_skipped_rate_limit = 0
+        total_disabled = 0
         iterations = 0
 
         for result in results:
@@ -1365,6 +1366,7 @@ class TestCronLoopBehavior:
             total_processed += result.processed
             total_failed += result.failed
             total_skipped_rate_limit += result.skipped_rate_limit
+            total_disabled += result.trackers_disabled
             iterations += 1
             if result.checked == 0:
                 break
@@ -1383,6 +1385,7 @@ class TestCronLoopBehavior:
             "total_processed": total_processed,
             "total_failed": total_failed,
             "total_skipped_rate_limit": total_skipped_rate_limit,
+            "total_disabled": total_disabled,
         }
 
     def test_loop_stops_when_checked_is_zero(self):
@@ -1396,6 +1399,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=4000,
@@ -1408,6 +1412,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=3900,
@@ -1420,6 +1425,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=None,
@@ -1440,6 +1446,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=2,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=600,
@@ -1452,6 +1459,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=3,
                 deadline_deferred=0,
                 github_rate_remaining=100,
@@ -1465,6 +1473,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=50,
@@ -1485,6 +1494,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=2,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=4000,
@@ -1497,6 +1507,7 @@ class TestCronLoopBehavior:
                 errored=2,
                 processed=1,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=3900,
@@ -1509,6 +1520,7 @@ class TestCronLoopBehavior:
                 errored=0,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=0,
                 github_rate_remaining=None,
@@ -1535,6 +1547,7 @@ class TestMetricsMathContract:
             errored=1,
             processed=3,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=4000,
@@ -1552,6 +1565,7 @@ class TestMetricsMathContract:
             errored=5,
             processed=4,
             failed=1,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=3000,
@@ -1568,6 +1582,7 @@ class TestMetricsMathContract:
             errored=0,
             processed=3,
             failed=2,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=4000,
@@ -1584,6 +1599,7 @@ class TestMetricsMathContract:
             errored=0,
             processed=0,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=3,
             deadline_deferred=0,
             github_rate_remaining=100,

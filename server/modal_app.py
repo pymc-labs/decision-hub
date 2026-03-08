@@ -305,6 +305,7 @@ def check_trackers():
     total_processed = 0
     total_failed = 0
     total_skipped_rate_limit = 0
+    total_disabled = 0
     last_github_rate: int | None = None
     iterations = 0
 
@@ -319,6 +320,7 @@ def check_trackers():
         total_processed += result.processed
         total_failed += result.failed
         total_skipped_rate_limit += result.skipped_rate_limit
+        total_disabled += result.trackers_disabled
         if result.github_rate_remaining is not None:
             last_github_rate = result.github_rate_remaining
         iterations += 1
@@ -351,6 +353,7 @@ def check_trackers():
                 trackers_errored=total_errored,
                 trackers_processed=total_processed,
                 trackers_failed=total_failed,
+                trackers_disabled=total_disabled,
                 skipped_rate_limit=total_skipped_rate_limit,
                 github_rate_remaining=last_github_rate,
                 batch_duration_seconds=elapsed,

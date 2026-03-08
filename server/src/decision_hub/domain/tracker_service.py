@@ -227,6 +227,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             errored=0,
             processed=0,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=0,
             deadline_deferred=0,
             github_rate_remaining=None,
@@ -312,6 +313,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                     "transient: circuit breaker tripped, mass permanent errors downgraded",
                 )
             # Increment consecutive failure counter; only disable after threshold
+            disabled_count = 0
             if errored_ids_permanent:
                 threshold = settings.tracker_permanent_failure_threshold
                 over_threshold_ids = batch_increment_permanent_failures(
@@ -320,6 +322,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                     threshold=threshold,
                 )
                 if over_threshold_ids:
+                    disabled_count = len(over_threshold_ids)
                     over_threshold_set = set(over_threshold_ids)
                     batch_disable_trackers(conn, over_threshold_ids)
                     candidate_urls = list(
@@ -409,6 +412,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             errored=errored,
             processed=0,
             failed=0,
+            trackers_disabled=0,
             skipped_rate_limit=len(changed_trackers),
             deadline_deferred=0,
             github_rate_remaining=rate_remaining,
@@ -440,6 +444,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                 errored=errored,
                 processed=0,
                 failed=0,
+                trackers_disabled=0,
                 skipped_rate_limit=0,
                 deadline_deferred=len(changed_trackers),
                 github_rate_remaining=rate_remaining,
@@ -465,6 +470,7 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         errored=errored,
         processed=processed,
         failed=failed,
+        trackers_disabled=disabled_count,
         skipped_rate_limit=0,
         deadline_deferred=0,
         github_rate_remaining=rate_remaining,
