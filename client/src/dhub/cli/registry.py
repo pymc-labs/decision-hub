@@ -44,8 +44,12 @@ def _publish_skill_directory(
 
     validate_skill_name(name)
 
-    with console.status(f"Packaging {name}..."):
-        zip_data = _create_zip(path)
+    try:
+        with console.status(f"Packaging {name}..."):
+            zip_data = _create_zip(path)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
 
     # Resolve version: explicit wins, otherwise auto-bump
     if version is not None:
@@ -544,11 +548,16 @@ def _auto_bump_version(
     return version, latest_checksum, current
 
 
+_MAX_ZIP_ENTRIES = 500  # must match server limit in publish.py
+
+
 def _create_zip(path: Path) -> bytes:
     """Create an in-memory zip archive of a directory.
 
     Skips hidden files (names starting with '.') and __pycache__
-    directories.
+    directories.  Raises ValueError if the entry count exceeds
+    ``_MAX_ZIP_ENTRIES`` so oversized skills fail immediately without
+    uploading to the server.
 
     Args:
         path: Root directory to archive.
@@ -557,6 +566,7 @@ def _create_zip(path: Path) -> bytes:
         Raw bytes of the zip file.
     """
     buf = io.BytesIO()
+    entry_count = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(path.rglob("*")):
             if not file.is_file():
@@ -566,6 +576,12 @@ def _create_zip(path: Path) -> bytes:
             parts = relative.parts
             if any(part.startswith(".") or part == "__pycache__" for part in parts):
                 continue
+            entry_count += 1
+            if entry_count > _MAX_ZIP_ENTRIES:
+                raise ValueError(
+                    f"Skill contains more than {_MAX_ZIP_ENTRIES} files. "
+                    f"Use a .gitignore or reduce the number of files."
+                )
             zf.write(file, relative)
     return buf.getvalue()
 

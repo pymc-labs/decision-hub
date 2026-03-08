@@ -386,6 +386,37 @@ class TestPublishCommand:
 
 
 # ---------------------------------------------------------------------------
+# _create_zip
+# ---------------------------------------------------------------------------
+
+
+class TestCreateZip:
+    def test_rejects_oversized_directory(self, tmp_path: Path) -> None:
+        """_create_zip raises ValueError when entry count exceeds the limit."""
+        from dhub.cli.registry import _MAX_ZIP_ENTRIES, _create_zip
+
+        # Create more files than the limit
+        for i in range(_MAX_ZIP_ENTRIES + 1):
+            (tmp_path / f"file_{i}.txt").write_text(f"content {i}")
+
+        import pytest
+
+        with pytest.raises(ValueError, match="more than"):
+            _create_zip(tmp_path)
+
+    def test_accepts_directory_at_limit(self, tmp_path: Path) -> None:
+        """_create_zip succeeds when entry count is exactly at the limit."""
+        from dhub.cli.registry import _MAX_ZIP_ENTRIES, _create_zip
+
+        for i in range(_MAX_ZIP_ENTRIES):
+            (tmp_path / f"file_{i}.txt").write_text(f"content {i}")
+
+        result = _create_zip(tmp_path)
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            assert len(zf.namelist()) == _MAX_ZIP_ENTRIES
+
+
+# ---------------------------------------------------------------------------
 # install_command
 # ---------------------------------------------------------------------------
 
