@@ -59,7 +59,7 @@ def _verify_repos_removed(
         try:
             owner, repo = parse_github_repo_url(url)
         except ValueError:
-            verified.append(url)
+            logger.warning("Skipping invalid URL during removal verification: {}", url)
             continue
         resp = gh.get(f"/repos/{owner}/{repo}")
         if resp.status_code == 404:
@@ -103,17 +103,11 @@ def resurrect_removed_skills(settings: Settings) -> dict[str, int]:
     from decision_hub.infra.github_client import GitHubClient
 
     github_token = _resolve_github_token(settings)
-    still_alive: list[str] = []
 
+    # TODO: at scale (1000+ URLs), consider batching to avoid GitHub secondary rate limits
     with GitHubClient(token=github_token) as gh:
-        for url in removed_urls:
-            try:
-                owner, repo = parse_github_repo_url(url)
-            except ValueError:
-                continue
-            resp = gh.get(f"/repos/{owner}/{repo}")
-            if resp.status_code != 404:
-                still_alive.append(url)
+        confirmed_removed_urls = set(_verify_repos_removed(gh, removed_urls))
+    still_alive = [url for url in removed_urls if url not in confirmed_removed_urls]
 
     resurrected_skills = 0
     resurrected_trackers = 0

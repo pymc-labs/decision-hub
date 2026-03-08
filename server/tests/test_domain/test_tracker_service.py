@@ -1124,12 +1124,12 @@ class TestVerifyReposRemoved:
         assert _verify_repos_removed(mock_gh, []) == []
         mock_gh.get.assert_not_called()
 
-    def test_invalid_url_treated_as_removed(self):
+    def test_invalid_url_is_skipped(self):
         from decision_hub.domain.tracker_service import _verify_repos_removed
 
         mock_gh = MagicMock()
         result = _verify_repos_removed(mock_gh, ["not-a-github-url"])
-        assert result == ["not-a-github-url"]
+        assert result == []
         mock_gh.get.assert_not_called()
 
 
