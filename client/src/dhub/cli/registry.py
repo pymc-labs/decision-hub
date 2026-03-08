@@ -580,7 +580,7 @@ def _create_zip(path: Path) -> bytes:
             if entry_count > _MAX_ZIP_ENTRIES:
                 raise ValueError(
                     f"Skill contains more than {_MAX_ZIP_ENTRIES} files. "
-                    f"Use a .gitignore or reduce the number of files."
+                    f"Remove unnecessary files or exclude them from the skill directory."
                 )
             zf.write(file, relative)
     return buf.getvalue()

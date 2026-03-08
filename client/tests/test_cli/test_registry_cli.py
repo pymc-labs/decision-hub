@@ -7,10 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+import pytest
 import respx
 from typer.testing import CliRunner
 
 from dhub.cli.app import app
+from dhub.cli.registry import _MAX_ZIP_ENTRIES, _create_zip
 
 runner = CliRunner()
 
@@ -393,21 +395,15 @@ class TestPublishCommand:
 class TestCreateZip:
     def test_rejects_oversized_directory(self, tmp_path: Path) -> None:
         """_create_zip raises ValueError when entry count exceeds the limit."""
-        from dhub.cli.registry import _MAX_ZIP_ENTRIES, _create_zip
-
         # Create more files than the limit
         for i in range(_MAX_ZIP_ENTRIES + 1):
             (tmp_path / f"file_{i}.txt").write_text(f"content {i}")
-
-        import pytest
 
         with pytest.raises(ValueError, match="more than"):
             _create_zip(tmp_path)
 
     def test_accepts_directory_at_limit(self, tmp_path: Path) -> None:
         """_create_zip succeeds when entry count is exactly at the limit."""
-        from dhub.cli.registry import _MAX_ZIP_ENTRIES, _create_zip
-
         for i in range(_MAX_ZIP_ENTRIES):
             (tmp_path / f"file_{i}.txt").write_text(f"content {i}")
 
