@@ -807,6 +807,7 @@ def _publish_skill_from_tracker(
     from decision_hub.domain.publish_pipeline import GauntletRejectionError, VersionConflictError, execute_publish
     from decision_hub.infra.database import (
         find_org_by_slug,
+        has_recent_quarantine,
         resolve_latest_version,
     )
     from decision_hub.infra.storage import compute_checksum
@@ -830,6 +831,24 @@ def _publish_skill_from_tracker(
         if latest is not None and latest.checksum == checksum:
             logger.info(
                 "tracker_id={} repo={} skill={}/{} status=unchanged", tracker.id, tracker.repo_url, org_slug, skill_name
+            )
+            return False
+
+        # Skip re-running gauntlet if identical content was quarantined recently
+        if has_recent_quarantine(
+            conn,
+            org_slug=org_slug,
+            skill_name=skill_name,
+            checksum=checksum,
+            max_age_hours=settings.tracker_quarantine_skip_hours,
+        ):
+            logger.info(
+                "tracker_id={} repo={} skill={}/{} status=quarantine_dedup checksum={}",
+                tracker.id,
+                tracker.repo_url,
+                org_slug,
+                skill_name,
+                checksum[:12],
             )
             return False
 

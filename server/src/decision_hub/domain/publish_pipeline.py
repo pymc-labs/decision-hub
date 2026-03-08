@@ -357,6 +357,7 @@ def quarantine_and_log_rejection(
     check_results: list[dict],
     llm_reasoning: dict | None,
     publisher: str,
+    checksum: str | None = None,
 ) -> None:
     """Upload rejected zip to quarantine and log the rejection.
 
@@ -387,6 +388,7 @@ def quarantine_and_log_rejection(
         version_id=None,
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=q_key,
+        checksum=checksum,
     )
     # Commit the audit record before uploading to S3 so it survives
     # any subsequent failure. This ensures rejection forensics are
@@ -650,6 +652,7 @@ def execute_publish(
             check_results=check_results_dicts,
             llm_reasoning=llm_reasoning,
             publisher=publisher,
+            checksum=checksum,
         )
         raise GauntletRejectionError(report.summary)
 
@@ -722,6 +725,7 @@ def execute_publish(
         publisher=publisher,
         version_id=version_record.id,
         llm_reasoning=llm_reasoning,
+        checksum=checksum,
     )
 
     # 11. Commit DB first so the version row is visible to the background

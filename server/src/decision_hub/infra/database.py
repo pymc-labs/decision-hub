@@ -6,7 +6,7 @@ Query functions accept a Connection as their first argument and return
 frozen dataclass instances from decision_hub.models.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -378,6 +378,7 @@ eval_audit_logs_table = Table(
     Column("llm_reasoning", JSONB, nullable=True),
     Column("publisher", Text, nullable=False, server_default=""),
     Column("quarantine_s3_key", Text, nullable=True),
+    Column("checksum", Text, nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -2257,6 +2258,7 @@ def _row_to_audit_log_entry(row: sa.Row) -> AuditLogEntry:
         llm_reasoning=row.llm_reasoning,
         publisher=row.publisher,
         quarantine_s3_key=row.quarantine_s3_key,
+        checksum=row.checksum,
         created_at=row.created_at,
     )
 
@@ -2272,6 +2274,7 @@ def insert_audit_log(
     version_id: UUID | None = None,
     llm_reasoning: dict | None = None,
     quarantine_s3_key: str | None = None,
+    checksum: str | None = None,
 ) -> AuditLogEntry:
     """Insert a gauntlet evaluation audit log entry.
 
@@ -2288,6 +2291,7 @@ def insert_audit_log(
         version_id: UUID of the version record (None for F-rejected).
         llm_reasoning: Raw LLM judge responses.
         quarantine_s3_key: S3 key for quarantined rejected packages.
+        checksum: SHA-256 hex digest of the skill zip content.
 
     Returns:
         The newly created AuditLogEntry.
@@ -2306,6 +2310,8 @@ def insert_audit_log(
         values["llm_reasoning"] = llm_reasoning
     if quarantine_s3_key is not None:
         values["quarantine_s3_key"] = quarantine_s3_key
+    if checksum is not None:
+        values["checksum"] = checksum
 
     stmt = sa.insert(eval_audit_logs_table).values(**values).returning(*eval_audit_logs_table.c)
     row = conn.execute(stmt).one()
@@ -2329,6 +2335,49 @@ def delete_audit_logs_by_version_id(conn: Connection, version_id: UUID) -> int:
     stmt = sa.delete(eval_audit_logs_table).where(eval_audit_logs_table.c.version_id == version_id)
     result = conn.execute(stmt)
     return result.rowcount
+
+
+def has_recent_quarantine(
+    conn: Connection,
+    *,
+    org_slug: str,
+    skill_name: str,
+    checksum: str,
+    max_age_hours: int,
+) -> bool:
+    """Check if there's a recent F-grade audit log with matching checksum.
+
+    Used by the tracker to skip re-running the gauntlet on content that was
+    already rejected within the TTL window.
+
+    Args:
+        conn: Active database connection.
+        org_slug: Organization slug.
+        skill_name: Skill name.
+        checksum: SHA-256 hex digest of the skill zip.
+        max_age_hours: Only consider quarantines from the last N hours.
+            0 disables the check (always returns False).
+
+    Returns:
+        True if a matching quarantine exists within the time window.
+    """
+    if max_age_hours <= 0:
+        return False
+
+    cutoff = sa.func.now() - timedelta(hours=max_age_hours)
+    stmt = (
+        sa.select(sa.literal(1))
+        .select_from(eval_audit_logs_table)
+        .where(
+            eval_audit_logs_table.c.org_slug == org_slug,
+            eval_audit_logs_table.c.skill_name == skill_name,
+            eval_audit_logs_table.c.checksum == checksum,
+            eval_audit_logs_table.c.grade == "F",
+            eval_audit_logs_table.c.created_at > cutoff,
+        )
+        .limit(1)
+    )
+    return conn.execute(stmt).scalar_one_or_none() is not None
 
 
 def find_audit_logs(

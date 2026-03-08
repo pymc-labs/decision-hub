@@ -515,6 +515,7 @@ def _finalize_skill(
             version_id=None,
             llm_reasoning=llm_reasoning,
             quarantine_s3_key=q_key,
+            checksum=prep.checksum,
         )
         upload_skill_zip(s3_client, settings.s3_bucket, q_key, prep.zip_data)
         return "quarantined"
@@ -551,6 +552,7 @@ def _finalize_skill(
         version_id=version_record.id,
         llm_reasoning=llm_reasoning,
         quarantine_s3_key=None,
+        checksum=prep.checksum,
     )
 
     if set_tracker and source_repo_url and bot_user_id is not None:
