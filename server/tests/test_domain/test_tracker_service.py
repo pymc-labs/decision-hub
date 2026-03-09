@@ -120,6 +120,46 @@ class TestDiscoverSkills:
             result = _discover_skills(tmp_path)
             assert len(result) == 0
 
+    def test_deduplicates_by_skill_name_keeps_shallowest(self, tmp_path):
+        """When two SKILL.md files declare the same name, only the shallowest is kept.
+
+        This prevents the same skill from being zipped from different directories,
+        which would produce different checksums and bypass quarantine dedup.
+        """
+        shallow = tmp_path / "skills" / "my-skill"
+        shallow.mkdir(parents=True)
+        (shallow / "SKILL.md").write_text("---\nname: my-skill\n---\nShallow")
+
+        deep = tmp_path / "other" / "nested" / "my-skill"
+        deep.mkdir(parents=True)
+        (deep / "SKILL.md").write_text("---\nname: my-skill\n---\nDeep")
+
+        with patch("decision_hub.domain.skill_manifest.parse_skill_md") as mock_parse:
+            manifest = MagicMock()
+            manifest.name = "my-skill"
+            mock_parse.return_value = manifest
+
+            result = _discover_skills(tmp_path)
+            assert len(result) == 1
+            assert result[0] == shallow
+
+    def test_different_skill_names_both_kept(self, tmp_path):
+        """Two SKILL.md files with different names are both discovered."""
+        dir_a = tmp_path / "skill-a"
+        dir_a.mkdir()
+        (dir_a / "SKILL.md").write_text("---\nname: alpha\n---\nA")
+
+        dir_b = tmp_path / "skill-b"
+        dir_b.mkdir()
+        (dir_b / "SKILL.md").write_text("---\nname: beta\n---\nB")
+
+        with patch("decision_hub.domain.skill_manifest.parse_skill_md") as mock_parse:
+            manifests = {"alpha": MagicMock(name="alpha"), "beta": MagicMock(name="beta")}
+            mock_parse.side_effect = lambda p: manifests["alpha"] if "skill-a" in str(p) else manifests["beta"]
+
+            result = _discover_skills(tmp_path)
+            assert len(result) == 2
+
 
 class TestVersionDetermination:
     """Test the version determination logic used in _publish_skill_from_tracker."""

@@ -923,7 +923,8 @@ class TestDiscoverSkills:
         (skill2 / "SKILL.md").write_text("---\nname: skill-b\ndescription: test\n---\nBody")
 
         with patch("decision_hub.domain.skill_manifest.parse_skill_md") as mock_parse:
-            mock_parse.return_value = MagicMock()
+            manifests = iter([MagicMock(name="skill-a"), MagicMock(name="skill-b")])
+            mock_parse.side_effect = lambda _: next(manifests)
             result = discover_skills(tmp_path)
             assert len(result) == 2
 

@@ -73,22 +73,31 @@ def discover_skills(root: Path) -> list[Path]:
 
     Skips hidden directories, node_modules, and __pycache__.
     Only includes directories where SKILL.md parses successfully.
+
+    When multiple SKILL.md files declare the same skill name, only the
+    shallowest one is kept (sorted() + rglob guarantee breadth-first order).
+    This prevents the same skill from being zipped from different directories,
+    which would produce different checksums and bypass quarantine dedup.
     """
     import yaml
 
     from decision_hub.domain.skill_manifest import parse_skill_md
 
-    skill_dirs: list[Path] = []
-    for skill_md in sorted(root.rglob("SKILL.md")):
+    seen_names: dict[str, Path] = {}
+    # Sort by depth (fewest path components first) then alphabetically,
+    # so the shallowest SKILL.md wins when names collide.
+    candidates = sorted(root.rglob("SKILL.md"), key=lambda p: (len(p.relative_to(root).parts), p))
+    for skill_md in candidates:
         parts = skill_md.relative_to(root).parts
         if any(p.startswith(".") or p in ("node_modules", "__pycache__") for p in parts):
             continue
         try:
-            parse_skill_md(skill_md)
-            skill_dirs.append(skill_md.parent)
+            manifest = parse_skill_md(skill_md)
         except (ValueError, FileNotFoundError, yaml.YAMLError):
             continue
-    return skill_dirs
+        if manifest.name not in seen_names:
+            seen_names[manifest.name] = skill_md.parent
+    return list(seen_names.values())
 
 
 def create_zip(path: Path) -> bytes:
