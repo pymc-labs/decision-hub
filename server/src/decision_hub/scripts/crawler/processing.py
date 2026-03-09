@@ -27,6 +27,7 @@ from decision_hub.domain.publish import (
     extract_for_evaluation,
     validate_skill_name,
 )
+from decision_hub.domain.publish_pipeline import VersionConflictError
 from decision_hub.domain.repo_utils import (
     bump_version,
     clone_repo,
@@ -281,6 +282,14 @@ def process_repo_on_modal(
                         set_tracker=set_tracker,
                         force=force,
                     )
+                except VersionConflictError:
+                    # Race: tracker or another crawler container published this
+                    # version between our checksum check and insert.
+                    logger.info(
+                        "Skill {} already published (version race), skipping",
+                        skill_dir.name,
+                    )
+                    return "skipped"
                 except Exception:
                     logger.opt(exception=True).warning(
                         "Failed to process skill dir {}",
