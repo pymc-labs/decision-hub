@@ -9,27 +9,78 @@
   <a href="https://github.com/pymc-labs/decision-hub/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/pymc-labs/decision-hub/ci.yml?label=CI" alt="CI Status"></a>
   <a href="https://github.com/pymc-labs/decision-hub/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pymc-labs/decision-hub" alt="License"></a>
   <a href="https://github.com/pymc-labs/decision-hub/stargazers"><img src="https://img.shields.io/github/stars/pymc-labs/decision-hub" alt="GitHub Stars"></a>
-  <a href="https://github.com/pymc-labs/decision-hub/commits/main"><img src="https://img.shields.io/github/last-commit/pymc-labs/decision-hub" alt="Last Updated"></a>
 </p>
 
-**Decision Hub** is a registry for publishing, discovering, and installing *Skills* — modular packages of code and prompts that AI coding agents (Claude, Cursor, Codex, Gemini, OpenCode, and 30+ others) can use. Publish a skill once, install it into any supported agent with one command.
+## What is Decision Hub?
 
-**Browse the registry at [hub.decision.ai](https://hub.decision.ai)** or use the CLI below.
+Decision Hub is a **registry and package manager for AI agent skills**. Skills are modular packages of prompts and code that any AI coding agent can use — think npm, but for agent capabilities.
 
-## Installation
+Publish a skill once. Install it into Claude Code, Cursor, Codex, Gemini CLI, Windsurf, or any of 40+ supported agents with a single command.
+
+**Browse the registry at [hub.decision.ai](https://hub.decision.ai)** or use the `dhub` CLI.
+
+## Decision Hub is right for you if
+
+- You use AI coding agents and want to **extend them with reusable skills** — your own or community-built
+- You maintain best practices, coding standards, or workflows that you want to **share across your team** as installable skills
+- You build tools or libraries and want to **ship an AI skill** alongside your package so agents know how to use it
+- You want a **private skill registry** scoped to your GitHub organization
+- You care about **safety** — you want skills vetted before your agents run them
+
+## Features
+
+- **40+ agent support** — install once, symlink into Claude Code, Cursor, Codex, Windsurf, Gemini CLI, GitHub Copilot, and [many more](#supported-agents)
+- **Publish from anywhere** — point at a local directory or a GitHub URL; every `SKILL.md` inside is discovered and versioned automatically
+- **Private skills** — scope skills to your GitHub org with `--private`; grant cross-org access selectively
+- **Security gauntlet** — every publish is scanned for shell injection, credential exfiltration, and dangerous patterns; skills receive a trust grade (A/B/C/F)
+- **Automated evals** — ship eval cases with your skill; they run in an isolated sandbox, an LLM judge scores the output, and results are published as a report
+- **Auto-tracking** — publish from a GitHub URL and a tracker automatically republishes on future commits; no CI setup needed
+- **Self-extending agents** — Decision Hub ships as a skill itself; install it into your agent and the agent can discover and install new skills mid-conversation
+- **Natural language search** — `dhub ask "I need to do Bayesian statistics"` finds relevant skills instantly
+
+## Problems Decision Hub Solves
+
+| Problem | How Decision Hub solves it |
+|---------|---------------------------|
+| Agent context is blank — it doesn't know your stack, conventions, or internal tools | Install skills that teach agents your patterns, libraries, and workflows |
+| Copy-pasting system prompts between projects and teammates | Publish once, `dhub install` everywhere — versioned and updatable |
+| No way to know if a community prompt is safe to run | Security gauntlet scans every publish and assigns a trust grade |
+| Skills work in one agent but not another | One SKILL.md format, 40+ agents supported via `--agent all` |
+| Hard to find the right skill among hundreds | Natural language search with `dhub ask` + browsable web registry |
+| No quality signal for skills | Automated evals run on publish and produce public reports |
+| Skills drift out of sync with the code they reference | GitHub auto-tracking republishes on every commit |
+
+## Why Decision Hub is special
+
+**It's the missing package manager for the AI agent ecosystem.** Libraries have npm, pip, and cargo. AI agents have nothing — until now.
+
+Most "prompt sharing" solutions are static collections of text. Decision Hub treats skills as **first-class packages**: versioned, namespaced, security-scanned, evaluated, and installable with one command. Skills can include code, have dependencies, define runtime environments, and ship with automated tests.
+
+The key differentiator is **universal agent support**. A single `dhub install org/skill --agent all` works across 40+ agents. No vendor lock-in — publish once, use everywhere.
+
+## What Decision Hub is not
+
+- **Not an agent framework** — Decision Hub doesn't run agents. It gives agents capabilities. Use it alongside your preferred agent (Claude Code, Cursor, Codex, etc.)
+- **Not a prompt marketplace** — there's no payment layer. Skills are published freely under open-source licenses (or kept private within your org)
+- **Not an MCP server registry** — skills are prompt+code packages that agents load directly, not server processes. They complement MCP, not replace it
+
+## Quickstart
+
+### Install
 
 ```bash
+# Install uv (if needed) and the CLI
 curl -LsSf https://astral.sh/uv/install.sh | sh && PATH="$HOME/.local/bin:$PATH" uv tool install dhub-cli
 ```
 
-This installs [uv](https://docs.astral.sh/uv/) (if not already present), updates your `PATH`, and installs the CLI. If you already have `uv` or `pipx`:
+Or if you already have `uv` or `pipx`:
 
 ```bash
 uv tool install dhub-cli    # via uv
 pipx install dhub-cli       # via pipx
 ```
 
-## Quick Start
+### Use
 
 ```bash
 # Authenticate via GitHub
@@ -38,10 +89,10 @@ dhub login
 # Search for skills in plain English
 dhub ask "I need to do Bayesian statistics with PyMC"
 
-# Install a skill and link it to a specific agent
+# Install a skill into your agent
 dhub install pymc-labs/pymc-modeling --agent claude-code
 
-# Or link to all detected agents at once
+# Or install into all detected agents at once
 dhub install pymc-labs/pymc-modeling --agent all
 
 # Scaffold and publish your own skill
@@ -49,54 +100,86 @@ dhub init my-skill
 dhub publish ./my-skill
 ```
 
-## Why Decision Hub
+### The SKILL.md format
 
-**Agents that extend themselves.** Decision Hub ships as a skill itself. Install it into Claude Code (or any supported agent), and the agent can discover and install new skills mid-conversation without human intervention.
-
-**Publish from anywhere.** Point `dhub publish` at a local directory or a GitHub repo URL and every `SKILL.md` inside is discovered, versioned, and published automatically.
-
-**Private skills for your team.** Publish with `--private` to scope skills to your GitHub organization. Grant cross-org access selectively with `dhub access grant`.
-
-**Install once, use everywhere.** A single `dhub install --agent all` downloads a skill and symlinks it into every detected agent's skill directory.
-
-**Security gauntlet.** Every publish is scanned for shell injection, credential exfiltration, and other dangerous patterns. Skills receive a trust grade (A/B/C/F). Grade F is rejected; Grade C requires `--allow-risky` to install.
-
-**Automated evals.** Skills ship with eval cases that run on publish — each executes in an isolated sandbox, an LLM judge scores the output, and results are published as a report.
-
-**Zero-config namespaces.** Your GitHub username and org memberships become publishing namespaces on login.
-
-**Auto-tracking.** Publish from a GitHub URL and a tracker automatically republishes skills on future commits. No CI setup required.
-
-## SKILL.md Format
-
-Each skill is a directory containing a `SKILL.md` manifest. The YAML front matter defines metadata; the body is the system prompt injected into the agent. Builds on the [Agent Skills spec](https://agentskills.io/specification).
+Each skill is a directory with a `SKILL.md` file. YAML front matter defines metadata; the body is the system prompt injected into the agent.
 
 ```yaml
 ---
 name: my-skill                    # 1-64 chars, lowercase alphanumeric + hyphens
 description: >
   What this skill does and when
-  the agent should activate it.   # 1-1024 chars
-license: MIT                      # optional
+  the agent should activate it.
+license: MIT
 
 runtime:                           # optional — makes the skill executable
   language: python
   entrypoint: src/main.py
-  env: [OPENAI_API_KEY]            # required env vars
+  env: [OPENAI_API_KEY]
   dependencies:
     package_manager: uv
     lockfile: uv.lock
 
 evals:                             # optional — enables automated evaluation
-  agent: claude                    # agent to test with
-  judge_model: claude-sonnet-4-5-20250929  # LLM judge model
+  agent: claude
+  judge_model: claude-sonnet-4-5-20250929
 ---
 
 System prompt content goes here. This is what the agent sees
 when the skill is activated.
 ```
 
-Eval cases live in `evals/*.yaml` files inside the skill directory and are included in the published artifact.
+Builds on the [Agent Skills spec](https://agentskills.io/specification).
+
+## FAQ
+
+<details>
+<summary><strong>How is a skill different from a system prompt?</strong></summary>
+
+A skill is a system prompt plus optional code, dependencies, runtime config, and eval cases — packaged, versioned, and distributable. A raw system prompt is just text; a skill is a deployable unit with safety scanning, version history, and automated testing.
+</details>
+
+<details>
+<summary><strong>Which agents are supported?</strong></summary>
+
+40+ agents including Claude Code, Cursor, Codex, Windsurf, Gemini CLI, GitHub Copilot, Roo Code, OpenCode, Cline, Goose, and many more. See the [full list](#supported-agents) below. Use `--agent all` to install into every detected agent at once.
+</details>
+
+<details>
+<summary><strong>Are skills safe to install?</strong></summary>
+
+Every published skill goes through a security gauntlet that scans for shell injection, credential exfiltration, and other dangerous patterns. Skills receive a letter grade: **A** (clean), **B** (elevated permissions — warning shown), **C** (risky — requires `--allow-risky`), or **F** (rejected at publish time). Downloads are verified via SHA-256 checksums.
+</details>
+
+<details>
+<summary><strong>Can I publish private skills for my team?</strong></summary>
+
+Yes. Publish with `dhub publish --private` to scope a skill to your GitHub organization. Grant cross-org access selectively with `dhub access grant`. Visibility can be changed later with `dhub visibility`.
+</details>
+
+<details>
+<summary><strong>How does auto-tracking work?</strong></summary>
+
+When you publish from a GitHub URL, a tracker monitors the repo for new commits and automatically republishes affected skills. No CI setup or webhooks needed. Disable with `--no-track`.
+</details>
+
+<details>
+<summary><strong>What are evals?</strong></summary>
+
+Skills can ship with `evals/*.yaml` test cases. On publish, each case runs in an isolated sandbox: the configured agent executes the task, and an LLM judge scores the output. Results are published as a report viewable via `dhub eval-report` or on the web registry.
+</details>
+
+<details>
+<summary><strong>Do I need a Decision Hub account?</strong></summary>
+
+You need a GitHub account. Run `dhub login` — it uses GitHub Device Flow (OAuth2). Your GitHub username and org memberships automatically become your publishing namespaces.
+</details>
+
+<details>
+<summary><strong>Is it free?</strong></summary>
+
+Yes. Decision Hub is open-source (MIT) and the public registry is free to use.
+</details>
 
 ## CLI Reference
 
@@ -144,7 +227,6 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 | `dhub list --skill NAME` | Filter by skill name |
 | `dhub info ORG/SKILL` | Show detailed information about a skill |
 | `dhub ask "QUERY"` | Natural language search |
-| `dhub ask "QUERY" --category "Backend & APIs"` | Search within a category |
 | `dhub init [PATH]` | Scaffold a new skill project |
 
 ### Evals
@@ -156,7 +238,7 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 | `dhub logs ORG/SKILL --follow` | Tail eval logs for the latest version |
 | `dhub logs RUN_ID --follow` | Tail a specific eval run by ID |
 
-### Organizations, Keys & Config
+### Organizations, Keys & Access Control
 
 | Command | Description |
 |---------|-------------|
@@ -165,26 +247,19 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 | `dhub keys add KEY_NAME` | Add an API key (prompts for value securely) |
 | `dhub keys list` | List stored API key names |
 | `dhub keys remove KEY_NAME` | Remove a stored API key |
-
-### Private Skills & Access
-
-| Command | Description |
-|---------|-------------|
 | `dhub publish ./skill --private` | Publish as org-private |
-| `dhub visibility ORG/SKILL public` | Change visibility to public |
-| `dhub visibility ORG/SKILL org` | Change visibility to org-only |
+| `dhub visibility ORG/SKILL public\|org` | Change visibility |
 | `dhub access grant ORG/SKILL OTHER_ORG` | Grant another org access to a private skill |
 | `dhub access revoke ORG/SKILL OTHER_ORG` | Revoke access |
 | `dhub access list ORG/SKILL` | List access grants |
 | `dhub delete ORG/SKILL` | Delete all versions of a skill |
-| `dhub delete ORG/SKILL -v VERSION` | Delete a specific version |
 
 ## Supported Agents
 
-Skills are installed as symlinks into each agent's skill directory. Use `--agent NAME` to target one agent or `--agent all` to symlink into every detected agent.
+Skills are installed as symlinks into each agent's skill directory. Use `--agent NAME` to target one agent or `--agent all` for all detected agents.
 
 <details>
-<summary>38 supported agents (click to expand)</summary>
+<summary>40+ supported agents (click to expand)</summary>
 
 | Agent | `--agent` | Skill path |
 |-------|-----------|-----------|
@@ -232,66 +307,38 @@ Skills are installed as symlinks into each agent's skill directory. Use `--agent
 
 </details>
 
-## Safety & Evals
-
-Every published skill goes through a two-stage pipeline:
-
-### Security Gauntlet
-
-An automated scan for dangerous patterns (shell injection, file exfiltration, credential access). Skills receive a letter grade:
-
-| Grade | Meaning | Behavior |
-|-------|---------|----------|
-| **A** | Clean | Installs normally |
-| **B** | Elevated permissions detected | Warning shown on install |
-| **C** | Risky patterns | Requires `--allow-risky` flag |
-| **F** | Fails safety checks | Rejected at publish time |
-
-### Agent Evaluation
-
-If the skill includes an `evals` block and `evals/*.yaml` cases, an evaluation pipeline runs after publishing:
-
-1. Each eval case runs in an isolated Modal sandbox with the configured agent
-2. An LLM judge scores the agent's output against expected criteria
-3. Results are published as a report
-
-The CLI auto-attaches to the live log stream after publish. View results anytime with `dhub eval-report` or `dhub logs --follow`.
-
 ## Architecture
 
-This is a **uv workspace monorepo** with four components:
+| Component | Directory | Package | Description |
+|-----------|-----------|---------|-------------|
+| CLI | `client/` | [`dhub-cli`](https://pypi.org/project/dhub-cli/) | Open-source CLI (Typer + Rich) |
+| Server | `server/` | `decision-hub-server` | Backend API (FastAPI on Modal) |
+| Shared | `shared/` | `dhub-core` | Domain models and SKILL.md parsing |
+| Frontend | `frontend/` | — | Web UI at [hub.decision.ai](https://hub.decision.ai) (React + TypeScript) |
 
-| Component | Directory | Import path | Description |
-|-----------|-----------|-------------|-------------|
-| `dhub-cli` | `client/` | `dhub.*` | Open-source CLI, published to [PyPI](https://pypi.org/project/dhub-cli/) |
-| `decision-hub-server` | `server/` | `decision_hub.*` | Backend API, deployed on [Modal](https://modal.com/) |
-| `dhub-core` | `shared/` | `dhub_core.*` | Shared domain models and SKILL.md parsing |
-| Frontend | `frontend/` | — | React + TypeScript web UI at [hub.decision.ai](https://hub.decision.ai) |
-
-**Tech stack:** Python 3.11+ / Typer + Rich (CLI) / FastAPI (API) / PostgreSQL (database) / S3 (artifact storage) / Modal (compute & sandboxed evals) / Gemini (search & classification) / Anthropic (eval judging)
+**Stack:** Python 3.11+ / PostgreSQL / S3 / Modal / Gemini (search) / Anthropic (eval judging)
 
 ## Development
 
 ```bash
-# Install all workspace dependencies
+# Clone and install
+git clone https://github.com/pymc-labs/decision-hub.git
+cd decision-hub
 uv sync --all-packages --all-extras
-
-# Install pre-commit hooks (once after cloning)
 make install-hooks
 ```
 
-The `Makefile` at the repo root has targets for all common operations — run `make help` to see them:
-
 ```bash
-make test              # run all tests (client + server + frontend)
-make lint              # ruff check + format + frontend lint
-make typecheck         # mypy
-make fmt               # auto-fix + format
+make help          # see all available targets
+make test          # run all tests (client + server + frontend)
+make lint          # ruff check + format + frontend lint
+make typecheck     # mypy
+make fmt           # auto-fix + format
 ```
 
-### Local Development
+### Local development
 
-For fully isolated local development with its own database and S3 storage:
+For fully isolated local development with its own database and S3:
 
 ```bash
 make deploy-local    # start Postgres + MinIO + API + frontend
@@ -301,20 +348,16 @@ make local-down      # stop (data preserved)
 make local-reset     # stop and destroy all data
 ```
 
-Requires Docker Desktop. Data persists across restarts.
+Requires Docker Desktop.
 
 ### Configuration
 
-Copy `server/.env.example` to `server/.env.dev` (or `server/.env.local` for local development) and fill in your values. The project has three environments controlled by `DHUB_ENV` (`dev` | `prod` | `local`). The CLI defaults to `prod`; the server defaults to `dev` for safety.
-
-### Contributing
-
-See [`CLAUDE.md`](CLAUDE.md) for detailed development guidelines including: coding standards, database migration rules, deployment procedures, environment setup, and CI workflows.
+Copy `server/.env.example` to `server/.env.dev` and fill in your values. The project has three environments controlled by `DHUB_ENV` (`dev` | `prod` | `local`). See [`CLAUDE.md`](CLAUDE.md) for detailed development guidelines.
 
 ## Security
 
-If you discover a security vulnerability, please report it responsibly via the process described in [SECURITY.md](SECURITY.md). **Do not** open a public GitHub issue.
+If you discover a security vulnerability, please report it responsibly via [SECURITY.md](SECURITY.md). **Do not** open a public GitHub issue.
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
