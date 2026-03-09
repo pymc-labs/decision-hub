@@ -45,8 +45,7 @@ class _InterceptHandler(logging.Handler):
                 continue
             break
 
-        msg = _SENSITIVE_URL_PARAM_RE.sub(r"\1[REDACTED]", record.getMessage())
-        logger.opt(depth=depth, exception=record.exc_info).log(level, msg)
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
 def _format_record(record: dict) -> str:
@@ -60,6 +59,25 @@ def _format_record(record: dict) -> str:
     if record["exception"]:
         fmt += "{exception}"
     return fmt
+
+
+def _redact_sensitive(text: str) -> str:
+    """Redact API keys from any text (messages, tracebacks, etc.)."""
+    return _SENSITIVE_URL_PARAM_RE.sub(r"\1[REDACTED]", text)
+
+
+def _patcher(record: dict) -> None:
+    """Loguru patcher: redact sensitive data from messages and exception args.
+
+    Runs before formatting, so both text and JSON sinks get clean output.
+    Exception args (e.g. httpx.HTTPStatusError with a URL containing ?key=...)
+    are sanitized in-place so {exception} rendering never leaks secrets.
+    """
+    record["message"] = _redact_sensitive(record["message"])
+    if record["exception"]:
+        _exc_type, exc_value, _exc_tb = record["exception"]
+        if exc_value is not None and exc_value.args:
+            exc_value.args = tuple(_redact_sensitive(str(a)) for a in exc_value.args)
 
 
 def _json_sink(message) -> None:
@@ -80,7 +98,7 @@ def _json_sink(message) -> None:
             entry[key] = extra[key]
     if record["exception"]:
         exc_type, exc_value, exc_tb = record["exception"]
-        entry["exception"] = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        entry["exception"] = _redact_sensitive("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
     sys.stderr.write(json.dumps(entry, default=str) + "\n")
     sys.stderr.flush()
 
@@ -119,6 +137,8 @@ def setup_logging(level: str = "INFO", log_format: str = "text") -> None:
             backtrace=True,
             diagnose=False,  # disable variable inspection in prod for safety
         )
+
+    logger.configure(patcher=_patcher)
 
     # Intercept stdlib logging
     logging.basicConfig(handlers=[_InterceptHandler()], level=0, force=True)
