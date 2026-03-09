@@ -13,19 +13,20 @@
 
 ## What is Decision Hub?
 
-Decision Hub is a **registry and package manager for AI agent skills**. Skills are modular packages of prompts and code that any AI coding agent can use — think npm, but for agent capabilities.
+Decision Hub is an **open-source registry and package manager for AI agent skills**, built by [PyMC Labs](https://www.pymc-labs.com/) with a focus on **data science, statistics, and ML workflows**. Skills are modular packages of prompts and code that any AI coding agent can use — think npm, but for agent capabilities.
 
-Publish a skill once. Install it into Claude Code, Cursor, Codex, Gemini CLI, Windsurf, or any of 40+ supported agents with a single command.
+Publish a skill once. Install it into Claude Code, Cursor, Codex, Gemini CLI, Windsurf, or any of 40+ supported agents with a single command. Every skill is security-scanned and can ship with **automated eval cases** that run on publish — so you know a skill actually works before you trust your agent with it.
 
-**Browse the registry at [hub.decision.ai](https://hub.decision.ai)** or use the `dhub` CLI.
+Decision Hub is **fully open-source (MIT)** — the CLI, server, and web UI are all in this repo. You can use the public registry at [hub.decision.ai](https://hub.decision.ai), or **deploy your own instance** on your company's infrastructure for complete control over your skill supply chain.
 
 ## Decision Hub is right for you if
 
-- You use AI coding agents and want to **extend them with reusable skills** — your own or community-built
-- You maintain best practices, coding standards, or workflows that you want to **share across your team** as installable skills
-- You build tools or libraries and want to **ship an AI skill** alongside your package so agents know how to use it
-- You want a **private skill registry** scoped to your GitHub organization
-- You care about **safety** — you want skills vetted before your agents run them
+- You work in **data science, statistics, or ML** and want AI agents that actually know your tools (PyMC, Stan, scikit-learn, pandas, etc.)
+- You want **proven skills, not blind trust** — Decision Hub's eval pipeline tests skills against real tasks before you install them
+- You maintain best practices or workflows and want to **share them across your team** as versioned, installable packages
+- You build libraries and want to **ship an AI skill** alongside your package so agents know how to use it correctly
+- You need a **private skill registry** for your organization — or want to **self-host the entire platform** on your own infrastructure
+- You care about **safety** — you want skills security-scanned and graded before your agents run them
 
 ## Features
 
@@ -42,26 +43,29 @@ Publish a skill once. Install it into Claude Code, Cursor, Codex, Gemini CLI, Wi
 
 | Problem | How Decision Hub solves it |
 |---------|---------------------------|
-| Agent context is blank — it doesn't know your stack, conventions, or internal tools | Install skills that teach agents your patterns, libraries, and workflows |
+| AI agents hallucinate library APIs — they don't know PyMC, Stan, or your internal tools | Install skills that teach agents your stack with correct, tested patterns |
+| No way to know if a skill actually works before installing it | Automated evals run real tasks in sandboxes on every publish — results are public |
 | Copy-pasting system prompts between projects and teammates | Publish once, `dhub install` everywhere — versioned and updatable |
 | No way to know if a community prompt is safe to run | Security gauntlet scans every publish and assigns a trust grade |
+| Skill registries are vendor-locked SaaS you can't audit or self-host | Fully open-source (MIT) — deploy on your own infrastructure |
 | Skills work in one agent but not another | One SKILL.md format, 40+ agents supported via `--agent all` |
-| Hard to find the right skill among hundreds | Natural language search with `dhub ask` + browsable web registry |
-| No quality signal for skills | Automated evals run on publish and produce public reports |
 | Skills drift out of sync with the code they reference | GitHub auto-tracking republishes on every commit |
 
 ## Why Decision Hub is special
 
-**It's the missing package manager for the AI agent ecosystem.** Libraries have npm, pip, and cargo. AI agents have nothing — until now.
+**Three things set Decision Hub apart from every other skill registry:**
 
-Most "prompt sharing" solutions are static collections of text. Decision Hub treats skills as **first-class packages**: versioned, namespaced, security-scanned, evaluated, and installable with one command. Skills can include code, have dependencies, define runtime environments, and ship with automated tests.
+1. **Eval pipeline** — Other registries accept uploads and hope for the best. Decision Hub runs your skill's eval cases in isolated sandboxes on every publish. An LLM judge scores the output. You get a public report showing whether the skill actually works. This is especially critical for data science skills where a wrong statistical method or incorrect API call can silently produce bad results.
 
-The key differentiator is **universal agent support**. A single `dhub install org/skill --agent all` works across 40+ agents. No vendor lock-in — publish once, use everywhere.
+2. **Fully open-source and self-hostable** — Decision Hub is the only skill registry where the CLI, server, web UI, eval infrastructure, and security scanner are all open-source (MIT). You can use the public registry, or `make deploy-local` to run the entire platform on your own infrastructure. No vendor lock-in, full auditability, complete control over your skill supply chain.
+
+3. **Built for data science** — Created by [PyMC Labs](https://www.pymc-labs.com/), the team behind PyMC. The registry ships with skills for Bayesian modeling, statistical analysis, and ML workflows. The search, categorization, and eval pipeline are designed for technical skills where correctness matters more than convenience.
 
 ## What Decision Hub is not
 
 - **Not an agent framework** — Decision Hub doesn't run agents. It gives agents capabilities. Use it alongside your preferred agent (Claude Code, Cursor, Codex, etc.)
 - **Not a prompt marketplace** — there's no payment layer. Skills are published freely under open-source licenses (or kept private within your org)
+- **Not a closed SaaS** — the entire platform is MIT-licensed. There's no "enterprise tier" hiding features behind a paywall
 - **Not an MCP server registry** — skills are prompt+code packages that agents load directly, not server processes. They complement MCP, not replace it
 
 ## Quickstart
@@ -176,9 +180,15 @@ You need a GitHub account. Run `dhub login` — it uses GitHub Device Flow (OAut
 </details>
 
 <details>
+<summary><strong>Can I self-host Decision Hub?</strong></summary>
+
+Yes. The entire platform — CLI, server, web UI, eval infrastructure, security scanner — is MIT-licensed and in this repo. Run `make deploy-local` for a fully isolated local instance with its own database and S3 storage, or deploy to your own cloud infrastructure. See the [Development](#development) section.
+</details>
+
+<details>
 <summary><strong>Is it free?</strong></summary>
 
-Yes. Decision Hub is open-source (MIT) and the public registry is free to use.
+Yes. Decision Hub is open-source (MIT) and the public registry is free to use. Self-hosting is free too — you only pay for your own infrastructure.
 </details>
 
 ## CLI Reference
