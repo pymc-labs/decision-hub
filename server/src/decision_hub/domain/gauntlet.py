@@ -409,6 +409,11 @@ def check_pipeline_taint(
     )
 
 
+# Matches markdown code fence opening/closing lines (e.g. ```bash, ```python, ```)
+# to strip them before permission scanning — fence language annotations like
+# ```bash are documentation syntax, not actual shell usage.
+_CODE_FENCE_RE = re.compile(r"^\s*`{3,}\w*\s*$", re.MULTILINE)
+
 # Permission categories that elevate a skill from A to B
 _ELEVATED_PERMISSION_PATTERNS: dict[str, list[re.Pattern]] = {
     "shell": [
@@ -1028,6 +1033,9 @@ def detect_elevated_permissions(
     Returns a list of permission category strings (e.g. "shell", "network").
     """
     all_content = "\n".join(content for _, content in source_files)
+    # Strip markdown code fence lines so language annotations (```bash,
+    # ```shell, etc.) don't trigger false positives.
+    all_content = _CODE_FENCE_RE.sub("", all_content)
     if allowed_tools:
         all_content += "\n" + allowed_tools
 

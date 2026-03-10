@@ -549,6 +549,30 @@ class TestDetectElevatedPermissions:
         result = detect_elevated_permissions(files, "bash, shell, read")
         assert "shell" in result
 
+    def test_ignores_markdown_code_fence_bash(self):
+        """```bash code fence annotations should not trigger shell detection."""
+        files = [("README.md", "Install:\n```bash\npip install foo\n```\n")]
+        result = detect_elevated_permissions(files, None)
+        assert "shell" not in result
+
+    def test_ignores_markdown_code_fence_shell(self):
+        """```shell code fence annotations should not trigger shell detection."""
+        files = [("guide.md", "Run:\n```shell\necho hello\n```\n")]
+        result = detect_elevated_permissions(files, None)
+        assert "shell" not in result
+
+    def test_detects_bash_in_prose(self):
+        """Actual mention of bash in prose should still trigger detection."""
+        files = [("SKILL.md", "This skill uses bash to run commands.\n")]
+        result = detect_elevated_permissions(files, None)
+        assert "shell" in result
+
+    def test_detects_subprocess_inside_code_fence(self):
+        """Code inside a fenced block should still be scanned."""
+        files = [("example.md", "```python\nimport subprocess\n```\n")]
+        result = detect_elevated_permissions(files, None)
+        assert "shell" in result
+
 
 class TestComputeGrade:
     def test_grade_a_all_pass_minimal(self):
