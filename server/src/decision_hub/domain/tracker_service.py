@@ -6,6 +6,7 @@ full publish pipeline (zip, gauntlet, S3, version record, eval trigger).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import shutil
 import time
@@ -526,40 +527,53 @@ def _dispatch_changed_trackers(
         # fn.map blocks until results arrive — see docstring for why this is
         # preferred over fn.spawn.  The deadline check below breaks early if
         # the budget runs low.
-        for batch_result in fn.map(
+        #
+        # Extract to a named variable so `break` doesn't drop the last
+        # reference (triggering immediate GC → GeneratorExit on Modal's
+        # async generator wrapper, which raises RuntimeError).
+        map_iter = fn.map(
             tracker_dicts,
             known_shas,
             return_exceptions=True,
             order_outputs=False,
             wrap_returned_exceptions=False,
-        ):
-            # Process the already-received result before checking the deadline —
-            # the for-loop already blocked to receive it, so discarding it would
-            # undercount processed/failed.
-            if isinstance(batch_result, Exception):
-                logger.opt(exception=batch_result).error("Modal tracker_process_repo failed")
-                failed += 1
-            else:
-                tracker_id_str = batch_result.get("tracker_id")
-                if tracker_id_str:
-                    completed_tracker_ids.add(UUID(tracker_id_str))
-                if batch_result.get("status") == "ok":
-                    processed += 1
-                else:
+        )
+        try:
+            for batch_result in map_iter:
+                # Process the already-received result before checking the deadline —
+                # the for-loop already blocked to receive it, so discarding it would
+                # undercount processed/failed.
+                if isinstance(batch_result, Exception):
+                    logger.opt(exception=batch_result).error("Modal tracker_process_repo failed")
                     failed += 1
-                    logger.error(
-                        "tracker_process_repo error: repo={} error={}",
-                        batch_result.get("repo_url", "?"),
-                        batch_result.get("error", "unknown"),
-                    )
+                else:
+                    tracker_id_str = batch_result.get("tracker_id")
+                    if tracker_id_str:
+                        completed_tracker_ids.add(UUID(tracker_id_str))
+                    if batch_result.get("status") == "ok":
+                        processed += 1
+                    else:
+                        failed += 1
+                        logger.error(
+                            "tracker_process_repo error: repo={} error={}",
+                            batch_result.get("repo_url", "?"),
+                            batch_result.get("error", "unknown"),
+                        )
 
-            if deadline is not None and time.monotonic() > deadline - DEADLINE_BUFFER_SECONDS:
-                logger.warning(
-                    "Deadline approaching, stopping fn.map consumption after {}/{} results",
-                    processed + failed,
-                    len(changed_trackers),
-                )
-                break
+                if deadline is not None and time.monotonic() > deadline - DEADLINE_BUFFER_SECONDS:
+                    logger.warning(
+                        "Deadline approaching, stopping fn.map consumption after {}/{} results",
+                        processed + failed,
+                        len(changed_trackers),
+                    )
+                    break
+        finally:
+            # Modal's sync-over-async fn.map wrapper raises RuntimeError
+            # during generator cleanup when the underlying async generator
+            # is mid-operation.  This is harmless — suppress it.
+            with contextlib.suppress(RuntimeError):
+                map_iter.close()
+            del map_iter
 
         # Persist last_error for trackers that failed without a result dict
         # (timeout, OOM, container crash). These never reached the
