@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+import sqlalchemy.exc
 
 from decision_hub.scripts.crawler.processing import (
     _prepare_skill,
@@ -264,6 +265,47 @@ class TestPublishOneSkillReturnsStatus:
             skill_dir,
         )
         assert status == "published"
+
+    def test_version_race_raises_version_conflict_error(self, mock_skill_deps, tmp_path):
+        """When insert_version hits a UniqueViolation, raises VersionConflictError.
+
+        This lets the caller at process_repo_on_modal catch it and return
+        'skipped' instead of logging a noisy WARNING with full traceback.
+        """
+        from decision_hub.domain.publish_pipeline import VersionConflictError
+
+        engine = _make_engine_mock()
+        org = make_org()
+
+        skill_mock = MagicMock()
+        skill_mock.id = uuid4()
+        skill_mock.source_repo_url = None
+        mock_skill_deps["find_skill"].return_value = skill_mock
+        mock_skill_deps["resolve_latest_version"].return_value = None
+        mock_skill_deps["find_version"].return_value = None
+
+        report = MagicMock()
+        report.passed = True
+        report.grade = "A"
+        report.gauntlet_summary = "All checks passed"
+        mock_skill_deps["run_gauntlet_pipeline"].return_value = (report, {}, "reasoning")
+        mock_skill_deps["classify_skill_category"].return_value = "devops"
+        mock_skill_deps["insert_version"].side_effect = sqlalchemy.exc.IntegrityError(
+            "INSERT ...", {}, Exception("duplicate key")
+        )
+
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
+
+        with pytest.raises(VersionConflictError):
+            _publish_one_skill(
+                engine,
+                MagicMock(),
+                MagicMock(),
+                org,
+                skill_dir,
+            )
 
     def test_returns_failed_on_extraction_error(self, mock_skill_deps, tmp_path):
         """When extract_for_evaluation raises ValueError, returns 'failed'."""

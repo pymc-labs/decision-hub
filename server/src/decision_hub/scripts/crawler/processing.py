@@ -18,6 +18,7 @@ from pathlib import Path
 from uuid import UUID
 
 import httpx
+import sqlalchemy.exc
 from loguru import logger
 
 from decision_hub.domain.orgs import METADATA_CACHE_TTL
@@ -539,17 +540,26 @@ def _finalize_skill(
 
     s3_key = build_s3_key(org.slug, prep.name, prep.version)
     upload_skill_zip(s3_client, settings.s3_bucket, s3_key, prep.zip_data)
-    version_record = insert_version(
-        conn,
-        skill_id=prep.skill_id,
-        semver=prep.version,
-        s3_key=s3_key,
-        checksum=prep.checksum,
-        runtime_config=None,
-        published_by=BOT_USERNAME,
-        eval_status=report.grade,
-        gauntlet_summary=report.gauntlet_summary,
-    )
+    try:
+        version_record = insert_version(
+            conn,
+            skill_id=prep.skill_id,
+            semver=prep.version,
+            s3_key=s3_key,
+            checksum=prep.checksum,
+            runtime_config=None,
+            published_by=BOT_USERNAME,
+            eval_status=report.grade,
+            gauntlet_summary=report.gauntlet_summary,
+        )
+    except sqlalchemy.exc.IntegrityError as exc:
+        # Race condition: tracker or concurrent crawler already published
+        # this version between our checksum check and insert.
+        raise VersionConflictError(
+            org.slug,
+            prep.name,
+            prep.version,
+        ) from exc
     insert_audit_log(
         conn,
         org_slug=org.slug,
