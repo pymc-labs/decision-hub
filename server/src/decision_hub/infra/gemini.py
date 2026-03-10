@@ -15,7 +15,7 @@ _GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 LLM_PER_FILE_CAP = 50_000  # 50 KB max per file in analyze_code_safety
 LLM_STAGE2_TOTAL_CAP = 150_000  # 150 KB total in analyze_code_safety
 LLM_HOLISTIC_TOTAL_CAP = 300_000  # 300 KB total in review_code_body_safety
-LLM_BODY_REVIEW_CAP = 30_000  # body truncation in review_prompt_body_safety
+LLM_BODY_REVIEW_CAP = 50_000  # body truncation in review_prompt_body_safety
 
 
 class CodeSafetyJudgment(BaseModel):

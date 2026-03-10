@@ -1453,19 +1453,19 @@ class TestLlmScanCoverage:
         assert "holistic review" in result.message
 
     def test_body_exceeds_prompt_cap(self):
-        """SKILL.md body > 30KB triggers prompt review warning."""
-        result = check_llm_scan_coverage([], skill_md_body="x" * 35_000)
+        """SKILL.md body > 50KB triggers prompt review warning."""
+        result = check_llm_scan_coverage([], skill_md_body="x" * 55_000)
         assert result.severity == "warn"
         assert "body" in result.message
 
     def test_multiple_issues_all_reported(self):
         """Multiple cap violations are all listed in the message."""
         # 350KB total exceeds holistic cap (300KB), big.py exceeds per-file (50KB),
-        # body exceeds prompt cap (30KB)
+        # body exceeds prompt cap (50KB)
         files = [("big.py", "x" * 60_000)] + [(f"f{i}.py", "x" * 49_000) for i in range(6)]
         result = check_llm_scan_coverage(
             files,
-            skill_md_body="x" * 35_000,
+            skill_md_body="x" * 55_000,
         )
         assert result.severity == "warn"
         assert "per-file" in result.message
