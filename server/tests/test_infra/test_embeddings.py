@@ -3,7 +3,12 @@
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from decision_hub.infra.embeddings import build_embedding_text, generate_and_store_skill_embedding
+import httpx
+import pytest
+import respx
+
+from decision_hub.infra.embeddings import build_embedding_text, embed_query, generate_and_store_skill_embedding
+from decision_hub.infra.gemini import create_gemini_client
 
 
 class TestBuildEmbeddingText:
@@ -68,3 +73,73 @@ class TestGenerateAndStoreSkillEmbedding:
         generate_and_store_skill_embedding(conn, skill_id, "skill", "org", "cat", "desc", settings)
 
         mock_store.assert_called_once_with(conn, skill_id, [0.1] * 768)
+
+
+_EMBED_MODEL = "gemini-embedding-001"
+_EMBED_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{_EMBED_MODEL}:embedContent"
+
+
+@pytest.fixture
+def gemini_client() -> dict:
+    return create_gemini_client("test-api-key")
+
+
+class TestEmbedQueryRetry:
+    """Tests for embed_query retry with exponential backoff on transient errors."""
+
+    @respx.mock
+    def test_retries_on_503_then_succeeds(self, gemini_client: dict) -> None:
+        route = respx.post(_EMBED_URL).mock(
+            side_effect=[
+                httpx.Response(503, text="Unavailable"),
+                httpx.Response(200, json={"embedding": {"values": [0.1, 0.2]}}),
+            ]
+        )
+        with (
+            patch("decision_hub.infra.embeddings.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.embeddings.random.uniform", return_value=0.25),
+        ):
+            result = embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=3)
+        assert result == [0.1, 0.2]
+        assert route.call_count == 2
+        mock_sleep.assert_called_once_with(1.25)
+
+    @respx.mock
+    def test_retries_on_429_with_backoff(self, gemini_client: dict) -> None:
+        route = respx.post(_EMBED_URL).mock(
+            side_effect=[
+                httpx.Response(429, text="Rate limited"),
+                httpx.Response(429, text="Rate limited"),
+                httpx.Response(200, json={"embedding": {"values": [0.3]}}),
+            ]
+        )
+        with (
+            patch("decision_hub.infra.embeddings.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.embeddings.random.uniform", return_value=0.25),
+        ):
+            result = embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=3)
+        assert result == [0.3]
+        assert route.call_count == 3
+        assert mock_sleep.call_args_list == [
+            ((1.25,),),
+            ((2.25,),),
+        ]
+
+    @respx.mock
+    def test_raises_after_max_retries_exhausted(self, gemini_client: dict) -> None:
+        respx.post(_EMBED_URL).mock(return_value=httpx.Response(503, text="Unavailable"))
+        with patch("decision_hub.infra.embeddings.time.sleep"), pytest.raises(httpx.HTTPStatusError) as exc_info:
+            embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=2)
+        assert exc_info.value.response.status_code == 503
+
+    @respx.mock
+    def test_non_retriable_error_raises_immediately(self, gemini_client: dict) -> None:
+        route = respx.post(_EMBED_URL).mock(return_value=httpx.Response(400, text="Bad Request"))
+        with (
+            patch("decision_hub.infra.embeddings.time.sleep") as mock_sleep,
+            pytest.raises(httpx.HTTPStatusError) as exc_info,
+        ):
+            embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=3)
+        assert exc_info.value.response.status_code == 400
+        assert route.call_count == 1
+        mock_sleep.assert_not_called()

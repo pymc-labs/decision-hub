@@ -515,21 +515,13 @@ def classify_skill(
         'how well the skill fits. If unsure, use "Other & Utilities".'
     )
 
-    url = f"{client['base_url']}/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},
     }
 
     logger.debug("Gemini classify skill: '{}' model={}", skill_name, model)
-    with httpx.Client(timeout=30) as http_client:
-        resp = http_client.post(
-            url,
-            params={"key": client["api_key"]},
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    data = _gemini_post(client, model, payload, timeout=30, max_retries=3)
 
     text = _extract_text(data)
     return text or '{"category": "Other & Utilities", "confidence": 0.0}'

@@ -15,6 +15,7 @@ from decision_hub.infra.gemini import (
     _gemini_post,
     analyze_code_safety,
     analyze_credential_entropy,
+    classify_skill,
     create_gemini_client,
 )
 
@@ -86,6 +87,41 @@ class TestGeminiPostRetry:
         assert exc_info.value.response.status_code == 400
         assert route.call_count == 1
         mock_sleep.assert_not_called()
+
+
+class TestClassifySkillRetry:
+    """Tests that classify_skill retries on transient errors via _gemini_post."""
+
+    @respx.mock
+    def test_retries_on_503_then_succeeds(self, gemini_client: dict) -> None:
+        route = respx.post(_GEMINI_URL).mock(
+            side_effect=[
+                httpx.Response(503, text="Unavailable"),
+                httpx.Response(
+                    200,
+                    json={
+                        "candidates": [
+                            {"content": {"parts": [{"text": '{"category": "Testing & QA", "confidence": 0.95}'}]}}
+                        ]
+                    },
+                ),
+            ]
+        )
+        with (
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.gemini.random.uniform", return_value=0.25),
+        ):
+            result = classify_skill(gemini_client, "my-test", "A test skill", "body", "taxonomy", _DEFAULT_MODEL)
+        assert "Testing & QA" in result
+        assert route.call_count == 2
+        mock_sleep.assert_called_once_with(1.25)
+
+    @respx.mock
+    def test_raises_after_retries_exhausted(self, gemini_client: dict) -> None:
+        respx.post(_GEMINI_URL).mock(return_value=httpx.Response(503, text="Unavailable"))
+        with patch("decision_hub.infra.gemini.time.sleep"), pytest.raises(httpx.HTTPStatusError) as exc_info:
+            classify_skill(gemini_client, "my-test", "A test skill", "body", "taxonomy", _DEFAULT_MODEL)
+        assert exc_info.value.response.status_code == 503
 
 
 class TestCodeSafetyJudgmentValidation:
