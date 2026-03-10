@@ -16,6 +16,7 @@ from decision_hub.domain.repo_utils import (
 )
 from decision_hub.domain.tracker_service import (
     _dispatch_changed_trackers,
+    _persist_orphaned_tracker_errors,
     check_all_due_trackers,
     dict_to_tracker,
     process_tracker,
@@ -553,6 +554,45 @@ class TestDispatchChangedTrackers:
 
         assert processed == 0
         assert failed == 1
+
+    @patch("decision_hub.infra.database.update_skill_tracker")
+    def test_persist_orphaned_tracker_errors(self, mock_update):
+        """When Modal containers die (timeout/OOM), last_error should be persisted."""
+        tracker = self._make_tracker()
+        changed = [(tracker, "new_sha")]
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        _persist_orphaned_tracker_errors(
+            {tracker.id},
+            changed,
+            mock_engine,
+            error_msg="Modal container failed (timeout/OOM)",
+        )
+
+        mock_update.assert_called_once()
+        call_kwargs = mock_update.call_args
+        assert call_kwargs[0][1] == tracker.id
+        assert "timeout" in call_kwargs[1]["last_error"]
+        assert call_kwargs[1]["last_checked_at"] is not None
+        mock_conn.commit.assert_called_once()
+
+    @patch("decision_hub.infra.database.update_skill_tracker")
+    def test_persist_orphaned_no_op_when_all_completed(self, mock_update):
+        """When all trackers completed, no DB update should happen."""
+        mock_engine = MagicMock()
+
+        _persist_orphaned_tracker_errors(
+            set(),  # no orphaned IDs
+            [],
+            mock_engine,
+            error_msg="should not be written",
+        )
+
+        mock_update.assert_not_called()
+        mock_engine.connect.assert_not_called()
 
 
 class TestCheckAllDueTrackersLoopSignal:

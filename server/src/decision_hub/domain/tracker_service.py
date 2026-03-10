@@ -507,8 +507,14 @@ def _dispatch_changed_trackers(
     preventing the orchestrator from hitting the hard Modal timeout.
     Unprocessed trackers will be retried on the next tick.
     """
+    from uuid import UUID
+
     processed = 0
     failed = 0
+    # Track which trackers completed (success or handled error) so we can
+    # persist last_error for any that failed silently (timeout, OOM, etc.)
+    completed_tracker_ids: set[UUID] = set()
+    all_tracker_ids = {t.id for t, _ in changed_trackers}
 
     try:
         import modal
@@ -534,6 +540,9 @@ def _dispatch_changed_trackers(
                 logger.opt(exception=batch_result).error("Modal tracker_process_repo failed")
                 failed += 1
             else:
+                tracker_id_str = batch_result.get("tracker_id")
+                if tracker_id_str:
+                    completed_tracker_ids.add(UUID(tracker_id_str))
                 if batch_result.get("status") == "ok":
                     processed += 1
                 else:
@@ -551,6 +560,17 @@ def _dispatch_changed_trackers(
                     len(changed_trackers),
                 )
                 break
+
+        # Persist last_error for trackers that failed without a result dict
+        # (timeout, OOM, container crash). These never reached the
+        # process_tracker exception handler that normally writes last_error.
+        _persist_orphaned_tracker_errors(
+            all_tracker_ids - completed_tracker_ids,
+            changed_trackers,
+            engine,
+            error_msg="Modal container failed (timeout/OOM) before writing result",
+        )
+
     except Exception as modal_err:
         # Modal unavailable (local dev, import error, lookup failure) — fall back to sequential
         logger.info("Modal fan-out unavailable ({}), falling back to sequential processing", modal_err)
@@ -570,6 +590,42 @@ def _dispatch_changed_trackers(
                 failed += 1
 
     return processed, failed
+
+
+def _persist_orphaned_tracker_errors(
+    orphaned_ids: set,
+    changed_trackers: list[tuple[SkillTracker, str]],
+    engine: Any,
+    *,
+    error_msg: str,
+) -> None:
+    """Update last_error for trackers whose Modal containers died before writing a result."""
+    from decision_hub.infra.database import update_skill_tracker
+
+    if not orphaned_ids:
+        return
+
+    now = datetime.now(UTC)
+    tracker_by_id = {t.id: t for t, _ in changed_trackers}
+    try:
+        with engine.connect() as conn:
+            for tid in orphaned_ids:
+                tracker = tracker_by_id.get(tid)
+                logger.warning(
+                    "tracker_id={} repo={} status=orphaned_failure error={}",
+                    tid,
+                    tracker.repo_url if tracker else "?",
+                    error_msg,
+                )
+                update_skill_tracker(
+                    conn,
+                    tid,
+                    last_checked_at=now,
+                    last_error=error_msg,
+                )
+            conn.commit()
+    except Exception:
+        logger.opt(exception=True).error("Failed to persist orphaned tracker errors")
 
 
 # ---------------------------------------------------------------------------
