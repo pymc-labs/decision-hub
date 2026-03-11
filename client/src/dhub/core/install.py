@@ -1,12 +1,16 @@
 """Installation utilities for skills.
 
 Handles checksum verification, canonical path resolution,
-and symlink management for linking skills to agent directories.
+version tracking, and symlink management for linking skills
+to agent directories.
 """
 
 import hashlib
 import shutil
 from pathlib import Path
+
+# Filename used to track the installed version inside each skill directory.
+_VERSION_FILE = ".dhub-version"
 
 # Mapping of agent --agent flag values to their global skill directories.
 # Each key is the CLI argument for `dhub install --agent <key>`.
@@ -201,6 +205,51 @@ def list_linked_agents(org: str, skill_name: str) -> list[str]:
             linked.append(agent)
 
     return linked
+
+
+def save_installed_version(org: str, skill_name: str, version: str) -> None:
+    """Write the installed version to the skill's canonical directory.
+
+    Creates a `.dhub-version` file containing the semver string so that
+    ``dhub update`` can compare against the registry later.
+    """
+    path = get_dhub_skill_path(org, skill_name) / _VERSION_FILE
+    path.write_text(version + "\n", encoding="utf-8")
+
+
+def get_installed_version(org: str, skill_name: str) -> str | None:
+    """Read the installed version from the skill's canonical directory.
+
+    Returns the version string, or ``None`` if no version file exists
+    (legacy install).
+    """
+    path = get_dhub_skill_path(org, skill_name) / _VERSION_FILE
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8").strip()
+
+
+def list_installed_skills() -> list[tuple[str, str]]:
+    """Scan ~/.dhub/skills/ and return all installed (org, skill) pairs.
+
+    Only directories that look like valid skill installs (contain at
+    least one file) are included.
+    """
+    skills_root = Path.home() / ".dhub" / "skills"
+    if not skills_root.exists():
+        return []
+    installed: list[tuple[str, str]] = []
+    for org_dir in sorted(skills_root.iterdir()):
+        if not org_dir.is_dir():
+            continue
+        for skill_dir in sorted(org_dir.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            # Skip empty directories left over from partial uninstalls
+            if not any(skill_dir.iterdir()):
+                continue
+            installed.append((org_dir.name, skill_dir.name))
+    return installed
 
 
 def uninstall_skill(org: str, skill_name: str) -> list[str]:

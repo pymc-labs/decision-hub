@@ -1011,6 +1011,11 @@ def _install_single_skill(
             raise typer.Exit(1) from None
         zf.extractall(skill_path)
 
+    # Record the installed version for `dhub update` comparisons
+    from dhub.core.install import save_installed_version
+
+    save_installed_version(org_slug, skill_name, resolved_version)
+
     from dhub.cli.output import is_json, print_json
 
     if is_json():
@@ -1446,6 +1451,130 @@ def uninstall_command(
     console.print(f"[green]Uninstalled {org_slug}/{skill_name}[/]")
     if unlinked:
         console.print(f"[green]Removed symlinks from: {', '.join(unlinked)}[/]")
+
+
+def update_command(
+    skill_ref: str = typer.Argument(None, help="Skill to update (e.g. 'myorg/my-skill'), or omit for --all"),
+    all_skills: bool = typer.Option(False, "--all", "-a", help="Update all locally installed skills"),
+) -> None:
+    """Update installed skills to the latest registry version.
+
+    Either provide a specific skill reference to update one skill, or use
+    --all to check and update every locally installed skill.
+    """
+    if not all_skills and not skill_ref:
+        console.print("[red]Error: Provide a skill reference or use --all.[/]")
+        raise typer.Exit(1)
+    if all_skills and skill_ref:
+        console.print("[red]Error: Cannot use both a skill reference and --all.[/]")
+        raise typer.Exit(1)
+
+    if all_skills:
+        _update_all_skills()
+    else:
+        _update_single_skill(skill_ref)
+
+
+def _update_single_skill(skill_ref: str) -> None:
+    """Check and update a single installed skill."""
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.core.install import get_installed_version
+    from dhub.core.validation import parse_skill_ref
+
+    try:
+        org_slug, skill_name = parse_skill_ref(skill_ref)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
+
+    installed_version = get_installed_version(org_slug, skill_name)
+
+    headers = build_headers(get_optional_token())
+    base_url = get_api_url()
+
+    # Resolve latest version from the registry
+    with httpx.Client(timeout=60) as client:
+        resp = client.get(
+            f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
+            params={"spec": "latest"},
+            headers=headers,
+        )
+        if resp.status_code == 404:
+            console.print(f"[red]Error: Skill '{skill_ref}' not found in registry.[/]")
+            raise typer.Exit(1)
+        raise_for_status(resp)
+        data = resp.json()
+
+    latest_version = data["version"]
+
+    if installed_version == latest_version:
+        console.print(f"{org_slug}/{skill_name} is already up to date ({installed_version}).")
+        return
+
+    label = f"{installed_version} → {latest_version}" if installed_version else f"unknown → {latest_version}"
+    console.print(f"Updating {org_slug}/{skill_name}: {label}")
+    _install_single_skill(skill_ref, version="latest")
+
+
+def _update_all_skills() -> None:
+    """Check and update all locally installed skills."""
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.core.install import get_installed_version, list_installed_skills
+
+    installed = list_installed_skills()
+    if not installed:
+        console.print("No skills installed. Use [bold]dhub install[/] to install skills.")
+        return
+
+    console.print(f"Checking {len(installed)} installed skill(s) for updates...\n")
+
+    headers = build_headers(get_optional_token())
+    base_url = get_api_url()
+
+    updated = 0
+    up_to_date = 0
+    failed = 0
+
+    for org_slug, skill_name in installed:
+        installed_version = get_installed_version(org_slug, skill_name)
+
+        # Resolve latest version from the registry
+        try:
+            with httpx.Client(timeout=60) as client:
+                resp = client.get(
+                    f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
+                    params={"spec": "latest"},
+                    headers=headers,
+                )
+                if resp.status_code == 404:
+                    console.print(f"[yellow]{org_slug}/{skill_name}: not found in registry (skipped)[/]")
+                    failed += 1
+                    continue
+                raise_for_status(resp)
+                data = resp.json()
+        except Exception as exc:
+            console.print(f"[red]{org_slug}/{skill_name}: error checking for updates ({exc})[/]")
+            failed += 1
+            continue
+
+        latest_version = data["version"]
+
+        if installed_version == latest_version:
+            console.print(f"  {org_slug}/{skill_name} is up to date ({installed_version})")
+            up_to_date += 1
+            continue
+
+        label = f"{installed_version} → {latest_version}" if installed_version else f"unknown → {latest_version}"
+        console.print(f"  Updating {org_slug}/{skill_name}: {label}")
+
+        try:
+            _install_single_skill(f"{org_slug}/{skill_name}", version="latest")
+            updated += 1
+        except (typer.Exit, Exception) as exc:
+            console.print(f"[red]  Failed to update {org_slug}/{skill_name}: {exc}[/]")
+            failed += 1
+
+    console.print(f"\nDone: [green]{updated} updated[/], {up_to_date} up to date, [red]{failed} failed[/]")
 
 
 def visibility_command(

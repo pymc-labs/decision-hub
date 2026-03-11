@@ -67,6 +67,7 @@ from dhub.cli.registry import (  # noqa: E402
     logs_command,
     publish_command,
     uninstall_command,
+    update_command,
     visibility_command,
 )
 from dhub.cli.runtime import run_command  # noqa: E402
@@ -86,6 +87,7 @@ app.command("eval-report")(eval_report_command)
 app.command("logs")(logs_command)
 app.command("run")(run_command)
 app.command("ask")(ask_command)
+app.command("update")(update_command)
 app.command("visibility")(visibility_command)
 
 from dhub.cli.doctor import doctor_command  # noqa: E402
