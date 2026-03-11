@@ -69,9 +69,7 @@ class TestUpdateCommand:
                 },
             )
         )
-        respx.get("http://test:8000/download/skill.zip").mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
         result = runner.invoke(app, ["update", "myorg/my-skill"])
 
@@ -116,9 +114,7 @@ class TestUpdateCommand:
         _mock_token,
     ) -> None:
         """Single skill update when skill is not in registry."""
-        respx.get("http://test:8000/v1/resolve/myorg/gone-skill").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get("http://test:8000/v1/resolve/myorg/gone-skill").mock(return_value=httpx.Response(404))
 
         result = runner.invoke(app, ["update", "myorg/gone-skill"])
 
@@ -183,9 +179,7 @@ class TestUpdateCommand:
 
         respx.get("http://test:8000/v1/resolve/myorg/skill-a").mock(side_effect=resolve_handler)
         respx.get("http://test:8000/v1/resolve/myorg/skill-b").mock(side_effect=resolve_handler)
-        respx.get("http://test:8000/download/a.zip").mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get("http://test:8000/download/a.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
         result = runner.invoke(app, ["update", "--all"])
 
@@ -230,9 +224,7 @@ class TestUpdateCommand:
                 },
             )
         )
-        respx.get("http://test:8000/download/legacy.zip").mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get("http://test:8000/download/legacy.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
         result = runner.invoke(app, ["update", "--all"])
 
