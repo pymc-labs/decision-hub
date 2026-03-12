@@ -54,11 +54,15 @@ class ErrorCode(StrEnum):
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
 
 
-def exit_error(code: ErrorCode, message: str, *, status: int | None = None) -> NoReturn:
-    """Print an error and raise typer.Exit(1).
+def exit_error(code: ErrorCode, message: str, *, status: int | None = None, fatal: bool = False) -> NoReturn:
+    """Print an error and exit.
 
     In JSON mode: writes structured JSON to stderr.
     In text mode: prints Rich-formatted error to stderr.
+
+    When *fatal* is True, raises ``SystemExit(1)`` instead of
+    ``typer.Exit(1)`` so the error cannot be caught by batch loops
+    that use ``except typer.Exit`` for per-item failure handling.
     """
     import typer
 
@@ -72,4 +76,6 @@ def exit_error(code: ErrorCode, message: str, *, status: int | None = None) -> N
 
         Console(stderr=True).print(f"[red]Error: {message}[/]")
 
+    if fatal:
+        raise SystemExit(1)
     raise typer.Exit(1)

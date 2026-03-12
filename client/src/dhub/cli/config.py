@@ -171,5 +171,6 @@ def raise_for_status(resp: httpx.Response) -> None:
             ErrorCode.UPGRADE_REQUIRED,
             "Your dhub CLI is outdated and incompatible with the server. Run 'dhub upgrade'.",
             status=426,
+            fatal=True,
         )
     resp.raise_for_status()

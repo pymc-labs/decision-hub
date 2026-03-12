@@ -131,3 +131,25 @@ class TestExitError:
         assert data["code"] == "AUTH_REQUIRED"
         assert "status" not in data
         set_format(OutputFormat.text)  # Reset
+
+    def test_exit_error_fatal_raises_system_exit(self, capsys) -> None:
+        """fatal=True raises SystemExit so batch loops can't swallow the error."""
+        from dhub.cli.output import ErrorCode, exit_error
+
+        set_format(OutputFormat.text)
+        with pytest.raises(SystemExit, match="1"):
+            exit_error(ErrorCode.UPGRADE_REQUIRED, "CLI outdated", fatal=True)
+
+    def test_exit_error_fatal_json_mode(self, capsys) -> None:
+        """fatal=True in JSON mode still writes structured JSON before SystemExit."""
+        from dhub.cli.output import ErrorCode, exit_error
+
+        set_format(OutputFormat.json)
+        with pytest.raises(SystemExit, match="1"):
+            exit_error(ErrorCode.UPGRADE_REQUIRED, "CLI outdated", status=426, fatal=True)
+        captured = capsys.readouterr()
+        data = json.loads(captured.err)
+        assert data["error"] is True
+        assert data["code"] == "UPGRADE_REQUIRED"
+        assert data["status"] == 426
+        set_format(OutputFormat.text)  # Reset
