@@ -96,8 +96,8 @@ class TestEmbedQueryRetry:
             ]
         )
         with (
-            patch("decision_hub.infra.embeddings.time.sleep") as mock_sleep,
-            patch("decision_hub.infra.embeddings.random.uniform", return_value=0.25),
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.gemini.random.uniform", return_value=0.25),
         ):
             result = embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=3)
         assert result == [0.1, 0.2]
@@ -114,8 +114,8 @@ class TestEmbedQueryRetry:
             ]
         )
         with (
-            patch("decision_hub.infra.embeddings.time.sleep") as mock_sleep,
-            patch("decision_hub.infra.embeddings.random.uniform", return_value=0.25),
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.gemini.random.uniform", return_value=0.25),
         ):
             result = embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=3)
         assert result == [0.3]
@@ -128,7 +128,7 @@ class TestEmbedQueryRetry:
     @respx.mock
     def test_raises_after_max_retries_exhausted(self, gemini_client: dict) -> None:
         respx.post(_EMBED_URL).mock(return_value=httpx.Response(503, text="Unavailable"))
-        with patch("decision_hub.infra.embeddings.time.sleep"), pytest.raises(httpx.HTTPStatusError) as exc_info:
+        with patch("decision_hub.infra.gemini.time.sleep"), pytest.raises(httpx.HTTPStatusError) as exc_info:
             embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=2)
         assert exc_info.value.response.status_code == 503
 
@@ -136,7 +136,7 @@ class TestEmbedQueryRetry:
     def test_non_retriable_error_raises_immediately(self, gemini_client: dict) -> None:
         route = respx.post(_EMBED_URL).mock(return_value=httpx.Response(400, text="Bad Request"))
         with (
-            patch("decision_hub.infra.embeddings.time.sleep") as mock_sleep,
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
             pytest.raises(httpx.HTTPStatusError) as exc_info,
         ):
             embed_query(gemini_client, "test", _EMBED_MODEL, 768, max_retries=3)

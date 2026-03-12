@@ -65,20 +65,35 @@ def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = Non
 _RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
 
 
-def _gemini_post(
+def gemini_request_with_retry(
     client: dict,
-    model: str,
+    url: str,
     payload: dict,
     *,
     timeout: int = 60,
     max_retries: int = 3,
+    label: str = "Gemini API",
 ) -> dict:
-    """POST to the Gemini API, reusing the shared http_client when available.
+    """POST to a Gemini API endpoint with retry and exponential backoff.
 
-    Retries with exponential backoff on transient HTTP errors (403 rate-limit,
-    429, 500, 502, 503).  Non-retriable errors propagate immediately.
+    Retries on transient HTTP errors (403 rate-limit, 429, 500, 502, 503)
+    and timeouts.  Non-retriable errors propagate immediately.
+
+    Args:
+        client: Gemini client config dict with api_key, base_url, http_client.
+        url: Full URL to POST to.
+        payload: JSON payload for the request.
+        timeout: HTTP timeout in seconds.
+        max_retries: Number of retries on transient errors.
+        label: Human-readable label for log messages (e.g. "Gemini embedding").
+
+    Returns:
+        Parsed JSON response dict.
+
+    Raises:
+        httpx.HTTPStatusError: On non-2xx, non-retriable response.
+        httpx.TimeoutException: On timeout after all retries exhausted.
     """
-    url = f"{client['base_url']}/{model}:generateContent"
     params = {"key": client["api_key"]}
     shared = client.get("http_client")
 
@@ -95,8 +110,9 @@ def _gemini_post(
             if attempt < max_retries:
                 delay = 2**attempt + random.uniform(0, 0.5)
                 logger.warning(
-                    "Gemini API timeout for {}, retrying in {:.1f}s (attempt {}/{})",
-                    model,
+                    "{} timeout for {}, retrying in {:.1f}s (attempt {}/{})",
+                    label,
+                    url,
                     delay,
                     attempt + 1,
                     max_retries,
@@ -118,9 +134,10 @@ def _gemini_post(
         if attempt < max_retries:
             delay = 2**attempt + random.uniform(0, 0.5)  # ~1s, ~2s, ~4s
             logger.warning(
-                "Gemini API returned {} for {}, retrying in {:.1f}s (attempt {}/{})",
+                "{} returned {} for {}, retrying in {:.1f}s (attempt {}/{})",
+                label,
                 resp.status_code,
-                model,
+                url,
                 delay,
                 attempt + 1,
                 max_retries,
@@ -128,6 +145,23 @@ def _gemini_post(
             time.sleep(delay)
 
     raise last_exc  # type: ignore[misc]
+
+
+def _gemini_post(
+    client: dict,
+    model: str,
+    payload: dict,
+    *,
+    timeout: int = 60,
+    max_retries: int = 3,
+) -> dict:
+    """POST to the Gemini generateContent API with retry.
+
+    Thin wrapper around ``gemini_request_with_retry`` that builds the
+    generateContent URL from the model name.
+    """
+    url = f"{client['base_url']}/{model}:generateContent"
+    return gemini_request_with_retry(client, url, payload, timeout=timeout, max_retries=max_retries)
 
 
 def _strip_markdown_fences(text: str) -> str:

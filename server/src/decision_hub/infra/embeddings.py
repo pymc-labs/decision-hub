@@ -1,7 +1,5 @@
 """Gemini embedding utilities for hybrid search."""
 
-import random
-import time
 from uuid import UUID
 
 import httpx
@@ -9,9 +7,8 @@ from loguru import logger
 from sqlalchemy.engine import Connection
 
 from decision_hub.infra.database import update_skill_embedding
+from decision_hub.infra.gemini import gemini_request_with_retry
 from decision_hub.settings import Settings
-
-_RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
 
 # Must match the DB column: vector(768) in the migration.
 EMBEDDING_DIMENSIONS = 768
@@ -49,7 +46,7 @@ def embed_query(
     """Embed a single search query via Gemini.
 
     Retries with exponential backoff on transient HTTP errors (403 rate-limit,
-    429, 500, 502, 503).
+    429, 500, 502, 503) via the shared ``gemini_request_with_retry`` helper.
 
     Args:
         client: Gemini client config dict with api_key and base_url.
@@ -71,55 +68,15 @@ def embed_query(
         "content": {"parts": [{"text": text}]},
         "outputDimensionality": dimensions,
     }
-    params = {"key": client["api_key"]}
-    shared = client.get("http_client")
-
-    last_exc: Exception | None = None
-    for attempt in range(1 + max_retries):
-        try:
-            if shared is not None:
-                resp = shared.post(url, params=params, json=payload, timeout=10)
-            else:
-                with httpx.Client(timeout=10) as http_client:
-                    resp = http_client.post(url, params=params, json=payload)
-        except httpx.TimeoutException as exc:
-            last_exc = exc
-            if attempt < max_retries:
-                delay = 2**attempt + random.uniform(0, 0.5)
-                logger.warning(
-                    "Gemini embedding timeout for {}, retrying in {:.1f}s (attempt {}/{})",
-                    model,
-                    delay,
-                    attempt + 1,
-                    max_retries,
-                )
-                time.sleep(delay)
-            continue
-
-        if resp.status_code < 400:
-            return resp.json()["embedding"]["values"]
-
-        if resp.status_code not in _RETRIABLE_STATUS_CODES:
-            resp.raise_for_status()
-
-        last_exc = httpx.HTTPStatusError(
-            message=f"HTTP {resp.status_code}",
-            request=resp.request,
-            response=resp,
-        )
-        if attempt < max_retries:
-            delay = 2**attempt + random.uniform(0, 0.5)
-            logger.warning(
-                "Gemini embedding API returned {} for {}, retrying in {:.1f}s (attempt {}/{})",
-                resp.status_code,
-                model,
-                delay,
-                attempt + 1,
-                max_retries,
-            )
-            time.sleep(delay)
-
-    raise last_exc  # type: ignore[misc]
+    data = gemini_request_with_retry(
+        client,
+        url,
+        payload,
+        timeout=10,
+        max_retries=max_retries,
+        label="Gemini embedding",
+    )
+    return data["embedding"]["values"]
 
 
 def embed_texts_batch(
