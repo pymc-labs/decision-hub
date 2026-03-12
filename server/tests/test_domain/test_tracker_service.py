@@ -154,7 +154,13 @@ class TestDiscoverSkills:
         (dir_b / "SKILL.md").write_text("---\nname: beta\n---\nB")
 
         with patch("decision_hub.domain.skill_manifest.parse_skill_md") as mock_parse:
-            manifests = {"alpha": MagicMock(name="alpha"), "beta": MagicMock(name="beta")}
+            # Note: MagicMock(name=...) sets the mock's internal display name,
+            # NOT the .name attribute.  Assign .name after construction.
+            m_alpha = MagicMock()
+            m_alpha.name = "alpha"
+            m_beta = MagicMock()
+            m_beta.name = "beta"
+            manifests = {"alpha": m_alpha, "beta": m_beta}
             mock_parse.side_effect = lambda p: manifests["alpha"] if "skill-a" in str(p) else manifests["beta"]
 
             result = _discover_skills(tmp_path)
