@@ -552,14 +552,14 @@ def _finalize_skill(
             eval_status=report.grade,
             gauntlet_summary=report.gauntlet_summary,
         )
-    except sqlalchemy.exc.IntegrityError as exc:
+    except sqlalchemy.exc.IntegrityError:
         # Race condition: tracker or concurrent crawler already published
         # this version between our checksum check and insert.
         raise VersionConflictError(
             org.slug,
             prep.name,
             prep.version,
-        ) from exc
+        ) from None
     insert_audit_log(
         conn,
         org_slug=org.slug,
