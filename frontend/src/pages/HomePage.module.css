@@ -457,8 +457,7 @@
 
 /* Quick Start Examples */
 .quickStart {
-  margin: 60px auto;
-  max-width: 900px;
+  margin: 60px 0;
 }
 
 .quickStart .sectionTitle {
@@ -487,6 +486,7 @@
   color: var(--text-secondary);
   margin-bottom: 8px;
   letter-spacing: 0.5px;
+  text-align: center;
 }
 
 .termOutput {
