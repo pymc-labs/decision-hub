@@ -58,3 +58,6 @@ benchmark_*.json
 benchmark_*.py
 ARCHITECTURE_REVIEW*.md
 INVESTIGATION.md
+
+# Git worktrees
+.worktrees/
