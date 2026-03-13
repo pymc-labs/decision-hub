@@ -205,7 +205,7 @@ export default function HomePage() {
         <div className={styles.agentGrid}>
           <div className={styles.agentSteps}>
             <div className={styles.agentStep}>
-              <span className={styles.agentStepLabel} style={{ color: "var(--neon-cyan)" }}>
+              <span className={`${styles.agentStepLabel} ${styles.agentStepLabelCyan}`}>
                 Step 1
               </span>
               <h3 className={styles.agentStepTitle}>Install the CLI</h3>
@@ -217,7 +217,7 @@ export default function HomePage() {
               </p>
             </div>
             <div className={styles.agentStep}>
-              <span className={styles.agentStepLabel} style={{ color: "var(--neon-pink)" }}>
+              <span className={`${styles.agentStepLabel} ${styles.agentStepLabelPink}`}>
                 Step 2
               </span>
               <h3 className={styles.agentStepTitle}>Add the dhub skill</h3>
@@ -229,7 +229,7 @@ export default function HomePage() {
               </p>
             </div>
             <div className={styles.agentStep}>
-              <span className={styles.agentStepLabel} style={{ color: "var(--neon-green)" }}>
+              <span className={`${styles.agentStepLabel} ${styles.agentStepLabelGreen}`}>
                 Step 3
               </span>
               <h3 className={styles.agentStepTitle}>Just ask</h3>

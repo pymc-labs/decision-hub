@@ -278,6 +278,18 @@
   letter-spacing: 1px;
 }
 
+.agentStepLabelCyan {
+  color: var(--neon-cyan);
+}
+
+.agentStepLabelPink {
+  color: var(--neon-pink);
+}
+
+.agentStepLabelGreen {
+  color: var(--neon-green);
+}
+
 .agentStepTitle {
   font-size: var(--text-body);
   font-weight: 700;
