@@ -15,7 +15,7 @@ import SkillCardStats from "../components/SkillCardStats";
 import TerminalBlock from "../components/TerminalBlock";
 import styles from "./HomePage.module.css";
 
-const DATA_CATEGORIES = "Data & Database,Data Science & Statistics";
+const DATA_CATEGORIES = "Data Science & Statistics";
 const HOME_PAGE_SIZE = 6;
 
 const INSTALL_COMMANDS = {
@@ -339,8 +339,8 @@ Downloading anthropics/statistical-analysis@0.1.0...
           <div className={styles.bottomCtaInner}>
             <h2 className={styles.bottomCtaTitle}>Publish Your Skills</h2>
             <p className={styles.bottomCtaDesc}>
-              Package your team's agent skills and get automated evals + security
-              grading for free. Private by default — only your org can see them.
+              Publish your skills with automated evals and security grading.
+              Private by default — share only with your org.
             </p>
             <div className={styles.bottomCtaActions}>
               <a
