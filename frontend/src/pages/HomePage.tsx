@@ -234,8 +234,7 @@ export default function HomePage() {
               </span>
               <h3 className={styles.agentStepTitle}>Just ask</h3>
               <p className={styles.agentStepDesc}>
-                Tell your agent what you need. It searches the registry, installs the
-                right skill, and gets to work.
+                Just tell your agent what you need — it finds, installs, and runs the right skill.
               </p>
             </div>
           </div>

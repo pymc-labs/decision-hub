@@ -126,31 +126,32 @@
 .statsBar {
   display: flex;
   justify-content: center;
-  gap: 40px;
-  padding-top: 20px;
+  gap: 60px;
+  padding-top: 28px;
   border-top: 1px solid var(--border-color);
-  margin-top: 8px;
+  margin-top: 12px;
   position: relative;
 }
 
 .statInline {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
 }
 
 .statNum {
   font-family: 'Orbitron', sans-serif;
-  font-size: var(--text-lg);
+  font-size: var(--text-title);
   font-weight: 700;
   color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
 }
 
 .statLbl {
-  font-size: var(--text-xs);
+  font-size: var(--text-body);
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
 }
 
 .btnPrimary {
@@ -583,7 +584,7 @@
   }
 
   .statNum {
-    font-size: var(--text-body);
+    font-size: var(--text-lg);
   }
 
   .featured,
