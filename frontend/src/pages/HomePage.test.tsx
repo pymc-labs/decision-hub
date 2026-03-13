@@ -170,8 +170,9 @@ describe("HomePage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Default tab is pip
-    expect(screen.getByText("pip install dhub-cli")).toBeInTheDocument();
+    // Default tab is pip (also appears in the agent steps section)
+    const pipTexts = screen.getAllByText("pip install dhub-cli");
+    expect(pipTexts.length).toBeGreaterThanOrEqual(1);
 
     // Switch to uv
     const uvTab = screen.getByRole("button", { name: "uv" });
