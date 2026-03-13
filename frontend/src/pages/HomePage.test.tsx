@@ -174,13 +174,19 @@ describe("HomePage", () => {
     const pipTexts = screen.getAllByText("pip install dhub-cli");
     expect(pipTexts.length).toBeGreaterThanOrEqual(1);
 
+    // Verify ARIA tab attributes
+    const pipTab = screen.getByRole("tab", { name: "pip" });
+    expect(pipTab).toHaveAttribute("aria-selected", "true");
+
     // Switch to uv
-    const uvTab = screen.getByRole("button", { name: "uv" });
+    const uvTab = screen.getByRole("tab", { name: "uv" });
     await user.click(uvTab);
     expect(screen.getByText("uv tool install dhub-cli")).toBeInTheDocument();
+    expect(uvTab).toHaveAttribute("aria-selected", "true");
+    expect(pipTab).toHaveAttribute("aria-selected", "false");
 
     // Switch to fresh install
-    const freshTab = screen.getByRole("button", { name: "fresh install" });
+    const freshTab = screen.getByRole("tab", { name: "fresh install" });
     await user.click(freshTab);
     expect(screen.getByText(/curl -LsSf/)).toBeInTheDocument();
   });
@@ -189,7 +195,8 @@ describe("HomePage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    const clipboardSpy = vi.spyOn(navigator.clipboard, "writeText");
+    const clipboardSpy = vi.spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
 
     const copyBtn = screen.getByRole("button", { name: "Copy to clipboard" });
     await user.click(copyBtn);

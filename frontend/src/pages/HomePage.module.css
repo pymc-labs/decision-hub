@@ -98,6 +98,11 @@
   border-right: 1px solid var(--border-color);
 }
 
+.installTab:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: -2px;
+}
+
 .installTabActive {
   color: var(--neon-cyan);
   background: rgba(0, 240, 255, 0.08);
@@ -454,6 +459,11 @@
 .copyBtn:hover {
   color: var(--neon-cyan);
   border-color: var(--neon-cyan);
+}
+
+.copyBtn:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: -2px;
 }
 
 /* Quick Start Examples */

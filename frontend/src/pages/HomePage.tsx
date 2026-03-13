@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Zap, ArrowRight, Star, Bot, Tag,
@@ -66,16 +66,22 @@ export default function HomePage() {
 
   const [installTab, setInstallTab] = useState<InstallTab>("pip");
   const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   const switchTab = useCallback((tab: InstallTab) => {
     setInstallTab(tab);
+    clearTimeout(copyTimer.current);
     setCopied(false);
   }, []);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(INSTALL_COMMANDS[installTab]);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(INSTALL_COMMANDS[installTab]).then(() => {
+      clearTimeout(copyTimer.current);
+      setCopied(true);
+      copyTimer.current = setTimeout(() => setCopied(false), 2000);
+    });
   }, [installTab]);
 
   return (
@@ -95,10 +101,12 @@ export default function HomePage() {
 
         {/* Tabbed install */}
         <div className={styles.installBlock}>
-          <div className={styles.installTabs}>
+          <div className={styles.installTabs} role="tablist" aria-label="Installation method">
             {(Object.keys(INSTALL_COMMANDS) as InstallTab[]).map((tab) => (
               <button
                 key={tab}
+                role="tab"
+                aria-selected={installTab === tab}
                 className={`${styles.installTab} ${installTab === tab ? styles.installTabActive : ""}`}
                 onClick={() => switchTab(tab)}
               >
