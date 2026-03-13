@@ -192,6 +192,57 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Supercharge Your Agent */}
+      <section className={styles.agentSection}>
+        <h2 className={styles.sectionTitle}>
+          <Bot size={20} />
+          Supercharge Your Agent
+        </h2>
+        <p className={styles.sectionSubtitle}>
+          After installing the CLI, add the dhub skill to give your agent native
+          Decision Hub capabilities — it can search, install, and use skills on its own.
+        </p>
+        <div className={styles.agentGrid}>
+          <div className={styles.agentSteps}>
+            <div className={styles.agentStep}>
+              <span className={styles.agentStepLabel} style={{ color: "var(--neon-cyan)" }}>
+                Step 1
+              </span>
+              <h3 className={styles.agentStepTitle}>Install the CLI</h3>
+              <div className={styles.agentStepCommand}>
+                <code>pip install dhub-cli</code>
+              </div>
+              <p className={styles.agentStepDesc}>
+                Your agent can already use dhub commands after this.
+              </p>
+            </div>
+            <div className={styles.agentStep}>
+              <span className={styles.agentStepLabel} style={{ color: "var(--neon-pink)" }}>
+                Step 2
+              </span>
+              <h3 className={styles.agentStepTitle}>Add the dhub skill</h3>
+              <div className={styles.agentStepCommand}>
+                <code>dhub install decision-ai/dhub-cli</code>
+              </div>
+              <p className={styles.agentStepDesc}>
+                Makes your agent more token-efficient and proficient with the registry.
+              </p>
+            </div>
+            <div className={styles.agentStep}>
+              <span className={styles.agentStepLabel} style={{ color: "var(--neon-green)" }}>
+                Step 3
+              </span>
+              <h3 className={styles.agentStepTitle}>Just ask</h3>
+              <p className={styles.agentStepDesc}>
+                Tell your agent what you need. It searches the registry, installs the
+                right skill, and gets to work.
+              </p>
+            </div>
+          </div>
+          <AnimatedTerminal />
+        </div>
+      </section>
+
       {/* Featured Skills */}
       {topSkills.length > 0 && (
         <section className={styles.featured}>
