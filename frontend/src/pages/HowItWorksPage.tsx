@@ -156,7 +156,7 @@ Published: pymc-labs/my-skill@0.1.0 (Grade A)`,
     color: "green",
     tagline: (
       <>
-        Install once, <strong>run on every agent</strong> — keep your team's skills private
+        Install once, <strong>run on every agent</strong> — with optional org-only visibility
       </>
     ),
     features: [
@@ -180,10 +180,10 @@ Linked to agents: claude-code, codex, cursor, gemini-cli, windsurf, ... (40 agen
         },
       },
       {
-        title: "Private by Default",
+        title: "Org-Only Visibility",
         icon: Lock,
         bullets: [
-          <>Skills published under your org namespace are <strong>only discoverable by org members</strong></>,
+          <>Set any skill to <strong>org visibility</strong> — only your GitHub org members can discover and install it</>,
           <>Share internal tools, coding standards, and workflows with your team — <strong>not the world</strong></>,
           <><strong>GitHub org membership</strong> is the access gate — no separate IAM system to configure</>,
         ],

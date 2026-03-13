@@ -340,7 +340,7 @@ Downloading anthropics/statistical-analysis@0.1.0...
             <h2 className={styles.bottomCtaTitle}>Publish Your Skills</h2>
             <p className={styles.bottomCtaDesc}>
               Publish your skills with automated evals and security grading.
-              Private by default — share only with your org.
+              Keep them public or restrict access to your org.
             </p>
             <div className={styles.bottomCtaActions}>
               <a
