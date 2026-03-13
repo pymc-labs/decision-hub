@@ -1,8 +1,8 @@
 import { useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-  Building2, Users, Zap, ArrowRight, Download, Star, Bot, Terminal, Tag,
-  ShieldCheck, FlaskConical, Search, Copy, Check, MessageCircle, Package
+  Zap, ArrowRight, Star, Bot, Tag,
+  ShieldCheck, FlaskConical, Search, Copy, Check, Package
 } from "lucide-react";
 import { getRegistryStats, listSkillsFiltered } from "../api/client";
 import { useApi } from "../hooks/useApi";
@@ -19,9 +19,12 @@ const DATA_CATEGORIES = "Data & Database,Data Science & Statistics";
 const HOME_PAGE_SIZE = 6;
 
 const INSTALL_COMMANDS = {
-  unix: 'curl -LsSf https://astral.sh/uv/install.sh | sh && PATH="$HOME/.local/bin:$PATH" uv tool install dhub-cli',
-  windows: 'irm https://astral.sh/uv/install.ps1 | iex; & "$HOME\\.local\\bin\\uv" tool install dhub-cli',
+  pip: "pip install dhub-cli",
+  uv: "uv tool install dhub-cli",
+  fresh: 'curl -LsSf https://astral.sh/uv/install.sh | sh && PATH="$HOME/.local/bin:$PATH" uv tool install dhub-cli',
 } as const;
+
+type InstallTab = keyof typeof INSTALL_COMMANDS;
 
 export default function HomePage() {
   const { data: stats } = useApi(() => getRegistryStats(), []);
@@ -41,7 +44,6 @@ export default function HomePage() {
   }, [categorySkills, allSkills]);
   const totalSkills = stats?.total_skills ?? 0;
   const totalOrgs = stats?.total_orgs ?? 0;
-  const totalPublishers = stats?.total_publishers ?? 0;
   const totalDownloads = stats?.total_downloads ?? 0;
 
   const jsonLd = useMemo(
@@ -60,49 +62,88 @@ export default function HomePage() {
 
   const [animatedSkills, skillsRef] = useCountUp(totalSkills);
   const [animatedOrgs, orgsRef] = useCountUp(totalOrgs);
-  const [animatedPublishers, publishersRef] = useCountUp(totalPublishers);
   const [animatedDownloads, downloadsRef] = useCountUp(totalDownloads);
 
-  const [osTab, setOsTab] = useState<"unix" | "windows">("unix");
+  const [installTab, setInstallTab] = useState<InstallTab>("pip");
   const [copied, setCopied] = useState(false);
 
-  const switchOs = useCallback((tab: "unix" | "windows") => {
-    setOsTab(tab);
+  const switchTab = useCallback((tab: InstallTab) => {
+    setInstallTab(tab);
     setCopied(false);
   }, []);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(INSTALL_COMMANDS[osTab]);
+    navigator.clipboard.writeText(INSTALL_COMMANDS[installTab]);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [osTab]);
+  }, [installTab]);
 
   return (
     <div className="container">
       {/* Hero */}
       <section className={styles.hero}>
         <div className={styles.heroGrid} />
+        <span className={styles.heroBrand}>DECISION // HUB</span>
         <h1 className={styles.heroTitle}>
-          <span className={styles.heroAccent}>DECISION</span>
-          <span className={styles.heroDivider}>//</span>
-          <span className={styles.heroMain}>HUB</span>
+          <span className={styles.heroLine1}>Your AI agent doesn't know data science.</span>
+          <span className={styles.heroLine2}>Give it a skill that does.</span>
         </h1>
         <p className={styles.heroSub}>
-          Trusted Skills for AI Agents in Data Science and Beyond
+          A registry of eval-tested, security-graded skills that make AI coding
+          agents experts — in statistics, ML, causal inference, and beyond.
         </p>
+
+        {/* Tabbed install */}
+        <div className={styles.installBlock}>
+          <div className={styles.installTabs}>
+            {(Object.keys(INSTALL_COMMANDS) as InstallTab[]).map((tab) => (
+              <button
+                key={tab}
+                className={`${styles.installTab} ${installTab === tab ? styles.installTabActive : ""}`}
+                onClick={() => switchTab(tab)}
+              >
+                {tab === "fresh" ? "fresh install" : tab}
+              </button>
+            ))}
+          </div>
+          <div className={styles.installCommand}>
+            <code>{INSTALL_COMMANDS[installTab]}</code>
+            <button
+              className={styles.copyBtn}
+              onClick={handleCopy}
+              aria-label="Copy to clipboard"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          </div>
+        </div>
+
         <div className={styles.heroCta}>
-          <button
-            className={styles.btnPrimary}
-            onClick={() => window.dispatchEvent(new CustomEvent("open-ask-modal"))}
-          >
-            <MessageCircle size={18} />
-            Ask the Registry
+          <Link to="/skills" className={styles.btnPrimary}>
+            <Package size={18} />
+            Browse Skills
             <ArrowRight size={16} />
-          </button>
+          </Link>
           <Link to="/how-it-works" className={styles.btnSecondary}>
             <Zap size={18} />
             How It Works
           </Link>
+        </div>
+
+        {/* Inline stats bar */}
+        <div className={styles.statsBar}>
+          <div className={styles.statInline} ref={skillsRef as React.RefObject<HTMLDivElement>}>
+            <span className={styles.statNum}>{animatedSkills.toLocaleString()}</span>
+            <span className={styles.statLbl}>Skills</span>
+          </div>
+          <div className={styles.statInline} ref={orgsRef as React.RefObject<HTMLDivElement>}>
+            <span className={styles.statNum}>{animatedOrgs.toLocaleString()}</span>
+            <span className={styles.statLbl}>Organizations</span>
+          </div>
+          <div className={styles.statInline} ref={downloadsRef as React.RefObject<HTMLDivElement>}>
+            <span className={styles.statNum}>{animatedDownloads.toLocaleString()}</span>
+            <span className={styles.statLbl}>Downloads</span>
+          </div>
         </div>
       </section>
 
@@ -149,51 +190,6 @@ export default function HomePage() {
             </div>
           </NeonCard>
         </div>
-      </section>
-
-      {/* Stats */}
-      <section className={styles.stats}>
-        <NeonCard glow="cyan">
-          <div className={styles.statItem} ref={skillsRef as React.RefObject<HTMLDivElement>}>
-            <Package size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedSkills.toLocaleString()}</span>
-            <span className={styles.statLabel}>Skills Published</span>
-          </div>
-        </NeonCard>
-        <NeonCard glow="pink">
-          <div className={styles.statItem} ref={orgsRef as React.RefObject<HTMLDivElement>}>
-            <Building2 size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedOrgs.toLocaleString()}</span>
-            <span className={styles.statLabel}>Organizations</span>
-          </div>
-        </NeonCard>
-        <NeonCard glow="purple">
-          <div className={styles.statItem} ref={downloadsRef as React.RefObject<HTMLDivElement>}>
-            <Download size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedDownloads.toLocaleString()}</span>
-            <span className={styles.statLabel}>Downloads</span>
-          </div>
-        </NeonCard>
-        <NeonCard glow="green">
-          <div className={styles.statItem} ref={publishersRef as React.RefObject<HTMLDivElement>}>
-            <Users size={24} className={styles.statIcon} />
-            <span className={styles.statNumber}>{animatedPublishers.toLocaleString()}</span>
-            <span className={styles.statLabel}>Publishers</span>
-          </div>
-        </NeonCard>
-      </section>
-
-      {/* Agent First */}
-      <section className={styles.cliSection}>
-        <h2 className={styles.sectionTitle}>
-          <Bot size={20} />
-          Built for Agents
-        </h2>
-        <p className={styles.sectionSubtitle}>
-          Your agent searches the registry, picks a skill, and installs it — all
-          inside the conversation. No context switching.
-        </p>
-        <AnimatedTerminal />
       </section>
 
       {/* Featured Skills */}
@@ -247,43 +243,6 @@ export default function HomePage() {
           </div>
         </section>
       )}
-
-      {/* Install CTA */}
-      <section className={styles.installCta}>
-        <h2 className={styles.sectionTitle}>
-          <Terminal size={20} />
-          Install the CLI
-        </h2>
-        <div className={styles.osToggle}>
-          <button
-            className={`${styles.osTab} ${osTab === "unix" ? styles.osTabActive : ""}`}
-            onClick={() => switchOs("unix")}
-          >
-            macOS / Linux
-          </button>
-          <button
-            className={`${styles.osTab} ${osTab === "windows" ? styles.osTabActive : ""}`}
-            onClick={() => switchOs("windows")}
-          >
-            Windows
-          </button>
-        </div>
-        <div className={styles.commandWrapper}>
-          <TerminalBlock title={osTab === "unix" ? "~" : "PowerShell"}>
-            {INSTALL_COMMANDS[osTab]}
-          </TerminalBlock>
-          <button
-            className={styles.copyBtn}
-            onClick={handleCopy}
-            aria-label="Copy to clipboard"
-          >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-          </button>
-        </div>
-        <p className={styles.installAlt}>
-          Already have <code>uv</code>? Just run <code>uv tool install dhub-cli</code>
-        </p>
-      </section>
 
       {/* Quick Start Examples */}
       <section className={styles.quickStart}>
