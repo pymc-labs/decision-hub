@@ -105,25 +105,31 @@ function renderPage() {
 // --- Tests ---
 
 describe("HomePage", () => {
-  it("renders hero section with title", async () => {
+  it("renders hero section with narrative headline", async () => {
     renderPage();
-    expect(screen.getByText("DECISION")).toBeInTheDocument();
-    expect(screen.getByText("HUB")).toBeInTheDocument();
+    // Brand label
+    expect(screen.getByText(/DECISION/)).toBeInTheDocument();
+    expect(screen.getByText(/HUB/)).toBeInTheDocument();
+    // Narrative headline
     expect(
-      screen.getByText("Trusted Skills for AI Agents in Data Science and Beyond"),
+      screen.getByText("Your AI agent doesn't know data science."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Give it a skill that does."),
     ).toBeInTheDocument();
   });
 
-  it("renders stats section labels", async () => {
+  it("renders inline stats bar in hero", async () => {
     renderPage();
 
-    // Wait for data to load. The stat labels are always present once rendered.
     await waitFor(() => {
-      expect(screen.getByText("Skills Published")).toBeInTheDocument();
+      expect(screen.getByText("Skills")).toBeInTheDocument();
       expect(screen.getByText("Organizations")).toBeInTheDocument();
       expect(screen.getByText("Downloads")).toBeInTheDocument();
-      expect(screen.getByText("Publishers")).toBeInTheDocument();
     });
+
+    // Publishers stat is intentionally dropped
+    expect(screen.queryByText("Publishers")).not.toBeInTheDocument();
   });
 
   it("renders featured skills grid with skill cards", async () => {
@@ -160,32 +166,25 @@ describe("HomePage", () => {
     expect(categoryBadges.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("toggles OS tab and changes install command", async () => {
+  it("toggles install tabs between pip, uv, and fresh install", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Default is macOS / Linux
-    const unixTab = screen.getByText("macOS / Linux");
-    const windowsTab = screen.getByText("Windows");
+    // Default tab is pip
+    expect(screen.getByText("pip install dhub-cli")).toBeInTheDocument();
 
-    expect(unixTab).toBeInTheDocument();
-    expect(windowsTab).toBeInTheDocument();
+    // Switch to uv
+    const uvTab = screen.getByRole("button", { name: "uv" });
+    await user.click(uvTab);
+    expect(screen.getByText("uv tool install dhub-cli")).toBeInTheDocument();
 
-    // Check the unix install command is shown in the terminal block
-    // (use getAllByText since there are multiple elements with "uv tool install")
-    const unixElements = screen.getAllByText(/uv tool install dhub-cli/);
-    expect(unixElements.length).toBeGreaterThanOrEqual(1);
-
-    // Switch to Windows
-    await user.click(windowsTab);
-
-    // Windows command should now be shown
-    expect(screen.getByText(/irm https:\/\/astral\.sh\/uv\/install\.ps1/)).toBeInTheDocument();
+    // Switch to fresh install
+    const freshTab = screen.getByRole("button", { name: "fresh install" });
+    await user.click(freshTab);
+    expect(screen.getByText(/curl -LsSf/)).toBeInTheDocument();
   });
 
   it("copies install command to clipboard on copy button click", async () => {
-    // userEvent.setup() replaces navigator.clipboard, so we must spy
-    // after calling setup() to intercept the correct object.
     const user = userEvent.setup();
     renderPage();
 
@@ -194,26 +193,9 @@ describe("HomePage", () => {
     const copyBtn = screen.getByRole("button", { name: "Copy to clipboard" });
     await user.click(copyBtn);
 
-    expect(clipboardSpy).toHaveBeenCalledWith(
-      expect.stringContaining("uv tool install dhub-cli"),
-    );
+    expect(clipboardSpy).toHaveBeenCalledWith("pip install dhub-cli");
 
     clipboardSpy.mockRestore();
-  });
-
-  it("'Ask the Registry' button dispatches open-ask-modal custom event", async () => {
-    const user = userEvent.setup();
-    const eventHandler = vi.fn();
-    window.addEventListener("open-ask-modal", eventHandler);
-
-    renderPage();
-
-    const askBtn = screen.getByText("Ask the Registry");
-    await user.click(askBtn);
-
-    expect(eventHandler).toHaveBeenCalledTimes(1);
-
-    window.removeEventListener("open-ask-modal", eventHandler);
   });
 
   it("renders value proposition cards", async () => {
@@ -230,5 +212,27 @@ describe("HomePage", () => {
     expect(screen.getByText("Quick Start")).toBeInTheDocument();
     expect(screen.getByText("Search with natural language")).toBeInTheDocument();
     expect(screen.getByText("Install in one command")).toBeInTheDocument();
+  });
+
+  it("renders Supercharge Your Agent section with steps", async () => {
+    renderPage();
+
+    expect(screen.getByText("Supercharge Your Agent")).toBeInTheDocument();
+    expect(screen.getByText("Install the CLI")).toBeInTheDocument();
+    expect(screen.getByText("Add the dhub skill")).toBeInTheDocument();
+    expect(screen.getByText("Just ask")).toBeInTheDocument();
+  });
+
+  it("renders Browse Skills and How It Works CTAs", async () => {
+    renderPage();
+
+    expect(screen.getByText("Browse Skills")).toBeInTheDocument();
+    expect(screen.getByText("How It Works")).toBeInTheDocument();
+
+    const browseLink = screen.getByText("Browse Skills").closest("a");
+    expect(browseLink).toHaveAttribute("href", "/skills");
+
+    const howItWorksLink = screen.getByText("How It Works").closest("a");
+    expect(howItWorksLink).toHaveAttribute("href", "/how-it-works");
   });
 });
