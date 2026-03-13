@@ -242,13 +242,64 @@
 }
 
 /* Agent Section */
-.cliSection {
-  max-width: 700px;
-  margin: 48px auto;
+.agentSection {
+  margin: 56px 0;
 }
 
-.cliSection .sectionTitle {
+.agentSection .sectionTitle {
   margin-bottom: 8px;
+}
+
+.agentGrid {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 28px;
+  align-items: start;
+  margin-top: 24px;
+}
+
+.agentSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.agentStep {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agentStepLabel {
+  font-family: 'Orbitron', sans-serif;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.agentStepTitle {
+  font-size: var(--text-body);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0;
+}
+
+.agentStepCommand {
+  background: var(--bg-darkest);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--text-sm);
+  color: var(--neon-cyan);
+  width: fit-content;
+}
+
+.agentStepDesc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .sectionSubtitle {
