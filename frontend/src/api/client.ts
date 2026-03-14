@@ -5,6 +5,7 @@ import type {
   ResolveResponse,
   EvalReport,
   PaginatedAuditLogResponse,
+  ScanReport,
   TaxonomyResponse,
   RegistryStats,
   OrgStatsResponse,
@@ -130,6 +131,17 @@ export async function getAuditLog(
   const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
   return fetchJSON<PaginatedAuditLogResponse>(
     `/v1/skills/${orgSlug}/${skillName}/audit-log${qs}`
+  );
+}
+
+export async function getScanReport(
+  orgSlug: string,
+  skillName: string,
+  semver?: string
+): Promise<ScanReport | null> {
+  const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
+  return fetchJSON<ScanReport | null>(
+    `/v1/skills/${orgSlug}/${skillName}/scan-report${qs}`
   );
 }
 
