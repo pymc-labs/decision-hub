@@ -112,9 +112,37 @@ a.metaItem:hover {
 
 .sidebarGrade {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: stretch;
+  gap: 0;
   margin-bottom: 16px;
+}
+
+.sidebarGrade > *:not(:first-child) {
+  margin-left: 16px;
+  padding-left: 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gradeColumn,
+.scanColumn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex: 1;
+}
+
+.gradeColumn:hover .sidebarGradeLabel,
+.scanColumn:hover .sidebarGradeLabel {
+  color: var(--text-primary);
+}
+
+.gradeColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
 }
 
 .sidebarGradeLabel {
@@ -124,6 +152,58 @@ a.metaItem:hover {
   letter-spacing: 2px;
   text-transform: uppercase;
   color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.scanColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.scanLabeledBadge {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.scanLabel {
+  font-size: var(--text-xxs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.scanBadge {
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 0 4px 4px 0;
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+}
+
+.scanVerdictBadge {
+  padding: 2px 8px;
+  border-radius: 0 4px 4px 0;
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #fff;
+  display: flex;
+  align-items: center;
 }
 
 .sidebarActions {
