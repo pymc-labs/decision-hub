@@ -638,8 +638,23 @@ def execute_publish(
         report.passed,
     )
 
+    # 3b. Run Cisco scanner in parallel (observational only, never blocks publish)
+    scan_data: dict | None = None
+    if settings.enable_cisco_scanner:
+        try:
+            from decision_hub.domain.skill_scanner_bridge import scan_skill_zip
+
+            scan_data = scan_skill_zip(file_bytes, settings)
+        except Exception:
+            logger.opt(exception=True).warning(
+                "Cisco scanner failed for {}/{} — continuing with gauntlet only",
+                org_slug,
+                skill_name,
+            )
+
     # 4. Quarantine if rejected
     if not report.passed:
+        _try_store_scan_result(conn, scan_data, None, org_slug, skill_name, version)
         quarantine_and_log_rejection(
             conn,
             s3_client,
@@ -747,6 +762,9 @@ def execute_publish(
         conn.commit()
         raise
 
+    # 11b. Store Cisco scan report (non-critical, fail-open)
+    _try_store_scan_result(conn, scan_data, version_record.id, org_slug, skill_name, version)
+
     # 12. Trigger eval assessment if configured (non-critical post-commit)
     eval_report_status: str | None = None
     eval_run_id: str | None = None
@@ -791,3 +809,34 @@ def execute_publish(
         eval_report_status=eval_report_status,
         eval_run_id=eval_run_id,
     )
+
+
+def _try_store_scan_result(
+    conn: Connection,
+    scan_data: dict | None,
+    version_id: Any,
+    org_slug: str,
+    skill_name: str,
+    version: str,
+) -> None:
+    """Store a Cisco scan result if available. Never raises."""
+    if scan_data is None:
+        return
+    try:
+        from decision_hub.domain.skill_scanner_bridge import store_scan_result
+
+        store_scan_result(
+            conn,
+            scan_data,
+            version_id=version_id,
+            org_slug=org_slug,
+            skill_name=skill_name,
+            semver=version,
+        )
+        conn.commit()
+    except Exception:
+        logger.opt(exception=True).warning(
+            "Failed to store scan report for {}/{} — scan data lost but publish succeeded",
+            org_slug,
+            skill_name,
+        )
