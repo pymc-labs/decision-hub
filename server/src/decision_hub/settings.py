@@ -132,6 +132,16 @@ class Settings(BaseSettings):
     cache_ttl_stats: int = 60  # registry stats (existing behaviour)
     cache_ttl_sitemap: int = 300  # sitemap.xml — 5 min
 
+    # Cisco skill-scanner (parallel mode — does not affect publish decisions).
+    # When enabled, runs the Cisco scanner alongside the gauntlet and stores
+    # results in scan_reports/scan_findings for display in the UI.
+    enable_cisco_scanner: bool = False
+    cisco_scanner_policy: str = "balanced"  # "strict" | "balanced" | "permissive"
+
+    # Rate limiting for scan report endpoints
+    scan_report_rate_limit: int = 30
+    scan_report_rate_window: int = 60
+
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
     # Logging format: "text" (human-readable, default) or "json" (structured).
