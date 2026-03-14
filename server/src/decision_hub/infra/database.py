@@ -17,14 +17,16 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
+    Integer,
     LargeBinary,
     MetaData,
     String,
     Table,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.pool import NullPool
@@ -35,6 +37,8 @@ from decision_hub.models import (
     EvalRun,
     Organization,
     OrgMember,
+    ScanFinding,
+    ScanReport,
     Skill,
     SkillAccessGrant,
     SkillTracker,
@@ -385,6 +389,61 @@ eval_audit_logs_table = Table(
         nullable=False,
         server_default=sa.func.now(),
     ),
+)
+
+scan_reports_table = Table(
+    "scan_reports",
+    metadata,
+    Column("id", PG_UUID(as_uuid=True), primary_key=True, server_default=sa.func.gen_random_uuid()),
+    Column("version_id", PG_UUID(as_uuid=True), ForeignKey("versions.id", ondelete="CASCADE"), nullable=True),
+    Column("org_slug", Text, nullable=False),
+    Column("skill_name", Text, nullable=False),
+    Column("semver", Text, nullable=False),
+    Column("is_safe", Boolean, nullable=False),
+    Column("max_severity", Text, nullable=False),
+    Column("findings_count", Integer, nullable=False, server_default="0"),
+    Column("analyzers_used", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("analyzers_failed", JSONB, server_default="[]"),
+    Column("analyzability_score", Float, nullable=True),
+    Column("analyzability_details", JSONB, nullable=True),
+    Column("meta_verdict", Text, nullable=True),
+    Column("meta_risk_level", Text, nullable=True),
+    Column("meta_summary", Text, nullable=True),
+    Column("meta_top_priority", Text, nullable=True),
+    Column("meta_correlations", JSONB, nullable=True),
+    Column("meta_recommendations", JSONB, nullable=True),
+    Column("meta_false_positive_count", Integer, nullable=True),
+    Column("scanner_version", Text, nullable=True),
+    Column("scanner_model", Text, nullable=True),
+    Column("policy_name", Text, nullable=True),
+    Column("scan_duration_ms", Integer, nullable=True),
+    Column("full_report", JSONB, nullable=True),
+    Column("meta_analysis", JSONB, nullable=True),
+    Column("scan_metadata", JSONB, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+)
+
+scan_findings_table = Table(
+    "scan_findings",
+    metadata,
+    Column("id", PG_UUID(as_uuid=True), primary_key=True, server_default=sa.func.gen_random_uuid()),
+    Column("report_id", PG_UUID(as_uuid=True), ForeignKey("scan_reports.id", ondelete="CASCADE"), nullable=False),
+    Column("rule_id", Text, nullable=False),
+    Column("category", Text, nullable=False),
+    Column("severity", Text, nullable=False),
+    Column("title", Text, nullable=False),
+    Column("description", Text, nullable=True),
+    Column("file_path", Text, nullable=True),
+    Column("line_number", Integer, nullable=True),
+    Column("snippet", Text, nullable=True),
+    Column("remediation", Text, nullable=True),
+    Column("analyzer", Text, nullable=True),
+    Column("is_false_positive", Boolean, nullable=True),
+    Column("meta_confidence", Text, nullable=True),
+    Column("meta_priority", Integer, nullable=True),
+    Column("metadata", JSONB, nullable=False, server_default="{}", key="metadata_"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
 )
 
 eval_reports_table = Table(
@@ -3193,3 +3252,194 @@ def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMe
     stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Scan reports (Cisco skill-scanner)
+# ---------------------------------------------------------------------------
+
+
+def _row_to_scan_report(row: Any) -> ScanReport:
+    m = row._mapping
+    meta_analysis = m.get("meta_analysis") or {}
+    risk_assessment = meta_analysis.get("overall_risk_assessment") if isinstance(meta_analysis, dict) else None
+    scan_meta = m.get("scan_metadata") or {}
+    if not isinstance(scan_meta, dict):
+        scan_meta = {}
+    return ScanReport(
+        id=m["id"],
+        version_id=m["version_id"],
+        org_slug=m["org_slug"],
+        skill_name=m["skill_name"],
+        semver=m["semver"],
+        is_safe=m["is_safe"],
+        max_severity=m["max_severity"],
+        findings_count=m["findings_count"],
+        analyzers_used=list(m.get("analyzers_used") or []),
+        analyzers_failed=list(m.get("analyzers_failed") or []),
+        analyzability_score=m.get("analyzability_score"),
+        meta_verdict=m.get("meta_verdict"),
+        meta_risk_level=m.get("meta_risk_level"),
+        meta_summary=m.get("meta_summary"),
+        meta_top_priority=m.get("meta_top_priority"),
+        meta_verdict_reasoning=risk_assessment.get("verdict_reasoning") if risk_assessment else None,
+        meta_correlations=m.get("meta_correlations"),
+        meta_recommendations=m.get("meta_recommendations"),
+        meta_false_positive_count=m.get("meta_false_positive_count"),
+        llm_overall_assessment=scan_meta.get("llm_overall_assessment"),
+        llm_primary_threats=scan_meta.get("llm_primary_threats"),
+        scanner_version=m.get("scanner_version"),
+        scanner_model=m.get("scanner_model"),
+        policy_name=m.get("policy_name"),
+        scan_duration_ms=m.get("scan_duration_ms"),
+        full_report=m.get("full_report"),
+        created_at=m.get("created_at"),
+    )
+
+
+def _row_to_scan_finding(row: Any) -> ScanFinding:
+    m = row._mapping
+    meta = m.get("metadata_") or {}
+    return ScanFinding(
+        id=m["id"],
+        report_id=m["report_id"],
+        rule_id=m["rule_id"],
+        category=m["category"],
+        severity=m["severity"],
+        title=m["title"],
+        description=m.get("description"),
+        file_path=m.get("file_path"),
+        line_number=m.get("line_number"),
+        snippet=m.get("snippet"),
+        remediation=m.get("remediation"),
+        analyzer=m.get("analyzer"),
+        is_false_positive=m.get("is_false_positive"),
+        meta_confidence=m.get("meta_confidence"),
+        meta_priority=m.get("meta_priority"),
+        meta_impact=meta.get("meta_impact"),
+        meta_exploitability=meta.get("meta_exploitability"),
+        meta_confidence_reason=meta.get("meta_confidence_reason"),
+        metadata=meta,
+    )
+
+
+def insert_scan_report(
+    conn: Connection,
+    *,
+    version_id: UUID | None,
+    org_slug: str,
+    skill_name: str,
+    semver: str,
+    is_safe: bool,
+    max_severity: str,
+    findings_count: int,
+    analyzers_used: list[str],
+    analyzers_failed: list[dict] | None = None,
+    analyzability_score: float | None = None,
+    analyzability_details: dict | None = None,
+    meta_verdict: str | None = None,
+    meta_risk_level: str | None = None,
+    meta_summary: str | None = None,
+    meta_top_priority: str | None = None,
+    meta_correlations: list[dict] | None = None,
+    meta_recommendations: list[dict] | None = None,
+    meta_false_positive_count: int | None = None,
+    scanner_version: str | None = None,
+    scanner_model: str | None = None,
+    policy_name: str | None = None,
+    scan_duration_ms: int | None = None,
+    full_report: dict | None = None,
+    meta_analysis: dict | None = None,
+    scan_metadata: dict | None = None,
+) -> ScanReport:
+    """Insert a scan report and return it."""
+    stmt = (
+        sa.insert(scan_reports_table)
+        .values(
+            version_id=version_id,
+            org_slug=org_slug,
+            skill_name=skill_name,
+            semver=semver,
+            is_safe=is_safe,
+            max_severity=max_severity,
+            findings_count=findings_count,
+            analyzers_used=analyzers_used,
+            analyzers_failed=analyzers_failed or [],
+            analyzability_score=analyzability_score,
+            analyzability_details=analyzability_details,
+            meta_verdict=meta_verdict,
+            meta_risk_level=meta_risk_level,
+            meta_summary=meta_summary,
+            meta_top_priority=meta_top_priority,
+            meta_correlations=meta_correlations,
+            meta_recommendations=meta_recommendations,
+            meta_false_positive_count=meta_false_positive_count,
+            scanner_version=scanner_version,
+            scanner_model=scanner_model,
+            policy_name=policy_name,
+            scan_duration_ms=scan_duration_ms,
+            full_report=full_report,
+            meta_analysis=meta_analysis,
+            scan_metadata=scan_metadata,
+        )
+        .returning(*scan_reports_table.c)
+    )
+    row = conn.execute(stmt).one()
+    return _row_to_scan_report(row)
+
+
+def insert_scan_findings(conn: Connection, report_id: UUID, findings: list[dict]) -> int:
+    """Bulk-insert findings for a scan report. Returns count inserted."""
+    if not findings:
+        return 0
+    rows = [
+        {
+            "report_id": report_id,
+            "rule_id": f["rule_id"],
+            "category": f["category"],
+            "severity": f["severity"],
+            "title": f["title"],
+            "description": f.get("description"),
+            "file_path": f.get("file_path"),
+            "line_number": f.get("line_number"),
+            "snippet": f.get("snippet"),
+            "remediation": f.get("remediation"),
+            "analyzer": f.get("analyzer"),
+            "is_false_positive": f.get("is_false_positive"),
+            "meta_confidence": f.get("meta_confidence"),
+            "meta_priority": f.get("meta_priority"),
+            "metadata_": {**f.get("metadata", {}), "scanner_index": i},
+        }
+        for i, f in enumerate(findings)
+    ]
+    conn.execute(sa.insert(scan_findings_table), rows)
+    return len(rows)
+
+
+def find_scan_report_for_version(conn: Connection, version_id: UUID) -> ScanReport | None:
+    """Return the latest scan report for a version, or None."""
+    stmt = (
+        sa.select(scan_reports_table)
+        .where(scan_reports_table.c.version_id == version_id)
+        .order_by(scan_reports_table.c.created_at.desc(), scan_reports_table.c.id.desc())
+        .limit(1)
+    )
+    row = conn.execute(stmt).one_or_none()
+    return _row_to_scan_report(row) if row else None
+
+
+def find_scan_findings_for_report(conn: Connection, report_id: UUID) -> list[ScanFinding]:
+    """Return findings in scanner order so finding_indices in meta_correlations
+    map correctly. Display sorting happens in the frontend."""
+    scanner_index = scan_findings_table.c.metadata_["scanner_index"].astext.cast(sa.Integer)
+    stmt = (
+        sa.select(scan_findings_table)
+        .where(scan_findings_table.c.report_id == report_id)
+        .order_by(
+            scanner_index.asc().nullslast(),
+            scan_findings_table.c.meta_priority.asc().nullslast(),
+            scan_findings_table.c.id,
+        )
+    )
+    rows = conn.execute(stmt).all()
+    return [_row_to_scan_finding(row) for row in rows]
