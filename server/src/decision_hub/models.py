@@ -304,6 +304,64 @@ class TrackerMetrics:
 
 
 @dataclass(frozen=True)
+class ScanReport:
+    """Cisco skill-scanner report for a skill version."""
+
+    id: UUID
+    version_id: UUID | None
+    org_slug: str
+    skill_name: str
+    semver: str
+    is_safe: bool
+    max_severity: str
+    findings_count: int
+    analyzers_used: list[str]
+    analyzers_failed: list[dict]
+    analyzability_score: float | None
+    meta_verdict: str | None
+    meta_risk_level: str | None
+    meta_summary: str | None
+    meta_top_priority: str | None
+    meta_verdict_reasoning: str | None
+    meta_correlations: list[dict] | None
+    meta_recommendations: list[dict] | None
+    meta_false_positive_count: int | None
+    llm_overall_assessment: str | None
+    llm_primary_threats: list[str] | None
+    scanner_version: str | None
+    scanner_model: str | None
+    policy_name: str | None
+    scan_duration_ms: int | None
+    full_report: dict | None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ScanFinding:
+    """Individual finding from a Cisco skill-scanner report."""
+
+    id: UUID
+    report_id: UUID
+    rule_id: str
+    category: str
+    severity: str
+    title: str
+    description: str | None = None
+    file_path: str | None = None
+    line_number: int | None = None
+    snippet: str | None = None
+    remediation: str | None = None
+    analyzer: str | None = None
+    is_false_positive: bool | None = None
+    meta_confidence: str | None = None
+    meta_priority: int | None = None
+    meta_impact: str | None = None
+    meta_exploitability: str | None = None
+    meta_confidence_reason: str | None = None
+    metadata: dict | None = None
+
+
+@dataclass(frozen=True)
 class SkillIndexEntry:
     """Entry in the search index."""
 
