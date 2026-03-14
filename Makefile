@@ -1,4 +1,4 @@
-.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-shared test-frontend test-slow check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill tracker-health
+.PHONY: help lint lint-frontend fmt typecheck test test-client test-server test-shared test-frontend test-slow check-migrations check-schema-drift install-hooks deploy-dev deploy-prod deploy-local local-down local-reset publish publish-cli backfill backfill-scan-reports tracker-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -119,6 +119,11 @@ backfill: ## Run all backfills: categories, embeddings, org metadata (needs DHUB
 	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN && \
 		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
 		python -m decision_hub.scripts.backfill_org_metadata --github-token "$$(gh auth token)"
+
+backfill-scan-reports: ## Backfill Cisco scanner reports for existing skills (needs DHUB_ENV)
+	cd server && unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN && \
+		DHUB_ENV=$(or $(DHUB_ENV),dev) uv run --package decision-hub-server \
+		python -m decision_hub.scripts.backfill_scan_reports $(ARGS)
 
 # ---------------------------------------------------------------------------
 # Monitoring
