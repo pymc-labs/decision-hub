@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, AlertTriangle, Info, Code, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, AlertTriangle, Clock, Info, Code, ExternalLink } from "lucide-react";
 import type { ScanReport, ScanFinding } from "../types/api";
 import styles from "./ScannerReport.module.css";
 
@@ -130,6 +130,11 @@ export default function ScannerReport({ report }: { report: ScanReport }) {
     ? new Date(report.created_at).toLocaleDateString()
     : null;
 
+  const isStale =
+    report.scanned_semver &&
+    report.latest_semver &&
+    report.scanned_semver !== report.latest_semver;
+
   return (
     <div className={styles.scannerReport}>
       <div className={styles.reportHeader}>
@@ -154,6 +159,13 @@ export default function ScannerReport({ report }: { report: ScanReport }) {
         </div>
         {scanDate && <span className={styles.reportDate}>{scanDate}</span>}
       </div>
+
+      {isStale && (
+        <div className={styles.staleWarning}>
+          <Clock size={13} />
+          Scanned v{report.scanned_semver} — latest is v{report.latest_semver}
+        </div>
+      )}
 
       <div className={styles.summaryBar}>
         <LabeledBadge

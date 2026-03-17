@@ -42,6 +42,19 @@
   color: var(--text-muted);
 }
 
+.staleWarning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: #ffa502;
+  background: rgba(255, 165, 2, 0.08);
+  border: 1px solid rgba(255, 165, 2, 0.2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+}
+
 .summaryBar {
   display: flex;
   align-items: center;

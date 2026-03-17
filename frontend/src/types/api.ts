@@ -150,6 +150,8 @@ export interface ScanReport {
   scan_duration_ms: number | null;
   full_report: Record<string, unknown> | null;
   created_at: string | null;
+  scanned_semver: string | null;
+  latest_semver: string | null;
 }
 
 export interface SkillFile {
