@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     # Cisco skill-scanner (parallel mode — does not affect publish decisions).
     # When enabled, runs the Cisco scanner alongside the gauntlet and stores
     # results in scan_reports/scan_findings for display in the UI.
-    enable_cisco_scanner: bool = False
+    enable_cisco_scanner: bool = True
     cisco_scanner_policy: str = "balanced"  # "strict" | "balanced" | "permissive"
 
     # Rate limiting for scan report endpoints
