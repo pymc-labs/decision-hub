@@ -47,6 +47,7 @@ from decision_hub.infra.database import (
     find_eval_run,
     find_eval_runs_for_version,
     find_org_by_slug,
+    find_latest_scan_report_for_skill,
     find_scan_findings_for_report,
     find_scan_report_for_version,
     find_skill,
@@ -348,6 +349,8 @@ class ScanReportResponse(BaseModel):
     scan_duration_ms: int | None = None
     full_report: dict | None = None
     created_at: str | None = None
+    scanned_semver: str | None = None
+    latest_semver: str | None = None
 
 
 class EvalCaseResultResponse(BaseModel):
@@ -884,7 +887,10 @@ def get_scan_report(
     if version is None:
         return None
 
+    latest_semver = version.semver
     report = find_scan_report_for_version(conn, version.id)
+    if report is None:
+        report = find_latest_scan_report_for_skill(conn, org_slug, skill_name)
     if report is None:
         return None
 
@@ -937,6 +943,8 @@ def get_scan_report(
         scan_duration_ms=report.scan_duration_ms,
         full_report=report.full_report,
         created_at=report.created_at.isoformat() if report.created_at else None,
+        scanned_semver=report.semver,
+        latest_semver=latest_semver,
     )
 
 

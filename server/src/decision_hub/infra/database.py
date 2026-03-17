@@ -3428,6 +3428,28 @@ def find_scan_report_for_version(conn: Connection, version_id: UUID) -> ScanRepo
     return _row_to_scan_report(row) if row else None
 
 
+def find_latest_scan_report_for_skill(
+    conn: Connection, org_slug: str, skill_name: str
+) -> ScanReport | None:
+    """Return the most recent scan report for a skill regardless of version.
+
+    Used as a fallback when the exact version has not been scanned yet.
+    """
+    stmt = (
+        sa.select(scan_reports_table)
+        .where(
+            sa.and_(
+                scan_reports_table.c.org_slug == org_slug,
+                scan_reports_table.c.skill_name == skill_name,
+            )
+        )
+        .order_by(scan_reports_table.c.created_at.desc(), scan_reports_table.c.id.desc())
+        .limit(1)
+    )
+    row = conn.execute(stmt).one_or_none()
+    return _row_to_scan_report(row) if row else None
+
+
 def find_scan_findings_for_report(conn: Connection, report_id: UUID) -> list[ScanFinding]:
     """Return findings in scanner order so finding_indices in meta_correlations
     map correctly. Display sorting happens in the frontend."""
