@@ -6,6 +6,7 @@ full publish pipeline (zip, gauntlet, S3, version record, eval trigger).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import shutil
 import time
@@ -35,6 +36,20 @@ from decision_hub.settings import Settings
 # outer loop in modal_app.py (via check_all_due_trackers) and the dispatch
 # function to avoid overrunning the hard Modal timeout.
 DEADLINE_BUFFER_SECONDS = 30
+
+
+def _close_map_iter(it: Any) -> None:
+    """Close a Modal fn.map iterator, suppressing async generator cleanup errors.
+
+    Modal's fn.map wraps an async_merge async generator.  When the iterator
+    is only partially consumed (deadline break), the GC would later try to
+    finalize that async generator from a sync context — which can't properly
+    await aclose() and logs a spurious ERROR.  Closing eagerly here prevents
+    the GC path; we suppress the error because it's an expected Modal SDK
+    limitation, not an application fault.
+    """
+    with contextlib.suppress(Exception):
+        it.close()
 
 
 # ---------------------------------------------------------------------------
@@ -526,13 +541,19 @@ def _dispatch_changed_trackers(
         # fn.map blocks until results arrive — see docstring for why this is
         # preferred over fn.spawn.  The deadline check below breaks early if
         # the budget runs low.
-        for batch_result in fn.map(
+        #
+        # We keep a reference to the iterator so we can close it eagerly
+        # after an early break.  Without this, the GC finalizes Modal's
+        # internal async_merge generator from a sync context, which can't
+        # await aclose() and logs a spurious ERROR.
+        map_iter = fn.map(
             tracker_dicts,
             known_shas,
             return_exceptions=True,
             order_outputs=False,
             wrap_returned_exceptions=False,
-        ):
+        )
+        for batch_result in map_iter:
             # Process the already-received result before checking the deadline —
             # the for-loop already blocked to receive it, so discarding it would
             # undercount processed/failed.
@@ -560,6 +581,10 @@ def _dispatch_changed_trackers(
                     len(changed_trackers),
                 )
                 break
+
+        # Close the fn.map iterator eagerly so the GC doesn't try to
+        # finalize Modal's async_merge generator from a sync context.
+        _close_map_iter(map_iter)
 
         # Persist last_error for trackers that failed without a result dict
         # (timeout, OOM, container crash). These never reached the
