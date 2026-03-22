@@ -1,0 +1,3 @@
+name: modeler
+description: "Run multiple MMM modeling approaches in parallel"
+max_instances: 5

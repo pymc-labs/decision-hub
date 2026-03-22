@@ -1,0 +1,3 @@
+name: data-preparer
+description: "Run data preparation with different models for comparison"
+max_instances: 2

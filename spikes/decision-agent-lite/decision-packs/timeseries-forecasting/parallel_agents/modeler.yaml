@@ -1,0 +1,77 @@
+name: modeler
+description: "Run multiple time series modeling approaches in parallel"
+timeout_minutes: 60
+failure_behavior: continue
+
+default_model: "anthropic/claude-sonnet-4-5"
+max_instances: 4
+
+subagent_suffix_prompt: |
+  ---
+
+  Write summary.md with your complete results:
+
+  ## Model: [name]
+  ## Approach: [brief description]
+
+  ## Configuration
+  - Model type and parameters
+  - Data transformations applied
+  - Train/test split
+
+  ## Diagnostics
+  - Convergence status (for Bayesian): CONVERGED / DID NOT CONVERGE
+  - R-hat max, ESS min, Divergences % (if applicable)
+  - Residual autocorrelation: PASS / FAIL (Ljung-Box p=X.XX)
+  - Residual normality: PASS / FAIL
+
+  ## Holdout Evaluation
+  - RMSE: X.XX
+  - MAE: X.XX
+  - MAPE: X.XX%
+  - 90% PI coverage: XX%
+
+  ## Forecast
+  Table with: Period, Point, Lower 90%, Upper 90%
+
+  ## Key Findings
+  - What this model reveals about the data
+
+  ## Issues or Concerns
+  - Problems encountered
+
+  ---
+
+  Also save:
+  - forecast_plot.png
+  - diagnostics_plot.png
+  - parameters_and_results.json
+
+summarizer_prompt: |
+  You are a consolidator agent with READ-ONLY access.
+
+  Read ONLY these exact summary files:
+  {summary_paths}
+
+  Create a consolidated comparison and write it to the output path:
+
+  1. **Comparison Table**
+     | Model | Converged | RMSE | MAPE | 90% PI Coverage | AIC/WAIC |
+
+  2. **Approach Differences**
+     - Model types and configurations
+     - Data transformations used
+
+  3. **Results Comparison**
+     - Which models passed all diagnostics
+     - Accuracy rankings
+     - Interval calibration quality
+
+  4. **Recommendation**
+     - Best individual model (with justification)
+     - Whether an ensemble would improve results
+     - Caveats and limitations
+
+  Present facts. The orchestrator makes the final decision.
+
+summarizer_model: "anthropic/claude-sonnet-4-5"

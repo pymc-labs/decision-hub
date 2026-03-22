@@ -1,0 +1,15 @@
+name: timeseries-forecasting
+description: >
+  Time series forecasting with automatic model selection, convergence diagnostics,
+  and uncertainty quantification. Supports multiple modeling approaches run in
+  parallel with automatic consolidation.
+
+default_model: anthropic/claude-sonnet-4-5
+requires_data: true
+requires_prompt: true
+
+# Python dependencies installed into a venv (replaces Dockerfile)
+requirements: requirements.txt
+
+hooks:
+  post-run: print_summary.sh

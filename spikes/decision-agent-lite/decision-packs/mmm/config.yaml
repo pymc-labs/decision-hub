@@ -1,0 +1,5 @@
+name: mmm
+description: Marketing Mix Modeling analysis using PyMC-Marketing
+default_model: claude-sonnet-4-6
+requires_data: true
+requires_prompt: true

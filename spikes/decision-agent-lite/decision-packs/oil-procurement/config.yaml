@@ -1,0 +1,10 @@
+name: oil-procurement
+description: >
+  Bayesian procurement strategy under geopolitical uncertainty.
+  Simulates crude oil prices with multiple stochastic models (GBM-GARCH,
+  Student-t, Merton Jump-Diffusion, BSTS), evaluates tail risk, and
+  finds the optimal hedge ratio via Monte Carlo expected utility.
+
+default_model: anthropic/claude-sonnet-4-5
+requires_data: false
+requires_prompt: true

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dlab-lite"
+version = "0.1.0"
+description = "Docker-free decision pack runner for coding agents"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "claude-agent-sdk>=0.1.0",
+    "anyio>=4.0",
+]
+
+[project.scripts]
+dlab-lite = "dlab_lite.cli:main"

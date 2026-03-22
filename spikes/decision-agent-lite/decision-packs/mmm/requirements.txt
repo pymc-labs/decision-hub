@@ -1,0 +1,27 @@
+# Core
+numpy>=2.0
+pandas>=2.0
+scipy>=1.12
+polars>=1.0
+
+# Visualization
+matplotlib>=3.7
+
+# ML/Stats
+scikit-learn>=1.4
+statsmodels>=0.14
+
+# Bayesian
+arviz>=0.18
+pymc>=5.16
+pymc-marketing>=0.18.0
+cloudpickle>=3.0
+
+# Samplers (optional but recommended for faster MCMC)
+jax>=0.4.20
+jaxlib>=0.4.20
+numpyro>=0.15
+
+# Data formats
+pyarrow>=14.0
+fastparquet>=2024.2
