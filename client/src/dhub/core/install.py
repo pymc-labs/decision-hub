@@ -6,7 +6,9 @@ to agent directories.
 """
 
 import hashlib
+import json
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 # Filename used to track the installed version inside each skill directory.
@@ -79,6 +81,11 @@ def verify_checksum(data: bytes, expected: str) -> None:
         raise ValueError(f"Checksum mismatch: expected {expected}, got {actual}.")
 
 
+def get_skills_root() -> Path:
+    """Return the root directory for all installed skills (~/.dhub/skills/)."""
+    return Path.home() / ".dhub" / "skills"
+
+
 def get_dhub_skill_path(org: str, skill: str) -> Path:
     """Return the canonical local path for an installed skill.
 
@@ -89,7 +96,7 @@ def get_dhub_skill_path(org: str, skill: str) -> Path:
     Returns:
         Path to ~/.dhub/skills/{org}/{skill}/.
     """
-    return Path.home() / ".dhub" / "skills" / org / skill
+    return get_skills_root() / org / skill
 
 
 def get_agent_skill_paths() -> dict[str, Path]:
@@ -207,26 +214,45 @@ def list_linked_agents(org: str, skill_name: str) -> list[str]:
     return linked
 
 
-def save_installed_version(org: str, skill_name: str, version: str) -> None:
+@dataclass(frozen=True)
+class InstalledVersion:
+    """Metadata recorded when a skill is installed, used by ``dhub update``."""
+
+    version: str
+    allow_risky: bool = False
+
+
+def save_installed_version(org: str, skill_name: str, version: str, *, allow_risky: bool = False) -> None:
     """Write the installed version to the skill's canonical directory.
 
-    Creates a `.dhub-version` file containing the semver string so that
-    ``dhub update`` can compare against the registry later.
+    Creates a `.dhub-version` JSON file so that ``dhub update`` can compare
+    against the registry and preserve the original install flags.
     """
     path = get_dhub_skill_path(org, skill_name) / _VERSION_FILE
-    path.write_text(version + "\n", encoding="utf-8")
+    data = {"version": version, "allow_risky": allow_risky}
+    path.write_text(json.dumps(data) + "\n", encoding="utf-8")
 
 
-def get_installed_version(org: str, skill_name: str) -> str | None:
+def get_installed_version(org: str, skill_name: str) -> InstalledVersion | None:
     """Read the installed version from the skill's canonical directory.
 
-    Returns the version string, or ``None`` if no version file exists
+    Returns an ``InstalledVersion``, or ``None`` if no version file exists
     (legacy install).
     """
     path = get_dhub_skill_path(org, skill_name) / _VERSION_FILE
     if not path.exists():
         return None
-    return path.read_text(encoding="utf-8").strip()
+    raw = path.read_text(encoding="utf-8").strip()
+    try:
+        data = json.loads(raw)
+        return InstalledVersion(
+            version=data["version"],
+            allow_risky=data.get("allow_risky", False),
+        )
+    except (json.JSONDecodeError, KeyError):
+        # Fallback for plain-text version files (shouldn't exist in practice
+        # since this format ships with the same PR, but be defensive).
+        return InstalledVersion(version=raw)
 
 
 def list_installed_skills() -> list[tuple[str, str]]:
@@ -235,7 +261,7 @@ def list_installed_skills() -> list[tuple[str, str]]:
     Only directories that look like valid skill installs (contain at
     least one file) are included.
     """
-    skills_root = Path.home() / ".dhub" / "skills"
+    skills_root = get_skills_root()
     if not skills_root.exists():
         return []
     installed: list[tuple[str, str]] = []
