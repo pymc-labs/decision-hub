@@ -81,7 +81,23 @@ async def start_device_flow(
     Returns a user_code for the user to enter at verification_uri, plus the
     device_code the client uses to poll for completion.
     """
-    result = await request_device_code(settings.github_client_id)
+    try:
+        result = await request_device_code(settings.github_client_id)
+    except httpx.HTTPStatusError as exc:
+        logger.opt(exception=True).warning(
+            "GitHub device code request failed: status={}",
+            exc.response.status_code,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub API error: {exc.response.status_code}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.opt(exception=True).warning("GitHub device code request failed: {}", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to reach GitHub — please try again",
+        ) from exc
     return DeviceCodeResponseSchema(
         user_code=result.user_code,
         verification_uri=result.verification_uri,
@@ -112,6 +128,12 @@ async def exchange_token(
         raise HTTPException(
             status_code=502,
             detail=f"GitHub API error: {exc.response.status_code}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.opt(exception=True).warning("GitHub token exchange failed: {}", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to reach GitHub — please try again",
         ) from exc
     except RuntimeError as exc:
         logger.warning("GitHub device flow error: {}", exc)
