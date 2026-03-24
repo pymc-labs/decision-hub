@@ -1038,8 +1038,13 @@ def _install_single_skill(
     # Create agent symlinks
     if agent:
         if agent == "all":
-            linked = link_skill_to_all_agents(org_slug, skill_name)
-            console.print(f"[green]Linked to agents: {', '.join(linked)}[/]")
+            linked, skipped = link_skill_to_all_agents(org_slug, skill_name)
+            if linked:
+                console.print(f"[green]Linked to agents: {', '.join(linked)}[/]")
+            else:
+                console.print("[yellow]No agents detected on this machine.[/]")
+            if skipped:
+                console.print(f"[dim]Skipped (not installed): {', '.join(skipped)}[/]")
         else:
             link_path = link_skill_to_agent(org_slug, skill_name, agent)
             console.print(f"[green]Linked to {agent} at {link_path}[/]")

@@ -129,20 +129,65 @@ class TestUnlinkSkillFromAgent:
             install.unlink_skill_from_agent("myorg", "myskill", "claude-code")
 
 
+class TestIsAgentPresent:
+    """Tests for is_agent_present."""
+
+    def test_present_when_parent_exists(self, tmp_path: Path) -> None:
+        # The parent of the skills dir (e.g. ~/.claude) must exist
+        agent_dir = install.AGENT_SKILL_PATHS["claude-code"]
+        agent_dir.parent.mkdir(parents=True, exist_ok=True)
+        assert install.is_agent_present("claude-code") is True
+
+    def test_absent_when_parent_missing(self) -> None:
+        # No parent dirs created → agent not present
+        assert install.is_agent_present("claude-code") is False
+
+    def test_unknown_agent(self) -> None:
+        assert install.is_agent_present("nonexistent-agent") is False
+
+
 class TestLinkSkillToAllAgents:
     """Tests for link_skill_to_all_agents."""
 
     @pytest.mark.usefixtures("_mock_dhub_path")
-    def test_links_to_all_agents(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
-        linked = install.link_skill_to_all_agents("myorg", "myskill")
+    def test_links_only_to_present_agents(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
+        # Mark only claude-code and cursor as present
+        install.AGENT_SKILL_PATHS["claude-code"].parent.mkdir(parents=True, exist_ok=True)
+        install.AGENT_SKILL_PATHS["cursor"].parent.mkdir(parents=True, exist_ok=True)
 
-        assert sorted(linked) == ["claude-code", "cursor", "gemini-cli", "opencode", "windsurf"]
+        linked, skipped = install.link_skill_to_all_agents("myorg", "myskill")
 
-        # Verify all symlinks exist
+        assert sorted(linked) == ["claude-code", "cursor"]
+        assert sorted(skipped) == ["gemini-cli", "opencode", "windsurf"]
+
+        # Verify symlinks exist only for present agents
         for agent in linked:
             symlink = install.AGENT_SKILL_PATHS[agent] / "myskill"
             assert symlink.is_symlink()
             assert symlink.resolve() == canonical_skill_dir.resolve()
+
+        # Verify no symlinks for skipped agents
+        for agent in skipped:
+            symlink = install.AGENT_SKILL_PATHS[agent] / "myskill"
+            assert not symlink.exists()
+
+    @pytest.mark.usefixtures("_mock_dhub_path")
+    def test_links_to_all_when_all_present(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
+        # Mark all agents as present
+        for agent_dir in install.AGENT_SKILL_PATHS.values():
+            agent_dir.parent.mkdir(parents=True, exist_ok=True)
+
+        linked, skipped = install.link_skill_to_all_agents("myorg", "myskill")
+
+        assert sorted(linked) == ["claude-code", "cursor", "gemini-cli", "opencode", "windsurf"]
+        assert skipped == []
+
+    @pytest.mark.usefixtures("_mock_dhub_path")
+    def test_skips_all_when_none_present(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
+        linked, skipped = install.link_skill_to_all_agents("myorg", "myskill")
+
+        assert linked == []
+        assert sorted(skipped) == ["claude-code", "cursor", "gemini-cli", "opencode", "windsurf"]
 
 
 class TestUninstallSharedPaths:
@@ -159,6 +204,10 @@ class TestUninstallSharedPaths:
         canonical = tmp_path / ".dhub" / "skills" / "myorg" / "myskill"
         canonical.mkdir(parents=True)
         (canonical / "SKILL.md").write_text("# Skill content")
+
+        # Create parent dirs so agents are detected as present
+        shared_dir.parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "agents" / "unique").mkdir(parents=True, exist_ok=True)
 
         with (
             patch.object(install, "AGENT_SKILL_PATHS", mock_paths),

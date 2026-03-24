@@ -597,7 +597,7 @@ class TestInstallCommand:
         assert "escapes target directory" in result.output
 
     @respx.mock
-    @patch("dhub.core.install.link_skill_to_all_agents", return_value=["claude", "cursor"])
+    @patch("dhub.core.install.link_skill_to_all_agents", return_value=(["claude", "cursor"], ["codex"]))
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")
@@ -633,6 +633,8 @@ class TestInstallCommand:
         mock_link_all.assert_called_once_with("myorg", "my-skill")
         assert "claude" in result.output
         assert "cursor" in result.output
+        assert "codex" in result.output
+        assert "Skipped" in result.output
 
 
 # ---------------------------------------------------------------------------

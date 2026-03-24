@@ -165,23 +165,48 @@ def unlink_skill_from_agent(org: str, skill_name: str, agent: str) -> None:
     symlink_path.unlink()
 
 
-def link_skill_to_all_agents(org: str, skill_name: str) -> list[str]:
-    """Symlink a skill to all known agent directories.
+def is_agent_present(agent: str) -> bool:
+    """Check whether an agent appears to be installed on this machine.
 
-    Multiple agents can share the same directory (e.g. amp, kimi-cli, replit,
-    universal all use ~/.config/agents/skills). Each unique physical path is
-    only symlinked once to avoid needless delete-recreate cycles.
+    Detection heuristic: the agent's config directory (the parent of its
+    skills directory) must already exist.  For example, Claude Code is
+    considered present when ``~/.claude/`` exists.
+
+    Args:
+        agent: The agent name (must be a key in ``AGENT_SKILL_PATHS``).
+
+    Returns:
+        ``True`` if the agent's config directory exists.
+    """
+    if agent not in AGENT_SKILL_PATHS:
+        return False
+    return AGENT_SKILL_PATHS[agent].parent.exists()
+
+
+def link_skill_to_all_agents(org: str, skill_name: str) -> tuple[list[str], list[str]]:
+    """Symlink a skill to all agents that are present on the machine.
+
+    Only agents whose config directory already exists are linked.  Multiple
+    agents can share the same directory (e.g. amp, kimi-cli, replit, universal
+    all use ``~/.config/agents/skills``).  Each unique physical path is only
+    symlinked once to avoid needless delete-recreate cycles.
 
     Args:
         org: The organization slug.
         skill_name: The skill name.
 
     Returns:
-        List of agent names that were successfully linked.
+        A ``(linked, skipped)`` tuple — lists of agent names that were
+        successfully linked and those skipped because the agent is not
+        installed, respectively.
     """
     linked: list[str] = []
+    skipped: list[str] = []
     seen_paths: set[Path] = set()
     for agent in sorted(AGENT_SKILL_PATHS):
+        if not is_agent_present(agent):
+            skipped.append(agent)
+            continue
         agent_dir = AGENT_SKILL_PATHS[agent]
         symlink_path = agent_dir / skill_name
         if symlink_path in seen_paths:
@@ -190,7 +215,7 @@ def link_skill_to_all_agents(org: str, skill_name: str) -> list[str]:
         link_skill_to_agent(org, skill_name, agent)
         seen_paths.add(symlink_path)
         linked.append(agent)
-    return linked
+    return linked, skipped
 
 
 def list_linked_agents(org: str, skill_name: str) -> list[str]:
