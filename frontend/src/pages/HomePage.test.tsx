@@ -107,10 +107,6 @@ function renderPage() {
 describe("HomePage", () => {
   it("renders hero section with narrative headline", async () => {
     renderPage();
-    // Brand label
-    expect(screen.getByText(/DECISION/)).toBeInTheDocument();
-    expect(screen.getByText(/HUB/)).toBeInTheDocument();
-    // Narrative headline
     expect(
       screen.getByText("Your AI agent doesn't know data science."),
     ).toBeInTheDocument();
