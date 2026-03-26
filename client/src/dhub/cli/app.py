@@ -95,44 +95,116 @@ from dhub.cli.doctor import doctor_command  # noqa: E402
 app.command("doctor")(doctor_command)
 
 
+def _detect_installer() -> str:
+    """Detect how dhub-cli was installed: 'uv', 'pipx', or 'pip'."""
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        result = subprocess.run(
+            [uv_bin, "tool", "list"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and any(
+            line.startswith("dhub-cli") for line in result.stdout.splitlines()
+        ):
+            return "uv"
+
+    pipx_bin = shutil.which("pipx")
+    if pipx_bin:
+        result = subprocess.run(
+            [pipx_bin, "list", "--short"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and any(
+            line.startswith("dhub-cli") for line in result.stdout.splitlines()
+        ):
+            return "pipx"
+
+    return "pip"
+
+
+def _upgrade_with_uv(console: Console) -> int:
+    """Upgrade using uv tool and return the exit code."""
+    uv_bin = shutil.which("uv")
+    result = subprocess.run(
+        [uv_bin, "tool", "install", "dhub-cli", "--upgrade"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
+    return result.returncode
+
+
+def _upgrade_with_pipx(console: Console) -> int:
+    """Upgrade using pipx and return the exit code."""
+    pipx_bin = shutil.which("pipx")
+    result = subprocess.run(
+        [pipx_bin, "upgrade", "dhub-cli"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
+    return result.returncode
+
+
+def _upgrade_with_pip(console: Console) -> int:
+    """Upgrade using pip and return the exit code."""
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "dhub-cli"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
+    return result.returncode
+
+
 def upgrade_command() -> None:
     """Upgrade dhub to the latest version from PyPI."""
     console = Console()
     current = pkg_version("dhub-cli")
     console.print(f"Current version: [bold]{current}[/]")
 
-    uv_bin = shutil.which("uv")
-    if not uv_bin:
-        console.print("[red]Error: 'uv' not found on PATH. Install it first: https://docs.astral.sh/uv/[/]")
-        raise typer.Exit(1)
-
+    installer = _detect_installer()
+    console.print(f"Detected install method: [bold]{installer}[/]")
     console.print("Checking for updates...")
 
-    result = subprocess.run(
-        [uv_bin, "tool", "install", "dhub-cli", "--upgrade"],
-        capture_output=True,
-        text=True,
-    )
+    upgraders = {"uv": _upgrade_with_uv, "pipx": _upgrade_with_pipx, "pip": _upgrade_with_pip}
+    returncode = upgraders[installer](console)
 
-    if result.returncode != 0:
-        console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
+    if returncode != 0:
         raise typer.Exit(1)
 
     # Re-query the installed version after upgrade
     # (importlib cache is stale in the current process)
-    query = subprocess.run(
-        [uv_bin, "tool", "list"],
-        capture_output=True,
-        text=True,
-    )
     new_version = current
-    for line in query.stdout.splitlines():
-        if line.startswith("dhub-cli"):
-            # Format: "dhub-cli v0.6.3"
-            parts = line.split()
-            if len(parts) >= 2:
-                new_version = parts[1].lstrip("v")
-            break
+    if installer == "uv":
+        query = subprocess.run(
+            [shutil.which("uv"), "tool", "list"],
+            capture_output=True,
+            text=True,
+        )
+        for line in query.stdout.splitlines():
+            if line.startswith("dhub-cli"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    new_version = parts[1].lstrip("v")
+                break
+    else:
+        query = subprocess.run(
+            [shutil.which("pip") or "pip", "show", "dhub-cli"],
+            capture_output=True,
+            text=True,
+        )
+        for line in query.stdout.splitlines():
+            if line.startswith("Version:"):
+                new_version = line.split(":", 1)[1].strip()
+                break
 
     if new_version == current:
         console.print(f"[green]Already up to date ({current}).[/]")
