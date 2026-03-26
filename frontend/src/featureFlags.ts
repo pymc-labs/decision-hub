@@ -7,4 +7,4 @@
 export const LINK_TO_MANIFEST = false;
 
 /** When true, show Cisco scanner results alongside gauntlet audit data. */
-export const SHOW_SCANNER_REPORT = true;
+export const SHOW_SCANNER_REPORT = false;
