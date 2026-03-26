@@ -3428,9 +3428,7 @@ def find_scan_report_for_version(conn: Connection, version_id: UUID) -> ScanRepo
     return _row_to_scan_report(row) if row else None
 
 
-def find_latest_scan_report_for_skill(
-    conn: Connection, org_slug: str, skill_name: str
-) -> ScanReport | None:
+def find_latest_scan_report_for_skill(conn: Connection, org_slug: str, skill_name: str) -> ScanReport | None:
     """Return the most recent scan report for a skill regardless of version.
 
     Used as a fallback when the exact version has not been scanned yet.
