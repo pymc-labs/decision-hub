@@ -550,11 +550,11 @@ class TestInstallCommand:
         )
         respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
 
-        result = runner.invoke(app, ["install", "myorg/my-skill", "--agent", "claude"])
+        result = runner.invoke(app, ["install", "myorg/my-skill", "--agent", "claude-code"])
 
         assert result.exit_code == 0
-        mock_link.assert_called_once_with("myorg", "my-skill", "claude")
-        assert "Linked to claude" in result.output
+        mock_link.assert_called_once_with("myorg", "my-skill", "claude-code")
+        assert "Linked to claude-code" in result.output
 
     @respx.mock
     @patch("dhub.core.install.verify_checksum")

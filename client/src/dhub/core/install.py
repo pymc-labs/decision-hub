@@ -79,15 +79,9 @@ def validate_agent(agent: str) -> None:
     known = sorted(AGENT_SKILL_PATHS)
     matches = get_close_matches(agent, known, n=3, cutoff=0.5)
 
-    if matches:
-        suggestion = f" Did you mean: {', '.join(repr(m) for m in matches)}?"
-    else:
-        suggestion = ""
+    suggestion = f" Did you mean: {', '.join(repr(m) for m in matches)}?" if matches else ""
 
-    raise ValueError(
-        f"Unknown agent '{agent}'.{suggestion}\n"
-        f"Known agents: {', '.join(known)}"
-    )
+    raise ValueError(f"Unknown agent '{agent}'.{suggestion}\nKnown agents: {', '.join(known)}")
 
 
 def compute_checksum(data: bytes) -> str:
