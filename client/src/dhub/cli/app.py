@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+import sys
 from importlib.metadata import version as pkg_version
 
 import typer
@@ -104,9 +105,7 @@ def _detect_installer() -> str:
             capture_output=True,
             text=True,
         )
-        if result.returncode == 0 and any(
-            line.startswith("dhub-cli") for line in result.stdout.splitlines()
-        ):
+        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
             return "uv"
 
     pipx_bin = shutil.which("pipx")
@@ -116,52 +115,74 @@ def _detect_installer() -> str:
             capture_output=True,
             text=True,
         )
-        if result.returncode == 0 and any(
-            line.startswith("dhub-cli") for line in result.stdout.splitlines()
-        ):
+        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
             return "pipx"
 
     return "pip"
 
 
-def _upgrade_with_uv(console: Console) -> int:
-    """Upgrade using uv tool and return the exit code."""
-    uv_bin = shutil.which("uv")
-    result = subprocess.run(
-        [uv_bin, "tool", "install", "dhub-cli", "--upgrade"],
-        capture_output=True,
-        text=True,
-    )
+def _require_bin(name: str) -> str:
+    """Return the absolute path to *name*, or raise if not found."""
+    path = shutil.which(name)
+    if path is None:
+        msg = f"'{name}' not found on PATH"
+        raise FileNotFoundError(msg)
+    return path
+
+
+def _upgrade(installer: str, console: Console) -> int:
+    """Run the upgrade command for the given installer and return exit code."""
+    if installer == "uv":
+        cmd = [_require_bin("uv"), "tool", "install", "dhub-cli", "--upgrade"]
+    elif installer == "pipx":
+        cmd = [_require_bin("pipx"), "upgrade", "dhub-cli"]
+    else:
+        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "dhub-cli"]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
     return result.returncode
 
 
-def _upgrade_with_pipx(console: Console) -> int:
-    """Upgrade using pipx and return the exit code."""
-    pipx_bin = shutil.which("pipx")
+def _query_version(installer: str) -> str | None:
+    """Query the installed dhub-cli version using the same tool that installed it."""
+    if installer == "uv":
+        result = subprocess.run(
+            [_require_bin("uv"), "tool", "list"],
+            capture_output=True,
+            text=True,
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("dhub-cli"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return parts[1].lstrip("v")
+        return None
+
+    if installer == "pipx":
+        result = subprocess.run(
+            [_require_bin("pipx"), "list", "--short"],
+            capture_output=True,
+            text=True,
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("dhub-cli"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return parts[1].lstrip("v")
+        return None
+
+    # pip — use the same Python that's running this process
     result = subprocess.run(
-        [pipx_bin, "upgrade", "dhub-cli"],
+        [sys.executable, "-m", "pip", "show", "dhub-cli"],
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
-    return result.returncode
-
-
-def _upgrade_with_pip(console: Console) -> int:
-    """Upgrade using pip and return the exit code."""
-    import sys
-
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "dhub-cli"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
-    return result.returncode
+    for line in result.stdout.splitlines():
+        if line.startswith("Version:"):
+            return line.split(":", 1)[1].strip()
+    return None
 
 
 def upgrade_command() -> None:
@@ -174,37 +195,12 @@ def upgrade_command() -> None:
     console.print(f"Detected install method: [bold]{installer}[/]")
     console.print("Checking for updates...")
 
-    upgraders = {"uv": _upgrade_with_uv, "pipx": _upgrade_with_pipx, "pip": _upgrade_with_pip}
-    returncode = upgraders[installer](console)
-
-    if returncode != 0:
+    if _upgrade(installer, console) != 0:
         raise typer.Exit(1)
 
     # Re-query the installed version after upgrade
     # (importlib cache is stale in the current process)
-    new_version = current
-    if installer == "uv":
-        query = subprocess.run(
-            [shutil.which("uv"), "tool", "list"],
-            capture_output=True,
-            text=True,
-        )
-        for line in query.stdout.splitlines():
-            if line.startswith("dhub-cli"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    new_version = parts[1].lstrip("v")
-                break
-    else:
-        query = subprocess.run(
-            [shutil.which("pip") or "pip", "show", "dhub-cli"],
-            capture_output=True,
-            text=True,
-        )
-        for line in query.stdout.splitlines():
-            if line.startswith("Version:"):
-                new_version = line.split(":", 1)[1].strip()
-                break
+    new_version = _query_version(installer) or current
 
     if new_version == current:
         console.print(f"[green]Already up to date ({current}).[/]")
