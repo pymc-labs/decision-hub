@@ -267,9 +267,7 @@ export default function SkillDetailPage() {
         <div className={styles.headerTitle}>
           <Link to={`/orgs/${orgSlug}`} className={styles.org}>
             {orgSlug}
-          </Link>
-          <span className={styles.slash}>/</span>
-          <h1 className={styles.name}>{skillName}</h1>
+          </Link><span className={styles.slash}>/</span><h1 className={styles.name}>{skillName}</h1>
         </div>
         <p className={styles.desc}>{skill.description}</p>
       </div>

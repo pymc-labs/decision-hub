@@ -17,7 +17,6 @@
 .headerTitle {
   display: flex;
   align-items: baseline;
-  gap: 8px;
   margin-bottom: 8px;
   flex-wrap: wrap;
 }
@@ -31,6 +30,7 @@
 .slash {
   font-size: var(--text-lg);
   color: var(--text-muted);
+  padding: 0 2px;
 }
 
 .name {
