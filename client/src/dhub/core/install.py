@@ -134,8 +134,17 @@ def link_skill_to_agent(org: str, skill_name: str, agent: str) -> Path:
 
     symlink_path = agent_dir / skill_name
 
-    # Remove existing symlink if present to allow re-linking
-    if symlink_path.is_symlink() or symlink_path.exists():
+    # Remove existing symlink if present to allow re-linking.
+    # If a real directory exists (not a symlink), refuse to overwrite it —
+    # it's user-created content that Path.unlink() can't remove anyway.
+    if symlink_path.is_symlink():
+        symlink_path.unlink()
+    elif symlink_path.is_dir():
+        raise IsADirectoryError(
+            f"Cannot create symlink at '{symlink_path}': a local directory already exists. "
+            f"Please remove or rename it before installing this skill."
+        )
+    elif symlink_path.exists():
         symlink_path.unlink()
 
     symlink_path.symlink_to(canonical)
@@ -161,6 +170,11 @@ def unlink_skill_from_agent(org: str, skill_name: str, agent: str) -> None:
 
     if not symlink_path.is_symlink() and not symlink_path.exists():
         raise FileNotFoundError(f"No symlink found at {symlink_path}")
+
+    if symlink_path.is_dir() and not symlink_path.is_symlink():
+        raise IsADirectoryError(
+            f"Cannot unlink '{symlink_path}': path is a directory, not a symlink. Please remove or rename it manually."
+        )
 
     symlink_path.unlink()
 

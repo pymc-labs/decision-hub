@@ -99,6 +99,22 @@ class TestLinkSkillToAgent:
         with pytest.raises(ValueError, match="Unknown agent"):
             install.link_skill_to_agent("myorg", "myskill", "nonexistent-agent")
 
+    @pytest.mark.usefixtures("_mock_dhub_path")
+    def test_raises_on_existing_directory(self, canonical_skill_dir: Path, tmp_path: Path) -> None:
+        # Create a real directory (not a symlink) at the target path
+        agent_dir = install.AGENT_SKILL_PATHS["claude-code"]
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        conflict_dir = agent_dir / "myskill"
+        conflict_dir.mkdir()
+        (conflict_dir / "some_file.txt").write_text("user content")
+
+        with pytest.raises(IsADirectoryError, match="local directory already exists"):
+            install.link_skill_to_agent("myorg", "myskill", "claude-code")
+
+        # The user's directory must not be deleted
+        assert conflict_dir.is_dir()
+        assert (conflict_dir / "some_file.txt").exists()
+
     def test_missing_canonical_dir_raises(self, tmp_path: Path) -> None:
         # Point get_dhub_skill_path to a non-existent directory
         missing = tmp_path / "does" / "not" / "exist"
@@ -127,6 +143,19 @@ class TestUnlinkSkillFromAgent:
     def test_no_symlink_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError, match="No symlink"):
             install.unlink_skill_from_agent("myorg", "myskill", "claude-code")
+
+    def test_raises_on_existing_directory(self, tmp_path: Path) -> None:
+        # Create a real directory at the symlink path
+        agent_dir = install.AGENT_SKILL_PATHS["claude-code"]
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        conflict_dir = agent_dir / "myskill"
+        conflict_dir.mkdir()
+
+        with pytest.raises(IsADirectoryError, match="not a symlink"):
+            install.unlink_skill_from_agent("myorg", "myskill", "claude-code")
+
+        # Directory must be preserved
+        assert conflict_dir.is_dir()
 
 
 class TestIsAgentPresent:
