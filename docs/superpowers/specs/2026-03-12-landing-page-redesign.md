@@ -60,7 +60,7 @@ Three NeonCard pillars in a 3-column grid (responsive to 1-col on mobile):
 
 **Left column (steps)**:
 1. **Install the CLI** — `pip install dhub-cli` — "Your agent can already use dhub commands after this."
-2. **Add the dhub skill** — `dhub install decision-ai/dhub-cli` — "Makes your agent more token-efficient and proficient with the registry."
+2. **Add the dhub skill** — `dhub install pymc-labs/dhub-cli` — "Makes your agent more token-efficient and proficient with the registry."
 3. **Just ask** — "Tell your agent what you need. It searches the registry, installs the right skill, and gets to work."
 
 **Right column**: The existing `AnimatedTerminal` component with its current script (claude → user prompt → loads dhub skill → searches → installs domain skill → ready).

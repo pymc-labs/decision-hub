@@ -687,7 +687,7 @@ Insert after the `{/* Value Props */}` section closing tag and before `{/* Featu
         </span>
         <h3 className={styles.agentStepTitle}>Add the dhub skill</h3>
         <div className={styles.agentStepCommand}>
-          <code>dhub install decision-ai/dhub-cli</code>
+          <code>dhub install pymc-labs/dhub-cli</code>
         </div>
         <p className={styles.agentStepDesc}>
           Makes your agent more token-efficient and proficient with the registry.
