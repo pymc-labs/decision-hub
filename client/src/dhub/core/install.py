@@ -61,6 +61,35 @@ AGENT_SKILL_PATHS: dict[str, Path] = {
 }
 
 
+def validate_agent(agent: str) -> None:
+    """Validate that an agent name is recognized, with fuzzy suggestions on failure.
+
+    Args:
+        agent: The agent name to validate.
+
+    Raises:
+        ValueError: If the agent name is not recognized, with a suggestion
+            for the closest match if one exists.
+    """
+    if agent == "all" or agent in AGENT_SKILL_PATHS:
+        return
+
+    from difflib import get_close_matches
+
+    known = sorted(AGENT_SKILL_PATHS)
+    matches = get_close_matches(agent, known, n=3, cutoff=0.5)
+
+    if matches:
+        suggestion = f" Did you mean: {', '.join(repr(m) for m in matches)}?"
+    else:
+        suggestion = ""
+
+    raise ValueError(
+        f"Unknown agent '{agent}'.{suggestion}\n"
+        f"Known agents: {', '.join(known)}"
+    )
+
+
 def compute_checksum(data: bytes) -> str:
     """Compute SHA-256 hex digest of data."""
     return hashlib.sha256(data).hexdigest()
@@ -122,8 +151,7 @@ def link_skill_to_agent(org: str, skill_name: str, agent: str) -> Path:
         ValueError: If the agent name is not recognized.
         FileNotFoundError: If the canonical skill directory does not exist.
     """
-    if agent not in AGENT_SKILL_PATHS:
-        raise ValueError(f"Unknown agent '{agent}'. Known agents: {', '.join(sorted(AGENT_SKILL_PATHS))}.")
+    validate_agent(agent)
 
     canonical = get_dhub_skill_path(org, skill_name)
     if not canonical.exists():
@@ -154,8 +182,7 @@ def unlink_skill_from_agent(org: str, skill_name: str, agent: str) -> None:
         ValueError: If the agent name is not recognized.
         FileNotFoundError: If no symlink exists for this skill/agent combination.
     """
-    if agent not in AGENT_SKILL_PATHS:
-        raise ValueError(f"Unknown agent '{agent}'. Known agents: {', '.join(sorted(AGENT_SKILL_PATHS))}.")
+    validate_agent(agent)
 
     symlink_path = AGENT_SKILL_PATHS[agent] / skill_name
 

@@ -959,9 +959,18 @@ def _install_single_skill(
         link_skill_to_agent,
         link_skill_to_all_agents,
         save_installed_version,
+        validate_agent,
         verify_checksum,
     )
     from dhub.core.validation import parse_skill_ref
+
+    # Validate --agent before doing any network requests or downloads
+    if agent:
+        try:
+            validate_agent(agent)
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/]")
+            raise typer.Exit(1) from None
 
     # Parse skill reference
     try:
