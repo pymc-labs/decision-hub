@@ -621,26 +621,32 @@ def execute_publish(
     description = extract_description(skill_md_content)
     skill_md_body = extract_body(skill_md_content)
 
-    # 3. Run gauntlet security pipeline
-    report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
-        skill_md_content,
-        lockfile_content,
-        source_files,
-        skill_name,
-        description,
-        skill_md_body,
-        settings,
-        allowed_tools=allowed_tools,
-        unscanned_files=unscanned_files,
-    )
-    logger.info(
-        "Gauntlet result for {}/{} v{}: grade={} passed={}",
-        org_slug,
-        skill_name,
-        version,
-        report.grade,
-        report.passed,
-    )
+    # 3. Run gauntlet security pipeline (when enabled)
+    if settings.enable_gauntlet:
+        report, check_results_dicts, llm_reasoning = run_gauntlet_pipeline(
+            skill_md_content,
+            lockfile_content,
+            source_files,
+            skill_name,
+            description,
+            skill_md_body,
+            settings,
+            allowed_tools=allowed_tools,
+            unscanned_files=unscanned_files,
+        )
+        logger.info(
+            "Gauntlet result for {}/{} v{}: grade={} passed={}",
+            org_slug,
+            skill_name,
+            version,
+            report.grade,
+            report.passed,
+        )
+    else:
+        logger.info("Gauntlet disabled — skipping for {}/{} v{}", org_slug, skill_name, version)
+        report = None
+        check_results_dicts = []
+        llm_reasoning = None
 
     # 3b. Run Cisco scanner in parallel (observational only, never blocks publish)
     scan_data: dict | None = None
@@ -651,29 +657,37 @@ def execute_publish(
             scan_data = scan_skill_zip(file_bytes, settings)
         except Exception:
             logger.opt(exception=True).warning(
-                "Cisco scanner failed for {}/{} — continuing with gauntlet only",
+                "Cisco scanner failed for {}/{} — continuing",
                 org_slug,
                 skill_name,
             )
 
-    # 4. Quarantine if rejected
-    if not report.passed:
-        _try_store_scan_result(conn, scan_data, None, org_slug, skill_name, version)
-        quarantine_and_log_rejection(
-            conn,
-            s3_client,
-            settings.s3_bucket,
-            file_bytes,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            version=version,
-            report=report,
-            check_results=check_results_dicts,
-            llm_reasoning=llm_reasoning,
-            publisher=publisher,
-            checksum=checksum,
-        )
-        raise GauntletRejectionError(report.summary)
+    # 4. Quarantine if gauntlet rejected
+    if settings.enable_gauntlet:
+        assert report is not None
+        if not report.passed:
+            _try_store_scan_result(conn, scan_data, None, org_slug, skill_name, version)
+            quarantine_and_log_rejection(
+                conn,
+                s3_client,
+                settings.s3_bucket,
+                file_bytes,
+                org_slug=org_slug,
+                skill_name=skill_name,
+                version=version,
+                report=report,
+                check_results=check_results_dicts,
+                llm_reasoning=llm_reasoning,
+                publisher=publisher,
+                checksum=checksum,
+            )
+            raise GauntletRejectionError(report.summary)
+
+        eval_status = report.grade
+        gauntlet_summary = report.gauntlet_summary
+    else:
+        eval_status = "pending"
+        gauntlet_summary = None
 
     # 5. Classify category (non-critical, graceful fallback)
     category = classify_skill_category(skill_name, description, skill_md_body, settings)
@@ -727,8 +741,8 @@ def execute_publish(
             checksum=checksum,
             runtime_config=runtime_config_dict,
             published_by=publisher,
-            eval_status=report.grade,
-            gauntlet_summary=report.gauntlet_summary,
+            eval_status=eval_status,
+            gauntlet_summary=gauntlet_summary,
         )
     except IntegrityError:
         raise VersionConflictError(org_slug, skill_name, version) from None
@@ -739,7 +753,7 @@ def execute_publish(
         org_slug=org_slug,
         skill_name=skill_name,
         semver=version,
-        grade=report.grade,
+        grade=eval_status,
         check_results=check_results_dicts,
         publisher=publisher,
         version_id=version_record.id,
@@ -800,7 +814,7 @@ def execute_publish(
         skill_name,
         version,
         version_record.id,
-        report.grade,
+        eval_status,
         eval_run_id,
     )
 
@@ -810,7 +824,7 @@ def execute_publish(
         version=version,
         s3_key=s3_key,
         checksum=checksum,
-        eval_status=report.grade,
+        eval_status=eval_status,
         eval_report_status=eval_report_status,
         eval_run_id=eval_run_id,
     )
