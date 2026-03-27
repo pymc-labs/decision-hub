@@ -333,6 +333,41 @@ class TestPublishOneSkillReturnsStatus:
         )
         assert status == "failed"
 
+    def test_publishes_without_gauntlet_when_disabled(self, mock_skill_deps, tmp_path):
+        """When enable_gauntlet=False, skips Gauntlet and publishes with eval_status='pending'."""
+        engine = _make_engine_mock()
+        org = make_org()
+
+        skill_mock = MagicMock()
+        skill_mock.id = uuid4()
+        skill_mock.source_repo_url = None
+        mock_skill_deps["find_skill"].return_value = skill_mock
+        mock_skill_deps["resolve_latest_version"].return_value = None
+        mock_skill_deps["find_version"].return_value = None
+        mock_skill_deps["classify_skill_category"].return_value = "devops"
+        mock_skill_deps["insert_version"].return_value = MagicMock(id=uuid4())
+
+        settings = MagicMock()
+        settings.enable_gauntlet = False
+
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
+
+        status = _publish_one_skill(
+            engine,
+            MagicMock(),
+            settings,
+            org,
+            skill_dir,
+        )
+        assert status == "published"
+        mock_skill_deps["run_gauntlet_pipeline"].assert_not_called()
+        mock_skill_deps["insert_version"].assert_called_once()
+        call_kwargs = mock_skill_deps["insert_version"].call_args
+        actual = call_kwargs.kwargs.get("eval_status") or call_kwargs[1].get("eval_status")
+        assert actual == "pending"
+
 
 # ---------------------------------------------------------------------------
 # Parallel processing result collection
