@@ -1524,10 +1524,12 @@ def resolve_version(
     granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
     base = _apply_visibility_filter(base, user_org_ids, granted)
 
-    # Filter by grade: A/B (and legacy "passed") by default, add C if allow_risky
+    # Filter by grade: A/B (and legacy "passed") by default.
+    # allow_risky adds C (warnings) and "pending" (not yet graded, e.g. when
+    # the gauntlet is disabled).
     allowed_statuses = ["A", "B", "passed"]
     if allow_risky:
-        allowed_statuses.append("C")
+        allowed_statuses.extend(["C", "pending"])
     base = base.where(versions_table.c.eval_status.in_(allowed_statuses))
 
     if spec == "latest":
