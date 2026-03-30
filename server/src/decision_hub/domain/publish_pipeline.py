@@ -757,9 +757,10 @@ def execute_publish(
             version,
             version_record.id,
         )
-        delete_audit_logs_by_version_id(conn, version_record.id)
-        delete_version(conn, skill.id, version)
-        conn.commit()
+        with conn.engine.connect() as rollback_conn:
+            delete_audit_logs_by_version_id(rollback_conn, version_record.id)
+            delete_version(rollback_conn, skill.id, version)
+            rollback_conn.commit()
         raise
 
     # 11b. Store Cisco scan report (non-critical, fail-open)
