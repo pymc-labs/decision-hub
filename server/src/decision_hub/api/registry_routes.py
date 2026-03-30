@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
@@ -318,7 +318,7 @@ class ScanFindingResponse(BaseModel):
     meta_impact: str | None = None
     meta_exploitability: str | None = None
     meta_confidence_reason: str | None = None
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict)
 
 
 class ScanReportResponse(BaseModel):
