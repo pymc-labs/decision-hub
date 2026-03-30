@@ -826,15 +826,16 @@ def _try_store_scan_result(
     try:
         from decision_hub.domain.skill_scanner_bridge import store_scan_result
 
-        store_scan_result(
-            conn,
-            scan_data,
-            version_id=version_id,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            semver=version,
-        )
-        conn.commit()
+        with conn.engine.connect() as fresh_conn:
+            store_scan_result(
+                fresh_conn,
+                scan_data,
+                version_id=version_id,
+                org_slug=org_slug,
+                skill_name=skill_name,
+                semver=version,
+            )
+            fresh_conn.commit()
     except Exception:
         logger.opt(exception=True).warning(
             "Failed to store scan report for {}/{} — scan data lost but publish succeeded",
