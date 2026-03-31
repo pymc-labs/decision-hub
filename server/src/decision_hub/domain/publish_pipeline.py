@@ -601,6 +601,10 @@ def execute_publish(
         VersionConflictError: If the version already exists and
             *auto_bump_version* is ``False``.
     """
+    # 0. Block publish for blacklisted organizations
+    if org_slug.lower() in settings.blocked_orgs:
+        raise ValueError(f"Organization '{org_slug}' is blocked from publishing")
+
     # 1. Extract files for evaluation
     skill_md_content, source_files, lockfile_content, unscanned_files = extract_for_evaluation(file_bytes)
 

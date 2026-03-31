@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
-from decision_hub.api.deps import get_connection, get_current_user
+from decision_hub.api.deps import get_connection, get_current_user, get_settings
 from decision_hub.domain.tracker import (
     build_canonical_repo_url,
     check_repo_accessible,
@@ -27,6 +27,7 @@ from decision_hub.infra.database import (
     update_skill_tracker,
 )
 from decision_hub.models import User
+from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1/trackers", tags=["trackers"])
 
@@ -133,6 +134,7 @@ def create_tracker(
     body: CreateTrackerRequest,
     conn: Connection = Depends(get_connection),
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ) -> TrackerResponse:
     """Create a new tracker for a GitHub repository."""
     # Validate and normalize GitHub URL to a canonical form
@@ -141,6 +143,10 @@ def create_tracker(
         owner, repo = parse_github_repo_url(body.repo_url)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
+
+    if owner.lower() in settings.blocked_orgs:
+        raise HTTPException(status_code=422, detail=f"Organization '{owner}' is blocked")
+
     canonical_url = build_canonical_repo_url(owner, repo)
 
     # Validate branch name (prevents GraphQL injection via string interpolation)

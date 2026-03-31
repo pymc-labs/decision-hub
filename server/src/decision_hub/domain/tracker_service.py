@@ -710,6 +710,14 @@ def process_tracker(
         github_token = _resolve_github_token(settings)
         owner, repo = parse_github_repo_url(tracker.repo_url)
 
+        if owner.lower() in settings.blocked_orgs:
+            logger.info(
+                "tracker_id={} repo={} status=skipped reason=blocked_org",
+                tracker.id,
+                tracker.repo_url,
+            )
+            return
+
         if known_sha is not None:
             # Caller already verified new commits via batch GraphQL
             current_sha = known_sha

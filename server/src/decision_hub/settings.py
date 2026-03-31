@@ -142,6 +142,18 @@ class Settings(BaseSettings):
     scan_report_rate_limit: int = 30
     scan_report_rate_window: int = 60
 
+    # Blocked organizations: comma-separated list of GitHub org slugs.
+    # Skills from these orgs are rejected at publish, tracker creation,
+    # and tracker processing time. Used to permanently exclude bad actors.
+    blocked_org_slugs: str = ""
+
+    @property
+    def blocked_orgs(self) -> frozenset[str]:
+        """Parse comma-separated blocked org list into a frozenset of lowercase slugs."""
+        if not self.blocked_org_slugs:
+            return frozenset()
+        return frozenset(o.strip().lower() for o in self.blocked_org_slugs.split(",") if o.strip())
+
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
     # Logging format: "text" (human-readable, default) or "json" (structured).

@@ -493,6 +493,10 @@ def publish_skill(
         validate_semver(version)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if org_slug.lower() in settings.blocked_orgs:
+        raise HTTPException(status_code=422, detail=f"Organization '{org_slug}' is blocked")
+
     logger.info(
         "Publishing {}/{} v{} visibility={} by {}", org_slug, skill_name, version, visibility, current_user.username
     )
