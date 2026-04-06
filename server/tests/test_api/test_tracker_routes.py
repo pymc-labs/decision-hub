@@ -103,6 +103,17 @@ class TestCreateTracker:
         )
         assert resp.status_code == 422
 
+    def test_create_tracker_blocked_org(self, tracker_client, auth_headers, test_settings):
+        """Creating a tracker for a blocked org returns 422."""
+        test_settings.blocked_orgs = frozenset({"blockedowner"})
+        resp = tracker_client.post(
+            "/v1/trackers",
+            headers=auth_headers,
+            json={"repo_url": "https://github.com/BlockedOwner/repo"},
+        )
+        assert resp.status_code == 422
+        assert "blocked" in resp.json()["detail"].lower()
+
     def test_create_tracker_interval_too_low(self, tracker_client, auth_headers):
         resp = tracker_client.post(
             "/v1/trackers",

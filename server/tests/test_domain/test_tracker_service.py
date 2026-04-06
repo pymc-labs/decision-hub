@@ -359,6 +359,35 @@ class TestProcessTrackerAllFailed:
             assert kwargs["last_error"] is None
 
 
+class TestProcessTrackerBlockedOrg:
+    """Verify process_tracker silently skips blocked orgs."""
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    def test_blocked_org_returns_immediately(self, _mock_token):
+        """When the repo owner is blocked, process_tracker returns without cloning or publishing."""
+        tracker = SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="badorg",
+            repo_url="https://github.com/badorg/repo",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=5,
+            last_commit_sha="some_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+        mock_settings = MagicMock()
+        mock_settings.blocked_orgs = frozenset({"badorg"})
+        mock_engine = MagicMock()
+
+        # Should return without touching the engine (no clone, no publish, no DB update)
+        process_tracker(tracker, mock_settings, mock_engine)
+        mock_engine.connect.assert_not_called()
+
+
 class TestProcessTrackerKnownSha:
     """Verify process_tracker skips REST check when known_sha is provided."""
 

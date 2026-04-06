@@ -496,6 +496,32 @@ class TestPublishSkill:
         assert resp.status_code == 422
         assert "Invalid skill name" in resp.json()["detail"]
 
+    def test_publish_blocked_org(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        """Publishing from a blocked org returns 422."""
+        test_settings.google_api_key = "test-key"
+        test_settings.blocked_orgs = frozenset({"blocked-org"})
+        resp = _publish_request(client, auth_headers, org_slug="blocked-org")
+        assert resp.status_code == 422
+        assert "blocked" in resp.json()["detail"].lower()
+
+    def test_publish_blocked_org_case_insensitive(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        """Blocked org check is case-insensitive."""
+        test_settings.google_api_key = "test-key"
+        test_settings.blocked_orgs = frozenset({"blocked-org"})
+        resp = _publish_request(client, auth_headers, org_slug="Blocked-Org")
+        assert resp.status_code == 422
+        assert "blocked" in resp.json()["detail"].lower()
+
     @patch("decision_hub.domain.publish_pipeline.classify_skill_category", return_value="Other & Utilities")
     @patch("decision_hub.domain.publish_pipeline._build_review_code_fn", return_value=None)
     @patch("decision_hub.domain.publish_pipeline._build_review_body_fn", return_value=None)
