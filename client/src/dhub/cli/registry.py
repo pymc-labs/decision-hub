@@ -1526,9 +1526,7 @@ def _update_single_skill(skill_ref: str) -> None:
     base_url = get_api_url()
 
     with httpx.Client(timeout=60) as client:
-        # Quick version check via /latest-version (does NOT inflate download count).
-        # This endpoint is unfiltered — it returns the highest semver regardless
-        # of grade.  The actual installability check happens via /resolve below.
+        # Fast existence check — unfiltered, no download-count side effect.
         resp = client.get(
             f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
             headers=headers,
@@ -1537,16 +1535,13 @@ def _update_single_skill(skill_ref: str) -> None:
             console.print(f"[red]Error: Skill '{skill_ref}' not found in registry.[/]")
             raise typer.Exit(1)
         raise_for_status(resp)
-        latest_version = resp.json()["version"]
+        absolute_latest = resp.json()["version"]
 
-        if installed_version == latest_version:
+        if installed_version == absolute_latest:
             console.print(f"{org_slug}/{skill_name} is already up to date ({installed_version}).")
             return
 
-        label = f"{installed_version} → {latest_version}" if installed_version else f"unknown → {latest_version}"
-        console.print(f"Updating {org_slug}/{skill_name}: {label}")
-
-        # Resolve download URL (only when we actually need to download)
+        # Resolve the latest *installable* version (grade-filtered).
         resolve_params: dict[str, str] = {"spec": "latest"}
         if allow_risky:
             resolve_params["allow_risky"] = "true"
@@ -1556,14 +1551,26 @@ def _update_single_skill(skill_ref: str) -> None:
             headers=headers,
         )
         if resp.status_code == 404:
-            hint = " Try [bold]--allow-risky[/] to include ungraded versions." if not allow_risky else ""
             console.print(
-                f"[yellow]{org_slug}/{skill_name} v{latest_version} exists but is not installable "
-                f"(pending or risky grade).{hint}[/]"
+                f"[yellow]{org_slug}/{skill_name} v{absolute_latest} exists but is not installable "
+                f"(pending or risky grade). Re-install with "
+                f"[bold]dhub install {org_slug}/{skill_name} --allow-risky[/] to include it.[/]"
             )
             return
         raise_for_status(resp)
         data = resp.json()
+        resolved_version = data["version"]
+
+        if installed_version == resolved_version:
+            console.print(
+                f"{org_slug}/{skill_name} is already at the latest installable version "
+                f"({installed_version}). A newer release (v{absolute_latest}) exists but "
+                f"is not yet installable (pending or risky grade)."
+            )
+            return
+
+        label = f"{installed_version} → {resolved_version}" if installed_version else f"unknown → {resolved_version}"
+        console.print(f"Updating {org_slug}/{skill_name}: {label}")
 
     _install_single_skill(skill_ref, allow_risky=allow_risky, _resolved=data)
 
@@ -1585,6 +1592,7 @@ def _update_all_skills() -> None:
 
     updated = 0
     up_to_date = 0
+    skipped = 0
     failed = 0
 
     with httpx.Client(timeout=60) as client:
@@ -1593,8 +1601,7 @@ def _update_all_skills() -> None:
             installed_version = installed.version if installed else None
             allow_risky = installed.allow_risky if installed else False
 
-            # Quick version check via /latest-version (does NOT inflate download count).
-            # This endpoint is unfiltered — installability is checked via /resolve.
+            # Fast existence check — unfiltered, no download-count side effect.
             try:
                 resp = client.get(
                     f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
@@ -1605,23 +1612,19 @@ def _update_all_skills() -> None:
                     failed += 1
                     continue
                 raise_for_status(resp)
-                latest_version = resp.json()["version"]
+                absolute_latest = resp.json()["version"]
             except Exception as exc:
                 console.print(f"[red]{org_slug}/{skill_name}: error checking for updates ({exc})[/]")
                 failed += 1
                 continue
 
-            if installed_version == latest_version:
+            if installed_version == absolute_latest:
                 console.print(f"  {org_slug}/{skill_name} is up to date ({installed_version})")
                 up_to_date += 1
                 continue
 
-            label = f"{installed_version} → {latest_version}" if installed_version else f"unknown → {latest_version}"
-            console.print(f"  Updating {org_slug}/{skill_name}: {label}")
-
             try:
-                # Only call /resolve (which increments download count) when we
-                # actually need to download.
+                # Resolve the latest *installable* version (grade-filtered).
                 resolve_params: dict[str, str] = {"spec": "latest"}
                 if allow_risky:
                     resolve_params["allow_risky"] = "true"
@@ -1631,23 +1634,42 @@ def _update_all_skills() -> None:
                     headers=headers,
                 )
                 if resp.status_code == 404:
-                    hint = " (install with --allow-risky)" if not allow_risky else ""
                     console.print(
-                        f"[yellow]  {org_slug}/{skill_name} v{latest_version} exists "
-                        f"but is not installable{hint}[/]"
+                        f"[yellow]  {org_slug}/{skill_name} v{absolute_latest} exists "
+                        f"but is not installable (pending or risky grade)[/]"
                     )
-                    up_to_date += 1
+                    skipped += 1
                     continue
                 raise_for_status(resp)
                 data = resp.json()
+                resolved_version = data["version"]
+
+                if installed_version == resolved_version:
+                    console.print(
+                        f"  {org_slug}/{skill_name} is at latest installable ({installed_version}); "
+                        f"v{absolute_latest} is pending/risky"
+                    )
+                    skipped += 1
+                    continue
+
+                label = (
+                    f"{installed_version} → {resolved_version}"
+                    if installed_version
+                    else f"unknown → {resolved_version}"
+                )
+                console.print(f"  Updating {org_slug}/{skill_name}: {label}")
                 _install_single_skill(f"{org_slug}/{skill_name}", allow_risky=allow_risky, _resolved=data)
                 updated += 1
             except (typer.Exit, Exception) as exc:
-                # Catch broadly so one skill failure doesn't abort the batch
                 console.print(f"[red]  Failed to update {org_slug}/{skill_name}: {exc}[/]")
                 failed += 1
 
-    console.print(f"\nDone: [green]{updated} updated[/], {up_to_date} up to date, [red]{failed} failed[/]")
+    summary = f"\nDone: [green]{updated} updated[/], {up_to_date} up to date"
+    if skipped:
+        summary += f", [yellow]{skipped} skipped[/] (pending/risky)"
+    if failed:
+        summary += f", [red]{failed} failed[/]"
+    console.print(summary)
 
 
 def visibility_command(
