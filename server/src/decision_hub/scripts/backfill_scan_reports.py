@@ -41,28 +41,22 @@ skill_versions_table = versions_table
 MAX_CONSECUTIVE_ERRORS = 10
 
 
-def _find_skills_needing_scan(engine: sa.engine.Engine, *, limit: int | None) -> list[dict]:
-    """Return skills whose latest version has no scan_report."""
-    latest = (
-        sa.select(
-            skill_versions_table.c.id.label("version_id"),
-            skill_versions_table.c.skill_id,
-            skill_versions_table.c.s3_key,
-            skill_versions_table.c.semver,
-            sa.func.row_number()
-            .over(
-                partition_by=skill_versions_table.c.skill_id,
-                order_by=skill_versions_table.c.created_at.desc(),
-            )
-            .label("rn"),
-        )
-    ).subquery("latest")
+def _find_skills_needing_scan(engine: sa.engine.Engine, *, limit: int | None, random_order: bool = False) -> list[dict]:
+    """Return skills whose latest version has no scan_report.
 
+    When ``random_order`` is True, results are shuffled at the SQL level so a
+    ``--limit N`` batch is a representative sample of the catalog instead of
+    the alphabetically-first N skills (which skews heavily to a few orgs).
+
+    Uses the denormalized ``skills.latest_semver`` pointer to join the latest
+    version directly — avoids a ``ROW_NUMBER() OVER (...)`` over the full
+    ``versions`` table that blows through the 30s statement_timeout at scale.
+    """
     stmt = (
         sa.select(
-            latest.c.version_id,
-            latest.c.s3_key,
-            latest.c.semver,
+            skill_versions_table.c.id.label("version_id"),
+            skill_versions_table.c.s3_key,
+            skill_versions_table.c.semver,
             organizations_table.c.slug.label("org_slug"),
             skills_table.c.name.label("skill_name"),
         )
@@ -72,20 +66,26 @@ def _find_skills_needing_scan(engine: sa.engine.Engine, *, limit: int | None) ->
                 skills_table.c.org_id == organizations_table.c.id,
             )
             .join(
-                latest,
+                skill_versions_table,
                 sa.and_(
-                    skills_table.c.id == latest.c.skill_id,
-                    latest.c.rn == 1,
+                    skill_versions_table.c.skill_id == skills_table.c.id,
+                    skill_versions_table.c.semver == skills_table.c.latest_semver,
                 ),
             )
             .outerjoin(
                 scan_reports_table,
-                scan_reports_table.c.version_id == latest.c.version_id,
+                scan_reports_table.c.version_id == skill_versions_table.c.id,
             )
         )
-        .where(scan_reports_table.c.id.is_(None))
-        .order_by(organizations_table.c.slug, skills_table.c.name)
+        .where(
+            scan_reports_table.c.id.is_(None),
+            skills_table.c.latest_semver.is_not(None),
+        )
     )
+    if random_order:
+        stmt = stmt.order_by(sa.func.random())
+    else:
+        stmt = stmt.order_by(organizations_table.c.slug, skills_table.c.name)
     if limit:
         stmt = stmt.limit(limit)
 
@@ -107,6 +107,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Count only, don't scan")
     parser.add_argument("--resume", action="store_true", help="Skip already-scanned (default behavior)")
     parser.add_argument("--delay", type=float, default=0.0, help="Seconds to wait between submitting scans")
+    parser.add_argument(
+        "--random",
+        dest="random_order",
+        action="store_true",
+        help="Pick skills in random order instead of alphabetical (for representative samples)",
+    )
     args = parser.parse_args()
 
     settings = create_settings()
@@ -118,8 +124,11 @@ def main() -> None:
         endpoint_url=settings.s3_endpoint_url,
     )
 
-    logger.info("Finding skills needing scan reports...")
-    skills = _find_skills_needing_scan(engine, limit=args.limit)
+    logger.info(
+        "Finding skills needing scan reports ({})...",
+        "random order" if args.random_order else "alphabetical",
+    )
+    skills = _find_skills_needing_scan(engine, limit=args.limit, random_order=args.random_order)
     logger.info("Found {} skills needing scan reports", len(skills))
 
     if args.dry_run:
