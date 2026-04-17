@@ -177,7 +177,8 @@ export default function SkillDetailPage() {
     setZipLoading(true);
     setZipError(null);
     try {
-      const allowRisky = skill?.safety_rating === "C";
+      const rating = skill?.safety_rating;
+      const allowRisky = rating === "C" || rating === "pending";
       const buf = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const zip = await JSZip.loadAsync(buf);
 
@@ -226,7 +227,8 @@ export default function SkillDetailPage() {
     if (!orgSlug || !skillName) return;
     setDownloading(true);
     try {
-      const allowRisky = skill?.safety_rating === "C";
+      const rating = skill?.safety_rating;
+      const allowRisky = rating === "C" || rating === "pending";
       const zipData = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const blob = new Blob([zipData], { type: "application/zip" });
       saveAs(blob, `${orgSlug}-${skillName}.zip`);
