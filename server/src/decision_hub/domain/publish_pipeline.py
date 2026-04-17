@@ -45,7 +45,7 @@ from decision_hub.infra.database import (
 )
 from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 from decision_hub.infra.storage import upload_skill_zip
-from decision_hub.models import GauntletReport
+from decision_hub.models import GauntletReport, VersionEvalStatus
 from decision_hub.settings import Settings
 
 # ---------------------------------------------------------------------------
@@ -683,7 +683,7 @@ def execute_publish(
             )
             raise GauntletRejectionError(report.summary)
 
-        eval_status = report.grade
+        eval_status: VersionEvalStatus = report.grade
         gauntlet_summary = report.gauntlet_summary
     else:
         eval_status = "pending"

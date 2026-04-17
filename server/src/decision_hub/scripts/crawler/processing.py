@@ -36,6 +36,7 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
 )
 from decision_hub.domain.skill_manifest import extract_body, extract_description
+from decision_hub.models import VersionEvalStatus
 from dhub_core.validation import _SLUG_PATTERN
 
 CLONE_TIMEOUT_SECONDS = 120
@@ -384,7 +385,7 @@ def _publish_one_skill(
             unscanned_files=prep.unscanned_files,
         )
         gauntlet_passed = report.passed
-        eval_status = report.grade
+        eval_status: VersionEvalStatus = report.grade
         gauntlet_summary = report.gauntlet_summary
     else:
         check_results = []
