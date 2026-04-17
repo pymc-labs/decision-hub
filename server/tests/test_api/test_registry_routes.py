@@ -210,6 +210,8 @@ class TestPublishSkill:
         assert data["eval_status"] == "pending"
         mock_insert_version.assert_called_once()
         assert mock_insert_version.call_args.kwargs["eval_status"] == "pending"
+        mock_insert_audit.assert_called_once()
+        assert mock_insert_audit.call_args.kwargs["grade"] == "pending"
 
     @patch("decision_hub.api.registry_service.find_org_by_slug")
     def test_publish_org_not_found(
