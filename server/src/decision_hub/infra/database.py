@@ -6,8 +6,9 @@ Query functions accept a Connection as their first argument and return
 frozen dataclass instances from decision_hub.models.
 """
 
+import dataclasses
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -325,6 +326,15 @@ versions_table = Table(
         postgresql_where=sa.text("eval_status IN ('A', 'B', 'passed')"),
     ),
     sa.Index("idx_versions_updated_at", "updated_at"),
+)
+
+# Canonical ORDER BY for "latest version" lookups. Uses the integer
+# semver_major/minor/patch columns so that e.g. 2.10.0 correctly sorts
+# above 2.9.0. Matches idx_versions_skill_semver_parts.
+_SEMVER_DESC = (
+    versions_table.c.semver_major.desc(),
+    versions_table.c.semver_minor.desc(),
+    versions_table.c.semver_patch.desc(),
 )
 
 user_api_keys_table = Table(
@@ -714,95 +724,49 @@ def _row_to_skill_summary(row: sa.Row) -> dict:
 # Row-to-model helpers
 # ---------------------------------------------------------------------------
 
+_T = TypeVar("_T")
+
+
+def _row_to_model(row: sa.Row, model_cls: type[_T]) -> _T:
+    """Map a SQLAlchemy row to a frozen dataclass instance.
+
+    Populates only the dataclass fields that are present as keys in
+    ``row._mapping``. Any extra row columns (e.g. join-extra aliases,
+    scoring columns on search queries) are silently ignored; any dataclass
+    fields absent from the row fall back to the dataclass default. This
+    ensures model<->table field sync is maintained automatically when
+    new columns are added.
+
+    Prefer this helper over hand-written mappers for models whose column
+    names match their dataclass field names exactly.
+    """
+    mapping = row._mapping
+    field_names = {f.name for f in dataclasses.fields(model_cls)}  # type: ignore[arg-type]
+    return model_cls(**{k: mapping[k] for k in field_names if k in mapping})
+
 
 def _row_to_user(row: sa.Row) -> User:
-    """Map a database row to a User model."""
-    return User(
-        id=row.id,
-        github_id=row.github_id,
-        username=row.username,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, User)
 
 
 def _row_to_organization(row: sa.Row) -> Organization:
-    """Map a database row to an Organization model."""
-    return Organization(
-        id=row.id,
-        slug=row.slug,
-        owner_id=row.owner_id,
-        is_personal=row.is_personal,
-        email=row.email,
-        avatar_url=row.avatar_url,
-        description=row.description,
-        blog=row.blog,
-        github_synced_at=row.github_synced_at,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, Organization)
 
 
 def _row_to_org_member(row: sa.Row) -> OrgMember:
-    """Map a database row to an OrgMember model."""
-    return OrgMember(
-        org_id=row.org_id,
-        user_id=row.user_id,
-        role=row.role,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, OrgMember)
 
 
 def _row_to_skill(row: sa.Row) -> Skill:
-    """Map a database row to a Skill model."""
-    return Skill(
-        id=row.id,
-        org_id=row.org_id,
-        name=row.name,
-        description=row.description,
-        download_count=row.download_count,
-        category=row.category,
-        visibility=row.visibility,
-        source_repo_url=row.source_repo_url,
-        manifest_path=row.manifest_path,
-        source_repo_removed=row.source_repo_removed,
-        github_stars=row.github_stars,
-        github_forks=row.github_forks,
-        github_watchers=row.github_watchers,
-        github_is_archived=row.github_is_archived,
-        github_license=row.github_license,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, Skill)
 
 
 def _row_to_version(row: sa.Row) -> Version:
-    """Map a database row to a Version model."""
-    return Version(
-        id=row.id,
-        skill_id=row.skill_id,
-        semver=row.semver,
-        s3_key=row.s3_key,
-        checksum=row.checksum,
-        runtime_config=row.runtime_config,
-        eval_status=row.eval_status,
-        created_at=row.created_at,
-        published_by=row.published_by,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, Version)
 
 
 def _row_to_user_api_key(row: sa.Row) -> UserApiKey:
-    """Map a database row to a UserApiKey model."""
-    return UserApiKey(
-        id=row.id,
-        user_id=row.user_id,
-        key_name=row.key_name,
-        encrypted_value=row.encrypted_value,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, UserApiKey)
 
 
 # ---------------------------------------------------------------------------
@@ -1152,14 +1116,7 @@ def increment_skill_downloads(conn: Connection, skill_id: UUID) -> None:
 
 
 def _row_to_skill_access_grant(row: sa.Row) -> SkillAccessGrant:
-    """Map a database row to a SkillAccessGrant model."""
-    return SkillAccessGrant(
-        id=row.id,
-        skill_id=row.skill_id,
-        grantee_org_id=row.grantee_org_id,
-        granted_by=row.granted_by,
-        created_at=row.created_at,
-    )
+    return _row_to_model(row, SkillAccessGrant)
 
 
 def update_skill_visibility(conn: Connection, skill_id: UUID, visibility: str) -> None:
@@ -1381,11 +1338,7 @@ def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
             versions_table.c.published_by,
         )
         .where(versions_table.c.skill_id == skill_id)
-        .order_by(
-            versions_table.c.semver_major.desc(),
-            versions_table.c.semver_minor.desc(),
-            versions_table.c.semver_patch.desc(),
-        )
+        .order_by(*_SEMVER_DESC)
         .limit(1)
     )
     row = conn.execute(latest).first()
@@ -1530,14 +1483,7 @@ def resolve_version(
         allowed_statuses.append("C")
     base = base.where(versions_table.c.eval_status.in_(allowed_statuses))
 
-    if spec == "latest":
-        stmt = base.order_by(
-            versions_table.c.semver_major.desc(),
-            versions_table.c.semver_minor.desc(),
-            versions_table.c.semver_patch.desc(),
-        ).limit(1)
-    else:
-        stmt = base.where(versions_table.c.semver == spec)
+    stmt = base.order_by(*_SEMVER_DESC).limit(1) if spec == "latest" else base.where(versions_table.c.semver == spec)
 
     row = conn.execute(stmt).first()
     if row is None:
@@ -1582,11 +1528,7 @@ def resolve_latest_version(
     granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
     stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
 
-    stmt = stmt.order_by(
-        versions_table.c.semver_major.desc(),
-        versions_table.c.semver_minor.desc(),
-        versions_table.c.semver_patch.desc(),
-    ).limit(1)
+    stmt = stmt.order_by(*_SEMVER_DESC).limit(1)
 
     row = conn.execute(stmt).first()
     if row is None:
@@ -2306,21 +2248,7 @@ def get_api_keys_for_eval(conn: Connection, user_id: UUID, key_names: list[str])
 
 
 def _row_to_audit_log_entry(row: sa.Row) -> AuditLogEntry:
-    """Map a database row to an AuditLogEntry model."""
-    return AuditLogEntry(
-        id=row.id,
-        org_slug=row.org_slug,
-        skill_name=row.skill_name,
-        semver=row.semver,
-        grade=row.grade,
-        version_id=row.version_id,
-        check_results=row.check_results,
-        llm_reasoning=row.llm_reasoning,
-        publisher=row.publisher,
-        quarantine_s3_key=row.quarantine_s3_key,
-        checksum=row.checksum,
-        created_at=row.created_at,
-    )
+    return _row_to_model(row, AuditLogEntry)
 
 
 def insert_audit_log(
@@ -2493,21 +2421,7 @@ def find_audit_logs(
 
 
 def _row_to_eval_report(row: sa.Row) -> EvalReport:
-    """Map a database row to an EvalReport model."""
-    return EvalReport(
-        id=row.id,
-        version_id=row.version_id,
-        agent=row.agent,
-        judge_model=row.judge_model,
-        case_results=row.case_results,
-        passed=row.passed,
-        total=row.total,
-        total_duration_ms=row.total_duration_ms,
-        status=row.status,
-        error_message=row.error_message,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, EvalReport)
 
 
 def insert_eval_report(
@@ -2608,26 +2522,7 @@ def find_eval_report_by_skill(conn: Connection, org_slug: str, skill_name: str, 
 
 
 def _row_to_eval_run(row: sa.Row) -> EvalRun:
-    """Map a database row to an EvalRun model."""
-    return EvalRun(
-        id=row.id,
-        version_id=row.version_id,
-        user_id=row.user_id,
-        agent=row.agent,
-        judge_model=row.judge_model,
-        status=row.status,
-        stage=row.stage,
-        current_case=row.current_case,
-        current_case_index=row.current_case_index,
-        total_cases=row.total_cases,
-        heartbeat_at=row.heartbeat_at,
-        log_s3_prefix=row.log_s3_prefix,
-        log_seq=row.log_seq,
-        error_message=row.error_message,
-        created_at=row.created_at,
-        completed_at=row.completed_at,
-        updated_at=row.updated_at,
-    )
+    return _row_to_model(row, EvalRun)
 
 
 def insert_eval_run(
@@ -2788,22 +2683,9 @@ def insert_search_log(
 
 
 def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
-    """Map a database row to a SkillTracker model."""
-    return SkillTracker(
-        id=row.id,
-        user_id=row.user_id,
-        org_slug=row.org_slug,
-        repo_url=row.repo_url,
-        branch=row.branch,
-        last_commit_sha=row.last_commit_sha,
-        poll_interval_minutes=row.poll_interval_minutes,
-        enabled=row.enabled,
-        last_checked_at=row.last_checked_at,
-        last_published_at=row.last_published_at,
-        last_error=row.last_error,
-        next_check_at=row.next_check_at,
-        created_at=row.created_at,
-    )
+    # Generic mapper picks up consecutive_permanent_failures from the row
+    # instead of silently falling back to the dataclass default.
+    return _row_to_model(row, SkillTracker)
 
 
 def insert_skill_tracker(
@@ -3189,23 +3071,7 @@ def reenable_trackers_for_urls(conn: Connection, repo_urls: list[str]) -> int:
 
 
 def _row_to_tracker_metrics(row: sa.Row) -> TrackerMetrics:
-    """Map a database row to a TrackerMetrics model."""
-    return TrackerMetrics(
-        id=row.id,
-        recorded_at=row.recorded_at,
-        iterations=row.iterations,
-        total_checked=row.total_checked,
-        trackers_due=row.trackers_due,
-        trackers_unchanged=row.trackers_unchanged,
-        trackers_changed=row.trackers_changed,
-        trackers_errored=row.trackers_errored,
-        trackers_processed=row.trackers_processed,
-        trackers_failed=row.trackers_failed,
-        trackers_disabled=row.trackers_disabled,
-        skipped_rate_limit=row.skipped_rate_limit,
-        github_rate_remaining=row.github_rate_remaining,
-        batch_duration_seconds=row.batch_duration_seconds,
-    )
+    return _row_to_model(row, TrackerMetrics)
 
 
 def insert_tracker_metrics(

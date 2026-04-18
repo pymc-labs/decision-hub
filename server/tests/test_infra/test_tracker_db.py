@@ -37,21 +37,31 @@ def _make_tracker_row(
     last_error: str | None = None,
     next_check_at: datetime | None = None,
 ) -> MagicMock:
-    """Create a mock row that simulates a skill_trackers row."""
+    """Create a mock row that simulates a skill_trackers row.
+
+    Populates both attribute access (``row.id``) and ``row._mapping`` so
+    the mock works with the dataclass-driven ``_row_to_model`` helper.
+    """
+    mapping = {
+        "id": tracker_id or uuid4(),
+        "user_id": user_id or uuid4(),
+        "org_slug": "test-org",
+        "repo_url": "https://github.com/owner/repo",
+        "branch": "main",
+        "last_commit_sha": None,
+        "poll_interval_minutes": 60,
+        "enabled": enabled,
+        "last_checked_at": None,
+        "last_published_at": None,
+        "last_error": last_error,
+        "next_check_at": next_check_at,
+        "consecutive_permanent_failures": 0,
+        "created_at": datetime.now(UTC),
+    }
     row = MagicMock()
-    row.id = tracker_id or uuid4()
-    row.user_id = user_id or uuid4()
-    row.org_slug = "test-org"
-    row.repo_url = "https://github.com/owner/repo"
-    row.branch = "main"
-    row.last_commit_sha = None
-    row.poll_interval_minutes = 60
-    row.enabled = enabled
-    row.last_checked_at = None
-    row.last_published_at = None
-    row.last_error = last_error
-    row.next_check_at = next_check_at
-    row.created_at = datetime.now(UTC)
+    row._mapping = mapping
+    for k, v in mapping.items():
+        setattr(row, k, v)
     return row
 
 
@@ -333,22 +343,31 @@ def _make_metrics_row(
     total_checked: int = 42,
     github_rate_remaining: int | None = 4800,
 ) -> MagicMock:
-    """Create a mock row that simulates a tracker_metrics row."""
+    """Create a mock row that simulates a tracker_metrics row.
+
+    Populates both attribute access and ``row._mapping`` so the mock
+    works with the dataclass-driven ``_row_to_model`` helper.
+    """
+    mapping = {
+        "id": uuid4(),
+        "recorded_at": recorded_at or datetime.now(UTC),
+        "iterations": 2,
+        "total_checked": total_checked,
+        "trackers_due": 10,
+        "trackers_unchanged": 8,
+        "trackers_changed": 2,
+        "trackers_errored": 0,
+        "trackers_processed": 2,
+        "trackers_failed": 0,
+        "trackers_disabled": 0,
+        "skipped_rate_limit": 0,
+        "github_rate_remaining": github_rate_remaining,
+        "batch_duration_seconds": 3.2,
+    }
     row = MagicMock()
-    row.id = uuid4()
-    row.recorded_at = recorded_at or datetime.now(UTC)
-    row.iterations = 2
-    row.total_checked = total_checked
-    row.trackers_due = 10
-    row.trackers_unchanged = 8
-    row.trackers_changed = 2
-    row.trackers_errored = 0
-    row.trackers_processed = 2
-    row.trackers_failed = 0
-    row.trackers_disabled = 0
-    row.skipped_rate_limit = 0
-    row.github_rate_remaining = github_rate_remaining
-    row.batch_duration_seconds = 3.2
+    row._mapping = mapping
+    for k, v in mapping.items():
+        setattr(row, k, v)
     return row
 
 
