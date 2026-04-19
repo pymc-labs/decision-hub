@@ -5,11 +5,27 @@ import pytest
 import respx
 
 from decision_hub.infra.github import (
+    _GITHUB_HTTP_TIMEOUT,
     _parse_next_link,
     fetch_org_metadata,
     fetch_user_metadata,
     list_user_orgs,
 )
+
+
+class TestGithubHttpTimeout:
+    """Every GitHub call must bind a finite deadline.
+
+    Regression guard for the original bug: seven ``httpx.AsyncClient()``
+    constructors with no ``timeout=`` — any one of them could pin the FastAPI
+    event loop to a stalled TCP connection forever.
+    """
+
+    def test_timeout_constant_is_finite(self) -> None:
+        assert isinstance(_GITHUB_HTTP_TIMEOUT, httpx.Timeout)
+        # Connect deadline small, overall deadline bounded.
+        assert _GITHUB_HTTP_TIMEOUT.connect is not None
+        assert _GITHUB_HTTP_TIMEOUT.read is not None
 
 
 class TestParseNextLink:

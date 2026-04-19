@@ -1,8 +1,26 @@
 """Tests for stale token detection in get_current_user."""
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
+import pytest
+from fastapi import HTTPException
 from jose import jwt
+
+from decision_hub.api.deps import parse_uuid
+
+
+class TestParseUuid:
+    def test_accepts_valid_uuid(self) -> None:
+        value = "12345678-1234-5678-1234-567812345678"
+        assert parse_uuid(value, "tracker_id") == UUID(value)
+
+    def test_raises_422_with_descriptive_detail(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            parse_uuid("not-a-uuid", "tracker_id")
+        assert exc.value.status_code == 422
+        detail = exc.value.detail
+        assert "tracker_id" in detail and "not-a-uuid" in detail
 
 
 class TestStaleTokenDetection:

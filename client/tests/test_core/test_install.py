@@ -1,12 +1,19 @@
 """Tests for dhub.core.install -- checksum verification, path helpers, and uninstall."""
 
 import hashlib
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from dhub.core.install import get_dhub_skill_path, uninstall_skill, verify_checksum
+from dhub.core.install import (
+    get_dhub_skill_path,
+    get_installed_version,
+    save_installed_version,
+    uninstall_skill,
+    verify_checksum,
+)
 
 
 class TestVerifyChecksum:
@@ -121,3 +128,46 @@ class TestUninstallSkill:
 
         assert not skill_dir.exists()
         assert org_dir.exists()
+
+
+class TestSaveInstalledVersion:
+    """``save_installed_version`` must be atomic — partial writes would make
+    ``dhub update`` throw JSONDecodeError on the next run."""
+
+    @patch("dhub.core.install.get_dhub_skill_path")
+    def test_writes_version_and_flag(self, mock_path, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "o" / "s"
+        skill_dir.mkdir(parents=True)
+        mock_path.return_value = skill_dir
+
+        save_installed_version("o", "s", "1.2.3", allow_risky=True)
+
+        data = json.loads((skill_dir / ".dhub-version").read_text())
+        assert data == {"version": "1.2.3", "allow_risky": True}
+        installed = get_installed_version("o", "s")
+        assert installed is not None
+        assert installed.version == "1.2.3"
+        assert installed.allow_risky is True
+
+    @patch("dhub.core.install.get_dhub_skill_path")
+    def test_overwrite_is_atomic(self, mock_path, tmp_path: Path) -> None:
+        """Overwriting a larger existing file must leave a valid JSON payload
+        rather than truncating mid-write."""
+        skill_dir = tmp_path / "o" / "s"
+        skill_dir.mkdir(parents=True)
+        mock_path.return_value = skill_dir
+
+        # Seed with a much larger previous payload. If the write were done
+        # via plain ``path.write_text`` we could observe a half-written file
+        # on crash; with atomic replace, either the old or new content is
+        # visible at every moment.
+        big = skill_dir / ".dhub-version"
+        big.write_text(json.dumps({"version": "0.0.0", "pad": "x" * 4096}))
+
+        save_installed_version("o", "s", "1.0.0")
+
+        data = json.loads(big.read_text())
+        assert data["version"] == "1.0.0"
+        # No temp leftovers in the dir
+        leftovers = [p.name for p in skill_dir.iterdir() if p.name.startswith(".dhub-version.")]
+        assert leftovers == []

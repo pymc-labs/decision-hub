@@ -17,6 +17,12 @@ router = APIRouter(tags=["seo"])
 
 _BASE_URL = "https://hub.decision.ai"
 
+# Hard cap on URLs per sitemap. Google/Bing ignore sitemaps above 50,000 URLs
+# or 50 MB uncompressed; capping prevents a future growth spike from producing
+# a pathological response. Raise via paginated sitemap index if we ever need
+# to index more than this.
+_MAX_SITEMAP_URLS = 45_000
+
 
 @router.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(
@@ -40,7 +46,9 @@ def sitemap_xml(
         (f"{_BASE_URL}/how-it-works", today, "monthly"),
     ]
 
-    # Public skills
+    # Public skills — cap so the response can never blow past the sitemap
+    # size limit. Prioritise most-recently-published so the freshest URLs
+    # always make it into the XML even after we grow past the cap.
     stmt = (
         sa.select(
             organizations_table.c.slug.label("org_slug"),
@@ -57,13 +65,20 @@ def sitemap_xml(
             skills_table.c.latest_semver.isnot(None),
             skills_table.c.visibility == "public",
         )
-        .order_by(organizations_table.c.slug, skills_table.c.name)
+        .order_by(
+            skills_table.c.latest_published_at.desc().nulls_last(),
+            organizations_table.c.slug,
+            skills_table.c.name,
+        )
+        .limit(_MAX_SITEMAP_URLS)
     )
     for row in conn.execute(stmt):
         lastmod = row.latest_published_at.strftime("%Y-%m-%d") if row.latest_published_at else today
         urls.append((f"{_BASE_URL}/skills/{row.org_slug}/{row.skill_name}", lastmod, "weekly"))
 
-    # Public orgs (only those with at least one published skill)
+    # Public orgs (only those with at least one published skill). Capped too
+    # — the per-org entry lives alongside skill URLs in the same 50k budget.
+    remaining = max(_MAX_SITEMAP_URLS - len(urls), 0)
     org_stmt = (
         sa.select(sa.distinct(organizations_table.c.slug))
         .select_from(
@@ -77,6 +92,7 @@ def sitemap_xml(
             skills_table.c.visibility == "public",
         )
         .order_by(organizations_table.c.slug)
+        .limit(remaining)
     )
     for row in conn.execute(org_stmt):
         urls.append((f"{_BASE_URL}/orgs/{row[0]}", today, "weekly"))

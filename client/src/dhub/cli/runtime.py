@@ -65,14 +65,27 @@ def run_command(
     # Build environment variables
     env = build_env_vars(manifest.runtime)
 
-    # Sync dependencies
+    # Sync dependencies. Translate CalledProcessError into a clean CLI exit
+    # — otherwise uv's stack trace surfaces through Typer as an unhandled
+    # exception rather than a graceful failure with the caller's return code.
     sync_cmd = build_uv_sync_command(skill_dir)
     console.print(f"[dim]Syncing dependencies in {skill_dir}...[/]")
-    subprocess.run(sync_cmd, check=True, env=env)
+    try:
+        subprocess.run(sync_cmd, check=True, env=env)
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Error: 'uv sync' failed with exit code {exc.returncode}.[/]")
+        raise typer.Exit(exc.returncode) from None
+    except FileNotFoundError:
+        console.print("[red]Error: 'uv' binary not found on PATH.[/]")
+        raise typer.Exit(1) from None
 
     # Run the entrypoint
     args_tuple = tuple(extra_args) if extra_args else ()
     run_cmd = build_uv_run_command(skill_dir, manifest.runtime.entrypoint, args_tuple)
     console.print(f"[dim]Running {manifest.name}...[/]")
-    result = subprocess.run(run_cmd, env=env)
+    try:
+        result = subprocess.run(run_cmd, env=env)
+    except FileNotFoundError:
+        console.print("[red]Error: 'uv' binary not found on PATH.[/]")
+        raise typer.Exit(1) from None
     raise typer.Exit(result.returncode)

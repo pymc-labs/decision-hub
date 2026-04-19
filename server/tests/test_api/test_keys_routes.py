@@ -49,6 +49,43 @@ class TestStoreKey:
         )
         assert resp.status_code == 401
 
+    def test_store_key_rejects_oversize_name(self, client: TestClient, auth_headers: dict[str, str]) -> None:
+        """A key_name over the Pydantic max_length cap returns 422.
+
+        Prevents a client from stuffing multi-kB "names" into the DB; the
+        response must be rejected before we even reach ``insert_api_key``.
+        """
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "x" * 500, "value": "sk-abc"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_store_key_rejects_oversize_value(self, client: TestClient, auth_headers: dict[str, str]) -> None:
+        """A value over the Pydantic max_length cap returns 422."""
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "openai", "value": "x" * 10_000},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_store_key_rejects_empty_fields(self, client: TestClient, auth_headers: dict[str, str]) -> None:
+        """min_length=1 means empty strings are rejected (not silently stored)."""
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "", "value": "sk-abc"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "openai", "value": ""},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
 
 class TestListKeys:
     """GET /v1/keys -- list stored API key names."""

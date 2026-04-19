@@ -3,8 +3,9 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 
 class RateLimiter:
@@ -26,11 +27,16 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # Purge stale IP entries every N enforced requests. Using a simple
+    # local counter avoids the previous O(N_ips) sum() on every call.
+    _PURGE_EVERY = 100
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._calls_since_purge = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -38,24 +44,26 @@ class RateLimiter:
         cutoff = now - self.window_seconds
 
         with self._lock:
-            # Prune expired timestamps for this key
-            timestamps = self._requests[key]
-            self._requests[key] = [t for t in timestamps if t > cutoff]
+            timestamps = [t for t in self._requests[key] if t > cutoff]
 
-            if len(self._requests[key]) >= self.max_requests:
+            if len(timestamps) >= self.max_requests:
+                # Keep the pruned list even on reject so the next call sees
+                # the current state without re-pruning.
+                self._requests[key] = timestamps
                 raise HTTPException(
                     status_code=429,
                     detail=(
-                        f"Rate limit exceeded ({self.max_requests} requests per {self.window_seconds}s). Try again shortly."
+                        f"Rate limit exceeded ({self.max_requests} requests "
+                        f"per {self.window_seconds}s). Try again shortly."
                     ),
                 )
 
-            self._requests[key].append(now)
+            timestamps.append(now)
+            self._requests[key] = timestamps
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            self._calls_since_purge += 1
+            if self._calls_since_purge >= self._PURGE_EVERY:
+                self._calls_since_purge = 0
                 self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:
@@ -63,3 +71,44 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily initialises a named rate limiter.
+
+    Each route was previously wired with a near-identical ``_enforce_*_rate_limit``
+    function; this factory collapses them into one call site per route. The
+    limiter instance is cached on ``app.state`` under a stable attribute so
+    every request reuses it, and the ``{name}_rate_limit`` / ``{name}_rate_window``
+    settings fields drive max requests and the sliding window.
+
+    Args:
+        name: Settings prefix — e.g. ``"search"`` reads ``settings.search_rate_limit``
+            and ``settings.search_rate_window``.
+
+    Returns:
+        A FastAPI-compatible dependency callable.
+    """
+    state_attr = f"_rate_limiter_{name}"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def _dep(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    _dep.__name__ = f"rate_limit_{name}"
+    return _dep
+
+
+def rate_limit(name: str) -> "Depends":  # type: ignore[valid-type]
+    """Shorthand: ``dependencies=[rate_limit("search")]`` at route definition."""
+    return Depends(rate_limit_dep(name))

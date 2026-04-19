@@ -69,13 +69,19 @@ export default function SkillDetailPage() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  // Reset state when navigating to a different skill. Per CLAUDE.md "Reset
+  // state on context changes", every piece of local state that reflects the
+  // current skill must clear — otherwise `copied` (from the previous page's
+  // install-command copy) leaks across into the new skill's UI.
   useEffect(() => {
     setZipData(null);
     setZipError(null);
     setZipLoading(false);
     setFiles([]);
     setSkillMdContent(null);
+    setCopied(false);
+    setDownloading(false);
+    setActiveTab("overview");
     zipRetries.current = 0;
     if (retryTimer.current) {
       clearTimeout(retryTimer.current);

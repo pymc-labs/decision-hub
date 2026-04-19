@@ -5,9 +5,12 @@ version tracking, and symlink management for linking skills
 to agent directories.
 """
 
+import contextlib
 import hashlib
 import json
+import os
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -287,10 +290,30 @@ def save_installed_version(org: str, skill_name: str, version: str, *, allow_ris
 
     Creates a `.dhub-version` JSON file so that ``dhub update`` can compare
     against the registry and preserve the original install flags.
+
+    The write is atomic: we write to a sibling temp file and then rename
+    on top of the destination. Without this, a crash or power loss mid-write
+    leaves a truncated JSON file that ``get_installed_version`` can't parse,
+    and every subsequent ``dhub update`` has to fall through its legacy
+    fallback branch.
     """
     path = get_dhub_skill_path(org, skill_name) / _VERSION_FILE
     data = {"version": version, "allow_risky": allow_risky}
-    path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+    payload = json.dumps(data) + "\n"
+    # Use the same directory so os.replace stays on a single filesystem
+    # (cross-device rename would raise EXDEV).
+    fd, tmp_name = tempfile.mkstemp(prefix=".dhub-version.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+            tmp.write(payload)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_name, path)
+    except Exception:
+        # Best-effort cleanup if the rename never happened.
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp_name)
+        raise
 
 
 def get_installed_version(org: str, skill_name: str) -> InstalledVersion | None:

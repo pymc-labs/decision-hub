@@ -4,17 +4,26 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_connection, get_current_user, get_settings
+from decision_hub.api.rate_limit import rate_limit
 from decision_hub.domain.crypto import encrypt_value
 from decision_hub.infra.database import delete_api_key, insert_api_key, list_api_keys
 from decision_hub.models import User
 from decision_hub.settings import Settings
 
-router = APIRouter(prefix="/v1/keys", tags=["keys"])
+router = APIRouter(
+    prefix="/v1/keys",
+    tags=["keys"],
+    # Even though every route below requires a JWT, per-IP rate-limiting
+    # still buys us a cheap ceiling against a hijacked token or a misbehaving
+    # client hammering the endpoint. Reuses the auth budget since this is the
+    # same broad "credential-adjacent" traffic class.
+    dependencies=[rate_limit("auth")],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -22,11 +31,19 @@ router = APIRouter(prefix="/v1/keys", tags=["keys"])
 # ---------------------------------------------------------------------------
 
 
+# Hard caps on both fields prevent a malicious or buggy client from stuffing
+# the DB with multi-MB "keys" (the column is LargeBinary so there's no
+# enforcement at the schema layer). 256 B covers every real provider name and
+# every real API-key secret we've ever seen, with generous headroom.
+_MAX_KEY_NAME_LEN = 64
+_MAX_KEY_VALUE_LEN = 4096
+
+
 class StoreKeyRequest(BaseModel):
     """Payload to store a new encrypted API key."""
 
-    key_name: str
-    value: str
+    key_name: str = Field(min_length=1, max_length=_MAX_KEY_NAME_LEN)
+    value: str = Field(min_length=1, max_length=_MAX_KEY_VALUE_LEN)
 
 
 class StoreKeyResponse(BaseModel):
