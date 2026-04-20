@@ -125,8 +125,15 @@ def run_eval_task(
     logger.info("Eval task completed for {}/{}", org_slug, skill_name)
 
 
-# Extended image for the crawler — adds git for cloning repos
-crawler_image = image.apt_install("git")
+# Extended image for the crawler — adds git for cloning repos.
+# We avoid apt_install("git") because the recommended deps (openssh-client →
+# libssl3 / openssl) frequently 404 on the Debian security mirror after a
+# rotation, breaking the image build. The crawler clones over HTTPS with
+# GitHub App tokens — never SSH — so --no-install-recommends is safe and
+# also keeps the image smaller.
+crawler_image = image.run_commands(
+    "apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*",
+)
 
 
 @app.function(image=crawler_image, timeout=600, max_containers=50)
