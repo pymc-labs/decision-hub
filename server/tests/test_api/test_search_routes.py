@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from decision_hub.api.search_routes import _ref_from_row
 from decision_hub.api.search_routes import router as search_router
 from decision_hub.infra.gemini import GuardAndParseResult
 
@@ -367,3 +368,73 @@ class TestAskSkillsPost:
             },
         )
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# _ref_from_row -- shared DB-row → AskSkillRef builder
+# ---------------------------------------------------------------------------
+
+
+class TestRefFromRow:
+    """Unit tests for _ref_from_row.
+
+    Before this helper existed the main and fallback paths duplicated
+    ~15 keyword arguments to construct AskSkillRef. These tests pin the
+    contract so future refactors cannot silently drop a field or change
+    its default.
+    """
+
+    def test_maps_all_candidate_fields(self) -> None:
+        row = {
+            "org_slug": "acme",
+            "skill_name": "weather",
+            "description": "Weather forecasting",
+            "eval_status": "A",
+            "published_by": "alice",
+            "category": "Data Science",
+            "download_count": 42,
+            "latest_version": "1.2.3",
+            "source_repo_url": "https://github.com/acme/weather",
+            "gauntlet_summary": None,
+            "github_stars": 17,
+            "github_license": "MIT",
+        }
+        ref = _ref_from_row(row, reason="matches your query")
+
+        assert ref.org_slug == "acme"
+        assert ref.skill_name == "weather"
+        assert ref.description == "Weather forecasting"
+        assert ref.safety_rating == "A"
+        assert ref.reason == "matches your query"
+        assert ref.author == "alice"
+        assert ref.category == "Data Science"
+        assert ref.download_count == 42
+        assert ref.latest_version == "1.2.3"
+        assert ref.source_repo_url == "https://github.com/acme/weather"
+        assert ref.github_stars == 17
+        assert ref.github_license == "MIT"
+
+    def test_defaults_for_missing_optional_fields(self) -> None:
+        """Candidates that pre-date newer columns must still build cleanly."""
+        row = {"org_slug": "acme", "skill_name": "weather"}
+        ref = _ref_from_row(row, reason="")
+        assert ref.description == ""
+        assert ref.safety_rating == "?"  # unknown eval_status collapses to "?"
+        assert ref.author == ""
+        assert ref.category == ""
+        assert ref.download_count == 0
+        assert ref.latest_version == ""
+        assert ref.source_repo_url is None
+
+    def test_tracker_publisher_displayed_as_auto_sync(self) -> None:
+        row = {
+            "org_slug": "acme",
+            "skill_name": "weather",
+            "eval_status": "passed",
+            "published_by": "tracker:11111111-1111-1111-1111-111111111111",
+        }
+        ref = _ref_from_row(row, reason="")
+        # resolve_author_display collapses tracker:* to a friendly label.
+        assert ref.author == "auto-sync"
+        # "passed" eval_status should map to the A grade.
+        assert ref.safety_rating == "A"

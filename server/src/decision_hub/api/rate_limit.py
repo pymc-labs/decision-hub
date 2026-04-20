@@ -2,9 +2,29 @@
 
 import threading
 import time
-from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
+
+from decision_hub.settings import Settings
+
+
+def _client_key(request: Request) -> str:
+    """Return the originating client IP for rate-limit bucketing.
+
+    Behind Modal / CloudFlare, ``request.client.host`` is the proxy IP,
+    so every user appears in the same bucket and the limiter silently
+    collapses into a single global bucket. Modal and standard reverse
+    proxies populate ``X-Forwarded-For`` with the original client IP as
+    the first (left-most) entry; prefer that when present and fall back
+    to the direct peer otherwise.
+    """
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        first = fwd.split(",", 1)[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else "unknown"
 
 
 class RateLimiter:
@@ -29,20 +49,28 @@ class RateLimiter:
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self._requests: dict[str, list[float]] = defaultdict(list)
+        # Explicit dict (not defaultdict) so a blocked client doesn't
+        # leave an empty list entry behind after pruning.
+        self._requests: dict[str, list[float]] = {}
         self._lock = threading.Lock()
+        self._since_purge = 0
 
     def __call__(self, request: Request) -> None:
-        key = request.client.host if request.client else "unknown"
+        key = _client_key(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
 
         with self._lock:
-            # Prune expired timestamps for this key
-            timestamps = self._requests[key]
-            self._requests[key] = [t for t in timestamps if t > cutoff]
+            timestamps = self._requests.get(key)
+            if timestamps is not None:
+                timestamps = [t for t in timestamps if t > cutoff]
+                if timestamps:
+                    self._requests[key] = timestamps
+                else:
+                    self._requests.pop(key, None)
 
-            if len(self._requests[key]) >= self.max_requests:
+            current = self._requests.get(key, [])
+            if len(current) >= self.max_requests:
                 raise HTTPException(
                     status_code=429,
                     detail=(
@@ -50,16 +78,59 @@ class RateLimiter:
                     ),
                 )
 
-            self._requests[key].append(now)
+            current.append(now)
+            self._requests[key] = current
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Periodically purge stale IPs to bound memory growth. A
+            # dedicated counter runs the purge on a predictable cadence
+            # regardless of request shape (``total % 100`` only fires
+            # when total happens to land on 100).
+            self._since_purge += 1
+            if self._since_purge >= 100:
                 self._purge_stale(cutoff)
+                self._since_purge = 0
 
     def _purge_stale(self, cutoff: float) -> None:
         """Remove IPs with no recent activity. Caller must hold self._lock."""
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def rate_limit_dep(
+    attr: str,
+    limit_setting: str,
+    window_setting: str,
+) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily caches a per-endpoint limiter.
+
+    Replaces the ``_enforce_*_rate_limit`` helpers that used to live in
+    every routes module.  Each call site gets its own limiter stored on
+    ``app.state.<attr>``; the limiter's sliding-window state is shared
+    across requests but scoped to the endpoint.
+
+    Args:
+        attr: Attribute name used to cache the limiter on ``app.state``.
+            Must be unique per endpoint.
+        limit_setting: Name of a ``Settings`` int attribute giving the
+            max request count per window.
+        window_setting: Name of a ``Settings`` int attribute giving the
+            window size in seconds.
+
+    Returns:
+        A FastAPI-compatible dependency callable.
+    """
+
+    def _dep(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, attr, None)
+        if limiter is None:
+            settings: Settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_setting),
+                window_seconds=getattr(settings, window_setting),
+            )
+            setattr(state, attr, limiter)
+        limiter(request)
+
+    return _dep

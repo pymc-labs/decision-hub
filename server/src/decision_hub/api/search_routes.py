@@ -7,13 +7,13 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dep
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
@@ -29,16 +29,7 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/v1", tags=["search"])
 
 
-def _enforce_search_rate_limit(request: Request) -> None:
-    """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
-    state = request.app.state
-    if not hasattr(state, "_search_rate_limiter"):
-        settings: Settings = state.settings
-        state._search_rate_limiter = RateLimiter(
-            max_requests=settings.search_rate_limit,
-            window_seconds=settings.search_rate_window,
-        )
-    state._search_rate_limiter(request)
+_enforce_search_rate_limit = rate_limit_dep("_search_rate_limiter", "search_rate_limit", "search_rate_window")
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +302,30 @@ def ask_skills_post(
         )
 
 
+def _ref_from_row(row: dict, *, reason: str) -> AskSkillRef:
+    """Build an ``AskSkillRef`` from a DB candidate row.
+
+    Used for both the LLM-enriched main path and the fallback path: the
+    schema of the row is identical and both need the same derivation
+    (trust score, author display, absent-field safety).
+    """
+    return AskSkillRef(
+        org_slug=row["org_slug"],
+        skill_name=row["skill_name"],
+        description=row.get("description", ""),
+        safety_rating=format_trust_score(row.get("eval_status", "")),
+        reason=reason,
+        author=resolve_author_display(row.get("published_by", "")),
+        category=row.get("category", ""),
+        download_count=row.get("download_count", 0),
+        latest_version=row.get("latest_version", ""),
+        source_repo_url=row.get("source_repo_url"),
+        gauntlet_summary=row.get("gauntlet_summary"),
+        github_stars=row.get("github_stars"),
+        github_license=row.get("github_license"),
+    )
+
+
 def _ask_skills_inner(
     *,
     q: str,
@@ -387,26 +402,11 @@ def _ask_skills_inner(
     except Exception:
         logger.opt(exception=True).warning("Conversational ask failed, using fallback")
         fallback_latency_ms = int((time.monotonic() - start_time) * 1000)
-        skill_refs = [
-            AskSkillRef(
-                org_slug=e.org_slug,
-                skill_name=e.skill_name,
-                description=e.description,
-                safety_rating=format_trust_score(
-                    candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
-                ),
-                reason="Matched your search query.",
-                author=e.author,
-                category=e.category,
-                download_count=e.download_count,
-                latest_version=e.latest_version,
-                source_repo_url=e.source_repo_url,
-                gauntlet_summary=e.gauntlet_summary,
-                github_stars=e.github_stars,
-                github_license=e.github_license,
-            )
-            for e in result.entries[:5]
-        ]
+        # Fallback: surface the top DB candidates directly so the user
+        # still gets useful results when the LLM path fails.  Build the
+        # refs from candidate rows (same shape as the main path) for a
+        # consistent schema regardless of which branch ran.
+        skill_refs = [_ref_from_row(row, reason="Matched your search query.") for row in list(result.candidates)[:5]]
         background_tasks.add_task(
             _log_ask_analytics,
             engine=engine,
@@ -456,29 +456,14 @@ def _ask_skills_inner(
         username=current_user.username if current_user else None,
     )
 
-    # Enrich LLM skill references with metadata from DB candidates
+    # Enrich LLM skill references with metadata from DB candidates.
+    # Any org/skill the LLM invented that isn't in our candidate set is
+    # dropped — the LLM is only allowed to reference retrieved skills.
     skill_refs = []
     for ref in llm_result.get("referenced_skills", []):
-        key = (ref["org_slug"], ref["skill_name"])
-        row = candidate_map.get(key)
+        row = candidate_map.get((ref["org_slug"], ref["skill_name"]))
         if row:
-            skill_refs.append(
-                AskSkillRef(
-                    org_slug=ref["org_slug"],
-                    skill_name=ref["skill_name"],
-                    description=row.get("description", ""),
-                    safety_rating=format_trust_score(row.get("eval_status", "")),
-                    reason=ref.get("reason", ""),
-                    author=resolve_author_display(row.get("published_by", "")),
-                    category=row.get("category", ""),
-                    download_count=row.get("download_count", 0),
-                    latest_version=row.get("latest_version", ""),
-                    source_repo_url=row.get("source_repo_url"),
-                    gauntlet_summary=row.get("gauntlet_summary"),
-                    github_stars=row.get("github_stars"),
-                    github_license=row.get("github_license"),
-                )
-            )
+            skill_refs.append(_ref_from_row(row, reason=ref.get("reason", "")))
 
     return AskResponse(
         query=q,

@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,48 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepoTimeout:
+    """``clone_repo`` must never block the CLI indefinitely.
+
+    Without a ``timeout=`` on the underlying ``subprocess.run`` call a
+    hanging ``git clone`` (bad URL, dead mirror, firewall) would freeze
+    the session forever.  These tests pin the timeout + friendly-error
+    contract by simulating the subprocess outcomes.
+    """
+
+    def test_timeout_surfaces_actionable_error(self) -> None:
+        timeout = subprocess.TimeoutExpired(cmd=["git", "clone", "url"], timeout=300)
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=timeout),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            clone_repo("https://example.com/repo.git")
+        msg = str(exc.value)
+        assert "timed out" in msg
+        # Error text should give the user a concrete next action.
+        assert "network" in msg.lower() or "url" in msg.lower()
+
+    def test_missing_git_executable_raises_friendly_error(self) -> None:
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=FileNotFoundError),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            clone_repo("https://example.com/repo.git")
+        assert "git executable not found" in str(exc.value).lower()
+
+    def test_subprocess_run_invoked_with_timeout(self, tmp_path: Path) -> None:
+        """The timeout argument must actually be forwarded."""
+
+        # Simulate a successful clone so clone_repo returns cleanly.
+        def _fake_run(cmd, **kwargs):
+            assert "timeout" in kwargs and kwargs["timeout"] > 0
+            # Pretend the clone worked.
+            repo_path = Path(cmd[-1])
+            repo_path.mkdir(parents=True, exist_ok=True)
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        with patch("dhub.core.git_repo.subprocess.run", side_effect=_fake_run):
+            result = clone_repo("https://example.com/repo.git")
+        assert result.is_dir()
