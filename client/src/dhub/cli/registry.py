@@ -1526,7 +1526,9 @@ def _update_single_skill(skill_ref: str) -> None:
     base_url = get_api_url()
 
     with httpx.Client(timeout=60) as client:
-        # Quick version check via /latest-version (does NOT inflate download count)
+        # Quick version check via /latest-version (does NOT inflate download count).
+        # This endpoint is unfiltered — it returns the highest semver regardless
+        # of grade.  The actual installability check happens via /resolve below.
         resp = client.get(
             f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
             headers=headers,
@@ -1554,8 +1556,12 @@ def _update_single_skill(skill_ref: str) -> None:
             headers=headers,
         )
         if resp.status_code == 404:
-            console.print(f"[red]Error: Skill '{skill_ref}' not found in registry.[/]")
-            raise typer.Exit(1)
+            hint = " Try [bold]--allow-risky[/] to include ungraded versions." if not allow_risky else ""
+            console.print(
+                f"[yellow]{org_slug}/{skill_name} v{latest_version} exists but is not installable "
+                f"(pending or risky grade).{hint}[/]"
+            )
+            return
         raise_for_status(resp)
         data = resp.json()
 
@@ -1587,7 +1593,8 @@ def _update_all_skills() -> None:
             installed_version = installed.version if installed else None
             allow_risky = installed.allow_risky if installed else False
 
-            # Quick version check via /latest-version (does NOT inflate download count)
+            # Quick version check via /latest-version (does NOT inflate download count).
+            # This endpoint is unfiltered — installability is checked via /resolve.
             try:
                 resp = client.get(
                     f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
@@ -1623,6 +1630,14 @@ def _update_all_skills() -> None:
                     params=resolve_params,
                     headers=headers,
                 )
+                if resp.status_code == 404:
+                    hint = " (install with --allow-risky)" if not allow_risky else ""
+                    console.print(
+                        f"[yellow]  {org_slug}/{skill_name} v{latest_version} exists "
+                        f"but is not installable{hint}[/]"
+                    )
+                    up_to_date += 1
+                    continue
                 raise_for_status(resp)
                 data = resp.json()
                 _install_single_skill(f"{org_slug}/{skill_name}", allow_risky=allow_risky, _resolved=data)
