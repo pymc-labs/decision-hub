@@ -1,8 +1,30 @@
-"""Tests for stale token detection in get_current_user."""
+"""Tests for reusable FastAPI dependencies (get_current_user, parse_uuid_param)."""
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
+import pytest
+from fastapi import HTTPException
 from jose import jwt
+
+from decision_hub.api.deps import parse_uuid_param
+
+
+class TestParseUuidParam:
+    """Unit tests for parse_uuid_param — a thin wrapper that turns ValueError into HTTP 422."""
+
+    def test_valid_uuid_is_returned(self) -> None:
+        value = "12345678-1234-5678-1234-567812345678"
+        result = parse_uuid_param(value, "tracker_id")
+        assert result == UUID(value)
+
+    def test_invalid_uuid_raises_422_with_named_detail(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            parse_uuid_param("not-a-uuid", "tracker_id")
+        assert exc_info.value.status_code == 422
+        # Detail must identify the parameter (helps clients debug) and echo the bad value.
+        assert "tracker_id" in exc_info.value.detail
+        assert "not-a-uuid" in exc_info.value.detail
 
 
 class TestStaleTokenDetection:

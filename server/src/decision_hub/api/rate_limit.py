@@ -3,6 +3,8 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
+from functools import cache
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +65,41 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+@cache
+def rate_limit(name: str) -> Callable[[Request], None]:
+    """Return a FastAPI dependency that enforces the named rate limit.
+
+    The limiter is lazily constructed from ``Settings.{name}_rate_limit`` and
+    ``Settings.{name}_rate_window`` on the first request, then cached on
+    ``app.state._{name}_rate_limiter``. Results are memoised per ``name`` so
+    repeated ``Depends(rate_limit("foo"))`` declarations share identity and
+    FastAPI's dependency cache.
+
+    Usage::
+
+        @router.get("/thing", dependencies=[Depends(rate_limit("thing"))])
+        def get_thing(): ...
+    """
+    state_attr = f"_{name}_rate_limiter"
+    limit_field = f"{name}_rate_limit"
+    window_field = f"{name}_rate_window"
+
+    def enforce(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_field),
+                window_seconds=getattr(settings, window_field),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    # Give the dependency a descriptive name so FastAPI docs and tracebacks
+    # identify which limit was hit.
+    enforce.__name__ = f"enforce_{name}_rate_limit"
+    enforce.__qualname__ = enforce.__name__
+    return enforce

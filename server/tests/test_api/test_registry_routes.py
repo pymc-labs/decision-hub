@@ -455,6 +455,28 @@ class TestPublishSkill:
         assert resp.status_code == 422
         assert "Invalid JSON" in resp.json()["detail"]
 
+    def test_publish_rejects_oversized_metadata(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        """Metadata above the Form ``max_length`` is rejected before JSON parsing.
+
+        Prevents a client from consuming memory on a multi-MB JSON blob or
+        wedging logs with a huge ``Invalid JSON in metadata: ...`` payload.
+        """
+        test_settings.google_api_key = "test-key"
+        # 4 KiB + 1 byte pushes past the Form(max_length=4096) cap.
+        oversized = "x" * (4096 + 1)
+        resp = client.post(
+            "/v1/publish",
+            data={"metadata": oversized},
+            files={"zip_file": ("skill.zip", _make_skill_zip(), "application/zip")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
     def test_publish_missing_metadata_keys(
         self,
         client: TestClient,

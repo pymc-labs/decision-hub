@@ -1,11 +1,12 @@
 """Tests for decision_hub.api.rate_limit -- per-IP sliding-window rate limiter."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import RateLimiter, rate_limit
 
 
 def _make_request(host: str = "127.0.0.1") -> MagicMock:
@@ -84,3 +85,83 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+
+def _make_app_state(**settings_fields) -> SimpleNamespace:
+    """Build a throwaway Starlette-like ``app.state`` for dependency-factory tests."""
+    return SimpleNamespace(settings=SimpleNamespace(**settings_fields))
+
+
+def _make_request_with_state(state: SimpleNamespace, host: str = "127.0.0.1") -> MagicMock:
+    request = MagicMock()
+    request.client.host = host
+    request.app.state = state
+    return request
+
+
+class TestRateLimitFactory:
+    """Tests for the ``rate_limit(name)`` FastAPI dependency factory."""
+
+    def setup_method(self) -> None:
+        # ``rate_limit`` memoises per name with lru_cache — clear between tests
+        # so each test sees a fresh dependency callable.
+        rate_limit.cache_clear()
+
+    def test_returns_same_callable_for_same_name(self) -> None:
+        """Repeated Depends(rate_limit("x")) declarations must share identity."""
+        assert rate_limit("foo") is rate_limit("foo")
+
+    def test_returns_distinct_callables_for_different_names(self) -> None:
+        assert rate_limit("foo") is not rate_limit("bar")
+
+    def test_reads_settings_by_name_and_lazily_creates_limiter(self) -> None:
+        """First call pulls ``{name}_rate_limit`` / ``{name}_rate_window`` from settings."""
+        state = _make_app_state(widget_rate_limit=2, widget_rate_window=60)
+        dep = rate_limit("widget")
+
+        dep(_make_request_with_state(state, host="10.0.0.1"))
+
+        assert hasattr(state, "_widget_rate_limiter")
+        limiter = state._widget_rate_limiter
+        assert isinstance(limiter, RateLimiter)
+        assert limiter.max_requests == 2
+        assert limiter.window_seconds == 60
+
+    def test_limiter_cached_on_app_state_between_requests(self) -> None:
+        """Settings must be read only once; subsequent requests reuse the limiter."""
+        state = _make_app_state(widget_rate_limit=5, widget_rate_window=60)
+        dep = rate_limit("widget")
+
+        dep(_make_request_with_state(state))
+        limiter_first = state._widget_rate_limiter
+
+        dep(_make_request_with_state(state))
+        limiter_second = state._widget_rate_limiter
+
+        assert limiter_first is limiter_second
+
+    def test_enforces_configured_limit(self) -> None:
+        """The factory-produced dependency enforces the configured window."""
+        state = _make_app_state(widget_rate_limit=2, widget_rate_window=60)
+        dep = rate_limit("widget")
+        request = _make_request_with_state(state)
+
+        for _ in range(2):
+            dep(request)
+
+        with pytest.raises(HTTPException) as exc_info:
+            dep(request)
+        assert exc_info.value.status_code == 429
+
+    def test_missing_settings_field_raises_attribute_error(self) -> None:
+        """Typos in the name fail loudly instead of silently disabling the limit."""
+        state = _make_app_state()  # no *_rate_limit / *_rate_window defined
+        dep = rate_limit("nonexistent")
+
+        with pytest.raises(AttributeError):
+            dep(_make_request_with_state(state))
+
+    def test_dependency_has_descriptive_name(self) -> None:
+        """FastAPI docs / tracebacks should identify which limit fired."""
+        dep = rate_limit("publish")
+        assert dep.__name__ == "enforce_publish_rate_limit"
