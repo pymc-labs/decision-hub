@@ -50,6 +50,22 @@ def get_connection(
         yield conn
 
 
+def parse_uuid(value: str, name: str) -> UUID:
+    """Parse a UUID path/query parameter, raising 422 on invalid input.
+
+    Shared across routers so every endpoint produces the same error shape
+    when a caller supplies a malformed UUID.  Previously duplicated in
+    ``registry_routes.py`` and ``tracker_routes.py``.
+    """
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid UUID for {name}: '{value}'",
+        ) from None
+
+
 def get_current_user(
     request: Request,
     settings: Settings = Depends(get_settings),

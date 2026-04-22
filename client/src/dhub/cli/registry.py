@@ -435,58 +435,60 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
     - If no tracker exists: creates one (auto-track on first publish).
     - If tracker exists and is enabled: does nothing.
     - If tracker exists but disabled: only re-enables if --track was passed.
+
+    All HTTP calls share a single ``httpx.Client`` so the GET / POST / PATCH
+    round-trips reuse the same TCP+TLS connection instead of doing three
+    separate handshakes.
     """
     from dhub.cli.config import raise_for_status
 
-    # Check if a tracker already exists for this repo+branch
     try:
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(f"{api_url}/v1/trackers", headers=headers)
-            raise_for_status(resp)
-            existing = resp.json()
-    except (SystemExit, typer.Exit):
-        raise  # Don't swallow typer.Exit (e.g. from 426 handler)
-    except Exception:
-        return  # Don't fail the publish if tracker API is unavailable
+        with httpx.Client(timeout=60, headers=headers, base_url=api_url) as client:
+            try:
+                resp = client.get("/v1/trackers")
+                raise_for_status(resp)
+                existing = resp.json()
+            except (SystemExit, typer.Exit):
+                raise  # Don't swallow typer.Exit (e.g. from 426 handler)
+            except Exception:
+                return  # Don't fail the publish if tracker API is unavailable
 
-    match = next((t for t in existing if t["repo_url"] == repo_url and t["branch"] == branch), None)
+            match = next(
+                (t for t in existing if t["repo_url"] == repo_url and t["branch"] == branch),
+                None,
+            )
 
-    if match is None:
-        # No tracker exists — create one
-        try:
-            with httpx.Client(timeout=60) as client:
-                resp = client.post(
-                    f"{api_url}/v1/trackers",
-                    headers=headers,
-                    json={"repo_url": repo_url, "branch": branch},
-                )
-                if resp.status_code == 201:
-                    data = resp.json()
-                    console.print(f"[dim]Auto-tracking enabled for {repo_url}@{branch}[/]")
-                    if data.get("warning"):
-                        console.print(f"[yellow]Warning: {data['warning']}[/]")
-                elif resp.status_code != 409:
-                    # 409 = already exists (race condition), that's fine
+            if match is None:
+                # No tracker exists — create one (best-effort).
+                try:
+                    resp = client.post(
+                        "/v1/trackers",
+                        json={"repo_url": repo_url, "branch": branch},
+                    )
+                    if resp.status_code == 201:
+                        data = resp.json()
+                        console.print(f"[dim]Auto-tracking enabled for {repo_url}@{branch}[/]")
+                        if data.get("warning"):
+                            console.print(f"[yellow]Warning: {data['warning']}[/]")
+                    # 409 = already exists (race condition), that's fine.
+                except Exception:
                     pass
-        except Exception:
-            pass  # Best-effort — don't fail the publish
-        return
+                return
 
-    if not match["enabled"] and track:
-        # Tracker exists but paused, and user asked to re-enable
-        try:
-            with httpx.Client(timeout=60) as client:
-                resp = client.patch(
-                    f"{api_url}/v1/trackers/{match['id']}",
-                    headers=headers,
-                    json={"enabled": True},
-                )
-                if resp.status_code == 200:
-                    console.print(f"[dim]Tracking re-enabled for {repo_url}@{branch}[/]")
-        except Exception:
-            pass
-    elif not match["enabled"]:
-        console.print("[dim]Tracking is paused for this repo. Use --track to re-enable.[/]")
+            if not match["enabled"] and track:
+                try:
+                    resp = client.patch(
+                        f"/v1/trackers/{match['id']}",
+                        json={"enabled": True},
+                    )
+                    if resp.status_code == 200:
+                        console.print(f"[dim]Tracking re-enabled for {repo_url}@{branch}[/]")
+                except Exception:
+                    pass
+            elif not match["enabled"]:
+                console.print("[dim]Tracking is paused for this repo. Use --track to re-enable.[/]")
+    except (SystemExit, typer.Exit):
+        raise
 
 
 def _auto_detect_org(api_url: str, token: str) -> str:
