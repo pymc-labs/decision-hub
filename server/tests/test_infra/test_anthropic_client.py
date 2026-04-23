@@ -1,6 +1,7 @@
 """Tests for infra/anthropic_client.py -- LLM judge for agent evals."""
 
 import json
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -98,15 +99,66 @@ class TestJudgeEvalOutput:
         assert len(user_content) < 15000
 
     @respx.mock
-    def test_api_error_propagates(self) -> None:
-        """httpx errors should propagate up."""
-        respx.post("https://api.anthropic.com/v1/messages").mock(return_value=httpx.Response(500, text="Server Error"))
+    def test_retries_on_5xx_then_raises(self) -> None:
+        """Transient 5xx responses should be retried, then propagated."""
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(500, text="Server Error")
+        )
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with patch("decision_hub.infra.anthropic_client.time.sleep"), pytest.raises(httpx.HTTPStatusError):
             judge_eval_output(
                 api_key="test-key",
                 model="test-model",
                 eval_case_name="test",
                 eval_criteria="criteria",
                 agent_output="output",
+                max_retries=2,
             )
+
+        # Initial attempt + 2 retries = 3 total calls
+        assert route.call_count == 3
+
+    @respx.mock
+    def test_retries_on_429_then_succeeds(self) -> None:
+        """Transient 429 should be retried and a subsequent 200 returned."""
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            side_effect=[
+                httpx.Response(429, text="Too Many Requests"),
+                httpx.Response(
+                    200,
+                    json={"content": [{"text": json.dumps({"verdict": "pass", "reasoning": "ok"})}]},
+                ),
+            ]
+        )
+
+        with patch("decision_hub.infra.anthropic_client.time.sleep"):
+            result = judge_eval_output(
+                api_key="test-key",
+                model="test-model",
+                eval_case_name="test",
+                eval_criteria="criteria",
+                agent_output="output",
+                max_retries=2,
+            )
+
+        assert result["verdict"] == "pass"
+        assert route.call_count == 2
+
+    @respx.mock
+    def test_non_retriable_4xx_raises_immediately(self) -> None:
+        """401 is a client error and must not trigger retries."""
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(401, text="Unauthorized")
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            judge_eval_output(
+                api_key="bad-key",
+                model="test-model",
+                eval_case_name="test",
+                eval_criteria="criteria",
+                agent_output="output",
+                max_retries=3,
+            )
+
+        assert route.call_count == 1

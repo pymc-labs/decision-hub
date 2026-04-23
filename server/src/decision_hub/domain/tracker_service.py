@@ -802,6 +802,12 @@ def process_tracker(
                     )
 
             all_failed = published_count == 0 and len(errors) > 0
+            # Preserve the error string even on partial success so operators
+            # can see which skills failed; dropping it here silently hides
+            # recurring per-skill failures under the green "something
+            # published" banner.  Only clear the error when every skill
+            # published cleanly.
+            error_summary = "; ".join(errors)[:500] if errors else None
             with engine.connect() as conn:
                 update_skill_tracker(
                     conn,
@@ -811,7 +817,7 @@ def process_tracker(
                     last_commit_sha=current_sha if not all_failed else None,
                     last_checked_at=now,
                     last_published_at=now if published_count > 0 else None,
-                    last_error="; ".join(errors)[:500] if all_failed else None,
+                    last_error=error_summary,
                 )
                 conn.commit()
 
@@ -820,11 +826,12 @@ def process_tracker(
             _detect_removed_skills(skill_dirs, tracker, engine)
 
             logger.info(
-                "tracker_id={} repo={}/{} status=changed published={} sha={}",
+                "tracker_id={} repo={}/{} status=changed published={} failed={} sha={}",
                 tracker.id,
                 owner,
                 repo,
                 published_count,
+                len(errors),
                 current_sha[:8],
             )
 

@@ -5,6 +5,8 @@ avoiding a heavy SDK dependency.
 """
 
 import json
+import random
+import time
 
 import httpx
 from loguru import logger
@@ -26,6 +28,74 @@ Respond with ONLY a JSON object (no markdown fences):
 
 _MAX_OUTPUT_CHARS = 10000
 
+# Anthropic returns 429 under rate limiting and 500/502/503/529 for transient
+# server-side issues; all are safe to retry.  Matches the list used by gemini.py
+# so both upstream LLM clients behave the same way under load.
+_RETRIABLE_STATUS_CODES = {429, 500, 502, 503, 529}
+
+_DEFAULT_TIMEOUT = 60
+_DEFAULT_MAX_RETRIES = 3
+
+
+def _post_with_retry(
+    url: str,
+    payload: dict,
+    headers: dict,
+    *,
+    timeout: int,
+    max_retries: int,
+    label: str,
+) -> httpx.Response:
+    """POST JSON with exponential backoff on transient failures.
+
+    Retries ``max_retries`` times on network timeouts and on
+    ``_RETRIABLE_STATUS_CODES``.  Non-retriable statuses raise immediately.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1 + max_retries):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.post(url, json=payload, headers=headers)
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                delay = 2**attempt + random.uniform(0, 0.5)
+                logger.warning(
+                    "{} timeout, retrying in {:.1f}s (attempt {}/{})",
+                    label,
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(delay)
+            continue
+
+        if resp.status_code < 400:
+            return resp
+
+        if resp.status_code not in _RETRIABLE_STATUS_CODES:
+            resp.raise_for_status()
+
+        last_exc = httpx.HTTPStatusError(
+            message=f"HTTP {resp.status_code}",
+            request=resp.request,
+            response=resp,
+        )
+        if attempt < max_retries:
+            delay = 2**attempt + random.uniform(0, 0.5)  # ~1s, ~2s, ~4s
+            logger.warning(
+                "{} returned {}, retrying in {:.1f}s (attempt {}/{})",
+                label,
+                resp.status_code,
+                delay,
+                attempt + 1,
+                max_retries,
+            )
+            time.sleep(delay)
+
+    assert last_exc is not None
+    raise last_exc
+
 
 def judge_eval_output(
     api_key: str,
@@ -33,6 +103,9 @@ def judge_eval_output(
     eval_case_name: str,
     eval_criteria: str,
     agent_output: str,
+    *,
+    timeout: int = _DEFAULT_TIMEOUT,
+    max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict:
     """Judge agent output against eval criteria using an Anthropic model.
 
@@ -61,13 +134,14 @@ def judge_eval_output(
     }
 
     logger.debug("Calling Anthropic judge API model={} case={}", model, eval_case_name)
-    response = httpx.post(
+    response = _post_with_retry(
         _ANTHROPIC_API_URL,
-        json=payload,
-        headers=headers,
-        timeout=60,
+        payload,
+        headers,
+        timeout=timeout,
+        max_retries=max_retries,
+        label=f"Anthropic judge ({model})",
     )
-    response.raise_for_status()
 
     data = response.json()
     raw_text = data["content"][0]["text"]
