@@ -1385,6 +1385,12 @@ def _refresh_skill_latest_version(conn: Connection, skill_id: UUID) -> None:
             versions_table.c.semver_major.desc(),
             versions_table.c.semver_minor.desc(),
             versions_table.c.semver_patch.desc(),
+            # Unique tiebreaker so LIMIT 1 is deterministic when two rows
+            # accidentally share a (major, minor, patch) triple.  The
+            # (skill_id, semver) uniqueness constraint *should* make this
+            # unnecessary, but belt-and-braces for robustness per
+            # CLAUDE.md (SQL query correctness).
+            versions_table.c.id.desc(),
         )
         .limit(1)
     )
@@ -2125,7 +2131,10 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        # Tiebreaker on skills.id keeps the top-N set deterministic when
+        # multiple candidates share an identical vec_dist (common for
+        # near-duplicate embeddings).
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc())
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -2425,6 +2434,10 @@ def has_recent_quarantine(
         return False
 
     cutoff = sa.func.now() - timedelta(hours=max_age_hours)
+    # Deterministic ORDER BY with a unique tiebreaker (id) keeps LIMIT 1
+    # behavior stable across replicas — without it, multiple F-grade
+    # entries sharing the same (org, skill, checksum) return an arbitrary
+    # row, so `exists`-style checks become non-reproducible.
     stmt = (
         sa.select(sa.literal(1))
         .select_from(eval_audit_logs_table)
@@ -2434,6 +2447,10 @@ def has_recent_quarantine(
             eval_audit_logs_table.c.checksum == checksum,
             eval_audit_logs_table.c.grade == "F",
             eval_audit_logs_table.c.created_at > cutoff,
+        )
+        .order_by(
+            eval_audit_logs_table.c.created_at.desc(),
+            eval_audit_logs_table.c.id.desc(),
         )
         .limit(1)
     )
@@ -2706,6 +2723,42 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     if row is None:
         return None
     return _row_to_eval_run(row)
+
+
+def mark_eval_run_failed_if_stale(
+    conn: Connection,
+    run_id: UUID,
+    *,
+    observed_heartbeat_at: datetime,
+    error_message: str,
+    completed_at: datetime,
+) -> bool:
+    """Atomically mark an eval run failed only if its heartbeat is still stale.
+
+    Prevents a read-check-update race where the caller observed a stale
+    heartbeat but a live worker emits a fresh heartbeat before we write
+    ``status='failed'``.  The UPDATE is gated by ``heartbeat_at`` still
+    equalling the value the caller saw; if the worker updated it in the
+    meantime, the UPDATE affects zero rows and we return ``False``.
+
+    Returns True when the row was marked failed, False otherwise.
+    """
+    stmt = (
+        sa.update(eval_runs_table)
+        .where(
+            eval_runs_table.c.id == run_id,
+            eval_runs_table.c.heartbeat_at == observed_heartbeat_at,
+            eval_runs_table.c.status.in_(("running", "judging", "provisioning")),
+        )
+        .values(
+            status="failed",
+            error_message=error_message,
+            completed_at=completed_at,
+            heartbeat_at=sa.func.now(),
+        )
+    )
+    result = conn.execute(stmt)
+    return bool(result.rowcount)
 
 
 def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:

@@ -24,7 +24,7 @@ from decision_hub.domain.repo_utils import (
     bump_version,
     clone_repo,
     create_zip,
-    discover_skills,
+    discover_skills_with_names,
     parse_semver,
 )
 from decision_hub.domain.skill_manifest import parse_skill_md
@@ -751,7 +751,12 @@ def process_tracker(
         repo_root = clone_repo(tracker.repo_url, tracker.branch, github_token=github_token)
 
         try:
-            skill_dirs = discover_skills(repo_root)
+            # Parse each SKILL.md once here and keep both the directory
+            # and the resolved skill name.  The name is reused below for
+            # removal detection so we don't re-parse every manifest.
+            discovered = discover_skills_with_names(repo_root)
+            skill_dirs = [path for _, path in discovered]
+            discovered_names: set[str] = {name for name, _ in discovered}
             if not skill_dirs:
                 with engine.connect() as conn:
                     update_skill_tracker(
@@ -802,6 +807,10 @@ def process_tracker(
                     )
 
             all_failed = published_count == 0 and len(errors) > 0
+            # Record per-skill errors whenever anything failed, including
+            # partial-failure cases.  Previously only total failures wrote
+            # last_error, so a 1-of-3 failure vanished silently.
+            last_error_msg = "; ".join(errors)[:500] if errors else None
             with engine.connect() as conn:
                 update_skill_tracker(
                     conn,
@@ -811,13 +820,16 @@ def process_tracker(
                     last_commit_sha=current_sha if not all_failed else None,
                     last_checked_at=now,
                     last_published_at=now if published_count > 0 else None,
-                    last_error="; ".join(errors)[:500] if all_failed else None,
+                    last_error=last_error_msg,
                 )
                 conn.commit()
 
             # Detect skills removed from repo: compare discovered skill names
             # against DB skills for this org+repo and mark missing ones.
-            _detect_removed_skills(skill_dirs, tracker, engine)
+            # Names were already parsed during discover_skills_with_names
+            # above, so we hand them over instead of re-parsing every
+            # SKILL.md.
+            _detect_removed_skills(discovered_names, skill_dirs, tracker, engine)
 
             logger.info(
                 "tracker_id={} repo={}/{} status=changed published={} sha={}",
@@ -855,29 +867,26 @@ def process_tracker(
 
 
 def _detect_removed_skills(
+    discovered_names: set[str],
     skill_dirs: list[Path],
     tracker: SkillTracker,
     engine: Any,
 ) -> None:
     """Compare discovered skill names against DB and mark missing ones as removed.
 
-    Parses each discovered SKILL.md to extract the canonical skill name, then
-    queries the DB for existing (non-removed) skills under the same org+repo.
-    Any DB skills not found in the current discovery are marked source_repo_removed=true.
+    Receives the pre-parsed ``discovered_names`` set from the caller so
+    we don't re-open and re-parse every SKILL.md (the previous
+    implementation did a second parse-pass here).  Skills present in the
+    DB under the same org+repo but missing from the set are marked
+    ``source_repo_removed=true``.
+
+    ``skill_dirs`` is still accepted to retain the legacy safety guard:
+    if the caller passed in a non-empty list but every parse failed
+    upstream, ``discovered_names`` will be empty and subtracting from
+    ``db_names`` would wipe every skill row.  Bail out instead.
     """
     from decision_hub.infra.database import fetch_skill_names_by_source_repo, mark_skills_removed_by_name
 
-    discovered_names: set[str] = set()
-    for skill_dir in skill_dirs:
-        try:
-            manifest = parse_skill_md(skill_dir / "SKILL.md")
-            discovered_names.add(manifest.name)
-        except (ValueError, FileNotFoundError):
-            continue
-
-    # Guard: if skill_dirs were provided but every parse failed,
-    # discovered_names is empty and the subtraction would incorrectly
-    # mark all DB skills as removed.  Bail out instead.
     if skill_dirs and not discovered_names:
         logger.warning(
             "tracker_id={} repo={} all {} SKILL.md parses failed, skipping removal detection",

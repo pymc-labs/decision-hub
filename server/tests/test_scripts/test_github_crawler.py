@@ -940,6 +940,49 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         assert result == []
 
+    def test_discover_with_names_returns_name_and_path(self, tmp_path):
+        """discover_skills_with_names returns the parsed skill name alongside
+        the directory so callers don't have to re-parse SKILL.md."""
+        from decision_hub.domain.repo_utils import discover_skills_with_names
+
+        skill1 = tmp_path / "skills" / "skill-a"
+        skill1.mkdir(parents=True)
+        (skill1 / "SKILL.md").write_text("---\nname: skill-a\ndescription: test\n---\nBody")
+
+        with patch("decision_hub.domain.skill_manifest.parse_skill_md") as mock_parse:
+            m1 = MagicMock()
+            m1.name = "skill-a"
+            mock_parse.return_value = m1
+            result = discover_skills_with_names(tmp_path)
+
+        assert len(result) == 1
+        name, path = result[0]
+        assert name == "skill-a"
+        assert path == skill1
+
+    def test_discover_parses_each_manifest_exactly_once(self, tmp_path):
+        """Previous implementations parsed SKILL.md twice (once in
+        discover, once in the removal-detection pass).  Ensure a single
+        discovery pass results in a single parse per file."""
+        from decision_hub.domain.repo_utils import discover_skills_with_names
+
+        for name in ("skill-a", "skill-b", "skill-c"):
+            d = tmp_path / "skills" / name
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: test\n---\nBody")
+
+        with patch("decision_hub.domain.skill_manifest.parse_skill_md") as mock_parse:
+            manifests = []
+            for name in ("skill-a", "skill-b", "skill-c"):
+                m = MagicMock()
+                m.name = name
+                manifests.append(m)
+            mock_parse.side_effect = manifests
+            result = discover_skills_with_names(tmp_path)
+
+        assert len(result) == 3
+        assert mock_parse.call_count == 3
+
 
 # ---------------------------------------------------------------------------
 # Clone repo tests

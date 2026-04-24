@@ -58,9 +58,9 @@ from decision_hub.infra.database import (
     list_granted_skill_ids,
     list_skill_access_grants_with_names,
     list_user_org_ids,
+    mark_eval_run_failed_if_stale,
     resolve_latest_version,
     resolve_version,
-    update_eval_run_status,
     update_skill_visibility,
 )
 from decision_hub.infra.database import (
@@ -1100,8 +1100,13 @@ def _run_to_response(run) -> EvalRunResponse:
 def _check_zombie(conn: Connection, run) -> str:
     """Check if a running eval run has a stale heartbeat (zombie).
 
-    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, atomically
+    marks the run as failed (gated on the heartbeat not moving in the
+    meantime) and returns "failed". Otherwise returns run.status.
+
+    The UPDATE is conditional on ``heartbeat_at`` still equalling the
+    value we observed, so a live worker emitting a fresh heartbeat
+    between the read and the write is not clobbered.
     """
     if run.status not in ("running", "judging", "provisioning"):
         return run.status
@@ -1109,14 +1114,15 @@ def _check_zombie(conn: Connection, run) -> str:
         return run.status
     elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
     if elapsed > _STALE_HEARTBEAT_SECONDS:
-        update_eval_run_status(
+        marked = mark_eval_run_failed_if_stale(
             conn,
             run.id,
-            status="failed",
+            observed_heartbeat_at=run.heartbeat_at,
             error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
             completed_at=datetime.now(UTC),
         )
-        return "failed"
+        if marked:
+            return "failed"
     return run.status
 
 

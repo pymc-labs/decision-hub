@@ -68,22 +68,28 @@ def clone_repo(
     return tmp_dir / "repo"
 
 
-def discover_skills(root: Path) -> list[Path]:
-    """Find skill directories (containing valid SKILL.md) under a root path.
+def discover_skills_with_names(root: Path) -> list[tuple[str, Path]]:
+    """Find skill directories with their parsed manifest names.
 
-    Skips hidden directories, node_modules, and __pycache__.
-    Only includes directories where SKILL.md parses successfully.
+    Returns ``(skill_name, directory_path)`` pairs.  Skips hidden
+    directories, node_modules, and __pycache__.  Only includes directories
+    where SKILL.md parses successfully.
 
     When multiple SKILL.md files declare the same skill name, only the
     shallowest one is kept (sorted() + rglob guarantee breadth-first order).
-    This prevents the same skill from being zipped from different directories,
-    which would produce different checksums and bypass quarantine dedup.
+    This prevents the same skill from being zipped from different
+    directories, which would produce different checksums and bypass
+    quarantine dedup.
+
+    Exposing the name here lets callers avoid re-parsing SKILL.md (the
+    tracker used to parse every file a second time just to extract the
+    skill name for removal detection).
     """
     import yaml
 
     from decision_hub.domain.skill_manifest import parse_skill_md
 
-    seen_names: dict[str, Path] = {}
+    seen: dict[str, Path] = {}
     # Sort by depth (fewest path components first) then alphabetically,
     # so the shallowest SKILL.md wins when names collide.
     candidates = sorted(root.rglob("SKILL.md"), key=lambda p: (len(p.relative_to(root).parts), p))
@@ -95,9 +101,19 @@ def discover_skills(root: Path) -> list[Path]:
             manifest = parse_skill_md(skill_md)
         except (ValueError, FileNotFoundError, yaml.YAMLError):
             continue
-        if manifest.name not in seen_names:
-            seen_names[manifest.name] = skill_md.parent
-    return list(seen_names.values())
+        if manifest.name not in seen:
+            seen[manifest.name] = skill_md.parent
+    return list(seen.items())
+
+
+def discover_skills(root: Path) -> list[Path]:
+    """Find skill directories (containing valid SKILL.md) under a root path.
+
+    Thin wrapper around :func:`discover_skills_with_names` that drops the
+    parsed skill name.  Prefer :func:`discover_skills_with_names` when you
+    also need the skill name, so you don't pay for parsing twice.
+    """
+    return [path for _name, path in discover_skills_with_names(root)]
 
 
 def create_zip(path: Path) -> bytes:

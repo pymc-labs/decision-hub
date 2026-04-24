@@ -82,19 +82,21 @@ class TestGetEvalRun:
 
         assert resp.status_code == 404
 
-    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.mark_eval_run_failed_if_stale")
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_zombie_detection_marks_stale_run_as_failed(
         self,
         mock_find_run: MagicMock,
-        mock_update_status: MagicMock,
+        mock_mark_stale: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """A running eval with a heartbeat >5 min stale is marked failed."""
+        """A running eval with a heartbeat >5 min stale is marked failed
+        via an atomic conditional UPDATE (gated on observed heartbeat)."""
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
 
+        mock_mark_stale.return_value = True  # conditional update succeeded
         # find_eval_run is called twice: once before zombie check, once after
         failed_run = _make_eval_run(
             id=run.id,
@@ -108,16 +110,51 @@ class TestGetEvalRun:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
-        mock_update_status.assert_called_once()
-        call_kwargs = mock_update_status.call_args
-        assert call_kwargs.kwargs.get("status") == "failed"
+        mock_mark_stale.assert_called_once()
+        # The UPDATE must be gated on the heartbeat we observed.
+        assert mock_mark_stale.call_args.kwargs["observed_heartbeat_at"] == stale_heartbeat
 
-    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.mark_eval_run_failed_if_stale")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_zombie_detection_respects_concurrent_heartbeat(
+        self,
+        mock_find_run: MagicMock,
+        mock_mark_stale: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """If a live worker emitted a fresh heartbeat between our read
+        and the conditional UPDATE, ``mark_eval_run_failed_if_stale``
+        returns False and the zombie check must not report 'failed'."""
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
+        run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
+
+        # Atomic UPDATE affected 0 rows because a concurrent transaction
+        # advanced heartbeat_at.
+        mock_mark_stale.return_value = False
+
+        # Second read reveals the run is actually still running (a live
+        # worker is writing heartbeats).
+        live_run = _make_eval_run(
+            id=run.id,
+            status="running",
+            heartbeat_at=datetime.now(UTC),
+        )
+        mock_find_run.side_effect = [run, live_run]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        # Must NOT be 'failed' — the live worker won the race.
+        assert resp.json()["status"] == "running"
+        mock_mark_stale.assert_called_once()
+
+    @patch("decision_hub.api.registry_routes.mark_eval_run_failed_if_stale")
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_fresh_heartbeat_not_marked_zombie(
         self,
         mock_find_run: MagicMock,
-        mock_update_status: MagicMock,
+        mock_mark_stale: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
@@ -132,7 +169,7 @@ class TestGetEvalRun:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "running"
-        mock_update_status.assert_not_called()
+        mock_mark_stale.assert_not_called()
 
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_completed_run_not_checked_for_zombie(
@@ -382,14 +419,14 @@ class TestGetEvalRunLogs:
 
         assert resp.status_code == 404
 
-    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.mark_eval_run_failed_if_stale")
     @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_zombie_detected_during_log_fetch(
         self,
         mock_find_run: MagicMock,
         mock_list_chunks: MagicMock,
-        mock_update_status: MagicMock,
+        mock_mark_stale: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
@@ -398,6 +435,7 @@ class TestGetEvalRunLogs:
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
         mock_find_run.return_value = run
         mock_list_chunks.return_value = []
+        mock_mark_stale.return_value = True
 
         resp = client.get(
             f"/v1/eval-runs/{run.id}/logs?cursor=0",
@@ -406,7 +444,7 @@ class TestGetEvalRunLogs:
 
         assert resp.status_code == 200
         assert resp.json()["run_status"] == "failed"
-        mock_update_status.assert_called_once()
+        mock_mark_stale.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
