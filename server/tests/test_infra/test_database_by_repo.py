@@ -2,7 +2,12 @@
 
 from unittest.mock import MagicMock, patch
 
-from decision_hub.infra.database import _normalize_repo_url, fetch_skills_by_repo
+from decision_hub.infra.database import (
+    _normalize_repo_url,
+    batch_update_github_repo_metadata,
+    batch_update_github_stars,
+    fetch_skills_by_repo,
+)
 
 # ---------------------------------------------------------------------------
 # _normalize_repo_url
@@ -104,3 +109,57 @@ class TestFetchSkillsByRepo:
         with patch("decision_hub.infra.database.list_granted_skill_ids") as mock_granted:
             fetch_skills_by_repo(conn, "https://github.com/acme/repo")
             mock_granted.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# batch_update_github_stars / batch_update_github_repo_metadata: LIKE escaping
+# ---------------------------------------------------------------------------
+
+
+def _captured_like_pattern(executed_stmt) -> str:
+    """Pull the rendered LIKE pattern out of the UPDATE statement.
+
+    The WHERE clause is `OR(eq, like)`. We compile the statement with literal
+    binds and inspect the resulting SQL — that's what would actually hit the
+    database, after parameter binding.
+    """
+    compiled = executed_stmt.compile(compile_kwargs={"literal_binds": True})
+    return str(compiled)
+
+
+class TestBatchUpdateGithubStarsEscaping:
+    """Repo URLs containing LIKE wildcards must not match unrelated rows.
+
+    The `source_repo_url LIKE '<url>/%'` clause is meant to match subdir-style
+    skills under the same repo. Without escaping, a `%` inside the URL (e.g.
+    a percent-encoded path) becomes a SQL wildcard and the predicate may match
+    any row whose URL happens to share the prefix.
+    """
+
+    def test_url_with_percent_is_escaped(self) -> None:
+        conn = MagicMock()
+        url = "https://github.com/acme/repo%foo"
+        batch_update_github_stars(conn, {url: 7})
+        sql = _captured_like_pattern(conn.execute.call_args[0][0])
+        # The literal `%foo/` must be escaped (`\%foo`); the trailing `/%`
+        # wildcard remains so subdir paths still match.
+        assert r"\%foo/%" in sql
+        assert "ESCAPE" in sql.upper()
+
+    def test_url_with_underscore_is_escaped(self) -> None:
+        conn = MagicMock()
+        url = "https://github.com/acme/under_score"
+        batch_update_github_stars(conn, {url: 1})
+        sql = _captured_like_pattern(conn.execute.call_args[0][0])
+        assert r"under\_score/%" in sql
+
+    def test_repo_metadata_update_escapes_percent(self) -> None:
+        conn = MagicMock()
+        url = "https://github.com/acme/repo%bar"
+        batch_update_github_repo_metadata(
+            conn,
+            {url: {"forks": 1, "watchers": 2, "is_archived": False, "license": "MIT"}},
+        )
+        sql = _captured_like_pattern(conn.execute.call_args[0][0])
+        assert r"\%bar/%" in sql
+        assert "ESCAPE" in sql.upper()

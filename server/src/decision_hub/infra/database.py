@@ -1189,12 +1189,16 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     subdirectories of the same repo).
     """
     for repo_url, stars in repo_stars.items():
+        # _escape_like neutralises any LIKE wildcards (`%`, `_`) that legitimately
+        # appear inside the URL (e.g. percent-encoded paths) so the prefix match
+        # cannot accidentally span unrelated rows.
+        like_prefix = f"{_escape_like(repo_url)}/%"
         stmt = (
             sa.update(skills_table)
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(like_prefix, escape="\\"),
                 )
             )
             .values(github_stars=stars)
@@ -1212,12 +1216,14 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
     subdirectories of the same repo).
     """
     for repo_url, meta in repo_metadata.items():
+        # See batch_update_github_stars for why we escape LIKE wildcards.
+        like_prefix = f"{_escape_like(repo_url)}/%"
         stmt = (
             sa.update(skills_table)
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(like_prefix, escape="\\"),
                 )
             )
             .values(
@@ -2040,7 +2046,8 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Add a unique tiebreaker so LIMIT pagination is stable when ranks tie.
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id.asc()).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2059,8 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # Add a unique tiebreaker so LIMIT pagination is stable when distances tie.
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc()).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2720,11 +2728,15 @@ def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalR
 
 
 def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int = 10) -> list[EvalRun]:
-    """Find recent eval runs for a user, newest first."""
+    """Find recent eval runs for a user, newest first.
+
+    Adds the run id as a unique tiebreaker so two runs created in the same
+    instant have a deterministic order, and LIMIT pagination is stable.
+    """
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()
@@ -2922,13 +2934,17 @@ def claim_due_trackers(
     )
 
     # Select due tracker IDs with row-level locking, skipping already-locked rows.
-    # ORDER BY prioritises never-checked (NULLS FIRST) then most-overdue,
-    # which matches the ix_skill_trackers_next_check index.
+    # ORDER BY prioritises never-checked (NULLS FIRST) then most-overdue, with
+    # the tracker id as a unique tiebreaker so concurrent claimers see a
+    # deterministic batch order. Matches the ix_skill_trackers_next_check index.
     # LIMIT prevents unbounded lock acquisition at scale.
     locked_ids_cte = (
         sa.select(skill_trackers_table.c.id)
         .where(due_filter)
-        .order_by(skill_trackers_table.c.next_check_at.asc().nulls_first())
+        .order_by(
+            skill_trackers_table.c.next_check_at.asc().nulls_first(),
+            skill_trackers_table.c.id.asc(),
+        )
         .limit(batch_size)
         .with_for_update(skip_locked=True)
         .cte("locked_ids")
@@ -3248,8 +3264,19 @@ def insert_tracker_metrics(
 
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
-    """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    """Return recent tracker metrics rows, newest first.
+
+    The ``id`` column is added as a unique tiebreaker so rows recorded in the
+    same instant have a deterministic order under LIMIT.
+    """
+    stmt = (
+        sa.select(tracker_metrics_table)
+        .order_by(
+            tracker_metrics_table.c.recorded_at.desc(),
+            tracker_metrics_table.c.id.desc(),
+        )
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 

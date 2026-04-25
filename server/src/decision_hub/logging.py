@@ -248,13 +248,14 @@ def _extract_username_from_jwt(auth_header: str) -> str:
     This is only used for logging context — actual auth verification
     happens in the dependency layer. We decode the payload segment
     (base64url) to read the ``username`` claim. Returns empty string
-    on any failure.
+    on any failure; the failure is logged at DEBUG so persistent decode
+    issues remain diagnosable without spamming production logs.
     """
     import base64
 
+    if not auth_header.startswith("Bearer "):
+        return ""
     try:
-        if not auth_header.startswith("Bearer "):
-            return ""
         token = auth_header[7:]
         parts = token.split(".")
         if len(parts) != 3:
@@ -265,4 +266,5 @@ def _extract_username_from_jwt(auth_header: str) -> str:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
         return payload.get("username", "")
     except Exception:
+        logger.opt(exception=True).debug("Could not extract username from JWT for logging context")
         return ""
