@@ -2040,7 +2040,13 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Tiebreaker on (org_slug, skill_name) keeps pagination/results
+        # deterministic when ts_rank_cd ties (common for short queries).
+        fts_stmt = fts_stmt.order_by(
+            sa.text("fts_rank DESC"),
+            organizations_table.c.slug,
+            skills_table.c.name,
+        ).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2058,13 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # Tiebreaker on (org_slug, skill_name) keeps results deterministic
+        # when cosine distances tie (rare but possible for normalized vectors).
+        vec_stmt = vec_stmt.order_by(
+            sa.text("vec_dist ASC"),
+            organizations_table.c.slug,
+            skills_table.c.name,
+        ).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,7 +2137,13 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        # Tiebreaker on (org_slug, skill_name) keeps "similar skills"
+        # deterministic when cosine distances tie.
+        .order_by(
+            sa.text("vec_dist ASC"),
+            organizations_table.c.slug,
+            skills_table.c.name,
+        )
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
