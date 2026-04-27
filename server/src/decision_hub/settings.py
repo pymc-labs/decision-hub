@@ -93,6 +93,17 @@ class Settings(BaseSettings):
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
 
+    # Light-weight read endpoints — generous defaults; the limit exists to
+    # block abusive bots, not to throttle the frontend.
+    stats_rate_limit: int = 120
+    stats_rate_window: int = 60
+    skill_summary_rate_limit: int = 120
+    skill_summary_rate_window: int = 60
+    eval_report_rate_limit: int = 60
+    eval_report_rate_window: int = 60
+    taxonomy_rate_limit: int = 120
+    taxonomy_rate_window: int = 60
+
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096
     sandbox_timeout_seconds: int = 900

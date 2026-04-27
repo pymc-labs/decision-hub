@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,35 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def lazy_rate_limiter(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that rate-limits a route by ``<name>``.
+
+    The limiter is constructed on first call from settings fields
+    ``<name>_rate_limit`` (max requests) and ``<name>_rate_window`` (seconds)
+    and cached on ``request.app.state`` under ``_<name>_rate_limiter`` so all
+    requests in the same Modal container share counters.
+
+    Replaces a family of near-identical ``_enforce_*_rate_limit`` helpers:
+    each route now writes ``dependencies=[Depends(lazy_rate_limiter("publish"))]``
+    instead of declaring its own factory function.
+    """
+    state_attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def _dependency(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    _dependency.__name__ = f"_enforce_{name}_rate_limit"
+    return _dependency

@@ -347,4 +347,74 @@ describe("AskModal", () => {
       expect(onClose).toHaveBeenCalled();
     });
   });
+
+  describe("state reset on close", () => {
+    it("clears the previous conversation when reopened", async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      const { rerender } = render(
+        <MemoryRouter>
+          <AskModal isOpen={true} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      // Send a question and wait for the answer to render.
+      const input = screen.getByPlaceholderText("Ask about skills...");
+      await user.type(input, "analyze data");
+      await user.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() =>
+        expect(screen.getByText(/great skills/)).toBeInTheDocument(),
+      );
+
+      // Close the modal — component returns null but state lives on…
+      rerender(
+        <MemoryRouter>
+          <AskModal isOpen={false} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      // …reopening should NOT show the stale conversation.
+      rerender(
+        <MemoryRouter>
+          <AskModal isOpen={true} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByText("analyze data")).not.toBeInTheDocument();
+      expect(screen.queryByText(/great skills/)).not.toBeInTheDocument();
+      expect(screen.getByText("What are you looking for?")).toBeInTheDocument();
+    });
+
+    it("clears a stale error when reopened", async () => {
+      server.use(
+        http.post("/v1/ask", () =>
+          new HttpResponse("Internal Server Error", { status: 500 }),
+        ),
+      );
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      const { rerender } = render(
+        <MemoryRouter>
+          <AskModal isOpen={true} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      await user.type(screen.getByPlaceholderText("Ask about skills..."), "broken");
+      await user.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(screen.getByText(/API 500/)).toBeInTheDocument());
+
+      rerender(
+        <MemoryRouter>
+          <AskModal isOpen={false} onClose={onClose} />
+        </MemoryRouter>,
+      );
+      rerender(
+        <MemoryRouter>
+          <AskModal isOpen={true} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByText(/API 500/)).not.toBeInTheDocument();
+    });
+  });
 });

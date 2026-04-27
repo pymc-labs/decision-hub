@@ -785,13 +785,15 @@ def execute_publish(
             settings=settings,
             user_id=user_id,
         )
-    except Exception as exc:
-        logger.warning(
-            "Eval trigger failed for {}/{} v{} (publish succeeded): {}",
+    except Exception:
+        # Publish has already committed; eval trigger is best-effort.
+        # Use opt(exception=True) so the traceback survives — the rest of
+        # this file already follows that pattern.
+        logger.opt(exception=True).warning(
+            "Eval trigger failed for {}/{} v{} (publish succeeded)",
             org_slug,
             skill_name,
             version,
-            exc,
         )
 
     logger.info(

@@ -4,10 +4,13 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 
 from decision_hub.api.deps import get_settings
+from decision_hub.api.rate_limit import lazy_rate_limiter
 from decision_hub.settings import Settings
 from dhub_core.taxonomy import CATEGORY_TAXONOMY
 
 public_router = APIRouter(prefix="/v1", tags=["taxonomy"])
+
+_enforce_taxonomy_rate_limit = lazy_rate_limiter("taxonomy")
 
 
 class TaxonomyResponse(BaseModel):
@@ -16,7 +19,11 @@ class TaxonomyResponse(BaseModel):
     groups: dict[str, list[str]]
 
 
-@public_router.get("/taxonomy", response_model=TaxonomyResponse)
+@public_router.get(
+    "/taxonomy",
+    response_model=TaxonomyResponse,
+    dependencies=[Depends(_enforce_taxonomy_rate_limit)],
+)
 def get_taxonomy(
     response: Response,
     settings: Settings = Depends(get_settings),

@@ -41,6 +41,17 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
     }
   }, [isOpen]);
 
+  // Reset transient state when the modal closes so reopening starts fresh —
+  // otherwise a stale conversation or error message would still be displayed.
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery("");
+      setMessages([]);
+      setError(null);
+      setLoading(false);
+    }
+  }, [isOpen]);
+
   // Re-read recently viewed from localStorage each time the modal opens
   useEffect(() => {
     if (isOpen) refreshRecentlyViewed();
