@@ -291,7 +291,13 @@ class TestProcessTrackerAllFailed:
         _mock_commits,
         _mock_token,
     ):
-        """When at least one skill succeeds, SHA advances and no error is recorded."""
+        """Mixed run: SHA advances (successful skills are now pinned to it),
+        but ``last_error`` records the failed skills so operators can see
+        what's broken — even though some skills published successfully.
+
+        Regression: previously ``last_error`` was only recorded when *every*
+        skill failed, which silently hid mixed-outcome runs.
+        """
         tracker = self._make_tracker()
         mock_clone.return_value = Path("/tmp/fake/repo")
         mock_discover.return_value = [
@@ -314,9 +320,67 @@ class TestProcessTrackerAllFailed:
 
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
-            # SHA should advance since at least one succeeded
+            # SHA should advance since at least one succeeded.
             assert kwargs["last_commit_sha"] == "new_sha_xyz"
-            assert kwargs["last_error"] is None
+            # last_published_at is set since a publish actually happened.
+            assert kwargs["last_published_at"] is not None
+            # Failure is now visible to the operator (was None before fix).
+            assert kwargs["last_error"] is not None
+            assert "skill-b" in kwargs["last_error"]
+            assert "gauntlet error" in kwargs["last_error"]
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
+    @patch("decision_hub.domain.tracker_service.clone_repo")
+    @patch("decision_hub.domain.tracker_service.discover_skills")
+    @patch("decision_hub.infra.storage.create_s3_client")
+    @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
+    def test_partial_failure_with_multiple_errors_aggregates_them(
+        self,
+        mock_publish,
+        _mock_s3,
+        mock_discover,
+        mock_clone,
+        _mock_commits,
+        _mock_token,
+    ):
+        """Multiple failed skills are concatenated into ``last_error``.
+
+        Locks in the partial-failure visibility fix: every error is named
+        with its skill so operators can act, capped at 500 chars to fit
+        the column.
+        """
+        tracker = self._make_tracker()
+        mock_clone.return_value = Path("/tmp/fake/repo")
+        mock_discover.return_value = [
+            Path("/tmp/fake/repo/skill-a"),
+            Path("/tmp/fake/repo/skill-b"),
+            Path("/tmp/fake/repo/skill-c"),
+        ]
+        mock_publish.side_effect = [
+            True,
+            RuntimeError("bad manifest"),
+            ValueError("zip too large"),
+        ]
+
+        mock_conn = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = "postgresql://test"
+
+        with patch("decision_hub.infra.database.update_skill_tracker") as mock_update:
+            process_tracker(tracker, mock_settings, mock_engine)
+
+            mock_update.assert_called_once()
+            _, kwargs = mock_update.call_args
+            err = kwargs["last_error"]
+            assert err is not None
+            assert "skill-b" in err and "bad manifest" in err
+            assert "skill-c" in err and "zip too large" in err
+            assert len(err) <= 500
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
@@ -1749,7 +1813,7 @@ class TestProcessTrackerMultiSkillPartialFailure:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
-    def test_three_of_five_succeed_advances_sha_clears_error(
+    def test_three_of_five_succeed_advances_sha_records_errors(
         self,
         mock_publish,
         _mock_s3,
@@ -1758,7 +1822,14 @@ class TestProcessTrackerMultiSkillPartialFailure:
         _mock_commits,
         _mock_token,
     ):
-        """When 3 out of 5 skills succeed and 2 fail, SHA advances and last_error is cleared."""
+        """3-of-5 succeed: SHA advances, ``last_published_at`` is set, and
+        ``last_error`` aggregates the two failed skills.
+
+        Regression: pre-fix, ``last_error`` was set to None on partial
+        success — operators couldn't tell mixed-outcome runs from clean
+        ones, and the failed skills never retried because the SHA had
+        moved on.
+        """
         tracker = self._make_tracker()
         mock_clone.return_value = Path("/tmp/fake/repo")
         mock_discover.return_value = [
@@ -1790,12 +1861,15 @@ class TestProcessTrackerMultiSkillPartialFailure:
 
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
-            # SHA advances because at least one skill succeeded
+            # SHA advances because at least one skill succeeded.
             assert kwargs["last_commit_sha"] == "new_sha_multi"
-            # last_error is None because not all failed
-            assert kwargs["last_error"] is None
-            # last_published_at should be set because 3 skills were published
+            # last_published_at is set because 3 skills were published.
             assert kwargs["last_published_at"] is not None
+            # last_error now reports both failures so operators can act.
+            err = kwargs["last_error"]
+            assert err is not None
+            assert "skill-b" in err
+            assert "skill-e" in err
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_all_fail"))

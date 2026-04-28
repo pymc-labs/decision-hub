@@ -167,6 +167,24 @@ def _enforce_publish_rate_limit(request: Request) -> None:
     state._publish_rate_limiter(request)
 
 
+def _enforce_skill_metadata_rate_limit(request: Request) -> None:
+    """Rate-limit per-skill metadata reads (summary, latest-version, eval-report).
+
+    These four public endpoints are unauthenticated and each hits the DB.
+    Without a limiter they are trivially scrapable and can hot-loop the
+    database — share one limiter across them so a single bad client
+    can't single-handedly amplify per-endpoint quotas.
+    """
+    state = request.app.state
+    if not hasattr(state, "_skill_metadata_rate_limiter"):
+        settings: Settings = state.settings
+        state._skill_metadata_rate_limiter = RateLimiter(
+            max_requests=settings.skill_metadata_rate_limit,
+            window_seconds=settings.skill_metadata_rate_window,
+        )
+    state._skill_metadata_rate_limiter(request)
+
+
 _VALID_VISIBILITIES = {"public", "org"}
 
 
@@ -642,6 +660,7 @@ def list_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/summary",
     response_model=SkillSummary,
+    dependencies=[Depends(_enforce_skill_metadata_rate_limit)],
 )
 def get_skill_summary(
     org_slug: str,
@@ -718,6 +737,7 @@ def get_similar_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/latest-version",
     response_model=LatestVersionResponse,
+    dependencies=[Depends(_enforce_skill_metadata_rate_limit)],
 )
 def get_latest_version(
     org_slug: str,
@@ -955,6 +975,7 @@ def get_scan_report(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(_enforce_skill_metadata_rate_limit)],
 )
 def get_eval_report_by_skill(
     org_slug: str,
@@ -977,6 +998,7 @@ def get_eval_report_by_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/versions/{semver}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(_enforce_skill_metadata_rate_limit)],
 )
 def get_eval_report_by_version_path(
     org_slug: str,

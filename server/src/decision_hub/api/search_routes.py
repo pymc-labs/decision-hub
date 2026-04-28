@@ -3,6 +3,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Lock
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -27,6 +28,28 @@ from decision_hub.models import SkillIndexEntry, User
 from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["search"])
+
+# Process-wide thread pool used to parallelise the two pre-retrieval Gemini
+# calls (topicality guard + query embedding). The previous implementation
+# created a fresh ThreadPoolExecutor per request, which churns OS threads
+# under load — a single-digit RPS bump can balloon into hundreds of
+# short-lived threads. A bounded shared pool reuses workers and caps
+# concurrent Gemini side-calls to a sensible ceiling.
+_SHARED_PARALLEL_POOL: ThreadPoolExecutor | None = None
+_POOL_LOCK = Lock()
+
+
+def _get_parallel_pool() -> ThreadPoolExecutor:
+    """Return a process-wide ThreadPoolExecutor, creating it on first use."""
+    global _SHARED_PARALLEL_POOL
+    if _SHARED_PARALLEL_POOL is None:
+        with _POOL_LOCK:
+            if _SHARED_PARALLEL_POOL is None:
+                _SHARED_PARALLEL_POOL = ThreadPoolExecutor(
+                    max_workers=8,
+                    thread_name_prefix="ask-parallel",
+                )
+    return _SHARED_PARALLEL_POOL
 
 
 def _enforce_search_rate_limit(request: Request) -> None:
@@ -341,11 +364,11 @@ def _ask_skills_inner(
             logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")
             return None, 0
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        guard_future = pool.submit(_do_guard)
-        embed_future = pool.submit(_do_embed)
-        guard_result = guard_future.result()
-        query_embedding, embed_ms = embed_future.result()
+    pool = _get_parallel_pool()
+    guard_future = pool.submit(_do_guard)
+    embed_future = pool.submit(_do_embed)
+    guard_result = guard_future.result()
+    query_embedding, embed_ms = embed_future.result()
 
     if not guard_result.is_skill_query:
         return AskResponse(query=q, answer=_OFF_TOPIC_ANSWER, skills=[])

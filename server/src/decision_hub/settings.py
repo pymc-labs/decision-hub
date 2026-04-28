@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
+    # Per-skill metadata reads (summary, latest-version, eval-report).
+    # Public, unauthenticated, hits the DB on every call — protect from
+    # unbounded scraping. Sized to mirror similar_skills so a normal user
+    # browsing skills never trips it.
+    skill_metadata_rate_limit: int = 120  # max requests per window
+    skill_metadata_rate_window: int = 60  # window in seconds
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

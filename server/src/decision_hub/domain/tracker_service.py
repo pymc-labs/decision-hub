@@ -802,16 +802,25 @@ def process_tracker(
                     )
 
             all_failed = published_count == 0 and len(errors) > 0
+            # Surface every error to the operator, even on partial success.
+            # Previously last_error was only recorded when *every* skill failed,
+            # which silently hid mixed-outcome runs (e.g. 2/3 published) and
+            # advanced the tracker SHA past the broken skills with no audit
+            # trail — so the failed ones never retried and nobody noticed.
+            last_error = "; ".join(errors)[:500] if errors else None
             with engine.connect() as conn:
                 update_skill_tracker(
                     conn,
                     tracker.id,
-                    # Don't advance SHA when all publishes failed so
-                    # the commit is retried on the next check cycle.
+                    # Don't advance SHA when *all* publishes failed so the
+                    # commit is retried on the next check cycle. On partial
+                    # success we still advance — the successful skills are
+                    # already pinned to this SHA in the DB, but the recorded
+                    # last_error tells operators what's broken.
                     last_commit_sha=current_sha if not all_failed else None,
                     last_checked_at=now,
                     last_published_at=now if published_count > 0 else None,
-                    last_error="; ".join(errors)[:500] if all_failed else None,
+                    last_error=last_error,
                 )
                 conn.commit()
 

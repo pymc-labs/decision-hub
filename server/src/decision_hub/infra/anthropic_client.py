@@ -5,11 +5,17 @@ avoiding a heavy SDK dependency.
 """
 
 import json
+import random
+import time
 
 import httpx
 from loguru import logger
 
 _ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+
+# Transient HTTP statuses that should be retried with backoff.
+# 429 = rate limit, 500/502/503 = server error, 529 = Anthropic overloaded.
+_RETRIABLE_STATUS_CODES = {429, 500, 502, 503, 529}
 
 _JUDGE_SYSTEM_PROMPT = """You are an evaluation judge for AI agent skill tests.
 
@@ -61,20 +67,68 @@ def judge_eval_output(
     }
 
     logger.debug("Calling Anthropic judge API model={} case={}", model, eval_case_name)
-    response = httpx.post(
-        _ANTHROPIC_API_URL,
-        json=payload,
-        headers=headers,
-        timeout=60,
-    )
-    response.raise_for_status()
-
-    data = response.json()
+    data = _post_with_retry(payload, headers)
     raw_text = data["content"][0]["text"]
 
     result = _parse_judge_response(raw_text)
     logger.debug("Judge verdict for '{}': {}", eval_case_name, result["verdict"])
     return result
+
+
+def _post_with_retry(
+    payload: dict,
+    headers: dict,
+    *,
+    timeout: int = 60,
+    max_retries: int = 3,
+) -> dict:
+    """POST to the Anthropic Messages API with retry and exponential backoff.
+
+    Retries on transient HTTP errors (429 rate limit, 5xx server errors,
+    529 overloaded) and timeouts. Non-retriable errors propagate
+    immediately. Mirrors the Gemini retry pattern in infra/gemini.py so
+    eval runs do not fail on a single transient blip from Anthropic.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1 + max_retries):
+        try:
+            resp = httpx.post(_ANTHROPIC_API_URL, json=payload, headers=headers, timeout=timeout)
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                delay = 2**attempt + random.uniform(0, 0.5)
+                logger.warning(
+                    "Anthropic timeout, retrying in {:.1f}s (attempt {}/{})",
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(delay)
+            continue
+
+        if resp.status_code < 400:
+            return resp.json()
+
+        if resp.status_code not in _RETRIABLE_STATUS_CODES:
+            resp.raise_for_status()
+
+        last_exc = httpx.HTTPStatusError(
+            message=f"HTTP {resp.status_code}",
+            request=resp.request,
+            response=resp,
+        )
+        if attempt < max_retries:
+            delay = 2**attempt + random.uniform(0, 0.5)  # ~1s, ~2s, ~4s
+            logger.warning(
+                "Anthropic returned {}, retrying in {:.1f}s (attempt {}/{})",
+                resp.status_code,
+                delay,
+                attempt + 1,
+                max_retries,
+            )
+            time.sleep(delay)
+
+    raise last_exc  # type: ignore[misc]
 
 
 def _parse_judge_response(raw_text: str) -> dict:

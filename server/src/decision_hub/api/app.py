@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import ClassVar
 
 import sqlalchemy as sa
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from decision_hub.api.deps import get_current_user
+from decision_hub.domain.publish_pipeline import GauntletRejectionError, VersionConflictError
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
 from decision_hub.logging import RequestLoggingMiddleware, setup_logging
@@ -158,6 +159,21 @@ def create_app() -> FastAPI:
     app.state.engine = engine
     app.state.settings = settings
     app.state.s3_client = s3_client
+
+    # Map domain exceptions to HTTP responses centrally so individual routes
+    # don't have to translate them. Routes still call `execute_publish()`
+    # straight; if a route doesn't catch these, we get a sensible response
+    # instead of a 500.
+    @app.exception_handler(VersionConflictError)
+    async def _handle_version_conflict(_request: Request, exc: VersionConflictError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(GauntletRejectionError)
+    async def _handle_gauntlet_rejection(_request: Request, exc: GauntletRejectionError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"Gauntlet checks failed: {exc.summary}"},
+        )
 
     # In-memory TTL cache for hot read paths (per-container, not shared
     # across Modal replicas).

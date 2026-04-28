@@ -98,9 +98,9 @@ class TestJudgeEvalOutput:
         assert len(user_content) < 15000
 
     @respx.mock
-    def test_api_error_propagates(self) -> None:
-        """httpx errors should propagate up."""
-        respx.post("https://api.anthropic.com/v1/messages").mock(return_value=httpx.Response(500, text="Server Error"))
+    def test_non_retriable_api_error_propagates(self) -> None:
+        """Non-retriable 4xx errors propagate immediately."""
+        respx.post("https://api.anthropic.com/v1/messages").mock(return_value=httpx.Response(400, text="Bad Request"))
 
         with pytest.raises(httpx.HTTPStatusError):
             judge_eval_output(
@@ -110,3 +110,73 @@ class TestJudgeEvalOutput:
                 eval_criteria="criteria",
                 agent_output="output",
             )
+
+    @respx.mock
+    def test_retries_on_transient_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A transient 503 is retried; the second attempt's success is returned."""
+        # Skip backoff sleeps so the test runs fast.
+        monkeypatch.setattr("decision_hub.infra.anthropic_client.time.sleep", lambda _: None)
+
+        success_body = {"content": [{"text": json.dumps({"verdict": "pass", "reasoning": "ok"})}]}
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            side_effect=[
+                httpx.Response(503, text="Service Unavailable"),
+                httpx.Response(200, json=success_body),
+            ]
+        )
+
+        result = judge_eval_output(
+            api_key="test-key",
+            model="test-model",
+            eval_case_name="test",
+            eval_criteria="criteria",
+            agent_output="output",
+        )
+
+        assert result["verdict"] == "pass"
+        assert route.call_count == 2
+
+    @respx.mock
+    def test_retries_on_anthropic_overloaded_529(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """529 (Anthropic overloaded) is treated as retriable."""
+        monkeypatch.setattr("decision_hub.infra.anthropic_client.time.sleep", lambda _: None)
+
+        success_body = {"content": [{"text": json.dumps({"verdict": "fail", "reasoning": "no"})}]}
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            side_effect=[
+                httpx.Response(529, text="Overloaded"),
+                httpx.Response(529, text="Overloaded"),
+                httpx.Response(200, json=success_body),
+            ]
+        )
+
+        result = judge_eval_output(
+            api_key="test-key",
+            model="test-model",
+            eval_case_name="test",
+            eval_criteria="criteria",
+            agent_output="output",
+        )
+
+        assert result["verdict"] == "fail"
+        assert route.call_count == 3
+
+    @respx.mock
+    def test_gives_up_after_max_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After 1 initial + 3 retries on a retriable error, the last status is raised."""
+        monkeypatch.setattr("decision_hub.infra.anthropic_client.time.sleep", lambda _: None)
+
+        route = respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(503, text="Service Unavailable"),
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            judge_eval_output(
+                api_key="test-key",
+                model="test-model",
+                eval_case_name="test",
+                eval_criteria="criteria",
+                agent_output="output",
+            )
+
+        assert route.call_count == 4  # 1 initial + 3 retries
