@@ -76,11 +76,17 @@ class TTLCache:
             self._store.clear()
 
     def _evict_one(self) -> None:
-        """Evict one entry: prefer expired, then oldest. Caller holds lock."""
+        """Evict one entry: prefer expired, then oldest. Caller holds lock.
+
+        Snapshots the keys before iterating so that mutating the dict
+        mid-loop is safe even if eviction strategy ever changes to
+        delete more than one entry per call.
+        """
         now = time.monotonic()
         # Try to find and remove an expired entry first
-        for k, entry in self._store.items():
-            if now > entry.expires_at:
+        for k in list(self._store):
+            entry = self._store.get(k)
+            if entry is not None and now > entry.expires_at:
                 del self._store[k]
                 return
         # No expired entries — evict the one expiring soonest

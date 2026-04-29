@@ -85,23 +85,31 @@ def run_assessment_background(
     """Background task to run agent assessments and store report.
 
     When run_id is provided, uses the streaming pipeline that writes S3
-    log chunks and updates the eval_runs table. Otherwise falls back to
+    log chunks and updates the eval_runs table.  Otherwise falls back to
     the original batch pipeline for backward compat.
+
+    Runs inside a dedicated Modal container, so it owns its own engine
+    for the lifetime of the call.  We create the engine once and reuse
+    it for happy-path inserts and error reporting alike.
     """
     from cryptography.fernet import Fernet
 
-    from decision_hub.infra.database import create_engine, get_api_keys_for_eval
+    from decision_hub.infra.database import (
+        create_engine,
+        get_api_keys_for_eval,
+        insert_eval_report,
+    )
     from decision_hub.infra.modal_client import get_agent_config, validate_api_key
 
+    engine = create_engine(settings.database_url)
     try:
         logger.info("Assessment phase 1: loading API keys for {}/{}", org_slug, skill_name)
-        engine = create_engine(settings.database_url)
 
         # --- Phase 1: read API keys then release the connection ---
         # Retrieve the publishing user's own API keys for the assessment
-        # sandbox.  Keys are stored per-user in user_api_keys (encrypted with
-        # the server Fernet key) and belong to the user who triggered the
-        # assessment — no platform keys are involved.
+        # sandbox.  Keys are stored per-user in user_api_keys (encrypted
+        # with the server Fernet key) and belong to the user who
+        # triggered the assessment — no platform keys are involved.
         agent_config = get_agent_config(assessment_config.agent)
         required_keys = [agent_config.key_env_var] if agent_config.key_env_var else []
         judge_key_name = "ANTHROPIC_API_KEY"
@@ -194,8 +202,6 @@ def run_assessment_background(
                 status,
             )
             with engine.connect() as conn:
-                from decision_hub.infra.database import insert_eval_report
-
                 insert_eval_report(
                     conn,
                     version_id=version_id,
@@ -212,52 +218,70 @@ def run_assessment_background(
             logger.info("Assessment done — {}/{} passed in {}ms", passed, total, total_duration_ms)
 
     except Exception as e:
-        logger.error("Agent assessment failed for version {}: {}", version_id, e)
+        logger.opt(exception=True).error("Agent assessment failed for version {}", version_id)
+        _record_assessment_failure(
+            engine=engine,
+            run_id=run_id,
+            version_id=version_id,
+            assessment_config=assessment_config,
+            assessment_cases=assessment_cases,
+            error=e,
+        )
+    finally:
+        engine.dispose()
 
-        # Update run row if using streaming pipeline
-        if run_id is not None:
-            try:
-                from datetime import datetime
 
-                from decision_hub.infra.database import create_engine as _ce
-                from decision_hub.infra.database import update_eval_run_status
+def _record_assessment_failure(
+    *,
+    engine,
+    run_id,
+    version_id,
+    assessment_config,
+    assessment_cases: tuple,
+    error: BaseException,
+) -> None:
+    """Persist a failure record after the assessment pipeline raises.
 
-                err_engine = _ce(settings.database_url)
-                with err_engine.connect() as err_conn:
-                    update_eval_run_status(
-                        err_conn,
-                        run_id,
-                        status="failed",
-                        error_message=str(e),
-                        completed_at=datetime.now(UTC),
-                    )
-                    err_conn.commit()
-            except Exception as inner:
-                logger.error("Failed to update run {}: {}", run_id, inner)
+    Updates the streaming ``eval_runs`` row when present and always
+    inserts an error eval report so the publish UI reflects the
+    failure.  Uses the engine that was created for the happy path so
+    we don't keep creating fresh pools for each error branch.
+    """
+    from datetime import datetime
 
-        # INSERT an error report
+    from decision_hub.infra.database import insert_eval_report, update_eval_run_status
+
+    if run_id is not None:
         try:
-            from decision_hub.infra.database import create_engine as _create_engine
-            from decision_hub.infra.database import insert_eval_report
-
-            err_engine = _create_engine(settings.database_url)
-            with err_engine.connect() as err_conn:
-                insert_eval_report(
-                    err_conn,
-                    version_id=version_id,
-                    agent=assessment_config.agent,
-                    judge_model=assessment_config.judge_model,
-                    case_results=[],
-                    passed=0,
-                    total=len(assessment_cases),
-                    total_duration_ms=0,
+            with engine.connect() as conn:
+                update_eval_run_status(
+                    conn,
+                    run_id,
                     status="failed",
-                    error_message=str(e),
+                    error_message=str(error),
+                    completed_at=datetime.now(UTC),
                 )
-                err_conn.commit()
-        except Exception as inner:
-            logger.error(
-                "Failed to store error report for version {}: {}",
-                version_id,
-                inner,
+                conn.commit()
+        except Exception:
+            logger.opt(exception=True).error("Failed to update eval run {}", run_id)
+
+    try:
+        with engine.connect() as conn:
+            insert_eval_report(
+                conn,
+                version_id=version_id,
+                agent=assessment_config.agent,
+                judge_model=assessment_config.judge_model,
+                case_results=[],
+                passed=0,
+                total=len(assessment_cases),
+                total_duration_ms=0,
+                status="failed",
+                error_message=str(error),
             )
+            conn.commit()
+    except Exception:
+        logger.opt(exception=True).error(
+            "Failed to store error report for version {}",
+            version_id,
+        )
