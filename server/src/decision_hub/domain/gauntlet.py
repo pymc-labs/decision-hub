@@ -1343,13 +1343,4 @@ def run_static_checks(
     grade = compute_grade(result_tuple, elevated)
     summary = build_gauntlet_summary(result_tuple, elevated)
 
-    from loguru import logger
-
-    logger.info(
-        "Gauntlet grading: elevated={} grade={} source_files={}",
-        elevated,
-        grade,
-        [name for name, _ in source_files],
-    )
-
     return GauntletReport(results=result_tuple, grade=grade, gauntlet_summary=summary)

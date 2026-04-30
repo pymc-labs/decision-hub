@@ -634,12 +634,13 @@ def execute_publish(
         unscanned_files=unscanned_files,
     )
     logger.info(
-        "Gauntlet result for {}/{} v{}: grade={} passed={}",
+        "Gauntlet result for {}/{} v{}: grade={} passed={} source_files={}",
         org_slug,
         skill_name,
         version,
         report.grade,
         report.passed,
+        len(source_files),
     )
 
     # 3b. Run Cisco scanner in parallel (observational only, never blocks publish)

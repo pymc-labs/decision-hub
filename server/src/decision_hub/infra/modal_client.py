@@ -390,18 +390,28 @@ def _create_skill_sandbox(
     # Install Python deps if pyproject.toml exists.
     # Shell commands reference $SKILL_PATH from the environment —
     # no user-derived values are interpolated into the command string.
+    # The bash exits with `uv sync`'s return code so a non-zero rc surfaces
+    # here instead of silently propagating to the agent run as a missing-import
+    # crash.
     logger.info("Installing deps (uv sync if pyproject.toml exists)")
     stdout, exit_code = _run_in_sandbox(
         sb,
         "bash",
         "-c",
         'if [ -f "$SKILL_PATH/pyproject.toml" ]; then '
-        "echo 'pyproject.toml found, running uv sync'; "
         'uv sync --directory "$SKILL_PATH" 2>&1; '
-        "echo 'uv sync exit code:' $?; "
+        "rc=$?; "
+        'echo "uv sync exit code: $rc"; '
+        "exit $rc; "
         "else echo 'No pyproject.toml found'; fi",
     )
-    logger.info("Dep install result: exit={} stdout={}", exit_code, stdout[:500])
+    if exit_code != 0:
+        # Include stdout in the raised error so operators can see the cause,
+        # but cap to a few hundred chars to avoid logging arbitrary content.
+        snippet = stdout.strip()[-400:] if stdout else ""
+        logger.error("uv sync failed: exit={} tail={!r}", exit_code, snippet)
+        raise RuntimeError(f"uv sync failed with exit code {exit_code}: {snippet}")
+    logger.info("uv sync ok ({} bytes of output)", len(stdout))
 
     # Verify the venv was actually created and has a python binary
     verify_stdout, _ = _run_in_sandbox(

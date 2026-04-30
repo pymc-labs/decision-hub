@@ -16,6 +16,7 @@ from decision_hub.domain.repo_utils import (
 )
 from decision_hub.domain.tracker_service import (
     _dispatch_changed_trackers,
+    _hint_is_higher,
     _persist_orphaned_tracker_errors,
     check_all_due_trackers,
     dict_to_tracker,
@@ -52,6 +53,37 @@ class TestParseSemver:
     def test_comparison(self):
         assert _parse_semver("2.0.0") > _parse_semver("1.9.9")
         assert _parse_semver("1.0.0") < _parse_semver("2.0.0")
+
+
+class TestHintIsHigher:
+    """Regression tests for malformed-semver handling in tracker version resolution.
+
+    A single malformed manifest version_hint must NOT abort the whole tracker
+    run with a ValueError — it must fall back to auto-bump.
+    """
+
+    def test_hint_higher_returns_true(self):
+        assert _hint_is_higher("2.0.0", "1.5.3") is True
+
+    def test_hint_lower_returns_false(self):
+        assert _hint_is_higher("1.0.0", "1.2.0") is False
+
+    def test_hint_equal_returns_false(self):
+        assert _hint_is_higher("1.2.3", "1.2.3") is False
+
+    def test_malformed_hint_returns_false(self):
+        # 'v1.2.3' is a common mistake — leading 'v' breaks parse_semver.
+        assert _hint_is_higher("v1.2.3", "1.0.0") is False
+
+    def test_malformed_hint_non_numeric_returns_false(self):
+        assert _hint_is_higher("1.2.x", "1.0.0") is False
+
+    def test_malformed_current_returns_false(self):
+        # Defensive: even if the DB somehow contains a bad semver, don't crash.
+        assert _hint_is_higher("2.0.0", "garbage") is False
+
+    def test_both_malformed_returns_false(self):
+        assert _hint_is_higher("oops", "garbage") is False
 
 
 class TestBuildAuthenticatedUrl:

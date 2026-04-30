@@ -123,3 +123,64 @@ class TestSandboxZipSlipProtection:
             )
         assert sb is mock_sb
         assert "testorg/testskill" in skill_path
+
+    def test_raises_when_uv_sync_fails(self) -> None:
+        """A non-zero exit from `uv sync` must abort sandbox creation.
+
+        Regression: previously the bash wrapper always exited 0 (last command
+        was an `echo`), so a broken pyproject.toml silently propagated to the
+        agent run and surfaced as a confusing missing-import crash later.
+        """
+        from decision_hub.infra.modal_client import _create_skill_sandbox
+        from decision_hub.models import AgentSandboxConfig
+
+        config = AgentSandboxConfig(
+            npm_package="test-agent",
+            skills_path=".test/skills",
+            run_cmd=("test",),
+            key_env_var="TEST_KEY",
+            extra_env={},
+        )
+
+        mock_modal = MagicMock()
+        mock_sb = MagicMock()
+        mock_modal.App.lookup.return_value = MagicMock()
+        mock_modal.Sandbox.create.return_value = mock_sb
+        mock_modal.Secret.from_dict.return_value = MagicMock()
+
+        def fake_exec(*args: str) -> MagicMock:
+            # Identify the uv sync invocation by its shell body and return a
+            # non-zero rc plus an error tail. All other calls succeed.
+            cmd = " ".join(args)
+            if "uv sync" in cmd:
+                return MagicMock(
+                    stdout=MagicMock(read=MagicMock(return_value="error: package not found\n")),
+                    returncode=1,
+                    wait=MagicMock(),
+                )
+            return MagicMock(
+                stdout=MagicMock(read=MagicMock(return_value="")),
+                returncode=0,
+                wait=MagicMock(),
+            )
+
+        mock_sb.exec.side_effect = fake_exec
+
+        zip_bytes = self._make_zip(
+            {
+                "SKILL.md": b"---\nname: test\n---\nbody\n",
+                "pyproject.toml": b'[project]\nname = "broken"\nversion = "0.0.1"\ndependencies = ["does-not-exist==99.99.99"]\n',
+            }
+        )
+
+        with (
+            patch.dict(sys.modules, {"modal": mock_modal}),
+            pytest.raises(RuntimeError, match="uv sync failed with exit code 1"),
+        ):
+            _create_skill_sandbox(
+                zip_bytes,
+                config,
+                {"TEST_KEY": "fake-key"},
+                "testorg",
+                "testskill",
+            )

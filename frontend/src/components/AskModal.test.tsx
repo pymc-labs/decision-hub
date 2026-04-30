@@ -280,6 +280,45 @@ describe("AskModal", () => {
     expect(sendBtn).toBeDisabled();
   });
 
+  it("clears prior conversation, query, and error when reopened", async () => {
+    // Closing the modal mid-conversation and reopening it must surface a
+    // fresh, empty modal — never the stale answer from a previous session.
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <MemoryRouter>
+        <AskModal isOpen={true} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    const user = userEvent.setup();
+    const input = screen.getByPlaceholderText("Ask about skills...");
+    await user.type(input, "analyze data");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/great skills/)).toBeInTheDocument();
+    });
+
+    // Close the modal
+    rerender(
+      <MemoryRouter>
+        <AskModal isOpen={false} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    // Reopen — the previous answer/user message must be gone
+    rerender(
+      <MemoryRouter>
+        <AskModal isOpen={true} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText(/great skills/)).not.toBeInTheDocument();
+    expect(screen.queryByText("analyze data")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Ask about skills...")).toHaveValue("");
+    expect(screen.getByText("What are you looking for?")).toBeInTheDocument();
+  });
+
   describe("recently viewed strip", () => {
     const STORAGE_KEY = "dhub:recently-viewed";
 

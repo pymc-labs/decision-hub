@@ -38,6 +38,24 @@ from decision_hub.settings import Settings
 DEADLINE_BUFFER_SECONDS = 30
 
 
+def _hint_is_higher(manifest_version: str, current_semver: str) -> bool:
+    """Return True if a manifest version_hint is strictly higher than the stored semver.
+
+    Returns False when either string fails to parse so the caller falls back to
+    auto-bumping the stored version. We never want a single malformed version
+    (in a manifest or in the DB) to abort the whole tracker run.
+    """
+    try:
+        return parse_semver(manifest_version) > parse_semver(current_semver)
+    except ValueError:
+        logger.warning(
+            "Unparseable semver during tracker version resolution: hint={} current={}",
+            manifest_version,
+            current_semver,
+        )
+        return False
+
+
 # ---------------------------------------------------------------------------
 # REST verification helpers
 # ---------------------------------------------------------------------------
@@ -967,11 +985,14 @@ def _publish_skill_from_tracker(
             )
             return False
 
-        # Determine version: prefer manifest version_hint if present and higher
+        # Determine version: prefer manifest version_hint if present and higher.
+        # parse_semver raises ValueError on malformed input — a single bad version_hint
+        # in a tracked repo (e.g. "v1.2.3") must not abort the whole tracker run, so
+        # we fall back to bump_version on parse failure.
         manifest_version = manifest.runtime.version_hint if manifest.runtime else None
         if latest is None:
             version = manifest_version or "0.1.0"
-        elif manifest_version and parse_semver(manifest_version) > parse_semver(latest.semver):
+        elif manifest_version and _hint_is_higher(manifest_version, latest.semver):
             version = manifest_version
         else:
             version = bump_version(latest.semver)
