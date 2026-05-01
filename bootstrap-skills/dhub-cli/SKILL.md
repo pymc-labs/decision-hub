@@ -47,8 +47,8 @@ dhub supports two independent stacks controlled by `DHUB_ENV`:
 
 | Env | API URL | Config File |
 |-----|---------|-------------|
-| `prod` (default) | `https://lfiaschi--api.modal.run` | `~/.dhub/config.prod.json` |
-| `dev` | `https://lfiaschi--api-dev.modal.run` | `~/.dhub/config.dev.json` |
+| `prod` (default) | `https://pymc-labs--api.modal.run` | `~/.dhub/config.prod.json` |
+| `dev` | `https://pymc-labs--api-dev.modal.run` | `~/.dhub/config.dev.json` |
 
 Always prefix commands with `DHUB_ENV=dev` when working against the dev stack:
 

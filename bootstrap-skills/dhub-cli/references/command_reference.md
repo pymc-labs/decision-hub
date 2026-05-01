@@ -23,7 +23,7 @@ dhub login [--api-url URL]
 
 **Config after login:**
 ```json
-{"api_url": "https://lfiaschi--api.modal.run", "token": "<oauth_token>"}
+{"api_url": "https://pymc-labs--api.modal.run", "token": "<oauth_token>"}
 ```
 
 ---

@@ -134,7 +134,7 @@ If you get a **500 error**, check:
 The eval pipeline takes **3–6 minutes** (sandbox spin-up + `uv sync` for PyMC + MCMC sampling + LLM judge). Poll the eval-report endpoint:
 
 ```bash
-curl -s "https://lfiaschi--api-dev.modal.run/v1/skills/lfiaschi/bayesian-ab-test/eval-report?semver=<version>" | python3 -m json.tool
+curl -s "https://pymc-labs--api-dev.modal.run/v1/skills/lfiaschi/bayesian-ab-test/eval-report?semver=<version>" | python3 -m json.tool
 ```
 
 - Returns `null` while evals are still running.
