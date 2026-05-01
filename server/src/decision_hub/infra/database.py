@@ -2125,7 +2125,11 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        # Tied embedding distances are common (skills with identical
+        # descriptions, near-duplicate forks). Without a unique tiebreaker
+        # the LIMIT would slice an arbitrary subset and re-runs would return
+        # different rows in a different order.
+        .order_by(sa.text("vec_dist ASC"), organizations_table.c.slug, skills_table.c.name)
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()

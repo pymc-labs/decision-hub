@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,43 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that enforces a per-IP rate limit.
+
+    Reads ``settings.{name}_rate_limit`` and ``settings.{name}_rate_window``
+    from ``request.app.state.settings``. The underlying ``RateLimiter`` is
+    created lazily on first request and cached on ``request.app.state`` under
+    ``_rate_limiter_{name}`` so subsequent requests reuse the same window.
+
+    A double-checked lock guards initialization so concurrent first-requests
+    cannot create two limiters and silently grant a second window of free
+    capacity.
+
+    The returned callable is given a stable ``__name__`` so FastAPI's
+    dependency-cache key and any introspection (logs, OpenAPI) reads the
+    intended endpoint name.
+    """
+    state_attr = f"_rate_limiter_{name}"
+    max_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+    init_lock = threading.Lock()
+
+    def dep(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            with init_lock:
+                limiter = getattr(state, state_attr, None)
+                if limiter is None:
+                    settings = state.settings
+                    limiter = RateLimiter(
+                        max_requests=getattr(settings, max_attr),
+                        window_seconds=getattr(settings, window_attr),
+                    )
+                    setattr(state, state_attr, limiter)
+        limiter(request)
+
+    dep.__name__ = f"_enforce_{name}_rate_limit"
+    return dep

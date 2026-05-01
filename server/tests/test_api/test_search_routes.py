@@ -367,3 +367,90 @@ class TestAskSkillsPost:
             },
         )
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Schema parity — guards against the drift class CLAUDE.md flags as fragile.
+# ---------------------------------------------------------------------------
+
+
+def test_ask_skill_ref_field_parity() -> None:
+    """``AskSkillRef`` must surface every ``SkillIndexEntry`` data field.
+
+    The ask response is a thin enrichment of a hybrid-search row. A new
+    skill metadata column added to ``_SKILL_SUMMARY_COLUMNS`` flows through
+    ``SkillIndexEntry`` and must be declared on ``AskSkillRef`` (and the
+    matching frontend type) or it silently drops out of the API.
+
+    See ``CLAUDE.md`` ("Keep the ask pipeline in sync with skill metadata").
+    """
+    from dataclasses import fields as dataclass_fields
+
+    from decision_hub.api.search_routes import AskSkillRef
+    from decision_hub.models import SkillIndexEntry
+
+    ask_fields = set(AskSkillRef.model_fields)
+    index_fields = {f.name for f in dataclass_fields(SkillIndexEntry)}
+
+    # Fields that exist on the index but are *intentionally* not surfaced by
+    # the ask response. Keep this set small and explain each entry.
+    ask_only_fields = {
+        # Ask-specific: derived from eval_status + LLM result.
+        "safety_rating",
+        "reason",
+    }
+    index_only_fields = {
+        # Replaced by safety_rating (formatted) — raw status not surfaced.
+        "eval_status",
+        "trust_score",
+        # Replaced by safety_rating; legacy field on the index.
+        "source_status",
+    }
+
+    missing = (index_fields - index_only_fields) - ask_fields
+    extra = (ask_fields - ask_only_fields) - index_fields
+
+    assert not missing, f"AskSkillRef is missing fields from SkillIndexEntry: {sorted(missing)}"
+    assert not extra, f"AskSkillRef has fields not on SkillIndexEntry: {sorted(extra)}"
+
+
+def test_build_ask_skill_ref_populates_all_fields() -> None:
+    """Verify ``_build_ask_skill_ref`` populates every declared field.
+
+    Catches the case where someone adds a new ``AskSkillRef`` field but
+    forgets to populate it in the helper, which would otherwise default
+    silently to None / empty string and ship.
+    """
+    from decision_hub.api.search_routes import _build_ask_skill_ref
+
+    row = {
+        "org_slug": "acme",
+        "skill_name": "widget",
+        "description": "A widget",
+        "eval_status": "passed",
+        "published_by": "alice",
+        "category": "Data Science",
+        "download_count": 7,
+        "latest_version": "1.2.3",
+        "source_repo_url": "https://github.com/acme/widget",
+        "gauntlet_summary": None,
+        "github_stars": 42,
+        "github_forks": 5,
+        "github_license": "MIT",
+    }
+    ref = _build_ask_skill_ref(row, reason="best match")
+
+    assert ref.org_slug == "acme"
+    assert ref.skill_name == "widget"
+    assert ref.description == "A widget"
+    assert ref.safety_rating == "A"
+    assert ref.reason == "best match"
+    assert ref.author == "alice"
+    assert ref.category == "Data Science"
+    assert ref.download_count == 7
+    assert ref.latest_version == "1.2.3"
+    assert ref.source_repo_url == "https://github.com/acme/widget"
+    assert ref.gauntlet_summary is None
+    assert ref.github_stars == 42
+    assert ref.github_forks == 5
+    assert ref.github_license == "MIT"
