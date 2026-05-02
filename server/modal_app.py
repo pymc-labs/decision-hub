@@ -14,7 +14,7 @@ app = modal.App(app_name)
 _frontend_dist = Path("../frontend/dist")
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.from_registry("python:3.11-slim-bookworm")
     .add_local_dir("../shared", remote_path="/tmp/dhub-core", copy=True)
     .run_commands("pip install /tmp/dhub-core")
     .pip_install_from_pyproject("pyproject.toml")
