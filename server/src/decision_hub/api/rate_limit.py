@@ -26,11 +26,23 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # Run the stale-IP purge every N admitted requests. Cheap counter
+    # avoids the O(n) `sum(len(v) for ...)` that the previous
+    # implementation ran on every call.
+    _PURGE_EVERY = 100
+
+    # Hard ceiling on tracked IPs. A botnet of rotating source IPs would
+    # otherwise force unbounded growth between purges. When breached we
+    # purge eagerly; if that doesn't free space we drop the request with
+    # 429 instead of growing without bound.
+    _MAX_TRACKED_KEYS = 10_000
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._calls_since_purge = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -51,12 +63,25 @@ class RateLimiter:
                 )
 
             self._requests[key].append(now)
+            self._calls_since_purge += 1
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Periodic background purge keeps the dict from growing slowly
+            # under steady traffic.
+            if self._calls_since_purge >= self._PURGE_EVERY:
                 self._purge_stale(cutoff)
+                self._calls_since_purge = 0
+
+            # Hard ceiling: under a flood of unique IPs the periodic purge
+            # is too lazy. Force a purge once we cross the cap and, if the
+            # caller is itself a brand-new IP that pushed us over, reject.
+            if len(self._requests) > self._MAX_TRACKED_KEYS:
+                self._purge_stale(cutoff)
+                self._calls_since_purge = 0
+                if len(self._requests) > self._MAX_TRACKED_KEYS:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Rate limiter saturated. Try again shortly.",
+                    )
 
     def _purge_stale(self, cutoff: float) -> None:
         """Remove IPs with no recent activity. Caller must hold self._lock."""

@@ -4,12 +4,39 @@ import httpx
 import pytest
 import respx
 
+from decision_hub.infra import github as github_module
 from decision_hub.infra.github import (
+    _DEFAULT_TIMEOUT,
     _parse_next_link,
     fetch_org_metadata,
     fetch_user_metadata,
     list_user_orgs,
 )
+
+
+class TestDefaultTimeout:
+    """Every outbound GitHub call must carry a finite timeout.
+
+    Without one a slow github.com pins the FastAPI event loop on
+    httpx's ~5 minute default connect timeout. Regression guard.
+    """
+
+    def test_default_timeout_is_finite_and_short(self) -> None:
+        assert isinstance(_DEFAULT_TIMEOUT, httpx.Timeout)
+        # Read timeout must be set and well under a minute.
+        assert _DEFAULT_TIMEOUT.read is not None
+        assert _DEFAULT_TIMEOUT.read <= 30
+        assert _DEFAULT_TIMEOUT.connect is not None
+        assert _DEFAULT_TIMEOUT.connect <= 30
+
+    def test_no_unbounded_async_clients_in_module(self) -> None:
+        # Belt and braces: scan the source for `httpx.AsyncClient()` with
+        # no keyword args, which is the buggy form that has no timeout.
+        import inspect
+
+        source = inspect.getsource(github_module)
+        # The literal "httpx.AsyncClient()" (empty parens) is the broken form.
+        assert "httpx.AsyncClient()" not in source
 
 
 class TestParseNextLink:
