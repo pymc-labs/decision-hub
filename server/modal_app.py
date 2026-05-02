@@ -15,6 +15,7 @@ _frontend_dist = Path("../frontend/dist")
 
 image = (
     modal.Image.from_registry("python:3.11-slim-bookworm")
+    .apt_install("git")
     .add_local_dir("../shared", remote_path="/tmp/dhub-core", copy=True)
     .run_commands("pip install /tmp/dhub-core")
     .pip_install_from_pyproject("pyproject.toml")
@@ -125,8 +126,8 @@ def run_eval_task(
     logger.info("Eval task completed for {}/{}", org_slug, skill_name)
 
 
-# Extended image for the crawler — adds git for cloning repos
-crawler_image = image.apt_install("git")
+# Crawler reuses the base image which already includes git.
+crawler_image = image
 
 
 @app.function(image=crawler_image, timeout=600, max_containers=50)
