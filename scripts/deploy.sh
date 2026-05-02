@@ -51,7 +51,7 @@ DHUB_ENV="$DHUB_ENV" uv run --package decision-hub-server python ../scripts/run_
 echo ""
 echo ">>> Deploying Modal app (env=$DHUB_ENV)..."
 
-DHUB_ENV="$DHUB_ENV" modal deploy modal_app.py
+DHUB_ENV="$DHUB_ENV" uv run --package decision-hub-server modal deploy modal_app.py
 
 echo ""
 echo "=== Deploy complete ==="
