@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import make_rate_limiter_dep
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,49 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
+# Rate-limit dependencies. Each route gets an independent in-memory bucket
+# keyed by ``state_attr``; the limit and window come from Settings.
+_enforce_list_skills_rate_limit = make_rate_limiter_dep(
+    state_attr="_list_skills_rate_limiter",
+    limit_attr="list_skills_rate_limit",
+    window_attr="list_skills_rate_window",
+)
 
+_enforce_resolve_rate_limit = make_rate_limiter_dep(
+    state_attr="_resolve_rate_limiter",
+    limit_attr="resolve_rate_limit",
+    window_attr="resolve_rate_window",
+)
 
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
+_enforce_similar_skills_rate_limit = make_rate_limiter_dep(
+    state_attr="_similar_skills_rate_limiter",
+    limit_attr="similar_skills_rate_limit",
+    window_attr="similar_skills_rate_window",
+)
 
+_enforce_download_rate_limit = make_rate_limiter_dep(
+    state_attr="_download_rate_limiter",
+    limit_attr="download_rate_limit",
+    window_attr="download_rate_window",
+)
 
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
+_enforce_audit_log_rate_limit = make_rate_limiter_dep(
+    state_attr="_audit_log_rate_limiter",
+    limit_attr="audit_log_rate_limit",
+    window_attr="audit_log_rate_window",
+)
 
+_enforce_scan_report_rate_limit = make_rate_limiter_dep(
+    state_attr="_scan_report_rate_limiter",
+    limit_attr="scan_report_rate_limit",
+    window_attr="scan_report_rate_window",
+)
 
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+_enforce_publish_rate_limit = make_rate_limiter_dep(
+    state_attr="_publish_rate_limiter",
+    limit_attr="publish_rate_limit",
+    window_attr="publish_rate_window",
+)
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -442,6 +403,44 @@ class AccessGrantListEntry(BaseModel):
 _STALE_HEARTBEAT_SECONDS = 300
 
 
+def _format_summary_dt(value: datetime | None) -> str:
+    """Format a datetime for the ``SkillSummary.updated_at`` field."""
+    return value.strftime("%Y-%m-%d %H:%M:%S") if value else ""
+
+
+def _skill_summary_from_row(row: dict, *, is_auto_synced: bool) -> SkillSummary:
+    """Build a :class:`SkillSummary` from a row dict.
+
+    Both the paginated list endpoint and the per-skill summary endpoint go
+    through this helper so the response shape stays in sync. ``is_auto_synced``
+    is taken as a parameter rather than read from the row because the list
+    endpoint joins the trackers table while the detail endpoint computes it
+    on the fly via :func:`has_active_tracker_for_repo`.
+    """
+    return SkillSummary(
+        org_slug=row["org_slug"],
+        skill_name=row["skill_name"],
+        description=row.get("description", "") or "",
+        latest_version=row["latest_version"],
+        updated_at=_format_summary_dt(row.get("created_at")),
+        safety_rating=format_trust_score(row.get("eval_status", "")),
+        author=resolve_author_display(row.get("published_by", "")),
+        download_count=row.get("download_count", 0),
+        is_personal_org=row.get("is_personal_org", False),
+        category=row.get("category", "") or "",
+        visibility=row.get("visibility", "public"),
+        source_repo_url=row.get("source_repo_url"),
+        manifest_path=row.get("manifest_path"),
+        source_repo_removed=row.get("source_repo_removed", False),
+        github_stars=row.get("github_stars"),
+        github_forks=row.get("github_forks"),
+        github_watchers=row.get("github_watchers"),
+        github_is_archived=row.get("github_is_archived"),
+        github_license=row.get("github_license"),
+        is_auto_synced=is_auto_synced,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -605,31 +604,7 @@ def list_skills(
         sort_dir=sort_dir,
     )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
-    items = [
-        SkillSummary(
-            org_slug=row["org_slug"],
-            skill_name=row["skill_name"],
-            description=row.get("description", ""),
-            latest_version=row["latest_version"],
-            updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
-            safety_rating=format_trust_score(row["eval_status"]),
-            author=resolve_author_display(row.get("published_by", "")),
-            download_count=row.get("download_count", 0),
-            is_personal_org=row.get("is_personal_org", False),
-            category=row.get("category", ""),
-            visibility=row.get("visibility", "public"),
-            source_repo_url=row.get("source_repo_url"),
-            manifest_path=row.get("manifest_path"),
-            source_repo_removed=row.get("source_repo_removed", False),
-            github_stars=row.get("github_stars"),
-            github_forks=row.get("github_forks"),
-            github_watchers=row.get("github_watchers"),
-            github_is_archived=row.get("github_is_archived"),
-            github_license=row.get("github_license"),
-            is_auto_synced=row.get("has_tracker", False),
-        )
-        for row in rows
-    ]
+    items = [_skill_summary_from_row(row, is_auto_synced=row.get("has_tracker", False)) for row in rows]
     return PaginatedSkillsResponse(
         items=items,
         total=total,
@@ -659,28 +634,31 @@ def get_skill_summary(
         raise HTTPException(status_code=404, detail=f"No versions found for {org_slug}/{skill_name}")
 
     org = find_org_by_slug(conn, org_slug)
-    return SkillSummary(
-        org_slug=org_slug,
-        skill_name=skill_name,
-        description=skill.description,
-        latest_version=version.semver,
-        updated_at=version.created_at.strftime("%Y-%m-%d %H:%M:%S") if version.created_at else "",
-        safety_rating=format_trust_score(version.eval_status),
-        author=resolve_author_display(version.published_by),
-        download_count=skill.download_count,
-        is_personal_org=org.is_personal if org else False,
-        category=skill.category,
-        visibility=skill.visibility,
-        source_repo_url=skill.source_repo_url,
-        manifest_path=skill.manifest_path,
-        source_repo_removed=skill.source_repo_removed,
-        github_stars=skill.github_stars,
-        github_forks=skill.github_forks,
-        github_watchers=skill.github_watchers,
-        github_is_archived=skill.github_is_archived,
-        github_license=skill.github_license,
-        is_auto_synced=bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url)),
-    )
+    # Reshape models into the row-dict shape produced by
+    # ``fetch_all_skills_for_index`` so both endpoints share the same builder.
+    row = {
+        "org_slug": org_slug,
+        "skill_name": skill_name,
+        "description": skill.description,
+        "latest_version": version.semver,
+        "created_at": version.created_at,
+        "eval_status": version.eval_status,
+        "published_by": version.published_by,
+        "download_count": skill.download_count,
+        "is_personal_org": org.is_personal if org else False,
+        "category": skill.category,
+        "visibility": skill.visibility,
+        "source_repo_url": skill.source_repo_url,
+        "manifest_path": skill.manifest_path,
+        "source_repo_removed": skill.source_repo_removed,
+        "github_stars": skill.github_stars,
+        "github_forks": skill.github_forks,
+        "github_watchers": skill.github_watchers,
+        "github_is_archived": skill.github_is_archived,
+        "github_license": skill.github_license,
+    }
+    is_auto_synced = bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url))
+    return _skill_summary_from_row(row, is_auto_synced=is_auto_synced)
 
 
 @public_router.get(

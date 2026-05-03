@@ -105,6 +105,34 @@ class TestSaveConfig:
         assert loaded.default_org is None
         assert loaded.token == "old-tok"
 
+    def test_saved_file_is_user_only_readable(self, tmp_path, monkeypatch):
+        """Bearer token must not be world- or group-readable on POSIX systems.
+
+        Regression test: previously the file was written with the process
+        umask, which on most multi-user systems left the file mode 0o644.
+        """
+        import os
+        import stat
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("POSIX permissions not applicable on Windows")
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        # Ensure umask wouldn't otherwise produce 0o600 by accident.
+        old_umask = os.umask(0o022)
+        try:
+            save_config(CliConfig(api_url="https://example.com", token="secret"))
+        finally:
+            os.umask(old_umask)
+
+        mode = (tmp_path / "config.dev.json").stat().st_mode & 0o777
+        # Owner read+write only -- no group or world bits set.
+        assert mode == 0o600, oct(mode)
+        assert not (mode & stat.S_IRGRP)
+        assert not (mode & stat.S_IROTH)
+
 
 class TestGetToken:
     """get_token should check DHUB_TOKEN env var first."""
