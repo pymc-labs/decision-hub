@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,46 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+_LIMITER_INIT_LOCK = threading.Lock()
+
+
+def make_rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that enforces a named per-IP rate limit.
+
+    The limiter reads ``settings.{name}_rate_limit`` and ``settings.{name}_rate_window``
+    and is lazily cached on ``app.state`` under ``_{name}_rate_limiter``. Cold-start
+    initialisation is guarded by a module-level lock so concurrent requests don't
+    race to create competing limiters.
+
+    Usage::
+
+        _enforce_search_rate_limit = make_rate_limit_dep("search")
+
+        @router.get("/search", dependencies=[Depends(_enforce_search_rate_limit)])
+        def search(...): ...
+    """
+    state_attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def dep(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            with _LIMITER_INIT_LOCK:
+                # Re-check after acquiring the lock — another thread may have created it.
+                limiter = getattr(state, state_attr, None)
+                if limiter is None:
+                    settings = state.settings
+                    limiter = RateLimiter(
+                        max_requests=getattr(settings, limit_attr),
+                        window_seconds=getattr(settings, window_attr),
+                    )
+                    setattr(state, state_attr, limiter)
+        limiter(request)
+
+    dep.__name__ = f"_enforce_{name}_rate_limit"
+    dep.__qualname__ = dep.__name__
+    return dep

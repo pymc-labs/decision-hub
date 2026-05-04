@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import make_rate_limit_dep
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,91 +83,27 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Per-endpoint rate limiters — each reads settings.{name}_rate_limit /
+# settings.{name}_rate_window and is cached on app.state on first request.
+_enforce_list_skills_rate_limit = make_rate_limit_dep("list_skills")
+_enforce_resolve_rate_limit = make_rate_limit_dep("resolve")
+_enforce_similar_skills_rate_limit = make_rate_limit_dep("similar_skills")
+_enforce_download_rate_limit = make_rate_limit_dep("download")
+_enforce_audit_log_rate_limit = make_rate_limit_dep("audit_log")
+_enforce_scan_report_rate_limit = make_rate_limit_dep("scan_report")
+_enforce_publish_rate_limit = make_rate_limit_dep("publish")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
+
+
+def _validate_visibility(value: str) -> None:
+    """Raise 422 if *value* is not one of the supported visibility levels."""
+    if value not in _VALID_VISIBILITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid visibility '{value}'. Must be 'public' or 'org'.",
+        )
 
 
 def _parse_uuid(value: str, name: str) -> UUID:
@@ -482,11 +418,8 @@ def publish_skill(
     visibility = meta.get("visibility")
     source_repo_url = meta.get("source_repo_url")
     manifest_path = meta.get("manifest_path")
-    if visibility is not None and visibility not in _VALID_VISIBILITIES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid visibility '{visibility}'. Must be 'public' or 'org'.",
-        )
+    if visibility is not None:
+        _validate_visibility(visibility)
 
     try:
         validate_skill_name(skill_name)
@@ -952,6 +885,24 @@ def get_scan_report(
     )
 
 
+def _load_eval_report(
+    conn: Connection,
+    current_user: User | None,
+    org_slug: str,
+    skill_name: str,
+    semver: str,
+) -> EvalReportResponse | None:
+    """Visibility-checked lookup for an eval report. Returns None if no report."""
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
+    if report is None:
+        return None
+    return _report_to_response(report)
+
+
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
@@ -963,15 +914,8 @@ def get_eval_report_by_skill(
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
-    """Get the eval report for a specific skill version."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
-    if report is None:
-        return None
-    return _report_to_response(report)
+    """Get the eval report for a specific skill version (semver as query param)."""
+    return _load_eval_report(conn, current_user, org_slug, skill_name, semver)
 
 
 @public_router.get(
@@ -985,15 +929,8 @@ def get_eval_report_by_version_path(
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
-    """Get the eval report for a specific skill version (path-based)."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
-    if report is None:
-        return None
-    return _report_to_response(report)
+    """Get the eval report for a specific skill version (semver as path param)."""
+    return _load_eval_report(conn, current_user, org_slug, skill_name, semver)
 
 
 @router.delete(
@@ -1221,11 +1158,7 @@ def change_visibility(
     current_user: User = Depends(get_current_user),
 ) -> VisibilityResponse:
     """Change the visibility of a published skill."""
-    if body.visibility not in _VALID_VISIBILITIES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid visibility '{body.visibility}'. Must be 'public' or 'org'.",
-        )
+    _validate_visibility(body.visibility)
     org = require_org_membership(conn, org_slug, current_user.id, admin_only=True)
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:

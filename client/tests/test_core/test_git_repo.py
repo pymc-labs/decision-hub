@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import _GIT_TIMEOUT_SECONDS, clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,30 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepo:
+    """Subprocess-level tests for clone_repo — focus on timeout behaviour."""
+
+    def test_clone_passes_timeout_to_subprocess(self) -> None:
+        """Every git invocation must pass ``timeout=_GIT_TIMEOUT_SECONDS`` so that an unresponsive remote can't hang the CLI indefinitely."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+            clone_repo("https://example.com/foo.git")
+
+        assert mock_run.called
+        # All forwarded calls must specify timeout=_GIT_TIMEOUT_SECONDS.
+        for call in mock_run.call_args_list:
+            assert call.kwargs.get("timeout") == _GIT_TIMEOUT_SECONDS
+
+    def test_clone_raises_runtime_error_on_timeout(self) -> None:
+        """If git stalls past the timeout, callers see a clean RuntimeError rather than a raw TimeoutExpired."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd=["git"], timeout=_GIT_TIMEOUT_SECONDS)
+
+            with pytest.raises(RuntimeError) as exc_info:
+                clone_repo("https://example.com/foo.git")
+
+        assert "timed out" in str(exc_info.value).lower()
+        assert str(_GIT_TIMEOUT_SECONDS) in str(exc_info.value)

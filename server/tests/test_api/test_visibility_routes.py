@@ -3,9 +3,34 @@
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from decision_hub.api.registry_routes import _validate_visibility
 from decision_hub.models import Organization, OrgMember, Skill, SkillAccessGrant
+
+
+class TestValidateVisibility:
+    """Unit tests for the shared visibility validator helper."""
+
+    @pytest.mark.parametrize("value", ["public", "org"])
+    def test_accepts_supported_values(self, value: str) -> None:
+        """The supported visibility levels do not raise."""
+        _validate_visibility(value)  # should not raise
+
+    @pytest.mark.parametrize("value", ["", "secret", "PUBLIC", "private", "ORG"])
+    def test_rejects_unsupported_values_with_422(self, value: str) -> None:
+        """Anything outside the public/org allow-list raises HTTP 422."""
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_visibility(value)
+
+        assert exc_info.value.status_code == 422
+        # The error detail must name the offending value so callers can debug.
+        assert value in exc_info.value.detail
+        assert "public" in exc_info.value.detail
+        assert "org" in exc_info.value.detail
+
 
 # ---------------------------------------------------------------------------
 # Shared test data helpers
