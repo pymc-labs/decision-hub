@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,34 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily caches a per-app ``RateLimiter``.
+
+    ``name`` is the prefix on the ``Settings`` fields ``{name}_rate_limit`` and
+    ``{name}_rate_window``. The first request through the dependency reads
+    those settings, builds a ``RateLimiter`` and stashes it on
+    ``app.state._rate_limiter__{name}``; subsequent requests reuse it. This
+    keeps each route's wiring to a single line while preserving the original
+    "init once per container, share across handlers" behaviour.
+    """
+    state_attr = f"_rate_limiter__{name}"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def _enforce(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    _enforce.__name__ = f"_enforce_{name}_rate_limit"
+    _enforce.__doc__ = f"Rate-limit dependency for the '{name}' endpoint group."
+    return _enforce

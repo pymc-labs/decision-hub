@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -80,16 +81,32 @@ def load_config() -> CliConfig:
 
 
 def save_config(config: CliConfig) -> None:
-    """Save CLI config to ~/.dhub/config.{env}.json.
+    """Save CLI config to ``~/.dhub/config.{env}.json``.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates ``~/.dhub`` if missing and writes the file with mode ``0600``
+    (owner read/write only). The file holds a long-lived JWT, so on shared
+    machines a permissive default umask would let any local user read the
+    token. ``os.chmod`` is a no-op on Windows, where NTFS ACLs already
+    inherit user-only access from the home directory.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Best-effort tighten of ~/.dhub itself; some filesystems (FAT, network
+    # mounts) reject chmod, in which case the per-file mode is the only line
+    # of defence and that's still better than nothing.
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_DIR, 0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+    # Open with O_CREAT|O_WRONLY|O_TRUNC and mode 0600 so a freshly-created
+    # file is never briefly world-readable (TOCTOU on shared hosts).
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(payload)
+    # Re-chmod for the case where the file already existed with broader
+    # permissions — the mode passed to os.open only applies on creation.
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)
 
 
 def get_api_url() -> str:

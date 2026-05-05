@@ -86,3 +86,56 @@ class TestValidateZipEntries:
         with pytest.raises(ValueError, match="escapes target directory"):
             validate_zip_entries(zf, "/tmp/target")
         zf.close()
+
+    def test_symlink_entry_rejected(self) -> None:
+        """A zip entry archived as a Unix symlink must be rejected.
+
+        The entry's *name* (``data.json``) sits safely inside target_dir,
+        but the symlink target (``/etc/passwd``) would be followed at
+        use-time, exposing host files. Skill packages have no legitimate
+        use for symlinks, so we reject them outright.
+        """
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("data.json")
+            # Top 16 bits of external_attr are the Unix mode; 0o120000 = symlink
+            info.external_attr = (0o120777 & 0xFFFF) << 16
+            info.create_system = 3  # Unix
+            zf.writestr(info, "/etc/passwd")
+        buf.seek(0)
+        zf = zipfile.ZipFile(buf, "r")
+        with pytest.raises(ValueError, match="symlink"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_symlink_with_traversing_name_rejected(self) -> None:
+        """A symlink with a traversing name should still be rejected (as symlink)."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("../escape")
+            info.external_attr = (0o120777 & 0xFFFF) << 16
+            info.create_system = 3
+            zf.writestr(info, "/etc/shadow")
+        buf.seek(0)
+        zf = zipfile.ZipFile(buf, "r")
+        # Either rejection reason is acceptable — the call must raise.
+        with pytest.raises(ValueError):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_windows_archive_no_symlink_metadata_passes(self) -> None:
+        """Archives created on Windows leave external_attr's mode bits zero.
+
+        Such entries must not be misclassified as symlinks (a regression
+        here would break every Windows-published skill).
+        """
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("SKILL.md")
+            info.external_attr = 0  # Windows leaves mode bits zero
+            info.create_system = 0  # FAT/Windows
+            zf.writestr(info, "# Skill")
+        buf.seek(0)
+        zf = zipfile.ZipFile(buf, "r")
+        validate_zip_entries(zf, "/tmp/target")  # should not raise
+        zf.close()

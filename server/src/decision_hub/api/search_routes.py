@@ -7,13 +7,13 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import make_rate_limit_dep
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
@@ -29,16 +29,15 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/v1", tags=["search"])
 
 
-def _enforce_search_rate_limit(request: Request) -> None:
-    """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
-    state = request.app.state
-    if not hasattr(state, "_search_rate_limiter"):
-        settings: Settings = state.settings
-        state._search_rate_limiter = RateLimiter(
-            max_requests=settings.search_rate_limit,
-            window_seconds=settings.search_rate_window,
-        )
-    state._search_rate_limiter(request)
+_enforce_search_rate_limit = make_rate_limit_dep("search")
+
+
+# Module-level worker pool for parallelising guard + embed on /ask.
+# A fresh ThreadPoolExecutor was previously created per request — that costs
+# ~thread-spawn-time on every call and burns CPU under load. Two workers is
+# enough to overlap one guard call with one embed call; we never submit more.
+# ``thread_name_prefix`` makes the workers identifiable in stack traces.
+_ASK_PARALLEL_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ask-parallel")
 
 
 # ---------------------------------------------------------------------------
@@ -341,11 +340,12 @@ def _ask_skills_inner(
             logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")
             return None, 0
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        guard_future = pool.submit(_do_guard)
-        embed_future = pool.submit(_do_embed)
-        guard_result = guard_future.result()
-        query_embedding, embed_ms = embed_future.result()
+    # Submit both tasks to the shared module-level pool so we overlap the
+    # latency of guard + embed without paying for thread creation per request.
+    guard_future = _ASK_PARALLEL_POOL.submit(_do_guard)
+    embed_future = _ASK_PARALLEL_POOL.submit(_do_embed)
+    guard_result = guard_future.result()
+    query_embedding, embed_ms = embed_future.result()
 
     if not guard_result.is_skill_query:
         return AskResponse(query=q, answer=_OFF_TOPIC_ANSWER, skills=[])

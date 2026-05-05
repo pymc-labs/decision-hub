@@ -105,6 +105,47 @@ class TestSaveConfig:
         assert loaded.default_org is None
         assert loaded.token == "old-tok"
 
+    def test_save_config_uses_owner_only_permissions(self, tmp_path, monkeypatch):
+        """Saved config must be 0o600 — JWTs are otherwise readable by every local user.
+
+        On a shared workstation, a user-readable token is effectively a credential
+        leak. The file mode is the only barrier between an attacker with shell
+        access on the same host and full control over the user's skills.
+        """
+        import os
+        import stat
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret-jwt"))
+
+        path = tmp_path / "config.dev.json"
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+    def test_save_config_tightens_existing_loose_permissions(self, tmp_path, monkeypatch):
+        """If the file already exists with broader perms, save_config must tighten it.
+
+        A user who logged in before the hardening landed would otherwise still be
+        exposed forever. Re-saving (e.g. after an org-list refresh) is the only
+        natural moment to repair the mode, so this path must not be skipped.
+        """
+        import os
+        import stat
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        path = tmp_path / "config.dev.json"
+        path.write_text(json.dumps({"api_url": "x", "token": "old"}))
+        os.chmod(path, 0o644)
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o644
+
+        save_config(CliConfig(api_url="https://example.com", token="new-jwt"))
+
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
 
 class TestGetToken:
     """get_token should check DHUB_TOKEN env var first."""

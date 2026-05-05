@@ -84,3 +84,98 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+
+class TestMakeRateLimitDep:
+    """The factory must build a dependency that lazily caches the limiter on app.state.
+
+    Behaviour we lock down:
+    - First call constructs a RateLimiter from settings.{name}_rate_limit /
+      .{name}_rate_window and stores it on app.state under a stable key.
+    - Subsequent calls reuse the same instance (so request counts persist
+      across requests rather than resetting on every dependency invocation).
+    - Two distinct names get two distinct cache slots and do not interfere.
+    - Once cached, the limiter enforces its limit (boundary check + 429).
+    """
+
+    def _state(self, **rates: int) -> MagicMock:
+        """Build a fake app.state whose .settings carries the named limits."""
+        state = MagicMock(spec_set=["settings"])
+        settings = MagicMock()
+        for k, v in rates.items():
+            setattr(settings, k, v)
+        state.settings = settings
+        # Strip any pre-populated `_rate_limiter__*` attrs so getattr returns
+        # None and the factory takes its initialisation branch.
+        return state
+
+    def _request(self, state: MagicMock, host: str = "127.0.0.1") -> MagicMock:
+        request = MagicMock()
+        request.app.state = state
+        request.client.host = host
+        return request
+
+    def test_caches_limiter_on_app_state(self) -> None:
+        from decision_hub.api.rate_limit import make_rate_limit_dep
+
+        dep = make_rate_limit_dep("widget")
+        # MagicMock's getattr-with-default returns a Mock by default, so we
+        # need a plain object whose attribute lookups raise AttributeError.
+        state = type("S", (), {})()
+        state.settings = type("Sett", (), {"widget_rate_limit": 5, "widget_rate_window": 60})()
+        request = MagicMock()
+        request.app.state = state
+        request.client.host = "10.0.0.1"
+
+        dep(request)
+        first = state._rate_limiter__widget
+        dep(request)
+        second = state._rate_limiter__widget
+
+        assert isinstance(first, RateLimiter)
+        assert first is second, "limiter must be reused across calls — not rebuilt per request"
+        assert first.max_requests == 5
+        assert first.window_seconds == 60
+
+    def test_distinct_names_get_distinct_limiters(self) -> None:
+        from decision_hub.api.rate_limit import make_rate_limit_dep
+
+        dep_a = make_rate_limit_dep("alpha")
+        dep_b = make_rate_limit_dep("beta")
+        state = type("S", (), {})()
+        state.settings = type(
+            "Sett",
+            (),
+            {
+                "alpha_rate_limit": 3,
+                "alpha_rate_window": 60,
+                "beta_rate_limit": 7,
+                "beta_rate_window": 30,
+            },
+        )()
+        request = MagicMock()
+        request.app.state = state
+        request.client.host = "10.0.0.1"
+
+        dep_a(request)
+        dep_b(request)
+
+        assert state._rate_limiter__alpha is not state._rate_limiter__beta
+        assert state._rate_limiter__alpha.max_requests == 3
+        assert state._rate_limiter__beta.max_requests == 7
+
+    def test_enforces_configured_limit_after_caching(self) -> None:
+        from decision_hub.api.rate_limit import make_rate_limit_dep
+
+        dep = make_rate_limit_dep("burst")
+        state = type("S", (), {})()
+        state.settings = type("Sett", (), {"burst_rate_limit": 2, "burst_rate_window": 60})()
+        request = MagicMock()
+        request.app.state = state
+        request.client.host = "10.0.0.1"
+
+        dep(request)
+        dep(request)
+        with pytest.raises(HTTPException) as exc_info:
+            dep(request)
+        assert exc_info.value.status_code == 429

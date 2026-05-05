@@ -269,6 +269,41 @@ class TestAskSkills:
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
 
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_ask_reuses_module_level_thread_pool(
+        self,
+        mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """The guard+embed parallel pool must be a module-level singleton.
+
+        Regression guard: the previous implementation built a fresh
+        ThreadPoolExecutor per request, paying ~thread-spawn cost on every
+        /ask call. We assert the same pool instance survives across two
+        consecutive successful requests *and* that it isn't re-created or
+        shut down between them — checked via ``_shutdown``.
+        """
+        from decision_hub.api import search_routes
+
+        mock_hybrid.return_value = _SAMPLE_CANDIDATES
+        mock_llm.return_value = _LLM_RESULT
+
+        pool_before = search_routes._ASK_PARALLEL_POOL
+        assert not pool_before._shutdown
+
+        for _ in range(2):
+            resp = search_client.get("/v1/ask", params={"q": "weather forecast"})
+            assert resp.status_code == 200
+
+        assert search_routes._ASK_PARALLEL_POOL is pool_before
+        assert not search_routes._ASK_PARALLEL_POOL._shutdown
+
 
 # ---------------------------------------------------------------------------
 # POST /v1/ask
