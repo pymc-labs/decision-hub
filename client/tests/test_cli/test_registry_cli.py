@@ -1015,35 +1015,35 @@ class TestPublishTrackingFlags:
 
 
 class TestEnsureTracker:
+    """``_ensure_tracker`` was refactored to accept an ``APIClient``
+    rather than ``(api_url, headers)``; this fixture builds one so each
+    test reads close to the original call shape."""
+
+    @staticmethod
+    def _api():
+        from dhub.cli.api_client import APIClient
+
+        return APIClient("http://test:8000", token="tok")
+
     @respx.mock
     def test_creates_tracker_when_none_exists(self) -> None:
-        """Should create a new tracker when no existing tracker matches."""
         from dhub.cli.registry import _ensure_tracker
 
         respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(200, json=[]))
         respx.post("http://test:8000/v1/trackers").mock(
-            return_value=httpx.Response(
-                201,
-                json={"id": "abc", "warning": None},
-            )
+            return_value=httpx.Response(201, json={"id": "abc", "warning": None})
         )
 
-        _ensure_tracker(
-            "http://test:8000",
-            {"Authorization": "Bearer tok"},
-            "https://github.com/org/repo",
-            "main",
-        )
+        with self._api() as api:
+            _ensure_tracker(api, "https://github.com/org/repo", "main")
 
         assert respx.calls.call_count == 2
-        create_call = respx.calls[1]
-        body = json.loads(create_call.request.content)
+        body = json.loads(respx.calls[1].request.content)
         assert body["repo_url"] == "https://github.com/org/repo"
         assert body["branch"] == "main"
 
     @respx.mock
     def test_skips_create_when_tracker_exists_and_enabled(self) -> None:
-        """Should do nothing when tracker exists and is enabled."""
         from dhub.cli.registry import _ensure_tracker
 
         respx.get("http://test:8000/v1/trackers").mock(
@@ -1060,19 +1060,13 @@ class TestEnsureTracker:
             )
         )
 
-        _ensure_tracker(
-            "http://test:8000",
-            {"Authorization": "Bearer tok"},
-            "https://github.com/org/repo",
-            "main",
-        )
+        with self._api() as api:
+            _ensure_tracker(api, "https://github.com/org/repo", "main")
 
-        # Only the GET call should have been made
         assert respx.calls.call_count == 1
 
     @respx.mock
     def test_reenables_paused_tracker_with_track_flag(self) -> None:
-        """Should re-enable a paused tracker when --track is passed."""
         from dhub.cli.registry import _ensure_tracker
 
         respx.get("http://test:8000/v1/trackers").mock(
@@ -1090,22 +1084,15 @@ class TestEnsureTracker:
         )
         respx.patch("http://test:8000/v1/trackers/abc-123").mock(return_value=httpx.Response(200, json={}))
 
-        _ensure_tracker(
-            "http://test:8000",
-            {"Authorization": "Bearer tok"},
-            "https://github.com/org/repo",
-            "main",
-            track=True,
-        )
+        with self._api() as api:
+            _ensure_tracker(api, "https://github.com/org/repo", "main", track=True)
 
         assert respx.calls.call_count == 2
-        patch_call = respx.calls[1]
-        body = json.loads(patch_call.request.content)
+        body = json.loads(respx.calls[1].request.content)
         assert body["enabled"] is True
 
     @respx.mock
     def test_paused_tracker_stays_paused_without_track_flag(self) -> None:
-        """Should not re-enable a paused tracker without --track."""
         from dhub.cli.registry import _ensure_tracker
 
         respx.get("http://test:8000/v1/trackers").mock(
@@ -1122,55 +1109,38 @@ class TestEnsureTracker:
             )
         )
 
-        _ensure_tracker(
-            "http://test:8000",
-            {"Authorization": "Bearer tok"},
-            "https://github.com/org/repo",
-            "main",
-        )
+        with self._api() as api:
+            _ensure_tracker(api, "https://github.com/org/repo", "main")
 
-        # Only the GET call — no PATCH to re-enable
         assert respx.calls.call_count == 1
 
     @respx.mock
     def test_shows_private_repo_warning(self, capsys) -> None:
-        """Should display warning when tracker creation returns a warning."""
         from dhub.cli.registry import _ensure_tracker
 
         respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(200, json=[]))
         respx.post("http://test:8000/v1/trackers").mock(
             return_value=httpx.Response(
                 201,
-                json={
-                    "id": "abc",
-                    "warning": "This repo appears to be private. Add GITHUB_TOKEN.",
-                },
+                json={"id": "abc", "warning": "This repo appears to be private. Add GITHUB_TOKEN."},
             )
         )
 
-        _ensure_tracker(
-            "http://test:8000",
-            {"Authorization": "Bearer tok"},
-            "https://github.com/org/repo",
-            "main",
-        )
+        with self._api() as api:
+            _ensure_tracker(api, "https://github.com/org/repo", "main")
 
         assert respx.calls.call_count == 2
 
     @respx.mock
     def test_graceful_failure_on_api_error(self) -> None:
-        """Should silently fail if the tracker API is unavailable."""
         from dhub.cli.registry import _ensure_tracker
 
         respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(500))
 
-        # Should not raise
-        _ensure_tracker(
-            "http://test:8000",
-            {"Authorization": "Bearer tok"},
-            "https://github.com/org/repo",
-            "main",
-        )
+        # Should not raise — the publish must succeed even when the
+        # tracker API is degraded.
+        with self._api() as api:
+            _ensure_tracker(api, "https://github.com/org/repo", "main")
 
 
 # ---------------------------------------------------------------------------

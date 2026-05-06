@@ -64,7 +64,12 @@ def _write_cache(latest_version: str) -> None:
 
 
 def _fetch_latest_from_pypi() -> str | None:
-    """Fetch the latest version string from PyPI (3s timeout)."""
+    """Fetch the latest version string from PyPI (3s timeout).
+
+    PyPI is a third-party service, not the Decision Hub API, so we hit it
+    with a raw httpx client rather than ``APIClient`` — the latter would
+    inject the wrong base URL and an irrelevant version header.
+    """
     import httpx
 
     with httpx.Client(timeout=3) as client:

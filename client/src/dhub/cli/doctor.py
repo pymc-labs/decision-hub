@@ -5,6 +5,7 @@ import time
 import httpx
 from rich.console import Console
 
+from dhub.cli.api_client import APIClient
 from dhub.cli.config import get_api_url, get_client_version, get_env, get_optional_token, load_config
 from dhub.cli.output import is_json, print_json
 
@@ -22,13 +23,17 @@ def doctor_command() -> None:
     authenticated = token is not None
     org = config.default_org or (config.orgs[0] if len(config.orgs) == 1 else None)
 
-    # Check API connectivity
+    # Check API connectivity (10s — well under the 60s default; we never want
+    # `dhub doctor` to hang for a minute when the network is wedged). We pass
+    # the explicit ``api_url`` and ``token`` resolved above rather than going
+    # through ``optional_client()`` so monkeypatched ``get_api_url`` /
+    # ``get_optional_token`` references in tests reach this call.
     api_reachable = False
     latency_ms = 0
     try:
         start = time.monotonic()
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(f"{api_url}/health")
+        with APIClient(api_url, token=token, timeout=10) as api:
+            resp = api.get("/health", check=False)
             api_reachable = resp.status_code == 200
         latency_ms = int((time.monotonic() - start) * 1000)
     except httpx.HTTPError:

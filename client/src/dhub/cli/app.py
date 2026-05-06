@@ -96,26 +96,50 @@ from dhub.cli.doctor import doctor_command  # noqa: E402
 app.command("doctor")(doctor_command)
 
 
+# Subprocess calls below cap at this timeout. Without it a hung `uv tool
+# list` or `pipx list` would block the CLI indefinitely. 10 seconds is
+# generous: these commands normally finish in <1 s.
+_INSTALLER_QUERY_TIMEOUT = 10
+
+
+def _safe_run(cmd: list[str]) -> subprocess.CompletedProcess | None:
+    """Run an installer-query subprocess; return None on timeout/missing-binary.
+
+    The result is intentionally treated as best-effort: if any one
+    installer probe times out we fall through to the next one rather
+    than failing the entire CLI invocation.
+    """
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_INSTALLER_QUERY_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
 def _detect_installer() -> str:
     """Detect how dhub-cli was installed: 'uv', 'pipx', or 'pip'."""
     uv_bin = shutil.which("uv")
     if uv_bin:
-        result = subprocess.run(
-            [uv_bin, "tool", "list"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
+        result = _safe_run([uv_bin, "tool", "list"])
+        if (
+            result is not None
+            and result.returncode == 0
+            and any(line.startswith("dhub-cli") for line in result.stdout.splitlines())
+        ):
             return "uv"
 
     pipx_bin = shutil.which("pipx")
     if pipx_bin:
-        result = subprocess.run(
-            [pipx_bin, "list", "--short"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
+        result = _safe_run([pipx_bin, "list", "--short"])
+        if (
+            result is not None
+            and result.returncode == 0
+            and any(line.startswith("dhub-cli") for line in result.stdout.splitlines())
+        ):
             return "pipx"
 
     return "pip"
@@ -130,6 +154,12 @@ def _require_bin(name: str) -> str:
     return path
 
 
+# pip/uv/pipx upgrades have to download from PyPI and may legitimately
+# take a few minutes on slow links — five minutes is the upper bound
+# we'll wait before giving up rather than blocking forever.
+_UPGRADE_TIMEOUT_SECONDS = 300
+
+
 def _upgrade(installer: str, console: Console) -> int:
     """Run the upgrade command for the given installer and return exit code."""
     if installer == "uv":
@@ -139,7 +169,17 @@ def _upgrade(installer: str, console: Console) -> int:
     else:
         cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "dhub-cli"]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_UPGRADE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        console.print(f"[red]Upgrade timed out after {_UPGRADE_TIMEOUT_SECONDS}s.[/]")
+        return 1
+
     if result.returncode != 0:
         console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
     return result.returncode
@@ -148,11 +188,9 @@ def _upgrade(installer: str, console: Console) -> int:
 def _query_version(installer: str) -> str | None:
     """Query the installed dhub-cli version using the same tool that installed it."""
     if installer == "uv":
-        result = subprocess.run(
-            [_require_bin("uv"), "tool", "list"],
-            capture_output=True,
-            text=True,
-        )
+        result = _safe_run([_require_bin("uv"), "tool", "list"])
+        if result is None:
+            return None
         for line in result.stdout.splitlines():
             if line.startswith("dhub-cli"):
                 parts = line.split()
@@ -161,11 +199,9 @@ def _query_version(installer: str) -> str | None:
         return None
 
     if installer == "pipx":
-        result = subprocess.run(
-            [_require_bin("pipx"), "list", "--short"],
-            capture_output=True,
-            text=True,
-        )
+        result = _safe_run([_require_bin("pipx"), "list", "--short"])
+        if result is None:
+            return None
         for line in result.stdout.splitlines():
             if line.startswith("dhub-cli"):
                 parts = line.split()
@@ -174,11 +210,9 @@ def _query_version(installer: str) -> str | None:
         return None
 
     # pip — use the same Python that's running this process
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "show", "dhub-cli"],
-        capture_output=True,
-        text=True,
-    )
+    result = _safe_run([sys.executable, "-m", "pip", "show", "dhub-cli"])
+    if result is None:
+        return None
     for line in result.stdout.splitlines():
         if line.startswith("Version:"):
             return line.split(":", 1)[1].strip()

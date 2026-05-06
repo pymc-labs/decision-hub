@@ -1,11 +1,12 @@
 """CLI command for natural language skill search."""
 
-import httpx
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
+
+from dhub.cli.api_client import optional_client
 
 console = Console()
 
@@ -24,21 +25,17 @@ def ask_command(
     Example: dhub ask "analyze A/B test results"
     Example: dhub ask "build a REST API" --category "Backend & APIs"
     """
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
-
     params: dict[str, str] = {"q": query}
     if category:
         params["category"] = category
 
-    with console.status("Searching registry..."), httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{get_api_url()}/v1/ask",
-            params=params,
-            headers=build_headers(get_optional_token()),
-        )
+    with console.status("Searching registry..."), optional_client() as api:
+        resp = api.get("/v1/ask", params=params, check=False)
         if resp.status_code == 503:
             console.print("[red]Search is not available (server not configured).[/]")
             raise typer.Exit(1)
+        from dhub.cli.config import raise_for_status
+
         raise_for_status(resp)
         data = resp.json()
 

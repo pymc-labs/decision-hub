@@ -2,10 +2,11 @@
 
 import time
 
-import httpx
 import typer
 from rich.console import Console
 from rich.panel import Panel
+
+from dhub.cli.api_client import APIClient
 
 console = Console()
 
@@ -15,17 +16,18 @@ def login_command(
 ) -> None:
     """Authenticate with Decision Hub via GitHub."""
     from dhub.cli.banner import print_banner
-    from dhub.cli.config import CliConfig, build_headers, get_api_url, raise_for_status, save_config
+    from dhub.cli.config import CliConfig, get_api_url, save_config
 
     print_banner(console)
 
     base_url = (api_url or get_api_url()).rstrip("/")
 
-    # Step 1: Request a device code from the API
-    with httpx.Client(timeout=60) as client:
-        resp = client.post(f"{base_url}/auth/github/code", headers=build_headers())
-        raise_for_status(resp)
-        data = resp.json()
+    # Step 1: Request a device code from the API. The auth endpoints accept
+    # anonymous requests, but they still need the X-DHub-Client-Version
+    # header for min-version enforcement, so go through APIClient rather
+    # than raw httpx.
+    with APIClient(base_url, token=None) as api:
+        data = api.post("/auth/github/code").json()
 
     device_code: str = data["device_code"]
     user_code: str = data["user_code"]
@@ -116,14 +118,15 @@ def _poll_for_token(
     """
     deadline = time.monotonic() + timeout_seconds
 
-    from dhub.cli.config import build_headers, raise_for_status
-
-    with httpx.Client(timeout=60) as client:
+    # Use the explicit ``base_url`` (which may be an override from
+    # ``login --api-url``) rather than the saved one, so login overrides
+    # don't get crossed with the persisted config.
+    with APIClient(base_url, token=None) as api:
         while time.monotonic() < deadline:
-            resp = client.post(
-                f"{base_url}/auth/github/token",
+            resp = api.post(
+                "/auth/github/token",
+                check=False,
                 json={"device_code": device_code},
-                headers=build_headers(),
             )
 
             if resp.status_code == 200:
@@ -135,6 +138,8 @@ def _poll_for_token(
                 continue
 
             # Any other error is fatal
+            from dhub.cli.config import raise_for_status
+
             raise_for_status(resp)
 
     console.print("[red]Error: Login timed out. Please try again.[/]")

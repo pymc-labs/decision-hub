@@ -13,6 +13,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from dhub.cli.api_client import APIClient, authed_client, optional_client
+
 console = Console()
 
 
@@ -35,7 +37,7 @@ def _publish_skill_directory(
     Returns True on success, False on skip (no changes).
     Raises typer.Exit on errors.
     """
-    from dhub.cli.config import build_headers, raise_for_status
+    from dhub.cli.config import raise_for_status
     from dhub.core.validation import (
         FIRST_VERSION,
         bump_version,
@@ -97,14 +99,13 @@ def _publish_skill_directory(
         meta["manifest_path"] = manifest_path
     metadata = json.dumps(meta)
 
-    with console.status(f"Publishing {org}/{name}@{version}..."):
-        with httpx.Client(timeout=60) as client:
-            resp = client.post(
-                f"{api_url}/v1/publish",
-                headers=build_headers(token),
-                files={"zip_file": ("skill.zip", zip_data, "application/zip")},
-                data={"metadata": metadata},
-            )
+    with console.status(f"Publishing {org}/{name}@{version}..."), APIClient(api_url, token=token) as api:
+        resp = api.post(
+            "/v1/publish",
+            check=False,
+            files={"zip_file": ("skill.zip", zip_data, "application/zip")},
+            data={"metadata": metadata},
+        )
         if resp.status_code == 409:
             console.print(f"[red]Error: Version {version} already exists for {org}/{name}.[/]")
             raise typer.Exit(1)
@@ -151,9 +152,8 @@ def _publish_skill_directory(
         console.print(f"[dim]Agent assessment started (run: {eval_run_id[:8]}...)[/]")
         console.print("[dim]Tailing logs... (Ctrl-C to detach)[/]")
         try:
-            from dhub.cli.config import build_headers as _bh
-
-            _tail_eval_logs(api_url, _bh(token), eval_run_id)
+            with APIClient(api_url, token=token) as tail_api:
+                _tail_eval_logs(tail_api, eval_run_id)
         except KeyboardInterrupt:
             console.print("\n[dim]Detached. Resume with: dhub logs {eval_run_id} --follow[/]")
     elif eval_report_status == "pending":
@@ -352,7 +352,7 @@ def _publish_from_git_repo(
     dry_run: bool = False,
 ) -> None:
     """Clone a git repo, discover skills, and publish each one."""
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    from dhub.cli.config import get_api_url, get_token
     from dhub.core.git_repo import clone_repo, discover_skills, git_url_to_https
 
     api_url = get_api_url()
@@ -405,86 +405,95 @@ def _publish_from_git_repo(
 
     # Auto-tracking: create or manage tracker for this GitHub repo
     if not no_track:
-        _ensure_tracker(api_url, build_headers(token), repo_url, branch, track=track)
+        with APIClient(api_url, token=token) as api:
+            _ensure_tracker(api, repo_url, branch, track=track)
 
     if publish_exit is not None:
         raise publish_exit
 
 
 def _detect_branch(repo_root: Path) -> str:
-    """Detect the current branch of a cloned repo. Falls back to 'main'."""
+    """Detect the current branch of a cloned repo. Falls back to 'main'.
+
+    Best-effort: a 5-second cap prevents a wedged git hanging the
+    publish flow, and any error (timeout, missing binary, dirty
+    checkout reporting "HEAD") falls back to "main" so tracker
+    creation can still proceed.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_root,
+            timeout=5,
         )
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-            if branch and branch != "HEAD":
-                return branch
-    except Exception:
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return "main"
+
+    if result.returncode == 0:
+        branch = result.stdout.strip()
+        if branch and branch != "HEAD":
+            return branch
     return "main"
 
 
-def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, track: bool = False) -> None:
+def _ensure_tracker(api: APIClient, repo_url: str, branch: str, *, track: bool = False) -> None:
     """Create a tracker or re-enable an existing one after a GitHub publish.
 
     - If no tracker exists: creates one (auto-track on first publish).
     - If tracker exists and is enabled: does nothing.
     - If tracker exists but disabled: only re-enables if --track was passed.
-    """
-    from dhub.cli.config import raise_for_status
 
+    Per CLAUDE.md "Isolate side operations": tracker management runs
+    alongside the critical publish path and must never block it.
+    Any failure here is swallowed except ``SystemExit``/``typer.Exit``
+    so the 426 upgrade prompt and Ctrl-C still propagate.
+    """
     # Check if a tracker already exists for this repo+branch
     try:
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(f"{api_url}/v1/trackers", headers=headers)
-            raise_for_status(resp)
-            existing = resp.json()
+        existing = api.get("/v1/trackers").json()
     except (SystemExit, typer.Exit):
-        raise  # Don't swallow typer.Exit (e.g. from 426 handler)
+        raise
     except Exception:
-        return  # Don't fail the publish if tracker API is unavailable
+        return  # tracker API unreachable — don't fail the publish
 
     match = next((t for t in existing if t["repo_url"] == repo_url and t["branch"] == branch), None)
 
     if match is None:
-        # No tracker exists — create one
+        # No tracker exists — create one. 201 = created, 409 = already
+        # exists (race), both are success-equivalent for our purposes.
         try:
-            with httpx.Client(timeout=60) as client:
-                resp = client.post(
-                    f"{api_url}/v1/trackers",
-                    headers=headers,
-                    json={"repo_url": repo_url, "branch": branch},
-                )
-                if resp.status_code == 201:
-                    data = resp.json()
-                    console.print(f"[dim]Auto-tracking enabled for {repo_url}@{branch}[/]")
-                    if data.get("warning"):
-                        console.print(f"[yellow]Warning: {data['warning']}[/]")
-                elif resp.status_code != 409:
-                    # 409 = already exists (race condition), that's fine
-                    pass
+            resp = api.post(
+                "/v1/trackers",
+                check=False,
+                json={"repo_url": repo_url, "branch": branch},
+            )
+        except (SystemExit, typer.Exit):
+            raise
         except Exception:
-            pass  # Best-effort — don't fail the publish
+            return  # best-effort
+        if resp.status_code == 201:
+            data = resp.json()
+            console.print(f"[dim]Auto-tracking enabled for {repo_url}@{branch}[/]")
+            if data.get("warning"):
+                console.print(f"[yellow]Warning: {data['warning']}[/]")
         return
 
     if not match["enabled"] and track:
         # Tracker exists but paused, and user asked to re-enable
         try:
-            with httpx.Client(timeout=60) as client:
-                resp = client.patch(
-                    f"{api_url}/v1/trackers/{match['id']}",
-                    headers=headers,
-                    json={"enabled": True},
-                )
-                if resp.status_code == 200:
-                    console.print(f"[dim]Tracking re-enabled for {repo_url}@{branch}[/]")
+            resp = api.patch(
+                f"/v1/trackers/{match['id']}",
+                check=False,
+                json={"enabled": True},
+            )
+        except (SystemExit, typer.Exit):
+            raise
         except Exception:
-            pass
+            return  # best-effort
+        if resp.status_code == 200:
+            console.print(f"[dim]Tracking re-enabled for {repo_url}@{branch}[/]")
     elif not match["enabled"]:
         console.print("[dim]Tracking is paused for this repo. Use --track to re-enable.[/]")
 
@@ -497,7 +506,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
     2. Cached orgs from config (if exactly one)
     3. Falls back to API call (for old configs without cached orgs)
     """
-    from dhub.cli.config import build_headers, get_default_org, load_config, raise_for_status
+    from dhub.cli.config import get_default_org, load_config
 
     # 1. Check default org (env var takes priority over config)
     default = get_default_org()
@@ -521,13 +530,8 @@ def _auto_detect_org(api_url: str, token: str) -> str:
         raise typer.Exit(1)
 
     # 3. Fall back to API (old config without cached orgs)
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/orgs",
-            headers=build_headers(token),
-        )
-        raise_for_status(resp)
-        orgs = resp.json()
+    with APIClient(api_url, token=token) as api:
+        orgs = api.get("/v1/orgs").json()
 
     if len(orgs) == 0:
         console.print("[red]Error: No namespaces available. Run 'dhub login' to refresh your org memberships.[/]")
@@ -575,14 +579,10 @@ def _auto_bump_version(
     Returns (bumped_version, latest_checksum, current_version).
     On first publish (404), latest_checksum and current_version are None.
     """
-    from dhub.cli.config import build_headers, raise_for_status
+    with APIClient(api_url, token=token) as api:
+        resp = api.get(f"/v1/skills/{org}/{name}/latest-version", check=False)
 
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/skills/{org}/{name}/latest-version",
-            headers=build_headers(token),
-        )
-
+    from dhub.cli.config import raise_for_status
     from dhub.cli.output import is_json
 
     if resp.status_code == 404:
@@ -681,7 +681,7 @@ def list_command(
     import sys
 
     from dhub.cli.banner import print_banner
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import get_api_url
     from dhub.cli.output import is_json, print_json
 
     json_mode = is_json()
@@ -690,7 +690,6 @@ def list_command(
         print_banner(console)
 
     api_url = get_api_url()
-    headers = build_headers(get_optional_token())
 
     if not json_mode:
         console.print(f"Registry: [dim]{api_url}[/]")
@@ -699,20 +698,14 @@ def list_command(
     page = 1
     total = 0
     found_any = False
-    with httpx.Client(timeout=60) as client:
+    with optional_client() as api:
         while True:
             params: dict[str, int | str] = {"page": page, "page_size": page_size, "sort": "downloads"}
             if org:
                 params["org"] = org
             if skill:
                 params["search"] = skill
-            resp = client.get(
-                f"{api_url}/v1/skills",
-                headers=headers,
-                params=params,
-            )
-            raise_for_status(resp)
-            data = resp.json()
+            data = api.get("/v1/skills", params=params).json()
 
             items = data["items"]
             total = data["total"]
@@ -773,7 +766,7 @@ def delete_command(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without actually deleting"),
 ) -> None:
     """Delete a published skill version (or all versions) from the registry."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
+    from dhub.cli.config import raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -782,46 +775,39 @@ def delete_command(
         console.print(f"[red]Error: {exc}[/]")
         raise typer.Exit(1) from None
 
-    api_url = get_api_url()
-    headers = build_headers(get_token())
-
     from dhub.cli.output import is_json, print_json
 
-    if dry_run:
-        # Verify skill exists
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(f"{api_url}/v1/skills/{org_slug}/{skill_name}/summary", headers=headers)
+    with authed_client() as api:
+        if dry_run:
+            # Verify skill exists
+            resp = api.get(f"/v1/skills/{org_slug}/{skill_name}/summary", check=False)
             if resp.status_code == 404:
                 console.print(f"[red]Error: Skill '{skill_name}' not found in {org_slug}.[/]")
                 raise typer.Exit(1)
             raise_for_status(resp)
-        result: dict[str, object] = {"org": org_slug, "skill": skill_name}
-        if version:
-            result["version"] = version
-        else:
-            result["all_versions"] = True
-        if is_json():
-            print_json(result)
-        else:
+            result: dict[str, object] = {"org": org_slug, "skill": skill_name}
             if version:
-                console.print(f"[yellow]Dry run:[/] Would delete {org_slug}/{skill_name}@{version}")
+                result["version"] = version
             else:
-                console.print(f"[yellow]Dry run:[/] Would delete ALL versions of {org_slug}/{skill_name}")
-        return
+                result["all_versions"] = True
+            if is_json():
+                print_json(result)
+            else:
+                if version:
+                    console.print(f"[yellow]Dry run:[/] Would delete {org_slug}/{skill_name}@{version}")
+                else:
+                    console.print(f"[yellow]Dry run:[/] Would delete ALL versions of {org_slug}/{skill_name}")
+            return
 
-    if version is None:
-        # Delete ALL versions — skip confirmation in JSON mode (agents can't confirm)
-        if not is_json():
-            typer.confirm(
-                f"Delete ALL versions of {org_slug}/{skill_name}?",
-                abort=True,
-            )
+        if version is None:
+            # Delete ALL versions — skip confirmation in JSON mode (agents can't confirm)
+            if not is_json():
+                typer.confirm(
+                    f"Delete ALL versions of {org_slug}/{skill_name}?",
+                    abort=True,
+                )
 
-        with httpx.Client(timeout=60) as client:
-            resp = client.delete(
-                f"{api_url}/v1/skills/{org_slug}/{skill_name}",
-                headers=headers,
-            )
+            resp = api.delete(f"/v1/skills/{org_slug}/{skill_name}", check=False)
             if resp.status_code == 404:
                 console.print(f"[red]Error: Skill '{skill_name}' not found in {org_slug}.[/]")
                 raise typer.Exit(1)
@@ -830,26 +816,23 @@ def delete_command(
                 raise typer.Exit(1)
             raise_for_status(resp)
 
-        data = resp.json()
-        if is_json():
-            print_json(data)
+            data = resp.json()
+            if is_json():
+                print_json(data)
+                return
+            count = data["versions_deleted"]
+            console.print(f"[green]Deleted {count} version(s) of {org_slug}/{skill_name}[/]")
             return
-        count = data["versions_deleted"]
-        console.print(f"[green]Deleted {count} version(s) of {org_slug}/{skill_name}[/]")
-    else:
+
         # Delete a single version
-        with httpx.Client(timeout=60) as client:
-            resp = client.delete(
-                f"{api_url}/v1/skills/{org_slug}/{skill_name}/{version}",
-                headers=headers,
-            )
-            if resp.status_code == 404:
-                console.print(f"[red]Error: Version {version} not found for {org_slug}/{skill_name}.[/]")
-                raise typer.Exit(1)
-            if resp.status_code == 403:
-                console.print("[red]Error: You don't have permission to delete this version.[/]")
-                raise typer.Exit(1)
-            raise_for_status(resp)
+        resp = api.delete(f"/v1/skills/{org_slug}/{skill_name}/{version}", check=False)
+        if resp.status_code == 404:
+            console.print(f"[red]Error: Version {version} not found for {org_slug}/{skill_name}.[/]")
+            raise typer.Exit(1)
+        if resp.status_code == 403:
+            console.print("[red]Error: You don't have permission to delete this version.[/]")
+            raise typer.Exit(1)
+        raise_for_status(resp)
 
         data = resp.json()
         if is_json():
@@ -862,7 +845,7 @@ def eval_report_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill@1.0.0')"),
 ) -> None:
     """View the agent evaluation report for a skill version."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
+    from dhub.cli.config import raise_for_status
 
     # Parse skill reference (org/skill@version)
     if "@" not in skill_ref:
@@ -876,19 +859,16 @@ def eval_report_command(
         raise typer.Exit(1)
     org_slug, skill_name = parts
 
-    api_url = get_api_url()
-    headers = build_headers(get_token())
-
     # Fetch the eval report
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/skills/{org_slug}/{skill_name}/versions/{version}/eval-report",
-            headers=headers,
+    with authed_client() as api:
+        resp = api.get(
+            f"/v1/skills/{org_slug}/{skill_name}/versions/{version}/eval-report",
+            check=False,
         )
-        if resp.status_code == 404:
-            console.print(f"[red]Error: No eval report found for {org_slug}/{skill_name}@{version}[/]")
-            raise typer.Exit(1)
-        raise_for_status(resp)
+    if resp.status_code == 404:
+        console.print(f"[red]Error: No eval report found for {org_slug}/{skill_name}@{version}[/]")
+        raise typer.Exit(1)
+    raise_for_status(resp)
 
     data = resp.json()
 
@@ -953,7 +933,7 @@ def _install_single_skill(
 
     Raises typer.Exit on errors.
     """
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import raise_for_status
     from dhub.core.install import (
         get_dhub_skill_path,
         link_skill_to_agent,
@@ -984,18 +964,15 @@ def _install_single_skill(
         download_url = _resolved["download_url"]
         expected_checksum = _resolved["checksum"]
     else:
-        headers = build_headers(get_optional_token())
-        base_url = get_api_url()
-
         # Resolve the version to a concrete download URL and checksum
         resolve_params: dict[str, str] = {"spec": version}
         if allow_risky:
             resolve_params["allow_risky"] = "true"
-        with console.status(f"Resolving {org_slug}/{skill_name}@{version}..."), httpx.Client(timeout=60) as client:
-            resp = client.get(
-                f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
+        with console.status(f"Resolving {org_slug}/{skill_name}@{version}..."), optional_client() as api:
+            resp = api.get(
+                f"/v1/resolve/{org_slug}/{skill_name}",
                 params=resolve_params,
-                headers=headers,
+                check=False,
             )
             if resp.status_code == 404:
                 console.print(f"[red]Error: Skill '{skill_ref}' not found.[/]")
@@ -1007,13 +984,15 @@ def _install_single_skill(
         download_url = data["download_url"]
         expected_checksum = data["checksum"]
 
-    # Download and verify
+    # Download and verify. The download URL is a presigned S3 URL, NOT
+    # the Decision Hub API, so use raw httpx — APIClient would inject
+    # auth/version headers that S3 doesn't expect.
     with (
         console.status(f"Downloading {org_slug}/{skill_name}@{resolved_version}..."),
         httpx.Client(timeout=60) as client,
     ):
         resp = client.get(download_url)
-        raise_for_status(resp)
+        resp.raise_for_status()
         zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
 
@@ -1067,11 +1046,6 @@ def _install_from_repo(
     allow_risky: bool = False,
 ) -> None:
     """Install all skills from a GitHub repository."""
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
-
-    headers = build_headers(get_optional_token())
-    base_url = get_api_url()
-
     # Normalize repo_ref to full URL if it's owner/repo format
     repo_url = f"https://github.com/{repo_ref}" if not repo_ref.startswith("http") else repo_ref
 
@@ -1080,14 +1054,8 @@ def _install_from_repo(
         raise typer.Exit(1)
 
     # Fetch all skills from the repo
-    with console.status(f"Fetching skills from {repo_ref}..."), httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{base_url}/v1/skills/by-repo",
-            params={"repo_url": repo_url},
-            headers=headers,
-        )
-        raise_for_status(resp)
-        data = resp.json()
+    with console.status(f"Fetching skills from {repo_ref}..."), optional_client() as api:
+        data = api.get("/v1/skills/by-repo", params={"repo_url": repo_url}).json()
 
     skills = data["items"]
     if not skills:
@@ -1157,32 +1125,27 @@ def logs_command(
         dhub logs org/skill@1.0.0 --follow     # tail latest run for specific version
         dhub logs <run-id> --follow            # tail a specific run by ID
     """
-    from dhub.cli.config import build_headers, get_api_url, get_token
+    with authed_client() as api:
+        if skill_ref is None:
+            # No args: list recent runs
+            _list_recent_runs(api)
+            return
 
-    api_url = get_api_url()
-    token = get_token()
-    headers = build_headers(token)
+        # Try to resolve as a run ID (UUID format)
+        run_id = _try_resolve_run_id(skill_ref, api)
 
-    if skill_ref is None:
-        # No args: list recent runs
-        _list_recent_runs(api_url, headers)
-        return
+        if run_id is None:
+            console.print(f"[red]Error: Could not resolve '{skill_ref}' to an eval run.[/]")
+            raise typer.Exit(1)
 
-    # Try to resolve as a run ID (UUID format)
-    run_id = _try_resolve_run_id(skill_ref, api_url, headers)
-
-    if run_id is None:
-        console.print(f"[red]Error: Could not resolve '{skill_ref}' to an eval run.[/]")
-        raise typer.Exit(1)
-
-    if follow:
-        _tail_eval_logs(api_url, headers, run_id)
-    else:
-        # Show run status
-        _show_run_status(api_url, headers, run_id)
+        if follow:
+            _tail_eval_logs(api, run_id)
+        else:
+            # Show run status
+            _show_run_status(api, run_id)
 
 
-def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | None:
+def _try_resolve_run_id(skill_ref: str, api: APIClient) -> str | None:
     """Try to resolve a skill_ref to an eval run ID.
 
     Tries in order:
@@ -1195,12 +1158,8 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
     # Check if it looks like a UUID
     uuid_pattern = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
     if uuid_pattern.match(skill_ref):
-        # Verify it exists
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(f"{api_url}/v1/eval-runs/{skill_ref}", headers=headers)
-            if resp.status_code == 200:
-                return skill_ref
-            return None
+        resp = api.get(f"/v1/eval-runs/{skill_ref}", check=False)
+        return skill_ref if resp.status_code == 200 else None
 
     # Parse org/skill[@version]
     if "@" in skill_ref:
@@ -1216,60 +1175,41 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
 
     # Resolve version to version_id
     if version is None:
-        # Get latest version
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(
-                f"{api_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
-                headers=headers,
-            )
-            if resp.status_code != 200:
-                return None
-            version = resp.json()["version"]
-
-    # Use eval-report endpoint to get version_id, then filter runs by it
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/skills/{org_slug}/{skill_name}/eval-report",
-            params={"semver": version},
-            headers=headers,
-        )
-        if resp.status_code == 200 and resp.json() is not None:
-            version_id = resp.json()["version_id"]
-            # Fetch runs filtered by version_id
-            resp = client.get(
-                f"{api_url}/v1/eval-runs",
-                params={"version_id": version_id},
-                headers=headers,
-            )
-            if resp.status_code == 200:
-                runs = resp.json()
-                if runs:
-                    return runs[0]["id"]
-            return None
-
-    # Fallback: no eval report for this version, list user's recent runs
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/eval-runs",
-            headers=headers,
-        )
+        resp = api.get(f"/v1/skills/{org_slug}/{skill_name}/latest-version", check=False)
         if resp.status_code != 200:
             return None
-        runs = resp.json()
+        version = resp.json()["version"]
+
+    # Use eval-report endpoint to get version_id, then filter runs by it
+    resp = api.get(
+        f"/v1/skills/{org_slug}/{skill_name}/eval-report",
+        params={"semver": version},
+        check=False,
+    )
+    if resp.status_code == 200 and resp.json() is not None:
+        version_id = resp.json()["version_id"]
+        # Fetch runs filtered by version_id
+        resp = api.get("/v1/eval-runs", params={"version_id": version_id}, check=False)
+        if resp.status_code == 200:
+            runs = resp.json()
+            if runs:
+                return runs[0]["id"]
+        return None
+
+    # Fallback: no eval report for this version, list user's recent runs
+    resp = api.get("/v1/eval-runs", check=False)
+    if resp.status_code != 200:
+        return None
+    runs = resp.json()
 
     if runs:
         return runs[0]["id"]
     return None
 
 
-def _list_recent_runs(api_url: str, headers: dict) -> None:
+def _list_recent_runs(api: APIClient) -> None:
     """List recent eval runs for the current user."""
-    from dhub.cli.config import raise_for_status
-
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(f"{api_url}/v1/eval-runs", headers=headers)
-        raise_for_status(resp)
-        runs = resp.json()
+    runs = api.get("/v1/eval-runs").json()
 
     from dhub.cli.output import is_json, print_json
 
@@ -1319,14 +1259,9 @@ def _list_recent_runs(api_url: str, headers: dict) -> None:
     console.print("\n[dim]Use 'dhub logs <run-id> --follow' to tail a run.[/]")
 
 
-def _show_run_status(api_url: str, headers: dict, run_id: str) -> None:
+def _show_run_status(api: APIClient, run_id: str) -> None:
     """Show current status of an eval run."""
-    from dhub.cli.config import raise_for_status
-
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(f"{api_url}/v1/eval-runs/{run_id}", headers=headers)
-        raise_for_status(resp)
-        run = resp.json()
+    run = api.get(f"/v1/eval-runs/{run_id}").json()
 
     from dhub.cli.output import is_json, print_json
 
@@ -1358,11 +1293,10 @@ def _show_run_status(api_url: str, headers: dict, run_id: str) -> None:
     console.print(f"\n[dim]Use 'dhub logs {run_id} --follow' to tail logs.[/]")
 
 
-def _tail_eval_logs(api_url: str, headers: dict, run_id: str) -> None:
+def _tail_eval_logs(api: APIClient, run_id: str) -> None:
     """Tail eval run logs with polling."""
     import time
 
-    from dhub.cli.config import raise_for_status
     from dhub.cli.output import is_json, print_json
 
     cursor = 0
@@ -1371,14 +1305,7 @@ def _tail_eval_logs(api_url: str, headers: dict, run_id: str) -> None:
         console.print(f"[dim]Tailing eval run {run_id[:8]}...[/]\n")
 
     while True:
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(
-                f"{api_url}/v1/eval-runs/{run_id}/logs",
-                params={"cursor": cursor},
-                headers=headers,
-            )
-            raise_for_status(resp)
-            data = resp.json()
+        data = api.get(f"/v1/eval-runs/{run_id}/logs", params={"cursor": cursor}).json()
 
         for event in data["events"]:
             if json_mode:
@@ -1502,7 +1429,7 @@ def update_command(
 
 def _update_single_skill(skill_ref: str) -> None:
     """Check and update a single installed skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import raise_for_status
     from dhub.core.install import get_dhub_skill_path, get_installed_version
     from dhub.core.validation import parse_skill_ref
 
@@ -1522,15 +1449,9 @@ def _update_single_skill(skill_ref: str) -> None:
     installed_version = installed.version if installed else None
     allow_risky = installed.allow_risky if installed else False
 
-    headers = build_headers(get_optional_token())
-    base_url = get_api_url()
-
-    with httpx.Client(timeout=60) as client:
+    with optional_client() as api:
         # Quick version check via /latest-version (does NOT inflate download count)
-        resp = client.get(
-            f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
-            headers=headers,
-        )
+        resp = api.get(f"/v1/skills/{org_slug}/{skill_name}/latest-version", check=False)
         if resp.status_code == 404:
             console.print(f"[red]Error: Skill '{skill_ref}' not found in registry.[/]")
             raise typer.Exit(1)
@@ -1548,10 +1469,10 @@ def _update_single_skill(skill_ref: str) -> None:
         resolve_params: dict[str, str] = {"spec": "latest"}
         if allow_risky:
             resolve_params["allow_risky"] = "true"
-        resp = client.get(
-            f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
+        resp = api.get(
+            f"/v1/resolve/{org_slug}/{skill_name}",
             params=resolve_params,
-            headers=headers,
+            check=False,
         )
         if resp.status_code == 404:
             console.print(f"[red]Error: Skill '{skill_ref}' not found in registry.[/]")
@@ -1564,7 +1485,7 @@ def _update_single_skill(skill_ref: str) -> None:
 
 def _update_all_skills() -> None:
     """Check and update all locally installed skills."""
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import raise_for_status
     from dhub.core.install import get_installed_version, list_installed_skills
 
     installed_skills = list_installed_skills()
@@ -1574,32 +1495,27 @@ def _update_all_skills() -> None:
 
     console.print(f"Checking {len(installed_skills)} installed skill(s) for updates...\n")
 
-    headers = build_headers(get_optional_token())
-    base_url = get_api_url()
-
     updated = 0
     up_to_date = 0
     failed = 0
 
-    with httpx.Client(timeout=60) as client:
+    with optional_client() as api:
         for org_slug, skill_name in installed_skills:
             installed = get_installed_version(org_slug, skill_name)
             installed_version = installed.version if installed else None
             allow_risky = installed.allow_risky if installed else False
 
-            # Quick version check via /latest-version (does NOT inflate download count)
+            # Quick version check via /latest-version (does NOT inflate download count).
+            # Network/HTTP errors are per-skill: log + count as failed, keep iterating.
             try:
-                resp = client.get(
-                    f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
-                    headers=headers,
-                )
+                resp = api.get(f"/v1/skills/{org_slug}/{skill_name}/latest-version", check=False)
                 if resp.status_code == 404:
                     console.print(f"[yellow]{org_slug}/{skill_name}: not found in registry (skipped)[/]")
                     failed += 1
                     continue
                 raise_for_status(resp)
                 latest_version = resp.json()["version"]
-            except Exception as exc:
+            except (httpx.HTTPError, OSError) as exc:
                 console.print(f"[red]{org_slug}/{skill_name}: error checking for updates ({exc})[/]")
                 failed += 1
                 continue
@@ -1618,17 +1534,17 @@ def _update_all_skills() -> None:
                 resolve_params: dict[str, str] = {"spec": "latest"}
                 if allow_risky:
                     resolve_params["allow_risky"] = "true"
-                resp = client.get(
-                    f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
+                data = api.get(
+                    f"/v1/resolve/{org_slug}/{skill_name}",
                     params=resolve_params,
-                    headers=headers,
-                )
-                raise_for_status(resp)
-                data = resp.json()
+                ).json()
                 _install_single_skill(f"{org_slug}/{skill_name}", allow_risky=allow_risky, _resolved=data)
                 updated += 1
-            except (typer.Exit, Exception) as exc:
-                # Catch broadly so one skill failure doesn't abort the batch
+            except (typer.Exit, httpx.HTTPError, OSError, ValueError) as exc:
+                # Per-skill failures must not abort the batch. We narrow the
+                # catch so KeyboardInterrupt/SystemExit still propagate —
+                # the previous catch-all on Exception silently swallowed
+                # those, leaving the user unable to Ctrl-C out of an update.
                 console.print(f"[red]  Failed to update {org_slug}/{skill_name}: {exc}[/]")
                 failed += 1
 
@@ -1640,7 +1556,7 @@ def visibility_command(
     visibility: str = typer.Argument(help="Visibility level: 'public' or 'org'"),
 ) -> None:
     """Change the visibility of a published skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
+    from dhub.cli.config import raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     valid = {"public", "org"}
@@ -1654,25 +1570,22 @@ def visibility_command(
         console.print(f"[red]Error: {exc}[/]")
         raise typer.Exit(1) from None
 
-    api_url = get_api_url()
-    headers = build_headers(get_token())
-
-    with httpx.Client(timeout=60) as client:
-        resp = client.put(
-            f"{api_url}/v1/skills/{org_slug}/{skill_name}/visibility",
-            headers=headers,
+    with authed_client() as api:
+        resp = api.put(
+            f"/v1/skills/{org_slug}/{skill_name}/visibility",
+            check=False,
             json={"visibility": visibility},
         )
-        if resp.status_code == 404:
-            console.print(f"[red]Error: {resp.json().get('detail', 'Not found')}[/]")
-            raise typer.Exit(1)
-        if resp.status_code == 403:
-            console.print("[red]Error: Only org owners and admins can change visibility.[/]")
-            raise typer.Exit(1)
-        if resp.status_code == 422:
-            console.print(f"[red]Error: {resp.json().get('detail', 'Invalid visibility')}[/]")
-            raise typer.Exit(1)
-        raise_for_status(resp)
+    if resp.status_code == 404:
+        console.print(f"[red]Error: {resp.json().get('detail', 'Not found')}[/]")
+        raise typer.Exit(1)
+    if resp.status_code == 403:
+        console.print("[red]Error: Only org owners and admins can change visibility.[/]")
+        raise typer.Exit(1)
+    if resp.status_code == 422:
+        console.print(f"[red]Error: {resp.json().get('detail', 'Invalid visibility')}[/]")
+        raise typer.Exit(1)
+    raise_for_status(resp)
 
     from dhub.cli.output import is_json, print_json
 
@@ -1712,7 +1625,7 @@ def info_command(
     skill_ref: str = typer.Argument(help="Skill reference (e.g. 'myorg/my-skill')"),
 ) -> None:
     """Show detailed information about a published skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -1721,28 +1634,23 @@ def info_command(
         console.print(f"[red]Error: {exc}[/]")
         raise typer.Exit(1) from None
 
-    api_url = get_api_url()
-    headers = build_headers(get_optional_token())
-
     # Fetch skill summary
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/skills/{org_slug}/{skill_name}/summary",
-            headers=headers,
-        )
+    with optional_client() as api:
+        resp = api.get(f"/v1/skills/{org_slug}/{skill_name}/summary", check=False)
         if resp.status_code == 404:
             console.print(f"[red]Error: Skill '{org_slug}/{skill_name}' not found.[/]")
             raise typer.Exit(1)
         raise_for_status(resp)
         summary = resp.json()
 
-        # Fetch latest audit log entry (best-effort)
+        # Fetch latest audit log entry (best-effort: log issues but don't
+        # abort the whole `info` view if audit/eval lookups fail).
         audit_entry = None
         try:
-            resp = client.get(
-                f"{api_url}/v1/skills/{org_slug}/{skill_name}/audit-log",
-                headers=headers,
+            resp = api.get(
+                f"/v1/skills/{org_slug}/{skill_name}/audit-log",
                 params={"page_size": 1},
+                check=False,
             )
             if resp.status_code == 200:
                 audit_data = resp.json()
@@ -1756,10 +1664,10 @@ def info_command(
         latest_version = summary.get("latest_version", "")
         if latest_version:
             try:
-                resp = client.get(
-                    f"{api_url}/v1/skills/{org_slug}/{skill_name}/eval-report",
-                    headers=headers,
+                resp = api.get(
+                    f"/v1/skills/{org_slug}/{skill_name}/eval-report",
                     params={"semver": latest_version},
+                    check=False,
                 )
                 if resp.status_code == 200:
                     eval_report = resp.json()
