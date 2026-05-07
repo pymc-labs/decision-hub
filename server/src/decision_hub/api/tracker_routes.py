@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
@@ -195,11 +195,18 @@ def create_tracker(
 
 @router.get("", response_model=list[TrackerResponse])
 def list_trackers(
+    limit: int = Query(100, ge=1, le=500, description="Max trackers to return."),
+    offset: int = Query(0, ge=0, description="Number of trackers to skip."),
     conn: Connection = Depends(get_connection),
     user: User = Depends(get_current_user),
 ) -> list[TrackerResponse]:
-    """List all trackers for the current user."""
-    trackers = list_skill_trackers_for_user(conn, user.id)
+    """List trackers for the current user, newest first.
+
+    Bounded by ``limit`` (default 100, max 500). The CLI does not currently
+    paginate, so the default of 100 covers all realistic users while
+    preventing an unbounded response from a runaway tracker creation loop.
+    """
+    trackers = list_skill_trackers_for_user(conn, user.id, limit=limit, offset=offset)
     return [_tracker_to_response(t) for t in trackers]
 
 

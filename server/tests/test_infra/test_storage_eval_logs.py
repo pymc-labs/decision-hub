@@ -2,8 +2,11 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from decision_hub.infra.storage import (
     delete_eval_logs,
+    download_skill_zip,
     list_eval_log_chunks,
     read_eval_log_chunk,
     upload_eval_log_chunk,
@@ -85,6 +88,51 @@ class TestReadEvalLogChunk:
         result = read_eval_log_chunk(client, "bucket", "key")
         assert '{"seq":1}' in result
         assert '{"seq":2}' in result
+
+    def test_closes_stream_on_success(self):
+        """Body.close() must be called so urllib3 returns the connection to the pool."""
+        client = _make_s3_client()
+        body = MagicMock()
+        body.read.return_value = b"data"
+        client.get_object.return_value = {"Body": body}
+        read_eval_log_chunk(client, "bucket", "key")
+        body.close.assert_called_once()
+
+    def test_closes_stream_when_read_raises(self):
+        """A mid-transfer error must still release the underlying connection."""
+        client = _make_s3_client()
+        body = MagicMock()
+        body.read.side_effect = ConnectionError("network blip")
+        client.get_object.return_value = {"Body": body}
+        with pytest.raises(ConnectionError):
+            read_eval_log_chunk(client, "bucket", "key")
+        body.close.assert_called_once()
+
+
+class TestDownloadSkillZip:
+    """Stream lifecycle for the skill download path (used by /v1/.../download)."""
+
+    def test_returns_body_bytes(self):
+        client = _make_s3_client()
+        client.get_object.return_value = {"Body": MagicMock(read=lambda: b"PK\x03\x04zipdata")}
+        assert download_skill_zip(client, "bucket", "key") == b"PK\x03\x04zipdata"
+
+    def test_closes_stream_on_success(self):
+        client = _make_s3_client()
+        body = MagicMock()
+        body.read.return_value = b"data"
+        client.get_object.return_value = {"Body": body}
+        download_skill_zip(client, "bucket", "key")
+        body.close.assert_called_once()
+
+    def test_closes_stream_when_read_raises(self):
+        client = _make_s3_client()
+        body = MagicMock()
+        body.read.side_effect = ConnectionError("network blip")
+        client.get_object.return_value = {"Body": body}
+        with pytest.raises(ConnectionError):
+            download_skill_zip(client, "bucket", "key")
+        body.close.assert_called_once()
 
 
 class TestDeleteEvalLogs:

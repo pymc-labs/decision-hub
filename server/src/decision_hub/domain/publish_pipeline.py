@@ -163,7 +163,10 @@ def parse_manifest_from_content(
         logger.warning("Manifest parse failed (rejecting publish): {}", exc)
         raise ValueError(f"SKILL.md manifest is malformed: {exc}") from exc
     finally:
-        tmp_path.unlink()
+        # missing_ok guards against the rare case where the file vanished
+        # before cleanup (e.g. external tmp reaper); we don't want the
+        # cleanup itself to mask the original error.
+        tmp_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

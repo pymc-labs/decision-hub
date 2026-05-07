@@ -109,7 +109,14 @@ def download_skill_zip(client: BaseClient, bucket: str, s3_key: str) -> bytes:
         Raw bytes of the zip file.
     """
     resp = client.get_object(Bucket=bucket, Key=s3_key)
-    return resp["Body"].read()
+    body = resp["Body"]
+    try:
+        return body.read()
+    finally:
+        # Explicitly release the underlying urllib3 connection back to the
+        # pool. boto3's StreamingBody usually does this on full .read() but
+        # not if read() raises mid-transfer.
+        body.close()
 
 
 def compute_checksum(data: bytes) -> str:
@@ -198,7 +205,11 @@ def read_eval_log_chunk(
 ) -> str:
     """Read and return the content of an eval log chunk from S3."""
     resp = client.get_object(Bucket=bucket, Key=s3_key)
-    return resp["Body"].read().decode("utf-8")
+    body = resp["Body"]
+    try:
+        return body.read().decode("utf-8")
+    finally:
+        body.close()
 
 
 def delete_eval_logs(

@@ -156,6 +156,30 @@ class TestListTrackers:
         assert len(data) == 1
         assert data[0]["user_id"] == str(sample_user_id)
 
+    @patch("decision_hub.api.tracker_routes.list_skill_trackers_for_user")
+    def test_list_trackers_default_pagination(self, mock_list, tracker_client, auth_headers, sample_user_id):
+        """Default request must apply a bounded limit (no unbounded responses)."""
+        mock_list.return_value = []
+        resp = tracker_client.get("/v1/trackers", headers=auth_headers)
+        assert resp.status_code == 200
+        _args, kwargs = mock_list.call_args
+        assert kwargs["limit"] == 100
+        assert kwargs["offset"] == 0
+
+    @patch("decision_hub.api.tracker_routes.list_skill_trackers_for_user")
+    def test_list_trackers_honors_query_params(self, mock_list, tracker_client, auth_headers):
+        mock_list.return_value = []
+        resp = tracker_client.get("/v1/trackers?limit=25&offset=50", headers=auth_headers)
+        assert resp.status_code == 200
+        _args, kwargs = mock_list.call_args
+        assert kwargs["limit"] == 25
+        assert kwargs["offset"] == 50
+
+    def test_list_trackers_rejects_oversized_limit(self, tracker_client, auth_headers):
+        """The hard cap (500) prevents callers from requesting unbounded responses."""
+        resp = tracker_client.get("/v1/trackers?limit=10000", headers=auth_headers)
+        assert resp.status_code == 422
+
 
 class TestGetTracker:
     @patch("decision_hub.api.tracker_routes.find_skill_tracker")

@@ -33,9 +33,9 @@ class TTLCache:
 
     Args:
         default_ttl: Default time-to-live in seconds for cached entries.
-        max_size: Maximum number of entries. When exceeded, expired entries
-                  are purged first; if still over limit, the oldest entry
-                  is evicted.
+        max_size: Maximum number of entries. When exceeded, an expired entry
+                  is evicted first; if none are expired, the entry that
+                  expires soonest is evicted (closest to TTL exhaustion).
     """
 
     default_ttl: float = 30.0
@@ -76,14 +76,13 @@ class TTLCache:
             self._store.clear()
 
     def _evict_one(self) -> None:
-        """Evict one entry: prefer expired, then oldest. Caller holds lock."""
+        """Evict one entry: prefer an expired entry, otherwise the one whose
+        TTL expires soonest. Caller must hold ``self._lock``."""
         now = time.monotonic()
-        # Try to find and remove an expired entry first
         for k, entry in self._store.items():
             if now > entry.expires_at:
                 del self._store[k]
                 return
-        # No expired entries — evict the one expiring soonest
         if self._store:
-            oldest_key = min(self._store, key=lambda k: self._store[k].expires_at)
-            del self._store[oldest_key]
+            soonest_key = min(self._store, key=lambda k: self._store[k].expires_at)
+            del self._store[soonest_key]

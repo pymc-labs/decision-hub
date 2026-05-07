@@ -59,6 +59,10 @@ def test_settings() -> MagicMock:
     settings.cache_ttl_skill_list = 30
     settings.cache_ttl_stats = 60
     settings.cache_ttl_sitemap = 300
+    # Default to NOT trusting proxy headers in tests so client-IP based logic
+    # (rate limiting, log lines) sees the deterministic TestClient socket peer.
+    settings.trusted_proxy = False
+    settings.site_base_url = "https://hub.decision.ai"
     return settings
 
 

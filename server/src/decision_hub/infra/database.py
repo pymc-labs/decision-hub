@@ -2879,12 +2879,28 @@ def find_skill_tracker(conn: Connection, tracker_id: UUID) -> SkillTracker | Non
     return _row_to_skill_tracker(row)
 
 
-def list_skill_trackers_for_user(conn: Connection, user_id: UUID) -> list[SkillTracker]:
-    """List all trackers owned by a user."""
+def list_skill_trackers_for_user(
+    conn: Connection,
+    user_id: UUID,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[SkillTracker]:
+    """List trackers owned by a user, newest first.
+
+    The result is bounded so a user with thousands of trackers does not
+    fill memory or timeout the response. ``id`` is included as a tiebreaker
+    so pages remain stable when many trackers share a ``created_at``.
+    """
     stmt = (
         sa.select(skill_trackers_table)
         .where(skill_trackers_table.c.user_id == user_id)
-        .order_by(skill_trackers_table.c.created_at.desc())
+        .order_by(
+            skill_trackers_table.c.created_at.desc(),
+            skill_trackers_table.c.id.desc(),
+        )
+        .limit(limit)
+        .offset(offset)
     )
     rows = conn.execute(stmt).all()
     return [_row_to_skill_tracker(row) for row in rows]

@@ -15,8 +15,6 @@ from decision_hub.settings import Settings
 
 router = APIRouter(tags=["seo"])
 
-_BASE_URL = "https://hub.decision.ai"
-
 
 @router.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(
@@ -25,8 +23,10 @@ def sitemap_xml(
     settings: Settings = Depends(get_settings),
 ) -> Response:
     """Generate a dynamic XML sitemap with all public skills and orgs."""
+    base_url = settings.site_base_url.rstrip("/")
     ttl = settings.cache_ttl_sitemap
-    cached = cache.get("sitemap_xml") if ttl else None
+    cache_key = f"sitemap_xml:{base_url}"
+    cached = cache.get(cache_key) if ttl else None
     if cached is not None:
         return cached
 
@@ -34,13 +34,15 @@ def sitemap_xml(
 
     urls: list[tuple[str, str, str]] = [
         # (loc, lastmod, changefreq)
-        (f"{_BASE_URL}/", today, "daily"),
-        (f"{_BASE_URL}/skills", today, "daily"),
-        (f"{_BASE_URL}/orgs", today, "daily"),
-        (f"{_BASE_URL}/how-it-works", today, "monthly"),
+        (f"{base_url}/", today, "daily"),
+        (f"{base_url}/skills", today, "daily"),
+        (f"{base_url}/orgs", today, "daily"),
+        (f"{base_url}/how-it-works", today, "monthly"),
     ]
 
-    # Public skills
+    # Single query for both skill URLs and the set of orgs that have at least
+    # one published skill. Previously we ran a second SELECT DISTINCT against
+    # the same join; deriving the org set in Python avoids that round-trip.
     stmt = (
         sa.select(
             organizations_table.c.slug.label("org_slug"),
@@ -59,27 +61,17 @@ def sitemap_xml(
         )
         .order_by(organizations_table.c.slug, skills_table.c.name)
     )
+    org_slugs: list[str] = []
+    seen_orgs: set[str] = set()
     for row in conn.execute(stmt):
         lastmod = row.latest_published_at.strftime("%Y-%m-%d") if row.latest_published_at else today
-        urls.append((f"{_BASE_URL}/skills/{row.org_slug}/{row.skill_name}", lastmod, "weekly"))
+        urls.append((f"{base_url}/skills/{row.org_slug}/{row.skill_name}", lastmod, "weekly"))
+        if row.org_slug not in seen_orgs:
+            seen_orgs.add(row.org_slug)
+            org_slugs.append(row.org_slug)
 
-    # Public orgs (only those with at least one published skill)
-    org_stmt = (
-        sa.select(sa.distinct(organizations_table.c.slug))
-        .select_from(
-            skills_table.join(
-                organizations_table,
-                skills_table.c.org_id == organizations_table.c.id,
-            )
-        )
-        .where(
-            skills_table.c.latest_semver.isnot(None),
-            skills_table.c.visibility == "public",
-        )
-        .order_by(organizations_table.c.slug)
-    )
-    for row in conn.execute(org_stmt):
-        urls.append((f"{_BASE_URL}/orgs/{row[0]}", today, "weekly"))
+    for org_slug in org_slugs:
+        urls.append((f"{base_url}/orgs/{org_slug}", today, "weekly"))
 
     lines = ['<?xml version="1.0" encoding="UTF-8"?>']
     lines.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
@@ -95,7 +87,7 @@ def sitemap_xml(
     headers = {"Cache-Control": f"public, max-age={ttl}"} if ttl else {}
     result = Response(content=xml, media_type="application/xml", headers=headers)
     if ttl:
-        cache.set("sitemap_xml", result, ttl=ttl)
+        cache.set(cache_key, result, ttl=ttl)
     return result
 
 
@@ -103,10 +95,14 @@ _PROD_HOSTS = {"hub.decision.ai", "decisionhub.dev"}
 
 
 @router.get("/robots.txt", include_in_schema=False)
-def robots_txt(request: Request) -> Response:
+def robots_txt(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> Response:
     """Serve robots.txt — disallow everything on non-prod to prevent indexing."""
     if request.url.hostname not in _PROD_HOSTS:
         content = "User-agent: *\nDisallow: /\n"
     else:
-        content = f"User-agent: *\nAllow: /\n\nSitemap: {_BASE_URL}/sitemap.xml\n"
+        base_url = settings.site_base_url.rstrip("/")
+        content = f"User-agent: *\nAllow: /\n\nSitemap: {base_url}/sitemap.xml\n"
     return Response(content=content, media_type="text/plain")

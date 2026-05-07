@@ -6,6 +6,8 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request
 
+from decision_hub.api.client_ip import client_ip
+
 
 class RateLimiter:
     """Per-IP sliding-window rate limiter.
@@ -18,6 +20,11 @@ class RateLimiter:
     Thread-safe: FastAPI runs sync dependencies in a threadpool, so
     concurrent access to shared state is guarded by a lock.
 
+    The client IP is resolved via :func:`client_ip`, which honors a trusted
+    forwarded header when ``Settings.trusted_proxy`` is enabled. Without that
+    setting every request behind a load balancer (e.g. Modal) would share the
+    LB's source IP and the per-IP limit would collapse into a global limit.
+
     Usage as a FastAPI dependency::
 
         limiter = RateLimiter(max_requests=10, window_seconds=60)
@@ -26,37 +33,41 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # Run periodic cleanup at most this often. Cheap to check; bounds memory
+    # growth even if a malicious client cycles through many IPs.
+    _PURGE_INTERVAL_SECONDS = 60.0
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._last_purge_at = 0.0
 
     def __call__(self, request: Request) -> None:
-        key = request.client.host if request.client else "unknown"
+        key = client_ip(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
 
         with self._lock:
-            # Prune expired timestamps for this key
             timestamps = self._requests[key]
-            self._requests[key] = [t for t in timestamps if t > cutoff]
+            timestamps = [t for t in timestamps if t > cutoff]
+            self._requests[key] = timestamps
 
-            if len(self._requests[key]) >= self.max_requests:
+            if len(timestamps) >= self.max_requests:
                 raise HTTPException(
                     status_code=429,
                     detail=(
-                        f"Rate limit exceeded ({self.max_requests} requests per {self.window_seconds}s). Try again shortly."
+                        f"Rate limit exceeded ({self.max_requests} requests per "
+                        f"{self.window_seconds}s). Try again shortly."
                     ),
                 )
 
-            self._requests[key].append(now)
+            timestamps.append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            if now - self._last_purge_at >= self._PURGE_INTERVAL_SECONDS:
                 self._purge_stale(cutoff)
+                self._last_purge_at = now
 
     def _purge_stale(self, cutoff: float) -> None:
         """Remove IPs with no recent activity. Caller must hold self._lock."""

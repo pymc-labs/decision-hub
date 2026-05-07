@@ -26,7 +26,11 @@ class Settings(BaseSettings):
     # JWT
     jwt_secret: str
     jwt_algorithm: str = "HS256"
-    jwt_expiry_hours: int = 8760  # 1 year
+    # Token lifetime. Was previously 1 year (8760h) which gave a leaked token a
+    # huge replay window. 30 days is long enough to avoid frequent re-logins
+    # for the CLI workflow while keeping the blast radius bounded. Override per
+    # env via JWT_EXPIRY_HOURS.
+    jwt_expiry_hours: int = 720
 
     # Encryption for API keys at rest
     fernet_key: str
@@ -159,16 +163,46 @@ class Settings(BaseSettings):
     # Logging format: "text" (human-readable, default) or "json" (structured).
     log_format: str = "text"
 
+    # When the API runs behind a trusted load balancer (Modal, CloudFlare),
+    # honor the leftmost address in X-Forwarded-For for client-IP resolution.
+    # Required for per-IP rate limiting to work correctly behind a proxy —
+    # otherwise every request appears to come from the LB and the per-IP
+    # limit collapses into a global limit. Leave false for direct deploys.
+    trusted_proxy: bool = False
+
+    # Public base URL for SEO assets (sitemap.xml entries, robots.txt
+    # Sitemap directive). Defaults to prod; override per env.
+    site_base_url: str = "https://hub.decision.ai"
+
 
 def get_env() -> str:
     """Return current environment name from DHUB_ENV (default: 'dev')."""
     return os.environ.get("DHUB_ENV", "dev")
 
 
+# HS256 tokens are signed with HMAC-SHA-256; a secret shorter than the hash
+# output (32 bytes) is brute-forceable in seconds on commodity hardware.
+_MIN_JWT_SECRET_LEN = 32
+
+
 def create_settings(env: str | None = None) -> Settings:
     """Build Settings from the env-specific .env file (.env.dev, .env.prod).
 
     Environment variables still override values from the file.
+
+    Raises:
+        RuntimeError: If the JWT secret is shorter than 32 characters.
+            Misconfigured secrets are a high-blast-radius mistake — fail at
+            startup rather than silently issuing forgeable tokens.
     """
     env = env or get_env()
-    return Settings(_env_file=f".env.{env}")
+    settings = Settings(_env_file=f".env.{env}")
+
+    if len(settings.jwt_secret) < _MIN_JWT_SECRET_LEN:
+        raise RuntimeError(
+            f"JWT_SECRET must be at least {_MIN_JWT_SECRET_LEN} characters "
+            f"(got {len(settings.jwt_secret)}). Generate one with "
+            "`python -c 'import secrets; print(secrets.token_urlsafe(48))'`."
+        )
+
+    return settings
