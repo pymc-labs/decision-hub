@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,41 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazy-initialises a per-IP rate limiter.
+
+    The limiter pulls its parameters from ``settings.<name>_rate_limit`` and
+    ``settings.<name>_rate_window`` and caches itself on ``app.state`` under
+    ``_<name>_rate_limiter``. All public-endpoint rate limits in this codebase
+    follow that naming convention (see ``decision_hub.settings``).
+
+    Use at module scope so the returned dependency has a stable identity for
+    FastAPI's dependency cache::
+
+        _enforce_publish_rate_limit = make_rate_limit_dep("publish")
+
+        @router.post("/publish", dependencies=[Depends(_enforce_publish_rate_limit)])
+        def publish(...): ...
+    """
+    attr = f"_{name}_rate_limiter"
+    limit_setting = f"{name}_rate_limit"
+    window_setting = f"{name}_rate_window"
+
+    def _dep(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_setting),
+                window_seconds=getattr(settings, window_setting),
+            )
+            setattr(state, attr, limiter)
+        limiter(request)
+
+    _dep.__name__ = f"_enforce_{name}_rate_limit"
+    _dep.__qualname__ = _dep.__name__
+    _dep.__doc__ = f"Rate-limit dependency for the '{name}' endpoint group."
+    return _dep
