@@ -95,6 +95,34 @@ class TestTTLCacheEviction:
         assert cache.get("b") == 2
 
 
+class TestTTLCacheEvictionSafety:
+    """Regression tests for the snapshot-based ``_evict_one`` implementation."""
+
+    def test_evict_when_all_entries_expired(self) -> None:
+        """All entries past expiry — eviction must not raise during iteration."""
+        cache = TTLCache(default_ttl=60, max_size=2)
+        cache.set("a", 1, ttl=0.01)
+        cache.set("b", 2, ttl=0.01)
+        time.sleep(0.02)
+        # Adding a third entry triggers ``_evict_one``; with all entries
+        # expired the previous implementation iterated and mutated the dict
+        # in the same loop, which is fragile.  This test pins the safe
+        # snapshot-based behaviour.
+        cache.set("c", 3)
+        assert cache.get("c") == 3
+
+    def test_evict_when_no_entries_expired_picks_oldest_expiry(self) -> None:
+        """No expired entries: the entry with the soonest expiry is evicted."""
+        cache = TTLCache(default_ttl=60, max_size=2)
+        cache.set("oldest", 1, ttl=1)
+        cache.set("middle", 2, ttl=10)
+        cache.set("newest", 3, ttl=20)
+        # ``oldest`` had the shortest TTL so it expires soonest and goes first.
+        assert cache.get("oldest") is None
+        assert cache.get("middle") == 2
+        assert cache.get("newest") == 3
+
+
 class TestTTLCacheDisabledTTL:
     """Verify zero-TTL means caching is effectively disabled."""
 

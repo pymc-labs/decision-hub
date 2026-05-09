@@ -185,6 +185,40 @@ _OFF_TOPIC_ANSWER = (
 )
 
 
+def _build_ask_skill_ref(
+    *,
+    org_slug: str,
+    skill_name: str,
+    row: dict,
+    reason: str,
+    description_override: str | None = None,
+    author_override: str | None = None,
+) -> "AskSkillRef":
+    """Build an AskSkillRef from a candidate DB row.
+
+    Used by both the LLM-success path (description and author come from the
+    DB row) and the fallback path (description and author come from the
+    pre-built ``SkillIndexEntry``).  Centralising the dict→model mapping
+    keeps the field list in one place — adding a new column requires
+    updating just this helper plus ``AskSkillRef``.
+    """
+    return AskSkillRef(
+        org_slug=org_slug,
+        skill_name=skill_name,
+        description=description_override if description_override is not None else row.get("description", ""),
+        safety_rating=format_trust_score(row.get("eval_status", "")),
+        reason=reason,
+        author=author_override if author_override is not None else resolve_author_display(row.get("published_by", "")),
+        category=row.get("category", ""),
+        download_count=row.get("download_count", 0),
+        latest_version=row.get("latest_version", ""),
+        source_repo_url=row.get("source_repo_url"),
+        gauntlet_summary=row.get("gauntlet_summary"),
+        github_stars=row.get("github_stars"),
+        github_license=row.get("github_license"),
+    )
+
+
 class AskSkillRef(BaseModel):
     """A skill referenced in the conversational answer."""
 
@@ -226,6 +260,53 @@ class AskRequest(BaseModel):
     history: list[AskMessage] = Field(default_factory=list, max_length=20)
 
 
+def _ensure_ask_configured(settings: Settings) -> None:
+    """Raise 503 when the Gemini API key is missing.
+
+    Both /v1/ask handlers gate on the same key; centralising the check keeps
+    the error response identical between GET and POST.
+    """
+    if not settings.google_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Ask is not configured (missing GOOGLE_API_KEY)",
+        )
+
+
+def _run_ask(
+    *,
+    query: str,
+    category: str | None,
+    history: list[dict] | None,
+    background_tasks: BackgroundTasks,
+    settings: Settings,
+    engine: Engine,
+    conn: Connection,
+    s3_client,
+    current_user: User | None,
+) -> AskResponse:
+    """Shared entry point for GET and POST /v1/ask.
+
+    Wraps a single ``httpx.Client`` so all Gemini calls in this request reuse
+    the same TCP+TLS connection.  GET passes ``history=None``; POST forwards
+    the validated conversation transcript.
+    """
+    _ensure_ask_configured(settings)
+    with httpx.Client(timeout=60) as shared_http:
+        return _ask_skills_inner(
+            q=query,
+            category=category,
+            background_tasks=background_tasks,
+            settings=settings,
+            engine=engine,
+            conn=conn,
+            s3_client=s3_client,
+            current_user=current_user,
+            shared_http=shared_http,
+            history=history,
+        )
+
+
 @router.get(
     "/ask",
     response_model=AskResponse,
@@ -247,26 +328,17 @@ def ask_skills(
     conversational answer with explicit skill references that both the CLI and
     the frontend can render.
     """
-    if not settings.google_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Ask is not configured (missing GOOGLE_API_KEY)",
-        )
-
-    # Share a single TCP+TLS connection across all Gemini calls in this request
-    with httpx.Client(timeout=60) as shared_http:
-        return _ask_skills_inner(
-            q=q,
-            category=category,
-            background_tasks=background_tasks,
-            settings=settings,
-            engine=engine,
-            conn=conn,
-            s3_client=s3_client,
-            current_user=current_user,
-            shared_http=shared_http,
-            history=None,
-        )
+    return _run_ask(
+        query=q,
+        category=category,
+        history=None,
+        background_tasks=background_tasks,
+        settings=settings,
+        engine=engine,
+        conn=conn,
+        s3_client=s3_client,
+        current_user=current_user,
+    )
 
 
 @router.post(
@@ -288,27 +360,18 @@ def ask_skills_post(
     Accepts conversation history so follow-up questions have context.
     The web modal uses this; CLI uses GET for single-shot queries.
     """
-    if not settings.google_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Ask is not configured (missing GOOGLE_API_KEY)",
-        )
-
     history = [{"role": m.role, "content": m.content} for m in body.history] if body.history else None
-
-    with httpx.Client(timeout=60) as shared_http:
-        return _ask_skills_inner(
-            q=body.query,
-            category=None,
-            background_tasks=background_tasks,
-            settings=settings,
-            engine=engine,
-            conn=conn,
-            s3_client=s3_client,
-            current_user=current_user,
-            shared_http=shared_http,
-            history=history,
-        )
+    return _run_ask(
+        query=body.query,
+        category=None,
+        history=history,
+        background_tasks=background_tasks,
+        settings=settings,
+        engine=engine,
+        conn=conn,
+        s3_client=s3_client,
+        current_user=current_user,
+    )
 
 
 def _ask_skills_inner(
@@ -387,23 +450,17 @@ def _ask_skills_inner(
     except Exception:
         logger.opt(exception=True).warning("Conversational ask failed, using fallback")
         fallback_latency_ms = int((time.monotonic() - start_time) * 1000)
+        # Fallback: surface the top retrieval candidates without an LLM rerank.
+        # Description and author come from the pre-built index entry; the row
+        # is consulted only for the eval_status used by safety_rating.
         skill_refs = [
-            AskSkillRef(
+            _build_ask_skill_ref(
                 org_slug=e.org_slug,
                 skill_name=e.skill_name,
-                description=e.description,
-                safety_rating=format_trust_score(
-                    candidate_map.get((e.org_slug, e.skill_name), {}).get("eval_status", "")
-                ),
+                row=candidate_map.get((e.org_slug, e.skill_name), {}),
                 reason="Matched your search query.",
-                author=e.author,
-                category=e.category,
-                download_count=e.download_count,
-                latest_version=e.latest_version,
-                source_repo_url=e.source_repo_url,
-                gauntlet_summary=e.gauntlet_summary,
-                github_stars=e.github_stars,
-                github_license=e.github_license,
+                description_override=e.description,
+                author_override=e.author,
             )
             for e in result.entries[:5]
         ]
@@ -463,20 +520,11 @@ def _ask_skills_inner(
         row = candidate_map.get(key)
         if row:
             skill_refs.append(
-                AskSkillRef(
+                _build_ask_skill_ref(
                     org_slug=ref["org_slug"],
                     skill_name=ref["skill_name"],
-                    description=row.get("description", ""),
-                    safety_rating=format_trust_score(row.get("eval_status", "")),
+                    row=row,
                     reason=ref.get("reason", ""),
-                    author=resolve_author_display(row.get("published_by", "")),
-                    category=row.get("category", ""),
-                    download_count=row.get("download_count", 0),
-                    latest_version=row.get("latest_version", ""),
-                    source_repo_url=row.get("source_repo_url"),
-                    gauntlet_summary=row.get("gauntlet_summary"),
-                    github_stars=row.get("github_stars"),
-                    github_license=row.get("github_license"),
                 )
             )
 

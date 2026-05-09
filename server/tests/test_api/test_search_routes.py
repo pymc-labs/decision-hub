@@ -367,3 +367,114 @@ class TestAskSkillsPost:
             },
         )
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers extracted during the GET/POST dedupe refactor.
+# These tests pin the contract of the new helpers so future edits can be
+# validated without spinning up the full FastAPI test app.
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureAskConfigured:
+    """``_ensure_ask_configured`` centralises the missing-API-key check shared
+    by the GET and POST handlers.  Unit-testing it directly keeps the error
+    response identical between the two endpoints."""
+
+    def test_raises_503_when_key_missing(self) -> None:
+        from fastapi import HTTPException
+
+        from decision_hub.api.search_routes import _ensure_ask_configured
+
+        settings = MagicMock()
+        settings.google_api_key = ""
+        with pytest.raises(HTTPException) as exc_info:
+            _ensure_ask_configured(settings)
+        assert exc_info.value.status_code == 503
+        assert "GOOGLE_API_KEY" in exc_info.value.detail
+
+    def test_returns_when_key_present(self) -> None:
+        from decision_hub.api.search_routes import _ensure_ask_configured
+
+        settings = MagicMock()
+        settings.google_api_key = "key"
+        # No exception raised — function returns implicitly.
+        _ensure_ask_configured(settings)
+
+
+class TestBuildAskSkillRef:
+    """``_build_ask_skill_ref`` is the dedupe target of the LLM-success and
+    fallback paths.  Each path enriches with metadata from a candidate row in
+    a slightly different way; this test pins the contract."""
+
+    def _row(self) -> dict:
+        return {
+            "description": "Forecasting",
+            "eval_status": "passed",
+            "category": "Data Science",
+            "download_count": 7,
+            "latest_version": "1.0.0",
+            "source_repo_url": "https://github.com/acme/weather",
+            "gauntlet_summary": None,
+            "github_stars": 42,
+            "github_license": "MIT",
+            "published_by": "alice",
+        }
+
+    def test_llm_success_path_uses_row_metadata(self) -> None:
+        """Without overrides the helper reads description/author from the row."""
+        from decision_hub.api.search_routes import _build_ask_skill_ref
+
+        ref = _build_ask_skill_ref(
+            org_slug="acme",
+            skill_name="weather",
+            row=self._row(),
+            reason="LLM picked it",
+        )
+        assert ref.org_slug == "acme"
+        assert ref.skill_name == "weather"
+        assert ref.description == "Forecasting"
+        # ``passed`` legacy status maps to grade ``A`` for display.
+        assert ref.safety_rating == "A"
+        assert ref.reason == "LLM picked it"
+        assert ref.author == "alice"
+        assert ref.category == "Data Science"
+        assert ref.download_count == 7
+        assert ref.latest_version == "1.0.0"
+        assert ref.source_repo_url == "https://github.com/acme/weather"
+        assert ref.github_stars == 42
+        assert ref.github_license == "MIT"
+
+    def test_fallback_path_overrides_description_and_author(self) -> None:
+        """Fallback path pulls description/author from the pre-built index entry."""
+        from decision_hub.api.search_routes import _build_ask_skill_ref
+
+        ref = _build_ask_skill_ref(
+            org_slug="acme",
+            skill_name="weather",
+            row=self._row(),
+            reason="Matched your search query.",
+            description_override="From index",
+            author_override="alice (display)",
+        )
+        assert ref.description == "From index"
+        assert ref.author == "alice (display)"
+        # Other fields still flow through the row.
+        assert ref.category == "Data Science"
+
+    def test_handles_minimal_row(self) -> None:
+        """A row missing optional columns must not crash — required for forward
+        compatibility when search adds new ``_SKILL_SUMMARY_COLUMNS`` entries."""
+        from decision_hub.api.search_routes import _build_ask_skill_ref
+
+        ref = _build_ask_skill_ref(
+            org_slug="acme",
+            skill_name="weather",
+            row={},
+            reason="",
+        )
+        assert ref.description == ""
+        assert ref.category == ""
+        assert ref.download_count == 0
+        assert ref.source_repo_url is None
+        assert ref.github_stars is None
