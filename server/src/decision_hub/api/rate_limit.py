@@ -6,6 +6,20 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request
 
+from decision_hub.api.client_ip import client_ip
+
+
+def _resolve_trusted_proxy_count(request: Request) -> int:
+    """Read ``trusted_proxy_count`` from app settings, defaulting to 0.
+
+    Defends against unit tests that pass a bare ``MagicMock`` request: those
+    have a Mock chain on ``request.app.state.settings`` whose attributes are
+    Mocks rather than ints, so we coerce non-int values to 0.
+    """
+    settings = getattr(getattr(request.app, "state", None), "settings", None)
+    value = getattr(settings, "trusted_proxy_count", 0)
+    return value if isinstance(value, int) else 0
+
 
 class RateLimiter:
     """Per-IP sliding-window rate limiter.
@@ -17,6 +31,12 @@ class RateLimiter:
 
     Thread-safe: FastAPI runs sync dependencies in a threadpool, so
     concurrent access to shared state is guarded by a lock.
+
+    Behind a reverse proxy (Modal, Cloudflare, ALB, ...) the request's
+    direct ``client.host`` is the proxy's IP, identical for every real
+    client.  The settings field ``trusted_proxy_count`` controls how many
+    hops to skip in ``X-Forwarded-For``; when zero the limiter falls back
+    to ``request.client.host`` for direct deployments.
 
     Usage as a FastAPI dependency::
 
@@ -33,7 +53,7 @@ class RateLimiter:
         self._lock = threading.Lock()
 
     def __call__(self, request: Request) -> None:
-        key = request.client.host if request.client else "unknown"
+        key = client_ip(request, trusted_proxy_count=_resolve_trusted_proxy_count(request))
         now = time.monotonic()
         cutoff = now - self.window_seconds
 

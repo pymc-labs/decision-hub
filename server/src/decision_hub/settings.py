@@ -73,6 +73,15 @@ class Settings(BaseSettings):
     github_app_private_key: str = ""
     github_app_installation_id: str = ""
 
+    # Number of trusted proxies between this app and the client.
+    # Modal, Cloudflare, AWS ALB, etc. add a single hop, so set to 1 there.
+    # Used by api.client_ip.client_ip() to extract the real client IP from
+    # the X-Forwarded-For header — without this the per-IP rate limiter
+    # buckets every request behind the proxy under one key, effectively
+    # disabling rate limiting.  Default 0 keeps the historical behaviour
+    # (read request.client.host directly) for direct deployments.
+    trusted_proxy_count: int = 0
+
     # Rate limiting (per IP, sliding window)
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds
