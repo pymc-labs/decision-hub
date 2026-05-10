@@ -3,7 +3,9 @@
 import json
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -193,6 +195,62 @@ def _extract_text(data: dict) -> str:
     if not parts:
         return ""
     return parts[0].get("text", "")
+
+
+def _parse_judgment_array(
+    text: str,
+    *,
+    schema: type[BaseModel],
+    item_fallback: Callable[[Any], dict],
+    log_label: str,
+    skill_name: str,
+) -> list[dict] | None:
+    """Parse a JSON array of LLM judgments with fail-closed per-item validation.
+
+    The ``analyze_*`` security checks share the same shape: send a prompt,
+    receive a JSON array, validate each element against a pydantic schema,
+    and treat schema mismatches as dangerous. This helper centralises that
+    shape so callers only have to supply the schema and the per-item
+    fallback dict.
+
+    Returns:
+        - A list of validated judgment dicts (with per-item fallbacks for
+          elements that fail schema validation), OR
+        - ``None`` to signal a complete parse failure (non-JSON, non-list,
+          or otherwise unusable response) so the caller can substitute
+          its own array-shaped, fail-closed fallback. Whole-array
+          failures are logged at warning level — they used to be
+          swallowed silently by ``except JSONDecodeError: pass``.
+    """
+    try:
+        results = json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "Could not parse Gemini {} response for '{}': {}",
+            log_label,
+            skill_name,
+            exc,
+        )
+        return None
+
+    if not isinstance(results, list):
+        logger.warning(
+            "Gemini {} response for '{}' was not a JSON array (got {})",
+            log_label,
+            skill_name,
+            type(results).__name__,
+        )
+        return None
+
+    validated: list[dict] = []
+    for item in results:
+        try:
+            judgment = schema.model_validate(item)
+            validated.append(judgment.model_dump())
+        except (ValidationError, AttributeError):
+            # Fail-closed: schema mismatch or non-dict item -> dangerous.
+            validated.append(item_fallback(item))
+    return validated
 
 
 # ---------------------------------------------------------------------------
@@ -665,33 +723,28 @@ def analyze_code_safety(
 
     text = _strip_markdown_fences(text)
 
-    try:
-        results = json.loads(text)
-        if isinstance(results, list):
-            validated: list[dict] = []
-            for item in results:
-                try:
-                    judgment = CodeSafetyJudgment.model_validate(item)
-                    validated.append(judgment.model_dump())
-                except (ValidationError, AttributeError):
-                    # Fail-closed: items failing validation are marked dangerous.
-                    # Guard against non-dict items (str, int, None) from the LLM.
-                    file_val = item.get("file", "unknown") if isinstance(item, dict) else "unknown"
-                    label_val = item.get("label", "unknown") if isinstance(item, dict) else "unknown"
-                    validated.append(
-                        {
-                            "file": file_val,
-                            "label": label_val,
-                            "dangerous": True,
-                            "reason": "LLM response item failed schema validation",
-                        }
-                    )
-            return validated
-    except json.JSONDecodeError:
-        pass
+    def _item_fallback(item: Any) -> dict:
+        file_val = item.get("file", "unknown") if isinstance(item, dict) else "unknown"
+        label_val = item.get("label", "unknown") if isinstance(item, dict) else "unknown"
+        return {
+            "file": file_val,
+            "label": label_val,
+            "dangerous": True,
+            "reason": "LLM response item failed schema validation",
+        }
 
-    # Fallback: treat everything as dangerous if we can't parse the response
-    logger.warning("Could not parse Gemini code safety response for '{}'", skill_name)
+    validated = _parse_judgment_array(
+        text,
+        schema=CodeSafetyJudgment,
+        item_fallback=_item_fallback,
+        log_label="code safety",
+        skill_name=skill_name,
+    )
+    if validated is not None:
+        return validated
+
+    # Whole-array fallback: treat every snippet as dangerous when we can't
+    # use the LLM response at all (already logged inside the helper).
     return [
         {"file": s["file"], "label": s["label"], "dangerous": True, "reason": "Could not parse LLM response"}
         for s in source_snippets
@@ -773,44 +826,41 @@ def analyze_credential_entropy(
 
     text = _strip_markdown_fences(text)
 
-    try:
-        results = json.loads(text)
-        if isinstance(results, list):
-            validated: list[dict] = []
-            for item in results:
-                try:
-                    judgment = CredentialJudgment.model_validate(item)
-                    validated.append(judgment.model_dump())
-                except (ValidationError, AttributeError):
-                    source_val = item.get("source", "unknown") if isinstance(item, dict) else "unknown"
-                    validated.append(
-                        {
-                            "source": source_val,
-                            "dangerous": True,
-                            "reason": "LLM response item failed schema validation",
-                        }
-                    )
-            # Merge original hit data (label, line) into judgments
-            source_to_hits: dict[str, list[dict]] = {}
-            for h in entropy_hits:
-                source_to_hits.setdefault(h["source"], []).append(h)
-            for j in validated:
-                j.setdefault("label", "high-entropy secret")
-                if "line" not in j:
-                    idx = j.get("index")
-                    if idx is not None and 1 <= idx <= len(entropy_hits):
-                        j["line"] = entropy_hits[idx - 1]["line"]
-                    else:
-                        # Fallback: use source-based lookup (first hit for that file)
-                        hits_for_source = source_to_hits.get(j["source"], [])
-                        if hits_for_source:
-                            j["line"] = hits_for_source[0]["line"]
-            return validated
-    except json.JSONDecodeError:
-        pass
+    def _item_fallback(item: Any) -> dict:
+        source_val = item.get("source", "unknown") if isinstance(item, dict) else "unknown"
+        return {
+            "source": source_val,
+            "dangerous": True,
+            "reason": "LLM response item failed schema validation",
+        }
 
-    logger.warning("Could not parse Gemini credential entropy response for '{}'", skill_name)
-    return [{**h, "dangerous": True, "reason": "Could not parse LLM response"} for h in entropy_hits]
+    validated = _parse_judgment_array(
+        text,
+        schema=CredentialJudgment,
+        item_fallback=_item_fallback,
+        log_label="credential entropy",
+        skill_name=skill_name,
+    )
+    if validated is None:
+        return [{**h, "dangerous": True, "reason": "Could not parse LLM response"} for h in entropy_hits]
+
+    # Post-process: the LLM only returns `index`/`source`; merge `label`/`line`
+    # from the original hits so callers see the same shape they sent in.
+    source_to_hits: dict[str, list[dict]] = {}
+    for h in entropy_hits:
+        source_to_hits.setdefault(h["source"], []).append(h)
+    for j in validated:
+        j.setdefault("label", "high-entropy secret")
+        if "line" not in j:
+            idx = j.get("index")
+            if idx is not None and 1 <= idx <= len(entropy_hits):
+                j["line"] = entropy_hits[idx - 1]["line"]
+            else:
+                # Fallback: use source-based lookup (first hit for that file)
+                hits_for_source = source_to_hits.get(j["source"], [])
+                if hits_for_source:
+                    j["line"] = hits_for_source[0]["line"]
+    return validated
 
 
 def analyze_prompt_safety(
@@ -883,32 +933,25 @@ def analyze_prompt_safety(
 
     text = _strip_markdown_fences(text)
 
-    try:
-        results = json.loads(text)
-        if isinstance(results, list):
-            validated: list[dict] = []
-            for item in results:
-                try:
-                    judgment = PromptSafetyJudgment.model_validate(item)
-                    validated.append(judgment.model_dump())
-                except (ValidationError, AttributeError):
-                    # Fail-closed: items failing validation are marked dangerous.
-                    # Guard against non-dict items (str, int, None) from the LLM.
-                    label_val = item.get("label", "unknown") if isinstance(item, dict) else "unknown"
-                    validated.append(
-                        {
-                            "label": label_val,
-                            "dangerous": True,
-                            "ambiguous": False,
-                            "reason": "LLM response item failed schema validation",
-                        }
-                    )
-            return validated
-    except json.JSONDecodeError:
-        pass
+    def _item_fallback(item: Any) -> dict:
+        label_val = item.get("label", "unknown") if isinstance(item, dict) else "unknown"
+        return {
+            "label": label_val,
+            "dangerous": True,
+            "ambiguous": False,
+            "reason": "LLM response item failed schema validation",
+        }
 
-    # Fallback: treat everything as dangerous if we can't parse
-    logger.warning("Could not parse Gemini prompt safety response for '{}'", skill_name)
+    validated = _parse_judgment_array(
+        text,
+        schema=PromptSafetyJudgment,
+        item_fallback=_item_fallback,
+        log_label="prompt safety",
+        skill_name=skill_name,
+    )
+    if validated is not None:
+        return validated
+
     return [
         {"label": h["label"], "dangerous": True, "ambiguous": False, "reason": "Could not parse LLM response"}
         for h in prompt_hits

@@ -379,3 +379,131 @@ class TestAnalyzeCredentialEntropyLineAttribution:
 
         assert len(results) == 1
         assert results[0]["line"] == entropy_hits[0]["line"]
+
+
+class TestParseJudgmentArray:
+    """Tests for the shared _parse_judgment_array() helper.
+
+    The three analyze_* security checks all share a JSON-array parse-and-
+    validate shape; this helper centralises that shape and these tests lock
+    in its fail-closed semantics so future refactors can't silently weaken
+    them.
+    """
+
+    @staticmethod
+    def _make_fallback() -> "callable":
+        """Mimic the real call sites: produce a 'dangerous' fallback dict for
+        any item that fails schema validation."""
+
+        def _f(item):
+            label_val = item.get("label", "unknown") if isinstance(item, dict) else "unknown"
+            return {"file": label_val, "label": label_val, "dangerous": True, "reason": "schema mismatch"}
+
+        return _f
+
+    def test_returns_validated_judgments_for_well_formed_array(self) -> None:
+        from decision_hub.infra.gemini import _parse_judgment_array
+
+        text = json.dumps(
+            [
+                {"file": "a.py", "label": "subprocess", "dangerous": True, "reason": "shell=True"},
+                {"file": "b.py", "label": "exec", "dangerous": False, "reason": "sandboxed"},
+            ]
+        )
+        result = _parse_judgment_array(
+            text,
+            schema=CodeSafetyJudgment,
+            item_fallback=self._make_fallback(),
+            log_label="code safety",
+            skill_name="testpkg",
+        )
+        assert result is not None
+        assert len(result) == 2
+        assert result[0]["dangerous"] is True
+        assert result[1]["dangerous"] is False
+
+    def test_returns_none_on_invalid_json(self) -> None:
+        from decision_hub.infra.gemini import _parse_judgment_array
+
+        result = _parse_judgment_array(
+            "not json {",
+            schema=CodeSafetyJudgment,
+            item_fallback=self._make_fallback(),
+            log_label="code safety",
+            skill_name="testpkg",
+        )
+        assert result is None
+
+    def test_returns_none_when_root_is_not_a_list(self) -> None:
+        """The Gemini prompts ask for a JSON array; an object response is a
+        protocol break we surface to the caller as a full-array fallback."""
+        from decision_hub.infra.gemini import _parse_judgment_array
+
+        result = _parse_judgment_array(
+            json.dumps({"file": "x.py", "label": "x", "dangerous": True, "reason": "x"}),
+            schema=CodeSafetyJudgment,
+            item_fallback=self._make_fallback(),
+            log_label="code safety",
+            skill_name="testpkg",
+        )
+        assert result is None
+
+    def test_fail_closed_on_per_item_validation_failure(self) -> None:
+        """Items missing required schema fields must round-trip through the
+        caller-provided fallback (dangerous=True), not be silently dropped."""
+        from decision_hub.infra.gemini import _parse_judgment_array
+
+        text = json.dumps(
+            [
+                {"file": "a.py", "label": "ok", "dangerous": False, "reason": "fine"},
+                {"label": "no-file-key"},  # missing required `file` & `dangerous`
+                "not even a dict",
+            ]
+        )
+        result = _parse_judgment_array(
+            text,
+            schema=CodeSafetyJudgment,
+            item_fallback=self._make_fallback(),
+            log_label="code safety",
+            skill_name="testpkg",
+        )
+        assert result is not None
+        assert len(result) == 3
+        assert result[0]["dangerous"] is False  # validated
+        assert result[1]["dangerous"] is True  # per-item fallback
+        assert result[2]["dangerous"] is True  # non-dict still falls back safely
+
+    def test_logs_when_json_decode_fails(self, caplog) -> None:
+        """The previous code swallowed JSONDecodeError silently. Regression
+        guard: we must now log at warning level so prod debug isn't blind."""
+        from loguru import logger as loguru_logger
+
+        from decision_hub.infra.gemini import _parse_judgment_array
+
+        # Bridge loguru into pytest's caplog so we can inspect the message.
+        sink_id = loguru_logger.add(
+            lambda message: caplog.records.append(  # type: ignore[arg-type]
+                __import__("logging").LogRecord(
+                    name="loguru",
+                    level=__import__("logging").WARNING,
+                    pathname="",
+                    lineno=0,
+                    msg=str(message).rstrip(),
+                    args=None,
+                    exc_info=None,
+                )
+            ),
+            level="WARNING",
+        )
+        try:
+            result = _parse_judgment_array(
+                "{not json",
+                schema=CodeSafetyJudgment,
+                item_fallback=self._make_fallback(),
+                log_label="code safety",
+                skill_name="my-skill",
+            )
+        finally:
+            loguru_logger.remove(sink_id)
+        assert result is None
+        assert any("Could not parse Gemini code safety" in r.msg for r in caplog.records)
