@@ -304,6 +304,44 @@ class TestGrantAccess:
         )
         assert resp.status_code == 401
 
+    @patch("decision_hub.api.registry_routes.insert_skill_access_grant")
+    @patch("decision_hub.api.registry_routes.find_org_by_slug")
+    @patch("decision_hub.api.registry_routes.find_skill")
+    @patch("decision_hub.api.registry_service.find_org_member")
+    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    def test_grant_access_rejects_self_grant(
+        self,
+        mock_service_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_grantee_org: MagicMock,
+        mock_insert_grant: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Granting access to the skill's own org is a no-op and rejected as 400.
+
+        The owning org already has access via membership; storing a
+        self-grant row clutters the access list and confuses the UI.
+        """
+        org = _make_org()
+        mock_service_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org)
+        # Note: the route must reject before any DB lookups so neither
+        # find_skill nor insert_skill_access_grant should be invoked.
+
+        resp = client.post(
+            "/v1/skills/test-org/my-skill/access",
+            json={"grantee_org_slug": "test-org"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 400
+        assert "own organisation" in resp.json()["detail"]
+        mock_find_skill.assert_not_called()
+        mock_find_grantee_org.assert_not_called()
+        mock_insert_grant.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # DELETE /v1/skills/{org}/{skill}/access/{grantee}

@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import make_rate_limit_dependency
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,45 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Rate-limit dependencies. Each one lazily builds a RateLimiter on
+# first use and caches it on app.state, so settings are picked up from
+# the request's app and limiters are shared across requests within a
+# container. See ``rate_limit.make_rate_limit_dependency`` for details.
+_enforce_list_skills_rate_limit = make_rate_limit_dependency(
+    "list_skills",
+    limit_attr="list_skills_rate_limit",
+    window_attr="list_skills_rate_window",
+)
+_enforce_resolve_rate_limit = make_rate_limit_dependency(
+    "resolve",
+    limit_attr="resolve_rate_limit",
+    window_attr="resolve_rate_window",
+)
+_enforce_similar_skills_rate_limit = make_rate_limit_dependency(
+    "similar_skills",
+    limit_attr="similar_skills_rate_limit",
+    window_attr="similar_skills_rate_window",
+)
+_enforce_download_rate_limit = make_rate_limit_dependency(
+    "download",
+    limit_attr="download_rate_limit",
+    window_attr="download_rate_window",
+)
+_enforce_audit_log_rate_limit = make_rate_limit_dependency(
+    "audit_log",
+    limit_attr="audit_log_rate_limit",
+    window_attr="audit_log_rate_window",
+)
+_enforce_scan_report_rate_limit = make_rate_limit_dependency(
+    "scan_report",
+    limit_attr="scan_report_rate_limit",
+    window_attr="scan_report_rate_window",
+)
+_enforce_publish_rate_limit = make_rate_limit_dependency(
+    "publish",
+    limit_attr="publish_rate_limit",
+    window_attr="publish_rate_window",
+)
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -692,13 +649,21 @@ def get_similar_skills(
     org_slug: str,
     skill_name: str,
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> list[SimilarSkillRef]:
     """Return up to 5 similar public skills by vector distance.
 
-    Returns 404 if the skill does not exist or is not public.
+    Returns 404 if the skill is not visible to the caller.
     Returns an empty list if the skill has no stored embedding.
+
+    The similar-skills result itself only contains public skills (see
+    ``fetch_similar_skills``), but the source-skill 404 check honors
+    the caller's org membership so that authenticated org members
+    asking about their own private skills don't see a confusing 404
+    on the detail page.
     """
-    skill = find_skill_by_slug(conn, org_slug, skill_name)
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     rows = fetch_similar_skills(conn, org_slug, skill_name, limit=5)
@@ -1249,6 +1214,13 @@ def grant_access(
 ) -> AccessGrantResponse:
     """Grant an organisation access to a private skill."""
     org = require_org_membership(conn, org_slug, current_user.id, admin_only=True)
+    if body.grantee_org_slug == org_slug:
+        # The owning org already has access via membership; storing a
+        # self-grant row is a no-op that confuses the access UI.
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot grant access to the skill's own organisation",
+        )
     skill = find_skill(conn, org.id, skill_name)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")

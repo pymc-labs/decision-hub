@@ -1822,3 +1822,58 @@ class TestResolveAuthorDisplay:
         from decision_hub.domain.search import resolve_author_display
 
         assert resolve_author_display("tracker:") == "auto-sync"
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/skills/{org}/{skill}/similar -- visibility filtering consistency
+# ---------------------------------------------------------------------------
+
+
+class TestSimilarSkillsVisibility:
+    """The source-skill lookup must honor the caller's org membership.
+
+    Even though ``fetch_similar_skills`` only ever returns public skills,
+    the 404 check on the *source* skill should use the same visibility
+    rules as every other detail endpoint. Otherwise an authenticated
+    org member visiting their own private skill's detail page would
+    get a confusing 404 from the "similar" sub-request.
+    """
+
+    @patch("decision_hub.api.registry_routes.fetch_similar_skills")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    def test_similar_passes_user_org_ids_when_authenticated(
+        self,
+        mock_list_orgs: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_fetch_similar: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        org = _make_org()
+        mock_list_orgs.return_value = [org.id]
+        mock_find_skill.return_value = _make_skill(org)
+        mock_fetch_similar.return_value = []
+
+        resp = client.get("/v1/skills/test-org/my-skill/similar", headers=auth_headers)
+
+        assert resp.status_code == 200
+        mock_find_skill.assert_called_once()
+        assert mock_find_skill.call_args.kwargs["user_org_ids"] == [org.id]
+
+    @patch("decision_hub.api.registry_routes.fetch_similar_skills")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_similar_unauthenticated_passes_none_org_ids(
+        self,
+        mock_find_skill: MagicMock,
+        mock_fetch_similar: MagicMock,
+        client: TestClient,
+    ) -> None:
+        mock_find_skill.return_value = None  # Not visible to anonymous caller
+
+        resp = client.get("/v1/skills/test-org/my-skill/similar")
+
+        assert resp.status_code == 404
+        mock_find_skill.assert_called_once()
+        assert mock_find_skill.call_args.kwargs["user_org_ids"] is None
+        mock_fetch_similar.assert_not_called()

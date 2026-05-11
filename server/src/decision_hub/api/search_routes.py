@@ -7,13 +7,13 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import make_rate_limit_dependency
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
@@ -29,16 +29,11 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/v1", tags=["search"])
 
 
-def _enforce_search_rate_limit(request: Request) -> None:
-    """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
-    state = request.app.state
-    if not hasattr(state, "_search_rate_limiter"):
-        settings: Settings = state.settings
-        state._search_rate_limiter = RateLimiter(
-            max_requests=settings.search_rate_limit,
-            window_seconds=settings.search_rate_window,
-        )
-    state._search_rate_limiter(request)
+_enforce_search_rate_limit = make_rate_limit_dependency(
+    "search",
+    limit_attr="search_rate_limit",
+    window_attr="search_rate_window",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +221,48 @@ class AskRequest(BaseModel):
     history: list[AskMessage] = Field(default_factory=list, max_length=20)
 
 
+def _dispatch_ask(
+    *,
+    query: str,
+    category: str | None,
+    history: list[dict] | None,
+    background_tasks: BackgroundTasks,
+    settings: Settings,
+    engine: Engine,
+    conn: Connection,
+    s3_client,
+    current_user: User | None,
+) -> AskResponse:
+    """Shared entrypoint for GET and POST ``/ask``.
+
+    Both transports do the same thing — guard, embed, retrieve, answer —
+    differing only in whether they accept a category filter (GET) or a
+    multi-turn history (POST). Keeping the dispatch in one place makes
+    the shared ``google_api_key`` precondition and the ``httpx.Client``
+    lifetime obvious.
+    """
+    if not settings.google_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Ask is not configured (missing GOOGLE_API_KEY)",
+        )
+
+    # Share a single TCP+TLS connection across all Gemini calls in this request
+    with httpx.Client(timeout=60) as shared_http:
+        return _ask_skills_inner(
+            q=query,
+            category=category,
+            background_tasks=background_tasks,
+            settings=settings,
+            engine=engine,
+            conn=conn,
+            s3_client=s3_client,
+            current_user=current_user,
+            shared_http=shared_http,
+            history=history,
+        )
+
+
 @router.get(
     "/ask",
     response_model=AskResponse,
@@ -237,7 +274,7 @@ def ask_skills(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     settings: Settings = Depends(get_settings),
     engine: Engine = Depends(get_engine),
-    conn=Depends(get_connection),
+    conn: Connection = Depends(get_connection),
     s3_client=Depends(get_s3_client),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> AskResponse:
@@ -247,26 +284,17 @@ def ask_skills(
     conversational answer with explicit skill references that both the CLI and
     the frontend can render.
     """
-    if not settings.google_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Ask is not configured (missing GOOGLE_API_KEY)",
-        )
-
-    # Share a single TCP+TLS connection across all Gemini calls in this request
-    with httpx.Client(timeout=60) as shared_http:
-        return _ask_skills_inner(
-            q=q,
-            category=category,
-            background_tasks=background_tasks,
-            settings=settings,
-            engine=engine,
-            conn=conn,
-            s3_client=s3_client,
-            current_user=current_user,
-            shared_http=shared_http,
-            history=None,
-        )
+    return _dispatch_ask(
+        query=q,
+        category=category,
+        history=None,
+        background_tasks=background_tasks,
+        settings=settings,
+        engine=engine,
+        conn=conn,
+        s3_client=s3_client,
+        current_user=current_user,
+    )
 
 
 @router.post(
@@ -279,7 +307,7 @@ def ask_skills_post(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     settings: Settings = Depends(get_settings),
     engine: Engine = Depends(get_engine),
-    conn=Depends(get_connection),
+    conn: Connection = Depends(get_connection),
     s3_client=Depends(get_s3_client),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> AskResponse:
@@ -288,27 +316,18 @@ def ask_skills_post(
     Accepts conversation history so follow-up questions have context.
     The web modal uses this; CLI uses GET for single-shot queries.
     """
-    if not settings.google_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Ask is not configured (missing GOOGLE_API_KEY)",
-        )
-
     history = [{"role": m.role, "content": m.content} for m in body.history] if body.history else None
-
-    with httpx.Client(timeout=60) as shared_http:
-        return _ask_skills_inner(
-            q=body.query,
-            category=None,
-            background_tasks=background_tasks,
-            settings=settings,
-            engine=engine,
-            conn=conn,
-            s3_client=s3_client,
-            current_user=current_user,
-            shared_http=shared_http,
-            history=history,
-        )
+    return _dispatch_ask(
+        query=body.query,
+        category=None,
+        history=history,
+        background_tasks=background_tasks,
+        settings=settings,
+        engine=engine,
+        conn=conn,
+        s3_client=s3_client,
+        current_user=current_user,
+    )
 
 
 def _ask_skills_inner(

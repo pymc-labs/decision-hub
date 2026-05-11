@@ -50,6 +50,37 @@ def get_connection(
         yield conn
 
 
+def _decode_bearer_user(request: Request, settings: Settings) -> User | None:
+    """Decode the bearer token on a request into a User.
+
+    Returns ``None`` for any of: missing header, malformed header,
+    invalid/expired signature, missing ``github_orgs`` claim
+    (tokens issued before the org refactor). Callers decide whether
+    to translate ``None`` into HTTP 401 (required auth) or pass it
+    through (optional auth).
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.removeprefix("Bearer ")
+
+    try:
+        payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
+    except JWTError:
+        return None
+
+    if "github_orgs" not in payload:
+        return None
+
+    return User(
+        id=UUID(payload["sub"]),
+        github_id="",
+        username=payload["username"],
+        github_orgs=tuple(payload["github_orgs"]),
+    )
+
+
 def get_current_user(
     request: Request,
     settings: Settings = Depends(get_settings),
@@ -61,7 +92,7 @@ def get_current_user(
 
     Raises:
         HTTPException 401: When the header is missing, malformed, or the
-            token is invalid / expired.
+            token is invalid / expired / pre-orgs-refactor.
     """
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -70,31 +101,30 @@ def get_current_user(
             detail="Missing or invalid authorization header",
         )
 
-    token = auth_header.removeprefix("Bearer ")
+    user = _decode_bearer_user(request, settings)
+    if user is None:
+        # Distinguish "invalid signature/expired" from "missing
+        # github_orgs claim" by re-running the decode once. The fast
+        # path above already returned for malformed headers.
+        token = auth_header.removeprefix("Bearer ")
+        try:
+            payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
+        except JWTError:
+            logger.warning("Invalid JWT from {}", request.client.host if request.client else "unknown")
+            raise HTTPException(status_code=401, detail="Invalid token") from None
 
-    try:
-        payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
-    except JWTError:
-        logger.warning("Invalid JWT from {}", request.client.host if request.client else "unknown")
-        raise HTTPException(status_code=401, detail="Invalid token") from None
+        # Tokens issued before the org refactor lack the github_orgs claim.
+        # Prompt the user to re-authenticate so they get a fresh token.
+        if "github_orgs" not in payload:
+            logger.warning("Outdated token for user={} (missing github_orgs claim)", payload.get("username"))
+            raise HTTPException(
+                status_code=401,
+                detail="Your session is outdated. Run 'dhub login' to refresh.",
+            )
 
-    # Tokens issued before the org refactor lack the github_orgs claim.
-    # Prompt the user to re-authenticate so they get a fresh token.
-    if "github_orgs" not in payload:
-        logger.warning("Outdated token for user={} (missing github_orgs claim)", payload.get("username"))
-        raise HTTPException(
-            status_code=401,
-            detail="Your session is outdated. Run 'dhub login' to refresh.",
-        )
-
-    # The JWT 'sub' claim holds the user id and 'username' holds the login.
-    # We trust the signed token and avoid a DB lookup on every request.
-    return User(
-        id=UUID(payload["sub"]),
-        github_id="",
-        username=payload["username"],
-        github_orgs=tuple(payload["github_orgs"]),
-    )
+        # Should not reach here, but defensively raise.
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return user
 
 
 def get_current_user_optional(
@@ -110,24 +140,9 @@ def get_current_user_optional(
     Returns:
         User object if valid token present, None otherwise.
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return None
-
-    token = auth_header.removeprefix("Bearer ")
-
-    try:
-        payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
-    except JWTError:
+    user = _decode_bearer_user(request, settings)
+    if user is None and request.headers.get("Authorization", "").startswith("Bearer "):
+        # Log only when an invalid token was actually sent — silence
+        # the much more common "no header" case.
         logger.debug("Invalid JWT in optional auth context")
-        return None
-
-    if "github_orgs" not in payload:
-        return None
-
-    return User(
-        id=UUID(payload["sub"]),
-        github_id="",
-        username=payload["username"],
-        github_orgs=tuple(payload["github_orgs"]),
-    )
+    return user
