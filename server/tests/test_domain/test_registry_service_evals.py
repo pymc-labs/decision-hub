@@ -215,3 +215,87 @@ class TestMaybeTriggerAgentAssessment:
             "prompt": "Do something",
             "judge_criteria": "PASS: works\nFAIL: breaks",
         }
+
+    @patch("modal.Function")
+    @patch("decision_hub.infra.database.insert_eval_run")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_engine_disposed_after_use(
+        self,
+        mock_create_engine: MagicMock,
+        mock_insert_run: MagicMock,
+        mock_modal_function: MagicMock,
+    ):
+        """The freshly-created engine is disposed when the function returns.
+
+        Previously the engine was instantiated per publish and never disposed,
+        leaking the Engine object (and its event listeners) on every publish
+        that triggered evals.
+        """
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value = mock_conn
+        mock_create_engine.return_value = mock_engine
+
+        mock_run = MagicMock()
+        mock_run.id = uuid4()
+        mock_insert_run.return_value = mock_run
+
+        mock_modal_function.from_name.return_value = MagicMock()
+
+        maybe_trigger_agent_assessment(
+            eval_config=_make_eval_config(),
+            eval_cases=_make_eval_cases(1),
+            s3_key="skills/test.zip",
+            s3_bucket="test-bucket",
+            version_id=uuid4(),
+            org_slug="test-org",
+            skill_name="test-skill",
+            settings=_make_settings(),
+            user_id=uuid4(),
+        )
+
+        mock_engine.dispose.assert_called_once()
+
+    @patch("modal.Function")
+    @patch("decision_hub.infra.database.insert_eval_run")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_engine_disposed_when_spawn_raises(
+        self,
+        mock_create_engine: MagicMock,
+        mock_insert_run: MagicMock,
+        mock_modal_function: MagicMock,
+    ):
+        """Engine is disposed even when Modal.spawn raises after engine creation."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value = mock_conn
+        mock_create_engine.return_value = mock_engine
+
+        mock_run = MagicMock()
+        mock_run.id = uuid4()
+        mock_insert_run.return_value = mock_run
+
+        mock_fn = MagicMock()
+        mock_fn.spawn.side_effect = RuntimeError("modal down")
+        mock_modal_function.from_name.return_value = mock_fn
+
+        with pytest.raises(RuntimeError, match="modal down"):
+            maybe_trigger_agent_assessment(
+                eval_config=_make_eval_config(),
+                eval_cases=_make_eval_cases(1),
+                s3_key="skills/test.zip",
+                s3_bucket="test-bucket",
+                version_id=uuid4(),
+                org_slug="test-org",
+                skill_name="test-skill",
+                settings=_make_settings(),
+                user_id=uuid4(),
+            )
+
+        mock_engine.dispose.assert_called_once()

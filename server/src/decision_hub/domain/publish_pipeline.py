@@ -490,19 +490,27 @@ def maybe_trigger_agent_assessment(
         run_uuid = uuid4()
         log_s3_prefix = f"eval-logs/{run_uuid}/"
 
+        # Dispose the engine after use so its event listeners and any
+        # NullPool state are released even if Modal.spawn fails below.
+        # NullPool means there are no pooled connections to leak, but the
+        # Engine object itself accumulates if we keep instantiating one
+        # per publish.
         engine = create_engine(settings.database_url)
-        with engine.connect() as eval_conn:
-            eval_run = insert_eval_run(
-                eval_conn,
-                run_id=run_uuid,
-                version_id=version_id,
-                user_id=user_id,
-                agent=eval_config.agent,
-                judge_model=eval_config.judge_model,
-                total_cases=len(eval_cases),
-                log_s3_prefix=log_s3_prefix,
-            )
-            eval_conn.commit()
+        try:
+            with engine.connect() as eval_conn:
+                eval_run = insert_eval_run(
+                    eval_conn,
+                    run_id=run_uuid,
+                    version_id=version_id,
+                    user_id=user_id,
+                    agent=eval_config.agent,
+                    judge_model=eval_config.judge_model,
+                    total_cases=len(eval_cases),
+                    log_s3_prefix=log_s3_prefix,
+                )
+                eval_conn.commit()
+        finally:
+            engine.dispose()
 
         logger.info(
             "Spawning eval task run_id={} agent={} cases={} for {}/{}",

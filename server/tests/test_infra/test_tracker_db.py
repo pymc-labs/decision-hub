@@ -411,3 +411,23 @@ class TestListTrackerMetrics:
 
         result = list_tracker_metrics(conn)
         assert result == []
+
+    def test_list_uses_unique_order_by_tiebreaker(self):
+        """LIMIT queries must have a deterministic ORDER BY (project rule).
+
+        Inspects the SQL statement passed to execute() to ensure both
+        ``recorded_at`` and ``id`` appear in the ORDER BY clause, so rows
+        with identical timestamps come back in a stable order across calls.
+        """
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        list_tracker_metrics(conn, limit=10)
+
+        stmt = conn.execute.call_args.args[0]
+        sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        # Both columns must appear in ORDER BY for the result to be deterministic
+        assert "ORDER BY" in sql
+        order_clause = sql.split("ORDER BY", 1)[1]
+        assert "recorded_at" in order_clause
+        assert "id" in order_clause

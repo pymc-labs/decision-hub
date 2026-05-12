@@ -212,7 +212,7 @@ def run_assessment_background(
             logger.info("Assessment done — {}/{} passed in {}ms", passed, total, total_duration_ms)
 
     except Exception as e:
-        logger.error("Agent assessment failed for version {}: {}", version_id, e)
+        logger.opt(exception=True).error("Agent assessment failed for version {}: {}", version_id, e)
 
         # Update run row if using streaming pipeline
         if run_id is not None:
@@ -223,17 +223,20 @@ def run_assessment_background(
                 from decision_hub.infra.database import update_eval_run_status
 
                 err_engine = _ce(settings.database_url)
-                with err_engine.connect() as err_conn:
-                    update_eval_run_status(
-                        err_conn,
-                        run_id,
-                        status="failed",
-                        error_message=str(e),
-                        completed_at=datetime.now(UTC),
-                    )
-                    err_conn.commit()
+                try:
+                    with err_engine.connect() as err_conn:
+                        update_eval_run_status(
+                            err_conn,
+                            run_id,
+                            status="failed",
+                            error_message=str(e),
+                            completed_at=datetime.now(UTC),
+                        )
+                        err_conn.commit()
+                finally:
+                    err_engine.dispose()
             except Exception as inner:
-                logger.error("Failed to update run {}: {}", run_id, inner)
+                logger.opt(exception=True).error("Failed to update run {}: {}", run_id, inner)
 
         # INSERT an error report
         try:
@@ -241,22 +244,25 @@ def run_assessment_background(
             from decision_hub.infra.database import insert_eval_report
 
             err_engine = _create_engine(settings.database_url)
-            with err_engine.connect() as err_conn:
-                insert_eval_report(
-                    err_conn,
-                    version_id=version_id,
-                    agent=assessment_config.agent,
-                    judge_model=assessment_config.judge_model,
-                    case_results=[],
-                    passed=0,
-                    total=len(assessment_cases),
-                    total_duration_ms=0,
-                    status="failed",
-                    error_message=str(e),
-                )
-                err_conn.commit()
+            try:
+                with err_engine.connect() as err_conn:
+                    insert_eval_report(
+                        err_conn,
+                        version_id=version_id,
+                        agent=assessment_config.agent,
+                        judge_model=assessment_config.judge_model,
+                        case_results=[],
+                        passed=0,
+                        total=len(assessment_cases),
+                        total_duration_ms=0,
+                        status="failed",
+                        error_message=str(e),
+                    )
+                    err_conn.commit()
+            finally:
+                err_engine.dispose()
         except Exception as inner:
-            logger.error(
+            logger.opt(exception=True).error(
                 "Failed to store error report for version {}: {}",
                 version_id,
                 inner,

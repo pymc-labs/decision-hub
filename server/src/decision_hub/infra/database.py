@@ -2125,7 +2125,9 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        # Unique tiebreakers so paginated/limited results are deterministic
+        # when two skills share the same cosine distance.
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc())
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -3248,8 +3250,16 @@ def insert_tracker_metrics(
 
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
-    """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    """Return recent tracker metrics rows, newest first.
+
+    ``id`` is included as a tiebreaker so two metrics rows with identical
+    ``recorded_at`` timestamps return in a deterministic order.
+    """
+    stmt = (
+        sa.select(tracker_metrics_table)
+        .order_by(tracker_metrics_table.c.recorded_at.desc(), tracker_metrics_table.c.id.desc())
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 
