@@ -4,7 +4,6 @@ import json
 import math
 import zipfile
 from datetime import UTC, datetime
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from loguru import logger
@@ -18,6 +17,7 @@ from decision_hub.api.deps import (
     get_current_user_optional,
     get_s3_client,
     get_settings,
+    parse_uuid_param,
 )
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.api.registry_service import (
@@ -83,99 +83,46 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
+def _make_rate_limit_dep(name: str):
+    """Build a FastAPI dependency that lazily creates a per-endpoint rate limiter.
+
+    The limiter is stored on ``app.state`` under ``_{name}_rate_limiter`` so it
+    is created once per process (per Modal replica) and reused across requests.
+    Limits and windows are read from settings as ``{name}_rate_limit`` /
+    ``{name}_rate_window`` — that naming convention is the contract this
+    factory relies on.
+    """
+    attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def _enforce(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, attr, None)
+        if limiter is None:
+            settings: Settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, attr, limiter)
+        limiter(request)
+
+    _enforce.__name__ = f"_enforce_{name}_rate_limit"
+    _enforce.__doc__ = f"Rate-limit the {name} endpoint."
+    return _enforce
 
 
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+_enforce_list_skills_rate_limit = _make_rate_limit_dep("list_skills")
+_enforce_resolve_rate_limit = _make_rate_limit_dep("resolve")
+_enforce_similar_skills_rate_limit = _make_rate_limit_dep("similar_skills")
+_enforce_download_rate_limit = _make_rate_limit_dep("download")
+_enforce_audit_log_rate_limit = _make_rate_limit_dep("audit_log")
+_enforce_scan_report_rate_limit = _make_rate_limit_dep("scan_report")
+_enforce_publish_rate_limit = _make_rate_limit_dep("publish")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
-
-
-def _parse_uuid(value: str, name: str) -> UUID:
-    """Parse a UUID string, raising 422 with a clear message on invalid input."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
 
 
 # ---------------------------------------------------------------------------
@@ -1127,7 +1074,7 @@ def get_eval_run(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunResponse:
     """Get eval run metadata by run ID."""
-    parsed_id = _parse_uuid(run_id, "run_id")
+    parsed_id = parse_uuid_param(run_id, "run_id")
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
@@ -1147,7 +1094,7 @@ def get_eval_run_logs(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunLogsResponse:
     """Get eval run log events with cursor-based pagination."""
-    parsed_id = _parse_uuid(run_id, "run_id")
+    parsed_id = parse_uuid_param(run_id, "run_id")
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
@@ -1165,19 +1112,26 @@ def get_eval_run_logs(
         after_seq=0,
     )
 
-    # Read and parse events from each chunk, filtering by cursor
+    # Read and parse events from each chunk, filtering by cursor. A single
+    # malformed line must not poison the whole response — skip it and continue
+    # so the user still sees the events that surrounded it.
     all_events: list[dict] = []
     max_seq = cursor
     for _chunk_seq, s3_key in chunks:
         content = read_eval_log_chunk(s3_client, settings.s3_bucket, s3_key)
         for line in content.strip().split("\n"):
-            if line.strip():
+            if not line.strip():
+                continue
+            try:
                 event = json.loads(line)
-                event_seq = event.get("seq", 0)
-                if event_seq > cursor:
-                    all_events.append(event)
-                if event_seq > max_seq:
-                    max_seq = event_seq
+            except json.JSONDecodeError:
+                logger.warning("malformed eval log line in {} run_id={}", s3_key, run.id)
+                continue
+            event_seq = event.get("seq", 0)
+            if event_seq > cursor:
+                all_events.append(event)
+            if event_seq > max_seq:
+                max_seq = event_seq
 
     return EvalRunLogsResponse(
         events=all_events,
@@ -1196,7 +1150,7 @@ def list_eval_runs(
 ) -> list[EvalRunResponse]:
     """List eval runs, optionally filtered by version ID."""
     if version_id is not None:
-        parsed_vid = _parse_uuid(version_id, "version_id")
+        parsed_vid = parse_uuid_param(version_id, "version_id")
         runs = find_eval_runs_for_version(conn, parsed_vid)
         runs = [r for r in runs if r.user_id == current_user.id]
     else:

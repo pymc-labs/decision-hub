@@ -69,8 +69,10 @@ export default function SkillDetailPage() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  // Reset state when navigating to a different skill. The new skill may not
+  // have evals/audit data the prior tab depended on, so reset the tab too.
   useEffect(() => {
+    setActiveTab("overview");
     setZipData(null);
     setZipError(null);
     setZipLoading(false);

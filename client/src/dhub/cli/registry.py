@@ -412,20 +412,28 @@ def _publish_from_git_repo(
 
 
 def _detect_branch(repo_root: Path) -> str:
-    """Detect the current branch of a cloned repo. Falls back to 'main'."""
+    """Detect the current branch of a cloned repo. Falls back to 'main'.
+
+    A 10s timeout guards against a hung subprocess (e.g. git prompting for
+    credentials on a misconfigured machine). Failures are non-fatal — the
+    caller only needs the branch hint to wire up auto-tracking.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_root,
+            timeout=10,
         )
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-            if branch and branch != "HEAD":
-                return branch
-    except Exception:
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        # TimeoutExpired: git hung. FileNotFoundError: git not on PATH.
+        # OSError: cwd vanished. None of these should kill the publish.
+        return "main"
+    if result.returncode == 0:
+        branch = result.stdout.strip()
+        if branch and branch != "HEAD":
+            return branch
     return "main"
 
 
@@ -438,7 +446,10 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
     """
     from dhub.cli.config import raise_for_status
 
-    # Check if a tracker already exists for this repo+branch
+    # Check if a tracker already exists for this repo+branch. Auto-tracking is
+    # a best-effort side operation: publish must not fail because the tracker
+    # API is unavailable. We still surface a dim hint so the user knows the
+    # auto-tracking step was skipped (silent swallow masks API outages).
     try:
         with httpx.Client(timeout=60) as client:
             resp = client.get(f"{api_url}/v1/trackers", headers=headers)
@@ -446,8 +457,9 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
             existing = resp.json()
     except (SystemExit, typer.Exit):
         raise  # Don't swallow typer.Exit (e.g. from 426 handler)
-    except Exception:
-        return  # Don't fail the publish if tracker API is unavailable
+    except Exception as e:
+        console.print(f"[dim]Auto-tracking skipped (tracker API unavailable: {type(e).__name__})[/]")
+        return
 
     match = next((t for t in existing if t["repo_url"] == repo_url and t["branch"] == branch), None)
 
@@ -467,9 +479,9 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
                         console.print(f"[yellow]Warning: {data['warning']}[/]")
                 elif resp.status_code != 409:
                     # 409 = already exists (race condition), that's fine
-                    pass
-        except Exception:
-            pass  # Best-effort — don't fail the publish
+                    console.print(f"[dim]Auto-tracking skipped (server returned {resp.status_code})[/]")
+        except Exception as e:
+            console.print(f"[dim]Auto-tracking skipped ({type(e).__name__})[/]")
         return
 
     if not match["enabled"] and track:
@@ -483,8 +495,10 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
                 )
                 if resp.status_code == 200:
                     console.print(f"[dim]Tracking re-enabled for {repo_url}@{branch}[/]")
-        except Exception:
-            pass
+                else:
+                    console.print(f"[dim]Re-enable tracking failed (server returned {resp.status_code})[/]")
+        except Exception as e:
+            console.print(f"[dim]Re-enable tracking skipped ({type(e).__name__})[/]")
     elif not match["enabled"]:
         console.print("[dim]Tracking is paused for this repo. Use --track to re-enable.[/]")
 

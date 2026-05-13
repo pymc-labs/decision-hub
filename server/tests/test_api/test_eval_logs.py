@@ -382,6 +382,43 @@ class TestGetEvalRunLogs:
 
         assert resp.status_code == 404
 
+    @patch("decision_hub.api.registry_routes.read_eval_log_chunk")
+    @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_malformed_jsonl_line_is_skipped(
+        self,
+        mock_find_run: MagicMock,
+        mock_list_chunks: MagicMock,
+        mock_read_chunk: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A single malformed JSONL line must not crash the endpoint.
+
+        Regression for the bug where json.loads() raised on the first bad
+        line and the user lost visibility into the entire run.
+        """
+        run = _make_eval_run()
+        mock_find_run.return_value = run
+        mock_list_chunks.return_value = [
+            (1, "eval-logs/test-run/0001.jsonl"),
+        ]
+        # Middle line is corrupt — the surrounding events must still be returned.
+        mock_read_chunk.return_value = (
+            '{"seq":1,"type":"setup","content":"init"}\n{this is not json\n{"seq":3,"type":"log","content":"after"}\n'
+        )
+
+        resp = client.get(
+            f"/v1/eval-runs/{run.id}/logs?cursor=0",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        seqs = [e["seq"] for e in data["events"]]
+        assert seqs == [1, 3]
+        assert data["next_cursor"] == 3
+
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
     @patch("decision_hub.api.registry_routes.find_eval_run")

@@ -1159,7 +1159,7 @@ class TestEnsureTracker:
 
     @respx.mock
     def test_graceful_failure_on_api_error(self) -> None:
-        """Should silently fail if the tracker API is unavailable."""
+        """Should not raise if the tracker API is unavailable."""
         from dhub.cli.registry import _ensure_tracker
 
         respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(500))
@@ -1171,6 +1171,85 @@ class TestEnsureTracker:
             "https://github.com/org/repo",
             "main",
         )
+
+    @respx.mock
+    def test_api_error_surfaces_dim_hint_instead_of_silent_swallow(self) -> None:
+        """Tracker-API outages must be visible in publish output — a fully silent
+        ``except Exception: pass`` made production breakages invisible to users.
+        """
+        from dhub.cli import registry as registry_mod
+
+        respx.get("http://test:8000/v1/trackers").mock(return_value=httpx.Response(500))
+
+        with patch.object(registry_mod.console, "print") as mock_print:
+            registry_mod._ensure_tracker(
+                "http://test:8000",
+                {"Authorization": "Bearer tok"},
+                "https://github.com/org/repo",
+                "main",
+            )
+
+        printed = " ".join(str(c.args[0]) for c in mock_print.call_args_list)
+        assert "Auto-tracking skipped" in printed
+
+
+# ---------------------------------------------------------------------------
+# _detect_branch
+# ---------------------------------------------------------------------------
+
+
+class TestDetectBranch:
+    """Subprocess invocation must not hang or kill the publish on failure."""
+
+    def test_returns_branch_on_success(self, tmp_path) -> None:
+        from subprocess import CompletedProcess
+
+        from dhub.cli import registry as registry_mod
+
+        completed = CompletedProcess(args=[], returncode=0, stdout="feature-x\n", stderr="")
+        with patch("dhub.cli.registry.subprocess.run", return_value=completed):
+            assert registry_mod._detect_branch(tmp_path) == "feature-x"
+
+    def test_detached_head_falls_back_to_main(self, tmp_path) -> None:
+        """A detached HEAD reports literal ``HEAD`` — treat as 'main' fallback."""
+        from subprocess import CompletedProcess
+
+        from dhub.cli import registry as registry_mod
+
+        completed = CompletedProcess(args=[], returncode=0, stdout="HEAD\n", stderr="")
+        with patch("dhub.cli.registry.subprocess.run", return_value=completed):
+            assert registry_mod._detect_branch(tmp_path) == "main"
+
+    def test_timeout_falls_back_to_main(self, tmp_path) -> None:
+        """A hung git invocation must not hang the publish indefinitely."""
+        from subprocess import TimeoutExpired
+
+        from dhub.cli import registry as registry_mod
+
+        with patch(
+            "dhub.cli.registry.subprocess.run",
+            side_effect=TimeoutExpired(cmd="git", timeout=10),
+        ):
+            assert registry_mod._detect_branch(tmp_path) == "main"
+
+    def test_git_not_on_path_falls_back_to_main(self, tmp_path) -> None:
+        from dhub.cli import registry as registry_mod
+
+        with patch("dhub.cli.registry.subprocess.run", side_effect=FileNotFoundError):
+            assert registry_mod._detect_branch(tmp_path) == "main"
+
+    def test_subprocess_is_called_with_timeout(self, tmp_path) -> None:
+        """Guard against a future regression that drops the timeout kwarg."""
+        from subprocess import CompletedProcess
+
+        from dhub.cli import registry as registry_mod
+
+        completed = CompletedProcess(args=[], returncode=0, stdout="main\n", stderr="")
+        with patch("dhub.cli.registry.subprocess.run", return_value=completed) as run_mock:
+            registry_mod._detect_branch(tmp_path)
+
+        kwargs = run_mock.call_args.kwargs
+        assert kwargs.get("timeout") is not None, "subprocess.run must be called with a timeout"
 
 
 # ---------------------------------------------------------------------------

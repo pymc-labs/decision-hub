@@ -84,3 +84,55 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+
+class _State:
+    """Stand-in for FastAPI's ``app.state`` (a plain attribute bag)."""
+
+
+class TestRateLimitDepFactory:
+    """Unit tests for the rate-limit dependency factory in registry_routes."""
+
+    def test_factory_creates_limiter_lazily_and_caches_on_state(self) -> None:
+        """The factory reads ``{name}_rate_limit`` / ``{name}_rate_window`` from
+        settings and stores the limiter on ``app.state`` under
+        ``_{name}_rate_limiter``, reusing it across requests.
+        """
+        from decision_hub.api.registry_routes import _make_rate_limit_dep
+
+        settings = MagicMock()
+        settings.list_skills_rate_limit = 2
+        settings.list_skills_rate_window = 60
+        state = _State()
+        state.settings = settings
+
+        request = MagicMock()
+        request.app.state = state
+        request.client.host = "1.2.3.4"
+
+        dep = _make_rate_limit_dep("list_skills")
+        dep(request)
+        first = state._list_skills_rate_limiter
+        dep(request)
+        assert state._list_skills_rate_limiter is first
+
+    def test_factory_enforces_configured_limit(self) -> None:
+        """A dep built by the factory raises 429 once the configured cap is hit."""
+        from decision_hub.api.registry_routes import _make_rate_limit_dep
+
+        settings = MagicMock()
+        settings.download_rate_limit = 2
+        settings.download_rate_window = 60
+        state = _State()
+        state.settings = settings
+
+        request = MagicMock()
+        request.app.state = state
+        request.client.host = "5.6.7.8"
+
+        dep = _make_rate_limit_dep("download")
+        dep(request)
+        dep(request)
+        with pytest.raises(HTTPException) as exc_info:
+            dep(request)
+        assert exc_info.value.status_code == 429

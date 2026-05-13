@@ -1,7 +1,6 @@
 """CRUD API routes for skill trackers."""
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -9,7 +8,12 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
-from decision_hub.api.deps import get_connection, get_current_user, get_settings
+from decision_hub.api.deps import (
+    get_connection,
+    get_current_user,
+    get_settings,
+    parse_uuid_param,
+)
 from decision_hub.domain.tracker import (
     build_canonical_repo_url,
     check_repo_accessible,
@@ -87,14 +91,6 @@ def _tracker_to_response(tracker) -> TrackerResponse:
         last_error=tracker.last_error,
         created_at=tracker.created_at.isoformat() if tracker.created_at else None,
     )
-
-
-def _parse_uuid(value: str, name: str) -> UUID:
-    """Parse a string as UUID, raising HTTP 422 on invalid input."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid {name}: {value}") from None
 
 
 def _resolve_org_slug(conn: Connection, user: User, org_slug: str | None) -> str:
@@ -210,7 +206,7 @@ def get_tracker(
     user: User = Depends(get_current_user),
 ) -> TrackerResponse:
     """Get details of a specific tracker."""
-    tid = _parse_uuid(tracker_id, "tracker_id")
+    tid = parse_uuid_param(tracker_id, "tracker_id")
     tracker = find_skill_tracker(conn, tid)
     if tracker is None or tracker.user_id != user.id:
         raise HTTPException(status_code=404, detail="Tracker not found")
@@ -225,7 +221,7 @@ def update_tracker(
     user: User = Depends(get_current_user),
 ) -> TrackerResponse:
     """Update a tracker's settings."""
-    tid = _parse_uuid(tracker_id, "tracker_id")
+    tid = parse_uuid_param(tracker_id, "tracker_id")
     tracker = find_skill_tracker(conn, tid)
     if tracker is None or tracker.user_id != user.id:
         raise HTTPException(status_code=404, detail="Tracker not found")
@@ -273,7 +269,7 @@ def delete_tracker(
     user: User = Depends(get_current_user),
 ) -> None:
     """Remove a tracker."""
-    tid = _parse_uuid(tracker_id, "tracker_id")
+    tid = parse_uuid_param(tracker_id, "tracker_id")
     tracker = find_skill_tracker(conn, tid)
     if tracker is None or tracker.user_id != user.id:
         raise HTTPException(status_code=404, detail="Tracker not found")

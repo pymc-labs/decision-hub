@@ -283,3 +283,26 @@ class TestDeleteTracker:
         mock_find.return_value = None
         resp = tracker_client.delete(f"/v1/trackers/{uuid4()}", headers=auth_headers)
         assert resp.status_code == 404
+
+
+class TestTrackerUUIDValidation:
+    """Bad path UUIDs must surface as 422 from the shared parse_uuid_param helper."""
+
+    def test_get_invalid_uuid(self, tracker_client, auth_headers):
+        resp = tracker_client.get("/v1/trackers/not-a-uuid", headers=auth_headers)
+        assert resp.status_code == 422
+        assert "Invalid UUID for tracker_id" in resp.json()["detail"]
+
+    def test_patch_invalid_uuid(self, tracker_client, auth_headers):
+        resp = tracker_client.patch(
+            "/v1/trackers/not-a-uuid",
+            headers=auth_headers,
+            json={"enabled": True},
+        )
+        assert resp.status_code == 422
+        assert "Invalid UUID for tracker_id" in resp.json()["detail"]
+
+    def test_delete_invalid_uuid(self, tracker_client, auth_headers):
+        resp = tracker_client.delete("/v1/trackers/not-a-uuid", headers=auth_headers)
+        assert resp.status_code == 422
+        assert "Invalid UUID for tracker_id" in resp.json()["detail"]

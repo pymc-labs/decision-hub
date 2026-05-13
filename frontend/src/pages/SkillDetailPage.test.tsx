@@ -1,7 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { MemoryRouter, Routes, Route, Link } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   renderWithRouter,
@@ -292,6 +293,68 @@ describe("SkillDetailPage", () => {
         screen.getByText(/Skill not found: acme\/data-tool/),
       ).toBeInTheDocument();
     });
+  });
+
+  it("resets activeTab to overview when navigating to a different skill", async () => {
+    // Set up MSW to also serve a second skill so we can navigate between them.
+    const otherSkill = makeSkill({
+      org_slug: "acme",
+      skill_name: "other-tool",
+      description: "A different skill",
+      latest_version: "1.0.0",
+      safety_rating: "B",
+    });
+    server.use(
+      http.get("/v1/skills/acme/other-tool/summary", () =>
+        HttpResponse.json(otherSkill),
+      ),
+      http.get("/v1/skills/acme/other-tool/eval-report", () =>
+        HttpResponse.json(null),
+      ),
+      http.get("/v1/skills/acme/other-tool/audit-log", () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 }),
+      ),
+      http.get("/v1/skills/acme/other-tool/similar", () => HttpResponse.json([])),
+      http.get("/v1/skills/acme/other-tool/download", () =>
+        new HttpResponse(EMPTY_ZIP, { headers: { "Content-Type": "application/zip" } }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/skills/acme/data-tool"]}>
+        <Routes>
+          <Route
+            path="/skills/:orgSlug/:skillName"
+            element={
+              <>
+                <Link to="/skills/acme/other-tool" data-testid="goto-other">
+                  goto other
+                </Link>
+                <SkillDetailPage />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("data-tool");
+
+    // Open a non-overview tab on the first skill.
+    await user.click(screen.getByText("Evals"));
+    expect(screen.getByText("Evals").closest("button")!.className).toMatch(/tabActive/);
+
+    // Navigate to a different skill via React Router (params change).
+    await user.click(screen.getByTestId("goto-other"));
+
+    // The new skill renders with Overview re-selected — a regression
+    // guard for "Reset state on context changes (React)".
+    await screen.findByText("other-tool");
+    await waitFor(() => {
+      expect(screen.getByText("Overview").closest("button")!.className).toMatch(/tabActive/);
+    });
+    expect(screen.getByText("Evals").closest("button")!.className).not.toMatch(/tabActive/);
   });
 
   it("switches between tabs maintaining overview as default", async () => {
