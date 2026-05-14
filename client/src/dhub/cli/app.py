@@ -96,27 +96,34 @@ from dhub.cli.doctor import doctor_command  # noqa: E402
 app.command("doctor")(doctor_command)
 
 
+# Cap installer-detection subprocess calls. Anything slower than a few
+# seconds for ``uv tool list`` or ``pipx list`` indicates the tool is
+# stuck — fall back to ``pip`` rather than block the CLI.
+_INSTALLER_DETECT_TIMEOUT = 10
+
+
 def _detect_installer() -> str:
     """Detect how dhub-cli was installed: 'uv', 'pipx', or 'pip'."""
+
+    def _has_dhub_cli(bin_path: str, args: list[str]) -> bool:
+        try:
+            result = subprocess.run(
+                [bin_path, *args],
+                capture_output=True,
+                text=True,
+                timeout=_INSTALLER_DETECT_TIMEOUT,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+        return result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines())
+
     uv_bin = shutil.which("uv")
-    if uv_bin:
-        result = subprocess.run(
-            [uv_bin, "tool", "list"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
-            return "uv"
+    if uv_bin and _has_dhub_cli(uv_bin, ["tool", "list"]):
+        return "uv"
 
     pipx_bin = shutil.which("pipx")
-    if pipx_bin:
-        result = subprocess.run(
-            [pipx_bin, "list", "--short"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
-            return "pipx"
+    if pipx_bin and _has_dhub_cli(pipx_bin, ["list", "--short"]):
+        return "pipx"
 
     return "pip"
 
@@ -147,39 +154,36 @@ def _upgrade(installer: str, console: Console) -> int:
 
 def _query_version(installer: str) -> str | None:
     """Query the installed dhub-cli version using the same tool that installed it."""
-    if installer == "uv":
-        result = subprocess.run(
-            [_require_bin("uv"), "tool", "list"],
-            capture_output=True,
-            text=True,
-        )
-        for line in result.stdout.splitlines():
+
+    def _run(cmd: list[str]) -> str:
+        try:
+            return subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=_INSTALLER_DETECT_TIMEOUT,
+            ).stdout
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return ""
+
+    def _parse_dhub_cli_line(stdout: str) -> str | None:
+        """Both `uv tool list` and `pipx list --short` print `dhub-cli <version>`."""
+        for line in stdout.splitlines():
             if line.startswith("dhub-cli"):
                 parts = line.split()
                 if len(parts) >= 2:
                     return parts[1].lstrip("v")
         return None
+
+    if installer == "uv":
+        return _parse_dhub_cli_line(_run([_require_bin("uv"), "tool", "list"]))
 
     if installer == "pipx":
-        result = subprocess.run(
-            [_require_bin("pipx"), "list", "--short"],
-            capture_output=True,
-            text=True,
-        )
-        for line in result.stdout.splitlines():
-            if line.startswith("dhub-cli"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    return parts[1].lstrip("v")
-        return None
+        return _parse_dhub_cli_line(_run([_require_bin("pipx"), "list", "--short"]))
 
     # pip — use the same Python that's running this process
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "show", "dhub-cli"],
-        capture_output=True,
-        text=True,
-    )
-    for line in result.stdout.splitlines():
+    stdout = _run([sys.executable, "-m", "pip", "show", "dhub-cli"])
+    for line in stdout.splitlines():
         if line.startswith("Version:"):
             return line.split(":", 1)[1].strip()
     return None

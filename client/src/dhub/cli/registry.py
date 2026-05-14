@@ -412,20 +412,26 @@ def _publish_from_git_repo(
 
 
 def _detect_branch(repo_root: Path) -> str:
-    """Detect the current branch of a cloned repo. Falls back to 'main'."""
+    """Detect the current branch of a cloned repo. Falls back to 'main'.
+
+    Catches the specific subprocess failure modes (git not installed,
+    timeout, working directory deleted) instead of a bare ``Exception``
+    so unexpected errors continue to surface.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_root,
+            timeout=10,
         )
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-            if branch and branch != "HEAD":
-                return branch
-    except Exception:
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return "main"
+    if result.returncode == 0:
+        branch = result.stdout.strip()
+        if branch and branch != "HEAD":
+            return branch
     return "main"
 
 
@@ -435,8 +441,17 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
     - If no tracker exists: creates one (auto-track on first publish).
     - If tracker exists and is enabled: does nothing.
     - If tracker exists but disabled: only re-enables if --track was passed.
+
+    Tracker management is best-effort — a failure here must not break the
+    publish that already succeeded.  We narrow the swallowed exceptions to
+    network/HTTP errors and surface them as a dim debug line so users can
+    still diagnose persistent breakage without losing the publish.
     """
     from dhub.cli.config import raise_for_status
+
+    # httpx.HTTPError is the base for network, timeout, and decode failures;
+    # JSONDecodeError covers a server returning unexpected bodies.
+    _network_errors = (httpx.HTTPError, json.JSONDecodeError)
 
     # Check if a tracker already exists for this repo+branch
     try:
@@ -446,8 +461,9 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
             existing = resp.json()
     except (SystemExit, typer.Exit):
         raise  # Don't swallow typer.Exit (e.g. from 426 handler)
-    except Exception:
-        return  # Don't fail the publish if tracker API is unavailable
+    except _network_errors as exc:
+        console.print(f"[dim]Skipping tracker setup ({type(exc).__name__}: {exc})[/]")
+        return
 
     match = next((t for t in existing if t["repo_url"] == repo_url and t["branch"] == branch), None)
 
@@ -467,9 +483,9 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
                         console.print(f"[yellow]Warning: {data['warning']}[/]")
                 elif resp.status_code != 409:
                     # 409 = already exists (race condition), that's fine
-                    pass
-        except Exception:
-            pass  # Best-effort — don't fail the publish
+                    console.print(f"[dim]Could not auto-create tracker (HTTP {resp.status_code})[/]")
+        except _network_errors as exc:
+            console.print(f"[dim]Could not auto-create tracker ({type(exc).__name__}: {exc})[/]")
         return
 
     if not match["enabled"] and track:
@@ -483,8 +499,8 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
                 )
                 if resp.status_code == 200:
                     console.print(f"[dim]Tracking re-enabled for {repo_url}@{branch}[/]")
-        except Exception:
-            pass
+        except _network_errors as exc:
+            console.print(f"[dim]Could not re-enable tracker ({type(exc).__name__}: {exc})[/]")
     elif not match["enabled"]:
         console.print("[dim]Tracking is paused for this repo. Use --track to re-enable.[/]")
 
@@ -1587,7 +1603,9 @@ def _update_all_skills() -> None:
             installed_version = installed.version if installed else None
             allow_risky = installed.allow_risky if installed else False
 
-            # Quick version check via /latest-version (does NOT inflate download count)
+            # Quick version check via /latest-version (does NOT inflate download count).
+            # Catch network/HTTP/JSON errors specifically; let typer.Exit (e.g. 426)
+            # bubble up rather than swallow it as a generic check-failure.
             try:
                 resp = client.get(
                     f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
@@ -1599,8 +1617,10 @@ def _update_all_skills() -> None:
                     continue
                 raise_for_status(resp)
                 latest_version = resp.json()["version"]
-            except Exception as exc:
-                console.print(f"[red]{org_slug}/{skill_name}: error checking for updates ({exc})[/]")
+            except (httpx.HTTPError, json.JSONDecodeError, KeyError) as exc:
+                console.print(
+                    f"[red]{org_slug}/{skill_name}: error checking for updates ({type(exc).__name__}: {exc})[/]"
+                )
                 failed += 1
                 continue
 

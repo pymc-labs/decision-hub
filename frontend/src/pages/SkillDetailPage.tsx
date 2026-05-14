@@ -83,6 +83,17 @@ export default function SkillDetailPage() {
     }
   }, [orgSlug, skillName]);
 
+  // Cancel any pending retry timer when the component unmounts so the
+  // setTimeout callback can't call setState on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
+    };
+  }, []);
+
   // Fetch single skill
   const { data: skill, loading: skillLoading } = useApi<SkillSummary>(
     () => getSkill(orgSlug!, skillName!),
@@ -671,7 +682,10 @@ function FilesTab({
 }
 
 export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  // Track expanded card by check_name (stable identity) instead of array
+  // index — index-based keys mis-attribute expand state when checks
+  // reorder or are filtered.
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   return (
     <div className={styles.auditChecks}>
@@ -693,12 +707,15 @@ export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
               : severity === "fail"
                 ? styles.severityFail
                 : styles.severityWarn;
-          const isExpanded = expandedIndex === i;
+          // Disambiguate when the same check_name legitimately appears
+          // more than once (defensive — should be rare in practice).
+          const cardKey = `${checkName}-${i}`;
+          const isExpanded = expandedKey === cardKey;
           return (
             <div
-              key={i}
+              key={cardKey}
               className={`${styles.checkCard} ${severityClass}`}
-              onClick={() => setExpandedIndex(isExpanded ? null : i)}
+              onClick={() => setExpandedKey(isExpanded ? null : cardKey)}
             >
               <div className={styles.checkHeader}>
                 <SeverityIcon size={14} className={styles.checkIcon} />

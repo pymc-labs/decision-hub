@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -82,21 +83,48 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory if it does not already exist. The file
+    is written with mode 0600 so the bearer token is not readable by
+    other local users on shared systems. The directory is also tightened
+    to 0700 on POSIX; on Windows ``chmod`` is a best-effort no-op.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # ``chmod`` is a best-effort no-op on platforms that don't honor POSIX
+    # file modes (Windows); swallow the failure rather than block the save.
+    with contextlib.suppress(OSError, NotImplementedError):
+        CONFIG_DIR.chmod(0o700)
     path = config_file()
     path.write_text(
         json.dumps(asdict(config), indent=2) + "\n",
         encoding="utf-8",
     )
+    with contextlib.suppress(OSError, NotImplementedError):
+        path.chmod(0o600)
+
+
+def _validate_api_url(url: str, *, source: str) -> str:
+    """Validate and normalize an API URL.
+
+    Rejects URLs without an http(s) scheme or netloc — silent typos
+    (``DHUB_API_URL=localhost:8000``) used to flow through and produce
+    confusing connection errors deep in the request path.
+    """
+    from urllib.parse import urlparse
+
+    stripped = url.strip().rstrip("/")
+    parsed = urlparse(stripped)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(
+            f"Invalid API URL from {source}: {url!r}. Expected scheme http(s) and a host, e.g. https://hub.example.com"
+        )
+    return stripped
 
 
 def get_api_url() -> str:
     """Get API URL from the DHUB_API_URL env var, falling back to saved config."""
     env_url = os.environ.get("DHUB_API_URL")
     if env_url:
-        return env_url.rstrip("/")
+        return _validate_api_url(env_url, source="DHUB_API_URL")
     return load_config().api_url.rstrip("/")
 
 

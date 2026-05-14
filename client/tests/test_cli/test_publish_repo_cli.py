@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+import pytest
 import respx
 from typer.testing import CliRunner
 
@@ -11,6 +12,19 @@ from dhub.cli.app import app
 from dhub.core.git_repo import looks_like_git_url
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _stub_ensure_tracker():
+    """Auto-tracker creation is a separate concern; stub it out here so the
+    publish tests don't have to mock the ``/v1/trackers`` endpoints.
+
+    Previously the bare ``except Exception`` in ``_ensure_tracker``
+    silently swallowed respx ``AllMockedAssertionError``, which is no
+    longer the case after we narrowed the swallowed exceptions.
+    """
+    with patch("dhub.cli.registry._ensure_tracker"):
+        yield
 
 
 def _write_skill_md(directory: Path, name: str = "test-skill") -> None:

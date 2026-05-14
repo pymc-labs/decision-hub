@@ -1,8 +1,24 @@
-"""Tests for decision_hub.infra.cache -- in-memory TTL cache."""
+"""Tests for decision_hub.infra.cache -- in-memory TTL cache.
 
-import time
+Time-based expiration tests use an injected fake clock so they're
+deterministic — earlier versions used ``time.sleep(0.02)`` which made
+the suite flaky on slow CI runners.
+"""
 
 from decision_hub.infra.cache import TTLCache
+
+
+class _FakeClock:
+    """Manually-advanced monotonic clock for deterministic TTL tests."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def tick(self, seconds: float) -> None:
+        self.now += seconds
 
 
 class TestTTLCacheBasics:
@@ -40,26 +56,28 @@ class TestTTLCacheExpiration:
     """TTL-based expiration behaviour."""
 
     def test_expired_entry_returns_none(self) -> None:
-        cache = TTLCache(default_ttl=10)
-        cache.set("key", "value", ttl=0.01)
-        time.sleep(0.02)
+        clock = _FakeClock()
+        cache = TTLCache(default_ttl=10, clock=clock)
+        cache.set("key", "value", ttl=1)
+        clock.tick(2)
         assert cache.get("key") is None
 
     def test_per_entry_ttl_override(self) -> None:
-        cache = TTLCache(default_ttl=0.01)
-        cache.set("short", "fast", ttl=0.01)
-        cache.set("long", "slow", ttl=10)
-        time.sleep(0.02)
+        clock = _FakeClock()
+        cache = TTLCache(default_ttl=1, clock=clock)
+        cache.set("short", "fast", ttl=1)
+        cache.set("long", "slow", ttl=100)
+        clock.tick(2)
         assert cache.get("short") is None
         assert cache.get("long") == "slow"
 
     def test_expired_entry_is_cleaned_on_get(self) -> None:
-        cache = TTLCache(default_ttl=0.01)
+        clock = _FakeClock()
+        cache = TTLCache(default_ttl=1, clock=clock)
         cache.set("key", "value")
-        time.sleep(0.02)
-        # First get should clean up the expired entry
+        clock.tick(2)
         assert cache.get("key") is None
-        # Internal store should be empty
+        # Internal store should be empty after the cleanup-on-read
         assert len(cache._store) == 0
 
 
@@ -77,12 +95,12 @@ class TestTTLCacheEviction:
         assert cache.get("c") == 3
 
     def test_prefers_evicting_expired_entries(self) -> None:
-        cache = TTLCache(default_ttl=60, max_size=2)
-        cache.set("expired", "old", ttl=0.01)
+        clock = _FakeClock()
+        cache = TTLCache(default_ttl=60, max_size=2, clock=clock)
+        cache.set("expired", "old", ttl=1)
         cache.set("fresh", "new", ttl=60)
-        time.sleep(0.02)
-        # Adding a third entry should evict the expired one
-        cache.set("newest", "latest")
+        clock.tick(2)
+        cache.set("newest", "latest")  # should evict "expired", not "fresh"
         assert cache.get("fresh") == "new"
         assert cache.get("newest") == "latest"
 
@@ -99,11 +117,10 @@ class TestTTLCacheDisabledTTL:
     """Verify zero-TTL means caching is effectively disabled."""
 
     def test_zero_ttl_entry_expires_immediately(self) -> None:
-        cache = TTLCache(default_ttl=60)
+        clock = _FakeClock()
+        cache = TTLCache(default_ttl=60, clock=clock)
         cache.set("key", "value", ttl=0)
-        # Entry should already be expired (monotonic clock precision)
-        # Give a tiny sleep to ensure monotonic moves forward
-        time.sleep(0.001)
+        clock.tick(0.001)  # any forward motion expires a 0-TTL entry
         assert cache.get("key") is None
 
 

@@ -9,20 +9,23 @@
   letter-spacing: 1px;
 }
 
+/* Sizes use the shared --text-* scale (see index.css :root) so the badge
+   responds to the project-wide mobile-step-down at the 480px breakpoint
+   instead of overriding the typographic scale with hardcoded rem values. */
 .sm {
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   padding: 2px 8px;
   min-width: 28px;
 }
 
 .md {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   padding: 4px 12px;
   min-width: 36px;
 }
 
 .lg {
-  font-size: 1.4rem;
+  font-size: var(--text-lg);
   padding: 8px 20px;
   min-width: 56px;
 }

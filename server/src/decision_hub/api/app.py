@@ -12,6 +12,7 @@ from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from decision_hub.api.deps import get_current_user
+from decision_hub.api.rate_limit import build_rate_limiter_registry
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
 from decision_hub.logging import RequestLoggingMiddleware, setup_logging
@@ -158,6 +159,9 @@ def create_app() -> FastAPI:
     app.state.engine = engine
     app.state.settings = settings
     app.state.s3_client = s3_client
+    # Eagerly construct all rate limiters so concurrent first-requests
+    # cannot race-create competing instances.
+    app.state.rate_limiters = build_rate_limiter_registry(settings)
 
     # In-memory TTL cache for hot read paths (per-container, not shared
     # across Modal replicas).

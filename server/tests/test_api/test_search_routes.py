@@ -85,10 +85,36 @@ def search_settings() -> MagicMock:
 @pytest.fixture
 def search_app(search_settings: MagicMock) -> FastAPI:
     """FastAPI test app with only the search router included."""
+    from decision_hub.api.rate_limit import build_rate_limiter_registry
+
+    # build_rate_limiter_registry walks every limiter spec; provide the
+    # ones search_settings doesn't already define so construction succeeds.
+    for attr, value in (
+        ("auth_rate_limit", 10),
+        ("auth_rate_window", 60),
+        ("list_skills_rate_limit", 30),
+        ("list_skills_rate_window", 60),
+        ("resolve_rate_limit", 30),
+        ("resolve_rate_window", 60),
+        ("similar_skills_rate_limit", 30),
+        ("similar_skills_rate_window", 60),
+        ("download_rate_limit", 10),
+        ("download_rate_window", 60),
+        ("audit_log_rate_limit", 30),
+        ("audit_log_rate_window", 60),
+        ("publish_rate_limit", 10),
+        ("publish_rate_window", 60),
+        ("scan_report_rate_limit", 30),
+        ("scan_report_rate_window", 60),
+    ):
+        if not hasattr(search_settings, attr) or isinstance(getattr(search_settings, attr), MagicMock):
+            setattr(search_settings, attr, value)
+
     app = FastAPI()
     app.state.settings = search_settings
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
+    app.state.rate_limiters = build_rate_limiter_registry(search_settings)
     app.include_router(search_router)
     return app
 
@@ -251,8 +277,14 @@ class TestAskSkills:
 
     def test_ask_rate_limited(self, search_app: FastAPI) -> None:
         """Exceeding the rate limit returns HTTP 429."""
+        from decision_hub.api.rate_limit import build_rate_limiter_registry
+
         search_app.state.settings.search_rate_limit = 2
         search_app.state.settings.search_rate_window = 60
+        # Rebuild the registry so the new limits take effect (limiters are
+        # eagerly constructed at app startup; mutating settings after the
+        # fact does not retro-actively change the existing limiter).
+        search_app.state.rate_limiters = build_rate_limiter_registry(search_app.state.settings)
         client = TestClient(search_app)
 
         with patch(

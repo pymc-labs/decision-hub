@@ -1,11 +1,13 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import stat
+import sys
 
 import click
 import pytest
 
-from dhub.cli.config import CliConfig, load_config, save_config
+from dhub.cli.config import CliConfig, get_api_url, load_config, save_config
 
 
 class TestLoadConfig:
@@ -104,6 +106,58 @@ class TestSaveConfig:
         assert loaded.orgs == ()
         assert loaded.default_org is None
         assert loaded.token == "old-tok"
+
+
+class TestSaveConfigPermissions:
+    """save_config must protect the bearer token from other local users."""
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file mode only")
+    def test_config_file_is_owner_readable_only(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        path = tmp_path / "config.dev.json"
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file mode only")
+    def test_config_dir_is_owner_only(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        mode = stat.S_IMODE(tmp_path.stat().st_mode)
+        assert mode == 0o700, f"expected 0o700, got {oct(mode)}"
+
+
+class TestGetApiUrl:
+    """DHUB_API_URL is user-supplied — validate scheme and host."""
+
+    def test_accepts_https_url(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "https://hub.example.com/")
+
+        assert get_api_url() == "https://hub.example.com"
+
+    def test_rejects_missing_scheme(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "hub.example.com")
+
+        with pytest.raises(ValueError, match="Invalid API URL"):
+            get_api_url()
+
+    def test_rejects_unsupported_scheme(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "ftp://hub.example.com")
+
+        with pytest.raises(ValueError, match="Invalid API URL"):
+            get_api_url()
 
 
 class TestGetToken:

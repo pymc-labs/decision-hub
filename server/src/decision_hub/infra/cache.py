@@ -5,7 +5,8 @@ Each entry expires independently after its TTL elapses. Designed for
 slowly-changing data like taxonomy, org profiles, and skill listings
 where a few seconds of staleness is acceptable.
 
-Usage:
+Usage::
+
     cache = TTLCache(default_ttl=30)
     value = cache.get("my-key")
     if value is None:
@@ -15,6 +16,7 @@ Usage:
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,15 +33,22 @@ class _CacheEntry:
 class TTLCache:
     """Thread-safe in-memory cache with per-entry TTL expiration.
 
+    The clock is injectable so tests can advance time without
+    ``time.sleep`` (which is brittle on slow CI runners).  Defaults to
+    ``time.monotonic``.
+
     Args:
         default_ttl: Default time-to-live in seconds for cached entries.
         max_size: Maximum number of entries. When exceeded, expired entries
                   are purged first; if still over limit, the oldest entry
                   is evicted.
+        clock: Callable returning the current monotonic time. Override in
+               tests; defaults to ``time.monotonic``.
     """
 
     default_ttl: float = 30.0
     max_size: int = 256
+    clock: Callable[[], float] = field(default=time.monotonic, repr=False)
     _store: dict[str, _CacheEntry] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -49,7 +58,7 @@ class TTLCache:
             entry = self._store.get(key)
             if entry is None:
                 return None
-            if time.monotonic() > entry.expires_at:
+            if self.clock() > entry.expires_at:
                 del self._store[key]
                 return None
             return entry.value
@@ -62,7 +71,7 @@ class TTLCache:
                 self._evict_one()
             self._store[key] = _CacheEntry(
                 value=value,
-                expires_at=time.monotonic() + ttl,
+                expires_at=self.clock() + ttl,
             )
 
     def invalidate(self, key: str) -> None:
@@ -77,7 +86,7 @@ class TTLCache:
 
     def _evict_one(self) -> None:
         """Evict one entry: prefer expired, then oldest. Caller holds lock."""
-        now = time.monotonic()
+        now = self.clock()
         # Try to find and remove an expired entry first
         for k, entry in self._store.items():
             if now > entry.expires_at:

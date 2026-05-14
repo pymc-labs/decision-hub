@@ -46,11 +46,26 @@ def _make_app(require_github_org: str = "") -> FastAPI:
     settings.resolve_rate_window = 60
     settings.download_rate_limit = 10
     settings.download_rate_window = 60
+    settings.search_rate_limit = 10
+    settings.search_rate_window = 60
+    settings.auth_rate_limit = 10
+    settings.auth_rate_window = 60
+    settings.similar_skills_rate_limit = 30
+    settings.similar_skills_rate_window = 60
+    settings.audit_log_rate_limit = 30
+    settings.audit_log_rate_window = 60
+    settings.publish_rate_limit = 10
+    settings.publish_rate_window = 60
+    settings.scan_report_rate_limit = 30
+    settings.scan_report_rate_window = 60
+
+    from decision_hub.api.rate_limit import build_rate_limiter_registry
 
     app = FastAPI()
     app.state.settings = settings
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
+    app.state.rate_limiters = build_rate_limiter_registry(settings)
 
     # Mirror the unconditional auth wiring from create_app()
     write_deps = [Depends(get_current_user)]
