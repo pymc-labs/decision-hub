@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,54 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepo:
+    """Behaviour of clone_repo around timeouts, errors, and cleanup."""
+
+    def test_clone_passes_timeout_to_subprocess(self) -> None:
+        """All git invocations must include `timeout=` so the CLI cannot hang forever."""
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with patch("dhub.core.git_repo.subprocess.run", return_value=completed) as run:
+            clone_repo("https://example.com/repo.git")
+        assert run.call_count == 1
+        _, kwargs = run.call_args
+        assert "timeout" in kwargs, "subprocess.run must be called with a timeout"
+        assert kwargs["timeout"] > 0
+
+    def test_clone_timeout_raises_runtime_error(self, tmp_path: Path) -> None:
+        """TimeoutExpired must surface as RuntimeError (not bubble up as a subprocess error)."""
+        with (
+            patch(
+                "dhub.core.git_repo.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd=["git", "clone"], timeout=120),
+            ),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            clone_repo("https://example.com/slow.git")
+
+    def test_clone_failure_cleans_up_tmp_dir(self) -> None:
+        """A failed clone must not leak dhub-repo-* directories under tempdir."""
+        import tempfile
+
+        failed = subprocess.CompletedProcess(args=[], returncode=128, stdout="", stderr="fatal: repository not found")
+        before = set(Path(tempfile.gettempdir()).glob("dhub-repo-*"))
+        with (
+            patch("dhub.core.git_repo.subprocess.run", return_value=failed),
+            pytest.raises(RuntimeError, match="git clone failed"),
+        ):
+            clone_repo("https://example.com/missing.git")
+        after = set(Path(tempfile.gettempdir()).glob("dhub-repo-*"))
+        assert after == before, "tmp dir should have been removed on failure"
+
+    def test_clone_with_sha_does_two_calls(self) -> None:
+        """SHA refs trigger a full clone followed by a separate checkout."""
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with patch("dhub.core.git_repo.subprocess.run", return_value=completed) as run:
+            clone_repo("https://example.com/repo.git", ref="abc1234")
+        assert run.call_count == 2
+        assert run.call_args_list[0][0][0][:2] == ["git", "clone"]
+        assert run.call_args_list[1][0][0][:2] == ["git", "checkout"]
+        # Both invocations must honour the timeout bound.
+        for _, kwargs in run.call_args_list:
+            assert "timeout" in kwargs and kwargs["timeout"] > 0

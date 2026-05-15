@@ -54,6 +54,11 @@ def backfill(batch_size: int = 100) -> None:
                     )
                 )
                 .where(skills_table.c.embedding.is_(None))
+                # Deterministic order is required by project policy for any
+                # LIMIT query (see CLAUDE.md). id is the unique tiebreaker;
+                # the embedding-IS-NULL set shrinks each batch, so stable
+                # ordering also makes --resume-safe behaviour obvious.
+                .order_by(skills_table.c.id)
                 .limit(batch_size)
             )
             rows = conn.execute(stmt).all()

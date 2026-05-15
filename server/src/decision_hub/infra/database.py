@@ -2125,7 +2125,10 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        # `skills_table.c.id` is the unique tiebreaker: without it, two
+        # skills at the same cosine distance can swap places between calls,
+        # causing flicker on the "similar skills" panel.
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id)
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
