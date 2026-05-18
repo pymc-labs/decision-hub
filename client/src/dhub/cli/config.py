@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -80,16 +81,40 @@ def load_config() -> CliConfig:
 
 
 def save_config(config: CliConfig) -> None:
-    """Save CLI config to ~/.dhub/config.{env}.json.
+    """Save CLI config to ``~/.dhub/config.{env}.json`` with 0600 permissions.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    The file holds the auth token, so it is written with owner-only
+    read/write to prevent leakage on shared hosts. The containing
+    directory is restricted to owner access for the same reason.
+
+    Falls back silently if ``chmod`` is not supported by the platform
+    (e.g. some Windows filesystems) since the file is still scoped to
+    the user's home directory.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError, NotImplementedError):
+        CONFIG_DIR.chmod(0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+
+    # Open with O_CREAT|O_WRONLY|O_TRUNC and mode 0o600 in one syscall so
+    # the token is never readable by other users — even briefly between
+    # write and chmod. On platforms without os.open mode support we fall
+    # back to write_text + chmod.
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    except (OSError, NotImplementedError):
+        path.write_text(payload, encoding="utf-8")
+    else:
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fp:
+                fp.write(payload)
+        finally:
+            # If the file already existed, os.open does not change its
+            # mode; tighten it now in case it was previously 0o644.
+            with contextlib.suppress(OSError, NotImplementedError):
+                path.chmod(0o600)
 
 
 def get_api_url() -> str:

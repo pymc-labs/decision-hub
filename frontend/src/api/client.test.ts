@@ -246,6 +246,35 @@ describe("error handling", () => {
     await expect(listSkillsFiltered()).rejects.toThrow("API 500: Internal Server Error");
   });
 
+  it("truncates oversized error bodies to keep messages bounded", async () => {
+    const huge = "x".repeat(5000);
+    server.use(
+      http.get("/v1/skills", () =>
+        new HttpResponse(huge, { status: 500 }),
+      ),
+    );
+
+    try {
+      await listSkillsFiltered();
+      throw new Error("expected fetchJSON to reject");
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg.startsWith("API 500: ")).toBe(true);
+      // Truncated body + envelope prefix + truncation suffix must fit well
+      // under 2 KiB even for arbitrarily large responses.
+      expect(msg.length).toBeLessThan(2048);
+      expect(msg).toContain("truncated");
+    }
+  });
+
+  it("reports an empty body cleanly instead of 'API 500: '", async () => {
+    server.use(
+      http.get("/v1/skills", () => new HttpResponse("", { status: 502 })),
+    );
+
+    await expect(listSkillsFiltered()).rejects.toThrow("API 502: (empty response)");
+  });
+
   it("throws on download failure", async () => {
     server.use(
       http.get("/v1/skills/:org/:skill/download", () =>

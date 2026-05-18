@@ -1,6 +1,9 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import stat
+import sys
 
 import click
 import pytest
@@ -90,6 +93,35 @@ class TestSaveConfig:
 
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only file mode test")
+    def test_saved_config_is_owner_only(self, tmp_path, monkeypatch):
+        """The token-bearing config file must not be world- or group-readable."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        path = tmp_path / "config.dev.json"
+        mode = path.stat().st_mode
+        # Owner can read/write, group/other bits must be cleared
+        assert mode & stat.S_IRWXU == stat.S_IRUSR | stat.S_IWUSR
+        assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only file mode test")
+    def test_save_tightens_pre_existing_loose_permissions(self, tmp_path, monkeypatch):
+        """If a legacy 0644 config file exists, save_config must tighten it."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        path = tmp_path / "config.dev.json"
+        path.write_text(json.dumps({"api_url": "https://example.com", "token": "old"}))
+        os.chmod(path, 0o644)
+        assert path.stat().st_mode & 0o077 != 0  # sanity: starts loose
+
+        save_config(CliConfig(api_url="https://example.com", token="new"))
+
+        assert path.stat().st_mode & 0o077 == 0
 
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""

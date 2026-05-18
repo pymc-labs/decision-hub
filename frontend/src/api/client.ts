@@ -18,6 +18,20 @@ import type {
 // For local dev against a remote API, set VITE_API_URL.
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+// Upper bound for error body included in thrown Error messages. The server
+// usually responds with a JSON ``{"detail": "..."}`` envelope that's well
+// under this, but proxies and the default FastAPI 500 page can return full
+// HTML — surfacing that into the UI/console verbatim is noisy and (in
+// pathological cases) memory-intensive. 1 KiB keeps the meaningful prefix.
+const MAX_ERROR_BODY = 1024;
+
+function formatErrorBody(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return "(empty response)";
+  if (trimmed.length <= MAX_ERROR_BODY) return trimmed;
+  return `${trimmed.slice(0, MAX_ERROR_BODY)}… (${trimmed.length - MAX_ERROR_BODY} more chars truncated)`;
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -27,8 +41,8 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API ${res.status}: ${text}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${formatErrorBody(text)}`);
   }
   return res.json();
 }
