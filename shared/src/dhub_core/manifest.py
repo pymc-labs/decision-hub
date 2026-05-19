@@ -22,6 +22,13 @@ from dhub_core.models import (
 )
 from dhub_core.validation import _SKILL_NAME_PATTERN
 
+# Hard upper bound on SKILL.md size. The body is rendered into LLM
+# prompts and stored in Postgres; a multi-megabyte file would OOM the
+# YAML loader, blow up token budgets, and make every downstream query
+# expensive. 2 MiB is generous — the largest real manifest in the
+# registry is well under 100 KiB.
+_MAX_SKILL_MD_BYTES = 2 * 1024 * 1024
+
 
 def parse_skill_md(path: Path) -> SkillManifest:
     """Parse a SKILL.md file into a SkillManifest.
@@ -33,6 +40,10 @@ def parse_skill_md(path: Path) -> SkillManifest:
         ValueError: If the file format is invalid or required fields are missing.
         FileNotFoundError: If the path does not exist.
     """
+    # Reject oversize files before pulling them fully into memory.
+    size = path.stat().st_size
+    if size > _MAX_SKILL_MD_BYTES:
+        raise ValueError(f"SKILL.md is too large ({size} bytes; max {_MAX_SKILL_MD_BYTES}).")
     content = path.read_text()
     frontmatter_str, body = split_frontmatter(content)
     data = parse_frontmatter_yaml(frontmatter_str)

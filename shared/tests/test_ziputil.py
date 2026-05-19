@@ -86,3 +86,51 @@ class TestValidateZipEntries:
         with pytest.raises(ValueError, match="escapes target directory"):
             validate_zip_entries(zf, "/tmp/target")
         zf.close()
+
+
+class TestSymlinkRejection:
+    """Symlink entries are refused outright — see ziputil docstring."""
+
+    @staticmethod
+    def _zip_with_symlink_entry(name: str, target: bytes) -> zipfile.ZipFile:
+        """Build a zip containing a UNIX-mode symlink entry."""
+        import stat
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo(name)
+            info.create_system = 3  # UNIX
+            # Symlink mode (0o120000) + permission bits in the upper half
+            # of external_attr — same encoding Info-ZIP uses.
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            zf.writestr(info, target)
+        buf.seek(0)
+        return zipfile.ZipFile(buf, "r")
+
+    def test_symlink_entry_pointing_outside_target_is_rejected(self) -> None:
+        zf = self._zip_with_symlink_entry("evil-link", b"/etc/passwd")
+        with pytest.raises(ValueError, match="symlink"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_symlink_entry_with_relative_target_is_also_rejected(self) -> None:
+        """We reject all symlink entries, not just ones pointing outside."""
+        zf = self._zip_with_symlink_entry("link", b"./safe.txt")
+        with pytest.raises(ValueError, match="symlink"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_regular_file_with_unix_mode_is_allowed(self) -> None:
+        """Plain regular files set their own mode bits; that's fine."""
+        import stat
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("script.sh")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | 0o755) << 16
+            zf.writestr(info, b"#!/bin/sh\necho hi\n")
+        buf.seek(0)
+        zf = zipfile.ZipFile(buf, "r")
+        validate_zip_entries(zf, "/tmp/target")  # should not raise
+        zf.close()

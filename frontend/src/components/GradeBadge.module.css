@@ -9,20 +9,23 @@
   letter-spacing: 1px;
 }
 
+/* Sizes use the project's typography scale (--text-* in index.css) so
+   the badge tracks the global font scale instead of being pinned to
+   rem literals. */
 .sm {
-  font-size: 0.65rem;
+  font-size: var(--text-xxs);
   padding: 2px 8px;
   min-width: 28px;
 }
 
 .md {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   padding: 4px 12px;
   min-width: 36px;
 }
 
 .lg {
-  font-size: 1.4rem;
+  font-size: var(--text-lg);
   padding: 8px 20px;
   min-width: 56px;
 }

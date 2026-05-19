@@ -24,8 +24,6 @@ import {
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { PluggableList } from "unified";
 import {
   getSkill,
   getEvalReport,
@@ -46,9 +44,8 @@ import FileBrowser from "../components/FileBrowser";
 import ScannerReport from "../components/ScannerReport";
 import { formatCheckName } from "./auditUtils";
 import { LINK_TO_MANIFEST, SHOW_SCANNER_REPORT } from "../featureFlags";
+import { REMARK_PLUGINS } from "../constants/markdown";
 import styles from "./SkillDetailPage.module.css";
-
-const REMARK_PLUGINS: PluggableList = [remarkGfm];
 
 type Tab = "overview" | "evals" | "files" | "audit";
 

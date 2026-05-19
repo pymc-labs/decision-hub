@@ -3,9 +3,28 @@
 from pathlib import Path
 
 import typer
+import yaml
 from rich.console import Console
 
 console = Console()
+
+
+def _prompt_nonempty(message: str, *, max_length: int) -> str:
+    """Prompt repeatedly until the user enters a non-empty value of the right length.
+
+    The bare ``typer.prompt`` accepts an empty Enter, which then propagates
+    through to manifest validation as a confusing failure at publish time.
+    Catching it here keeps the round-trip tight.
+    """
+    while True:
+        value = typer.prompt(message).strip()
+        if not value:
+            console.print("[yellow]Value cannot be empty — please try again.[/]")
+            continue
+        if len(value) > max_length:
+            console.print(f"[yellow]Value must be at most {max_length} characters.[/]")
+            continue
+        return value
 
 
 def init_command(
@@ -15,17 +34,19 @@ def init_command(
     if path is None:
         path = Path(".")
 
-    # Interactive prompts
-    name = typer.prompt("Skill name (lowercase, hyphens ok)")
-    description = typer.prompt("Short description")
+    # Interactive prompts.
+    name = _prompt_nonempty("Skill name (lowercase, hyphens ok)", max_length=64)
+    description = _prompt_nonempty("Short description", max_length=1024)
 
     from dhub.core.validation import validate_skill_name
 
-    validate_skill_name(name)
-
-    if len(description) > 1024:
-        console.print("[red]Error: Description must be 1-1024 characters.[/]")
-        raise typer.Exit(1)
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        # validate_skill_name raises with a useful message; render it as
+        # a friendly error instead of letting the traceback through.
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from exc
 
     # Create directory structure
     skill_dir = path / name if path != Path(".") else Path(".")
@@ -38,10 +59,21 @@ def init_command(
         console.print(f"[red]Error: {skill_md} already exists.[/]")
         raise typer.Exit(1)
 
+    # Hand the description to PyYAML so quote/colon characters get escaped
+    # consistently. The previous f-string interpolation produced invalid
+    # YAML for inputs containing a double quote, which then failed parsing
+    # on publish with a non-obvious error.
+    description_yaml = yaml.safe_dump(
+        description,
+        default_style='"',
+        allow_unicode=True,
+        width=2**20,  # don't wrap
+    ).rstrip()
+
     skill_md.write_text(
         f"---\n"
         f"name: {name}\n"
-        f'description: "{description}"\n'
+        f"description: {description_yaml}\n"
         f"---\n"
         f"\n"
         f"# {name}\n"

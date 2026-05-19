@@ -75,8 +75,27 @@ def search_settings() -> MagicMock:
     settings.google_api_key = "test-google-api-key"
     settings.gemini_model = "gemini-pro"
     settings.s3_bucket = "test-bucket"
+    # Every limiter spec needs a max + window even if this app only uses
+    # the search one — register_rate_limiters reads them all eagerly.
     settings.search_rate_limit = 100
     settings.search_rate_window = 60
+    settings.list_skills_rate_limit = 100
+    settings.list_skills_rate_window = 60
+    settings.resolve_rate_limit = 100
+    settings.resolve_rate_window = 60
+    settings.similar_skills_rate_limit = 100
+    settings.similar_skills_rate_window = 60
+    settings.download_rate_limit = 100
+    settings.download_rate_window = 60
+    settings.audit_log_rate_limit = 100
+    settings.audit_log_rate_window = 60
+    settings.publish_rate_limit = 100
+    settings.publish_rate_window = 60
+    settings.auth_rate_limit = 100
+    settings.auth_rate_window = 60
+    settings.scan_report_rate_limit = 100
+    settings.scan_report_rate_window = 60
+    settings.trust_forwarded_for = False
     settings.search_candidate_limit = 20
     settings.embedding_model = "gemini-embedding-001"
     return settings
@@ -85,10 +104,13 @@ def search_settings() -> MagicMock:
 @pytest.fixture
 def search_app(search_settings: MagicMock) -> FastAPI:
     """FastAPI test app with only the search router included."""
+    from decision_hub.api.rate_limit import register_rate_limiters
+
     app = FastAPI()
     app.state.settings = search_settings
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
+    register_rate_limiters(app, search_settings)
     app.include_router(search_router)
     return app
 
@@ -251,8 +273,13 @@ class TestAskSkills:
 
     def test_ask_rate_limited(self, search_app: FastAPI) -> None:
         """Exceeding the rate limit returns HTTP 429."""
+        from decision_hub.api.rate_limit import register_rate_limiters
+
+        # Rate limiters are built once at app startup, so we have to
+        # re-register after tweaking the settings to get the new bounds.
         search_app.state.settings.search_rate_limit = 2
         search_app.state.settings.search_rate_window = 60
+        register_rate_limiters(search_app, search_app.state.settings)
         client = TestClient(search_app)
 
         with patch(

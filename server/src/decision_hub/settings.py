@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     github_app_installation_id: str = ""
 
     # Rate limiting (per IP, sliding window)
+    # Trust the leftmost X-Forwarded-For entry as the client IP. Enable
+    # only when running behind a known proxy (Modal sets this). With the
+    # flag off the limiter keys on the direct peer, which behind a proxy
+    # means every caller shares one bucket.
+    trust_forwarded_for: bool = True
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds
 

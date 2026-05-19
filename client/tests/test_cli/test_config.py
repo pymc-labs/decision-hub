@@ -106,6 +106,41 @@ class TestSaveConfig:
         assert loaded.token == "old-tok"
 
 
+class TestSaveConfigPermissions:
+    """The config file stores a bearer token; only the owner may read it."""
+
+    def test_saved_file_is_owner_only(self, tmp_path, monkeypatch):
+        import os
+        import stat as _stat
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="s3cret"))
+
+        path = tmp_path / "config.dev.json"
+        mode = _stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600, f"expected 0o600 perms, got {oct(mode)}"
+
+    def test_overwrite_resets_permissions(self, tmp_path, monkeypatch):
+        """Re-saving with relaxed perms should re-lock the file."""
+        import os
+        import stat as _stat
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # First save, then deliberately loosen perms (simulating a user
+        # who chmod'd it or an old client that didn't lock the file).
+        save_config(CliConfig(api_url="https://example.com", token="t"))
+        path = tmp_path / "config.dev.json"
+        os.chmod(path, 0o644)
+
+        save_config(CliConfig(api_url="https://example.com", token="t2"))
+        mode = _stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600
+
+
 class TestGetToken:
     """get_token should check DHUB_TOKEN env var first."""
 

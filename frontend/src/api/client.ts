@@ -18,6 +18,53 @@ import type {
 // For local dev against a remote API, set VITE_API_URL.
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+/**
+ * ApiError carries the response status alongside a user-safe message
+ * (rendered in the UI) and the raw server body (kept for dev tools and
+ * `console.error`, never shown to users).
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, message: string, body: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+function userFacingMessage(status: number, body: string): string {
+  // Try to surface the FastAPI ``detail`` string when it's already a
+  // friendly message (e.g. "Skill 'foo' not found"). Anything that looks
+  // like a stack trace, hostname, or 500-class server detail gets
+  // collapsed to a generic message — we don't want raw internals leaking
+  // into the UI.
+  if (status === 404) return "Not found.";
+  if (status === 401) return "You need to be signed in to do that.";
+  if (status === 403) return "You don't have access to this resource.";
+  if (status === 429) return "Too many requests — please slow down and try again.";
+  if (status >= 500) return "The server is having trouble right now. Please try again shortly.";
+
+  // 4xx other than the ones above: extract `detail` when present, fall
+  // back to a generic invalid-request message.
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "detail" in parsed &&
+      typeof (parsed as { detail: unknown }).detail === "string"
+    ) {
+      return (parsed as { detail: string }).detail;
+    }
+  } catch {
+    // body isn't JSON — fall through
+  }
+  return "Request failed. Please try again.";
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -28,7 +75,13 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`API ${res.status}: ${text}`);
+    // Log the raw body to the console for debugging; throw a sanitised
+    // message for the UI so internal hostnames / tracebacks never reach
+    // an end user.
+    if (res.status >= 500) {
+      console.error(`API ${res.status} on ${path}:`, text);
+    }
+    throw new ApiError(res.status, userFacingMessage(res.status, text), text);
   }
   return res.json();
 }

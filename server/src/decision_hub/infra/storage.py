@@ -166,26 +166,29 @@ def list_eval_log_chunks(
 ) -> list[tuple[int, str]]:
     """List eval log chunk keys with sequence number > after_seq.
 
+    Uses the boto3 ``list_objects_v2`` paginator so a long-running eval
+    that produces more than the 1000-key S3 response cap doesn't silently
+    truncate its log feed to the first page.
+
     Returns:
         List of (seq, s3_key) tuples sorted by seq ascending.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-
+    paginator = client.get_paginator("list_objects_v2")
     chunks: list[tuple[int, str]] = []
-    for obj in contents:
-        key = obj["Key"]
-        # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
-        filename = key.rsplit("/", 1)[-1]
-        if not filename.endswith(".jsonl"):
-            continue
-        seq_str = filename.replace(".jsonl", "")
-        try:
-            seq = int(seq_str)
-        except ValueError:
-            continue
-        if seq > after_seq:
-            chunks.append((seq, key))
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
+            filename = key.rsplit("/", 1)[-1]
+            if not filename.endswith(".jsonl"):
+                continue
+            seq_str = filename.removesuffix(".jsonl")
+            try:
+                seq = int(seq_str)
+            except ValueError:
+                continue
+            if seq > after_seq:
+                chunks.append((seq, key))
 
     chunks.sort(key=lambda x: x[0])
     return chunks
@@ -208,20 +211,32 @@ def delete_eval_logs(
 ) -> int:
     """Delete all eval log chunks under a prefix.
 
+    Pages through ``list_objects_v2`` and batches deletes in groups of
+    1000 — S3's ``delete_objects`` rejects larger batches, and previously
+    we both listed and deleted only the first page so prefixes with more
+    than 1000 chunks leaked objects.
+
     Returns:
         Number of objects deleted.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-    if not contents:
-        return 0
+    paginator = client.get_paginator("list_objects_v2")
+    batch: list[dict] = []
+    deleted = 0
 
-    objects = [{"Key": obj["Key"]} for obj in contents]
-    client.delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": objects},
-    )
-    return len(objects)
+    def _flush(batch_to_send: list[dict]) -> int:
+        if not batch_to_send:
+            return 0
+        client.delete_objects(Bucket=bucket, Delete={"Objects": batch_to_send})
+        return len(batch_to_send)
+
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        for obj in page.get("Contents", []):
+            batch.append({"Key": obj["Key"]})
+            if len(batch) >= 1000:
+                deleted += _flush(batch)
+                batch = []
+    deleted += _flush(batch)
+    return deleted
 
 
 # ---------------------------------------------------------------------------

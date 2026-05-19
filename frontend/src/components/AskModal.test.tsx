@@ -270,7 +270,8 @@ describe("AskModal", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
-      expect(screen.getByText(/API 500/)).toBeInTheDocument();
+      // We render the sanitised user-facing message, never the raw body.
+      expect(screen.getByText(/server is having trouble/i)).toBeInTheDocument();
     });
   });
 

@@ -236,14 +236,39 @@ describe("downloadSkillZip", () => {
 });
 
 describe("error handling", () => {
-  it("throws with status and body on non-OK response", async () => {
+  it("throws an ApiError with sanitised user-facing message on 5xx", async () => {
     server.use(
       http.get("/v1/skills", () =>
-        new HttpResponse("Internal Server Error", { status: 500 }),
+        new HttpResponse("Internal Server Error: database host db.prod.internal unreachable", { status: 500 }),
       ),
     );
 
-    await expect(listSkillsFiltered()).rejects.toThrow("API 500: Internal Server Error");
+    // The user-facing message must NOT contain the raw body — internal
+    // hostnames and stack frames should not leak into the UI.
+    await expect(listSkillsFiltered()).rejects.toThrow(
+      /server is having trouble/i,
+    );
+    await expect(listSkillsFiltered()).rejects.not.toThrow(/db\.prod\.internal/);
+  });
+
+  it("surfaces FastAPI `detail` strings on 4xx responses", async () => {
+    server.use(
+      http.get("/v1/skills", () =>
+        HttpResponse.json({ detail: "page out of range" }, { status: 400 }),
+      ),
+    );
+
+    await expect(listSkillsFiltered()).rejects.toThrow("page out of range");
+  });
+
+  it("maps 404 to a generic not-found message", async () => {
+    server.use(
+      http.get("/v1/skills", () =>
+        new HttpResponse("missing", { status: 404 }),
+      ),
+    );
+
+    await expect(listSkillsFiltered()).rejects.toThrow(/not found/i);
   });
 
   it("throws on download failure", async () => {

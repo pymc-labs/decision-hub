@@ -88,3 +88,54 @@ class TestInitCommand:
         assert result.exit_code == 0
         content = (tmp_path / "cool-tool" / "SKILL.md").read_text()
         assert "# cool-tool" in content
+
+    def test_init_reprompts_on_empty_description(self, tmp_path: Path) -> None:
+        """Pressing Enter at the description prompt re-asks instead of writing junk.
+
+        Before this guard, an empty description produced a SKILL.md that
+        only failed when the user later ran ``dhub publish`` — a confusing
+        round-trip. The init command now loops until a real value is given.
+        """
+        # First blank, then real text. The CLI should accept the second.
+        result = runner.invoke(
+            app,
+            ["init", str(tmp_path)],
+            input="my-skill\n\nA real description\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "my-skill" / "SKILL.md").read_text()
+        assert "A real description" in content
+
+    def test_init_escapes_special_chars_in_description(self, tmp_path: Path) -> None:
+        """Descriptions containing quotes/colons round-trip through YAML safely.
+
+        The previous template did ``description: "{description}"`` and broke
+        whenever the user typed a literal double quote.
+        """
+        import yaml
+
+        tricky = 'A "quoted" thing: with colon'
+        result = runner.invoke(
+            app,
+            ["init", str(tmp_path)],
+            input=f"my-skill\n{tricky}\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "my-skill" / "SKILL.md").read_text()
+        # Pull out just the frontmatter and verify YAML round-trips it.
+        _, frontmatter, _ = content.split("---", 2)
+        loaded = yaml.safe_load(frontmatter)
+        assert loaded["description"] == tricky
+
+    def test_init_invalid_name_shows_friendly_error(self, tmp_path: Path) -> None:
+        """An invalid name produces a message, not a Python traceback."""
+        result = runner.invoke(
+            app,
+            ["init", str(tmp_path)],
+            input="INVALID NAME!\nA description\n",
+        )
+        assert result.exit_code != 0
+        # The friendly error path doesn't bubble up a Python traceback.
+        assert "Traceback" not in result.output

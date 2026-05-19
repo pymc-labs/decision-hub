@@ -12,6 +12,7 @@ from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from decision_hub.api.deps import get_current_user
+from decision_hub.api.rate_limit import register_rate_limiters
 from decision_hub.infra.database import create_engine
 from decision_hub.infra.storage import create_s3_client
 from decision_hub.logging import RequestLoggingMiddleware, setup_logging
@@ -164,6 +165,13 @@ def create_app() -> FastAPI:
     from decision_hub.infra.cache import TTLCache
 
     app.state.cache = TTLCache(default_ttl=60)
+
+    # Build all rate limiters up front so routes can pull them by name
+    # via ``rate_limited("<name>")``. Eager registration avoids the
+    # TOCTOU race that lazy ``hasattr`` init had when two concurrent
+    # requests on a fresh container could both create the same limiter
+    # and split its counter across independent buckets.
+    register_rate_limiters(app, settings)
 
     # Request logging with correlation IDs — outermost middleware (added first
     # so Starlette wraps it last, ensuring it runs before everything else).
