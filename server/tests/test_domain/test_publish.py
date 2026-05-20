@@ -10,6 +10,7 @@ from decision_hub.domain.publish import (
     extract_for_evaluation,
     validate_semver,
     validate_skill_name,
+    validate_source_repo_url,
 )
 
 # ---------------------------------------------------------------------------
@@ -269,3 +270,55 @@ class TestExtractForEvaluation:
         )
         _, _, _, unscanned = extract_for_evaluation(zip_bytes)
         assert unscanned == []
+
+
+# ---------------------------------------------------------------------------
+# validate_source_repo_url
+# ---------------------------------------------------------------------------
+
+
+class TestValidateSourceRepoUrl:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://github.com/pymc-labs/decision-hub",
+            "https://github.com/pymc-labs/decision-hub/",
+            "https://github.com/org/repo.with.dots",
+            "https://github.com/org_with_underscore/repo-with-hyphen",
+        ],
+    )
+    def test_valid_github_urls(self, url: str) -> None:
+        assert validate_source_repo_url(url) == url.strip()
+
+    def test_none_passes_through(self) -> None:
+        assert validate_source_repo_url(None) is None
+
+    def test_empty_string_normalises_to_none(self) -> None:
+        # Treat empty / whitespace input as "unset" rather than rejecting,
+        # because the CLI may send "" when the user has no remote configured.
+        assert validate_source_repo_url("") is None
+        assert validate_source_repo_url("   ") is None
+
+    def test_strips_surrounding_whitespace(self) -> None:
+        assert validate_source_repo_url("  https://github.com/o/r  ") == "https://github.com/o/r"
+
+    @pytest.mark.parametrize(
+        "url,reason",
+        [
+            ("http://github.com/o/r", "http scheme rejected"),
+            ("ftp://github.com/o/r", "ftp scheme rejected"),
+            ("file:///etc/passwd", "file scheme rejected"),
+            ("https://github.com.attacker.com/o/r", "look-alike host rejected"),
+            ("https://attacker.com/o/r", "wrong host rejected"),
+            ("https://gitlab.com/o/r", "non-github host rejected"),
+            ("https://github.com/", "missing owner/repo"),
+            ("https://github.com/owner", "missing repo"),
+            ("https://github.com/owner/repo/extra/path", "trailing path rejected"),
+            ("https://github.com/owner/repo?ref=main", "query string rejected"),
+            ("https://github.com/owner/repo#L1", "fragment rejected"),
+            ("https://github.com/owner/repo with space", "invalid path chars"),
+        ],
+    )
+    def test_invalid_urls_raise(self, url: str, reason: str) -> None:
+        with pytest.raises(ValueError):
+            validate_source_repo_url(url)

@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
+    # Shared budget for lightweight public read endpoints (registry stats,
+    # skill summary, org stats, org profile listings). These are cacheable
+    # but Cache-Control can be bypassed with random query params, so a
+    # per-IP ceiling is required per the rate-limiting convention.
+    public_reads_rate_limit: int = 120
+    public_reads_rate_window: int = 60
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import RateLimiter, enforce_public_reads_rate_limit
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -27,6 +27,7 @@ from decision_hub.domain.publish import (
     build_s3_key,
     validate_semver,
     validate_skill_name,
+    validate_source_repo_url,
 )
 from decision_hub.domain.publish_pipeline import (
     GauntletRejectionError,
@@ -491,6 +492,7 @@ def publish_skill(
     try:
         validate_skill_name(skill_name)
         validate_semver(version)
+        source_repo_url = validate_source_repo_url(source_repo_url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -556,6 +558,7 @@ def publish_skill(
 
 @public_router.get(
     "/stats",
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
 )
 def get_registry_stats(
     response: Response,
@@ -642,6 +645,7 @@ def list_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/summary",
     response_model=SkillSummary,
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
 )
 def get_skill_summary(
     org_slug: str,
@@ -718,6 +722,7 @@ def get_similar_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/latest-version",
     response_model=LatestVersionResponse,
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
 )
 def get_latest_version(
     org_slug: str,
@@ -955,6 +960,7 @@ def get_scan_report(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
 )
 def get_eval_report_by_skill(
     org_slug: str,
@@ -977,6 +983,7 @@ def get_eval_report_by_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/versions/{semver}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
 )
 def get_eval_report_by_version_path(
     org_slug: str,

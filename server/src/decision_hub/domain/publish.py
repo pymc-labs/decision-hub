@@ -2,11 +2,63 @@
 
 import io
 import os
+import re
 import zipfile
+from urllib.parse import urlparse
 
 from dhub_core.validation import validate_semver, validate_skill_name
 
-__all__ = ["validate_semver", "validate_skill_name"]
+__all__ = ["validate_semver", "validate_skill_name", "validate_source_repo_url"]
+
+
+# ``source_repo_url`` is published metadata that the tracker subsystem and the
+# UI dereference. Allowing arbitrary URLs would let a publisher point downstream
+# fetchers at attacker-controlled hosts (and break the "open in GitHub" UX), so
+# the publish boundary restricts it to canonical github.com repository URLs.
+_GITHUB_REPO_PATH_RE = re.compile(r"^/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/?$")
+
+
+def validate_source_repo_url(value: str | None) -> str | None:
+    """Validate a publisher-supplied ``source_repo_url``.
+
+    Accepts ``None`` (the field is optional). When provided, the URL must be
+    an ``https://github.com/<owner>/<repo>`` link — no other hosts, schemes,
+    or path shapes. The host comparison is case-insensitive and rejects
+    look-alikes such as ``github.com.attacker.com`` because ``urlparse``'s
+    hostname only equals ``github.com`` when the host *is* ``github.com``.
+
+    Args:
+        value: Raw URL string from the publish metadata (or ``None``).
+
+    Returns:
+        The trimmed URL when valid, or ``None`` if input was ``None`` or empty.
+
+    Raises:
+        ValueError: With a user-facing message if the URL is malformed or
+            does not point to ``github.com``.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+
+    try:
+        parsed = urlparse(trimmed)
+    except ValueError as exc:
+        raise ValueError(f"Invalid source_repo_url: {exc}") from exc
+
+    if parsed.scheme != "https":
+        raise ValueError("source_repo_url must use https:// scheme")
+    host = (parsed.hostname or "").lower()
+    if host != "github.com":
+        raise ValueError("source_repo_url must point to https://github.com/<owner>/<repo>")
+    if not _GITHUB_REPO_PATH_RE.match(parsed.path or ""):
+        raise ValueError("source_repo_url must point to https://github.com/<owner>/<repo>")
+    if parsed.query or parsed.fragment:
+        raise ValueError("source_repo_url must not contain query strings or fragments")
+
+    return trimmed
 
 
 def build_s3_key(org_slug: str, skill_name: str, version: str) -> str:
