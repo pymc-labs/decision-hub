@@ -30,7 +30,7 @@ from dhub_core.validation import (
     validate_skill_name,
     validate_slug,
 )
-from dhub_core.ziputil import validate_zip_entries
+from dhub_core.ziputil import validate_zip_entries, validate_zip_safety
 
 __all__ = [
     "ALL_SUBCATEGORIES",
@@ -55,4 +55,5 @@ __all__ = [
     "validate_skill_name",
     "validate_slug",
     "validate_zip_entries",
+    "validate_zip_safety",
 ]

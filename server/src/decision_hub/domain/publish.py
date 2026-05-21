@@ -5,6 +5,7 @@ import os
 import zipfile
 
 from dhub_core.validation import validate_semver, validate_skill_name
+from dhub_core.ziputil import validate_zip_safety
 
 __all__ = ["validate_semver", "validate_skill_name"]
 
@@ -98,36 +99,30 @@ def extract_for_evaluation(
     unscanned_files: list[str] = []
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        entries = zf.infolist()
+        # Reject symlinks and enforce zip-bomb caps before reading any
+        # entries.  The extractor never writes to disk, but symlinks
+        # would point downstream code at arbitrary files if anyone
+        # later persists ``source_files`` to disk, so we refuse them
+        # at the boundary.
+        validate_zip_safety(zf, max_entries=_MAX_ZIP_ENTRIES, max_total_size=_MAX_TOTAL_EXTRACTED)
 
-        # Zip bomb prevention: check entry count and total uncompressed size
-        if len(entries) > _MAX_ZIP_ENTRIES:
-            raise ValueError(f"Zip archive contains {len(entries)} entries, exceeding limit of {_MAX_ZIP_ENTRIES}")
-
-        total_uncompressed = sum(info.file_size for info in entries)
-        if total_uncompressed > _MAX_TOTAL_EXTRACTED:
-            raise ValueError(
-                f"Total uncompressed size ({total_uncompressed // (1024 * 1024)} MB) "
-                f"exceeds limit of {_MAX_TOTAL_EXTRACTED // (1024 * 1024)} MB"
-            )
-
-        for name in zf.namelist():
-            if name.endswith("/"):
+        for info in zf.infolist():
+            if info.is_dir():
                 continue
 
-            if zf.getinfo(name).file_size > _MAX_FILE_SIZE:
-                raise ValueError(f"File '{name}' exceeds maximum size of {_MAX_FILE_SIZE // (1024 * 1024)} MB")
+            if info.file_size > _MAX_FILE_SIZE:
+                raise ValueError(f"File '{info.filename}' exceeds maximum size of {_MAX_FILE_SIZE // (1024 * 1024)} MB")
 
-            basename = name.rsplit("/", 1)[-1] if "/" in name else name
+            basename = os.path.basename(info.filename)
 
             if basename == "SKILL.md":
-                skill_md = zf.read(name).decode()
+                skill_md = zf.read(info).decode()
             elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
-                lockfile_content = zf.read(name).decode()
+                lockfile_content = zf.read(info).decode()
             elif _is_scannable_file(basename):
-                source_files.append((name, zf.read(name).decode()))
+                source_files.append((info.filename, zf.read(info).decode()))
             else:
-                unscanned_files.append(name)
+                unscanned_files.append(info.filename)
 
     if not skill_md:
         raise ValueError("Zip archive does not contain a SKILL.md file")

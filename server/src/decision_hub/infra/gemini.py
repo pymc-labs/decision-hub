@@ -64,6 +64,13 @@ def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = Non
 
 _RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
 
+# Default wall-clock ceiling for a full retry cycle.  Without this cap,
+# 4 attempts at 60s timeout each plus ~7s of backoff sleeps could stack
+# to ~247s, which is long enough to stall tracker dispatches and saturate
+# the event loop when Gemini degrades.  180s is a generous upper bound
+# for any single LLM call while still bounding tail latency predictably.
+_DEFAULT_WALL_CLOCK_SECONDS = 180.0
+
 
 def gemini_request_with_retry(
     client: dict,
@@ -73,37 +80,72 @@ def gemini_request_with_retry(
     timeout: int = 60,
     max_retries: int = 3,
     label: str = "Gemini API",
+    max_wall_clock_seconds: float | None = _DEFAULT_WALL_CLOCK_SECONDS,
 ) -> dict:
     """POST to a Gemini API endpoint with retry and exponential backoff.
 
     Retries on transient HTTP errors (403 rate-limit, 429, 500, 502, 503)
     and timeouts.  Non-retriable errors propagate immediately.
 
+    A wall-clock budget bounds the worst-case total time across all
+    attempts (including backoff sleeps), preventing tail latency from
+    stacking when the upstream is degraded.  The per-attempt ``timeout``
+    is shrunk on the fly so the final attempt never exceeds the budget.
+
     Args:
         client: Gemini client config dict with api_key, base_url, http_client.
         url: Full URL to POST to.
         payload: JSON payload for the request.
-        timeout: HTTP timeout in seconds.
+        timeout: HTTP timeout in seconds for an individual attempt.
         max_retries: Number of retries on transient errors.
         label: Human-readable label for log messages (e.g. "Gemini embedding").
+        max_wall_clock_seconds: Upper bound on total elapsed time across
+            all attempts including backoff sleeps.  ``None`` disables the
+            cap (legacy behavior); defaults to 180s.
 
     Returns:
         Parsed JSON response dict.
 
     Raises:
         httpx.HTTPStatusError: On non-2xx, non-retriable response.
-        httpx.TimeoutException: On timeout after all retries exhausted.
+        httpx.TimeoutException: On timeout after all retries exhausted
+            or after the wall-clock budget is exhausted.
     """
     params = {"key": client["api_key"]}
     shared = client.get("http_client")
 
+    start = time.monotonic()
     last_exc: Exception | None = None
+
+    def _budget_remaining() -> float | None:
+        if max_wall_clock_seconds is None:
+            return None
+        return max_wall_clock_seconds - (time.monotonic() - start)
+
     for attempt in range(1 + max_retries):
+        remaining = _budget_remaining()
+        if remaining is not None and remaining <= 0:
+            logger.warning(
+                "{} wall-clock budget of {:.1f}s exhausted after {} attempt(s)",
+                label,
+                max_wall_clock_seconds,
+                attempt,
+            )
+            raise (
+                last_exc
+                if last_exc is not None
+                else httpx.TimeoutException(f"{label}: wall-clock budget of {max_wall_clock_seconds:.1f}s exhausted")
+            )
+
+        # Shrink the per-attempt timeout if the budget is running out so
+        # the final attempt cannot exceed the wall-clock cap.
+        call_timeout: float = float(timeout) if remaining is None else min(float(timeout), remaining)
+
         try:
             if shared is not None:
-                resp = shared.post(url, params=params, json=payload, timeout=timeout)
+                resp = shared.post(url, params=params, json=payload, timeout=call_timeout)
             else:
-                with httpx.Client(timeout=timeout) as http_client:
+                with httpx.Client(timeout=call_timeout) as http_client:
                     resp = http_client.post(url, params=params, json=payload)
         except httpx.TimeoutException as exc:
             last_exc = exc

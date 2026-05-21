@@ -728,7 +728,10 @@ a.metaItem:hover {
 
 @media (max-width: 480px) {
   .name {
-    font-size: var(--text-lg);
+    /* --text-title (2rem) steps down one level to --text-heading (1.6rem)
+       per the CLAUDE.md mobile-scale contract.  --text-lg would skip a
+       level and break the typographic rhythm. */
+    font-size: var(--text-heading);
   }
 
   .sidebarActions {

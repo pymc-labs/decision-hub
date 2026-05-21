@@ -89,6 +89,95 @@ class TestGeminiPostRetry:
         mock_sleep.assert_not_called()
 
 
+class TestGeminiWallClockBudget:
+    """The retry loop must honor ``max_wall_clock_seconds`` so that
+    a degraded upstream cannot stack tail latency past the budget."""
+
+    @respx.mock
+    def test_budget_exhaustion_stops_further_retries(self, gemini_client: dict) -> None:
+        """Once the wall-clock budget is exhausted the next iteration
+        aborts, and the most recent transient error is re-raised."""
+        from decision_hub.infra.gemini import gemini_request_with_retry
+
+        route = respx.post(_GEMINI_URL).mock(return_value=httpx.Response(503, text="Unavailable"))
+
+        # ``time.monotonic`` is called once for ``start`` and once per
+        # loop iteration via ``_budget_remaining``.  We want the first
+        # attempt to proceed (budget still positive) and the second
+        # iteration to abort (budget exhausted).
+        #
+        # Sequence:
+        #   call 1 (start)                  -> 0.0
+        #   call 2 (iter 0 budget check)    -> 0.5 (remaining = 0.5)
+        #   call 3 (iter 1 budget check)    -> 2.0 (remaining = -1.0)
+        ticks = iter([0.0, 0.5, 2.0])
+
+        with (
+            patch("decision_hub.infra.gemini.time.monotonic", side_effect=lambda: next(ticks)),
+            patch("decision_hub.infra.gemini.time.sleep"),
+            pytest.raises(httpx.HTTPStatusError) as exc_info,
+        ):
+            gemini_request_with_retry(
+                gemini_client,
+                _GEMINI_URL,
+                {},
+                max_retries=5,
+                max_wall_clock_seconds=1.0,
+            )
+        assert exc_info.value.response.status_code == 503
+        # Only one HTTP request issued: the second iteration aborted
+        # before sending another request despite max_retries=5.
+        assert route.call_count == 1
+
+    @respx.mock
+    def test_budget_disabled_preserves_legacy_behavior(self, gemini_client: dict) -> None:
+        """With ``max_wall_clock_seconds=None`` the function retries the
+        full ``max_retries`` count regardless of elapsed time."""
+        from decision_hub.infra.gemini import gemini_request_with_retry
+
+        route = respx.post(_GEMINI_URL).mock(return_value=httpx.Response(503, text="Unavailable"))
+        with (
+            patch("decision_hub.infra.gemini.time.sleep"),
+            patch("decision_hub.infra.gemini.random.uniform", return_value=0.0),
+            pytest.raises(httpx.HTTPStatusError),
+        ):
+            gemini_request_with_retry(
+                gemini_client,
+                _GEMINI_URL,
+                {},
+                max_retries=2,
+                max_wall_clock_seconds=None,
+            )
+        assert route.call_count == 3  # 1 initial + 2 retries
+
+    @respx.mock
+    def test_budget_exhaustion_with_no_prior_error_raises_timeout(self, gemini_client: dict) -> None:
+        """If the budget is exhausted before the first attempt ever runs
+        (zero per-attempt window) we raise a TimeoutException explicitly
+        rather than ``None``."""
+        from decision_hub.infra.gemini import gemini_request_with_retry
+
+        respx.post(_GEMINI_URL).mock(return_value=httpx.Response(200, json={"candidates": []}))
+
+        # First call to monotonic returns 0.0 (start), second returns 5.0
+        # which already exceeds the 1.0s budget so the very first
+        # iteration aborts before issuing a request.
+        ticks = iter([0.0, 5.0])
+
+        with (
+            patch("decision_hub.infra.gemini.time.monotonic", side_effect=lambda: next(ticks)),
+            patch("decision_hub.infra.gemini.time.sleep"),
+            pytest.raises(httpx.TimeoutException, match="wall-clock budget"),
+        ):
+            gemini_request_with_retry(
+                gemini_client,
+                _GEMINI_URL,
+                {},
+                max_retries=3,
+                max_wall_clock_seconds=1.0,
+            )
+
+
 class TestClassifySkillRetry:
     """Tests that classify_skill retries on transient errors via _gemini_post."""
 

@@ -269,3 +269,24 @@ class TestExtractForEvaluation:
         )
         _, _, _, unscanned = extract_for_evaluation(zip_bytes)
         assert unscanned == []
+
+    def test_rejects_symlink_entry(self) -> None:
+        """A symlink inside the zip is refused at the boundary.
+
+        Even though :func:`extract_for_evaluation` reads in memory and
+        never resolves the link, downstream consumers might persist the
+        ``(name, content)`` tuples to disk; we refuse symlinks here as
+        defense-in-depth.
+        """
+        import stat
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            info = zipfile.ZipInfo("link.py")
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            zf.writestr(info, "/etc/passwd")
+        zip_bytes = buf.getvalue()
+
+        with pytest.raises(ValueError, match="symlink"):
+            extract_for_evaluation(zip_bytes)
