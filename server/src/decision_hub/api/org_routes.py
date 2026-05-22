@@ -2,13 +2,14 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_cache, get_connection, get_current_user, get_settings
+from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.orgs import validate_org_slug
 from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import (
@@ -26,6 +27,18 @@ from decision_hub.settings import Settings
 
 org_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
 org_public_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
+
+
+def _enforce_org_rate_limit(request: Request) -> None:
+    """Rate-limit the public org endpoints. Limiter is initialised lazily from settings."""
+    state = request.app.state
+    if not hasattr(state, "_org_rate_limiter"):
+        settings: Settings = state.settings
+        state._org_rate_limiter = RateLimiter(
+            max_requests=settings.org_rate_limit,
+            window_seconds=settings.org_rate_window,
+        )
+    state._org_rate_limiter(request)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +164,11 @@ class OrgStatsResponse(BaseModel):
     items: list[OrgStatsEntry]
 
 
-@org_public_router.get("/stats", response_model=OrgStatsResponse)
+@org_public_router.get(
+    "/stats",
+    response_model=OrgStatsResponse,
+    dependencies=[Depends(_enforce_org_rate_limit)],
+)
 def get_org_stats(
     response: Response,
     search: str | None = Query(None, max_length=200),
@@ -190,7 +207,11 @@ def get_org_stats(
     return result
 
 
-@org_public_router.get("/profiles", response_model=list[OrgProfile])
+@org_public_router.get(
+    "/profiles",
+    response_model=list[OrgProfile],
+    dependencies=[Depends(_enforce_org_rate_limit)],
+)
 def list_org_profiles(
     response: Response,
     conn: Connection = Depends(get_connection),
@@ -223,7 +244,11 @@ def list_org_profiles(
     return result
 
 
-@org_public_router.get("/{slug}/profile", response_model=OrgProfile)
+@org_public_router.get(
+    "/{slug}/profile",
+    response_model=OrgProfile,
+    dependencies=[Depends(_enforce_org_rate_limit)],
+)
 def get_org_profile(
     slug: str,
     response: Response,

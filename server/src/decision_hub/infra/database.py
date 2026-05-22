@@ -2861,11 +2861,17 @@ def upsert_skill_tracker(
 
 def has_active_tracker_for_repo(conn: Connection, repo_url: str) -> bool:
     """Return True if at least one enabled tracker exists for the given repo URL."""
-    stmt = sa.select(sa.literal(True)).where(
-        sa.and_(
-            skill_trackers_table.c.repo_url == repo_url,
-            skill_trackers_table.c.enabled.is_(True),
+    # LIMIT 1: this is an existence check, so stop at the first match instead
+    # of letting Postgres materialise every enabled tracker for the repo.
+    stmt = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
         )
+        .limit(1)
     )
     return conn.execute(stmt).first() is not None
 

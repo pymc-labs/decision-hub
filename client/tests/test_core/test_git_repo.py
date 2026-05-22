@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import _redact_credentials, clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,47 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestRedactCredentials:
+    def test_strips_token_userinfo_from_https_url(self) -> None:
+        text = "fatal: could not read from https://x-access-token:ghp_SECRET@github.com/o/r.git"
+        redacted = _redact_credentials(text)
+        assert "ghp_SECRET" not in redacted
+        assert "x-access-token" not in redacted
+        assert "https://github.com/o/r.git" in redacted
+
+    def test_strips_basic_auth_userinfo(self) -> None:
+        assert "hunter2" not in _redact_credentials("clone https://user:hunter2@example.com/r")
+
+    def test_leaves_credential_free_urls_untouched(self) -> None:
+        text = "fatal: repository 'https://github.com/o/r.git' not found"
+        assert _redact_credentials(text) == text
+
+
+class TestCloneErrorHandling:
+    def test_clone_failure_redacts_credentials_in_error(self) -> None:
+        """A token embedded in the clone URL must never reach the raised error."""
+        failed = subprocess.CompletedProcess(
+            args=[],
+            returncode=128,
+            stdout="",
+            stderr="fatal: Authentication failed for https://x-access-token:ghp_SECRET@github.com/o/r.git",
+        )
+        with (
+            patch("dhub.core.git_repo.subprocess.run", return_value=failed),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            clone_repo("https://x-access-token:ghp_SECRET@github.com/o/r.git")
+        assert "ghp_SECRET" not in str(exc_info.value)
+
+    def test_clone_timeout_raises_clean_error(self) -> None:
+        """A hung clone must raise a timeout RuntimeError rather than block forever."""
+        with (
+            patch(
+                "dhub.core.git_repo.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="git clone", timeout=300),
+            ),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            clone_repo("https://github.com/o/r.git")

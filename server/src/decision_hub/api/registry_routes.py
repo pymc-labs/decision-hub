@@ -952,6 +952,29 @@ def get_scan_report(
     )
 
 
+def _fetch_visible_eval_report(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    semver: str,
+    current_user: User | None,
+) -> EvalReportResponse | None:
+    """Shared body for the two eval-report endpoints (query- and path-based).
+
+    Gates on skill visibility first: a skill the caller cannot see returns
+    404 (not an empty body), so private skills aren't disclosed via the
+    eval-report path.
+    """
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
+    if report is None:
+        return None
+    return _report_to_response(report)
+
+
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
@@ -964,14 +987,7 @@ def get_eval_report_by_skill(
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
     """Get the eval report for a specific skill version."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
-    if report is None:
-        return None
-    return _report_to_response(report)
+    return _fetch_visible_eval_report(conn, org_slug, skill_name, semver, current_user)
 
 
 @public_router.get(
@@ -986,14 +1002,7 @@ def get_eval_report_by_version_path(
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
     """Get the eval report for a specific skill version (path-based)."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
-    if report is None:
-        return None
-    return _report_to_response(report)
+    return _fetch_visible_eval_report(conn, org_slug, skill_name, semver, current_user)
 
 
 @router.delete(

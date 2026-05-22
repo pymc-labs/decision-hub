@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     download_rate_window: int = 60  # window in seconds
     audit_log_rate_limit: int = 30  # max requests per window
     audit_log_rate_window: int = 60  # window in seconds
+    # Public org endpoints (stats / profiles / single profile). The stats
+    # endpoint takes an attacker-varied `search` param that bypasses the
+    # TTL cache, so it needs its own per-IP limiter like other public routes.
+    org_rate_limit: int = 120  # max requests per window
+    org_rate_window: int = 60  # window in seconds
     publish_rate_limit: int = 10  # max requests per window
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window

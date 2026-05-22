@@ -13,6 +13,26 @@ from pathlib import Path
 _GIT_URL_PREFIXES = ("https://", "http://", "git@", "ssh://", "git://")
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 
+# Generous ceiling so legitimate large clones still succeed, but a hung
+# clone (e.g. git prompting for credentials on a non-TTY) can't block the
+# CLI forever.
+_GIT_TIMEOUT_SECONDS = 300
+
+# Matches the "userinfo@" portion of a URL (e.g. "x-access-token:ghp_xxx@").
+# Used to strip embedded credentials out of error output before it is shown.
+_URL_CREDENTIALS_RE = re.compile(r"//[^/@\s]+@")
+
+
+def _redact_credentials(text: str) -> str:
+    """Strip any ``userinfo@`` credentials embedded in URLs in *text*.
+
+    A user may pass an authenticated clone URL such as
+    ``https://x-access-token:<TOKEN>@github.com/...``. git echoes the URL
+    back in its error output, so we scrub it before surfacing the message
+    to the console or wrapping it in an exception.
+    """
+    return _URL_CREDENTIALS_RE.sub("//", text)
+
 
 def git_url_to_https(url: str) -> str | None:
     """Convert a git-cloneable URL to an HTTPS browse URL.
@@ -66,32 +86,51 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
+    def _run_git(cmd: list[str], *, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
+        """Run a git command with a timeout, cleaning up on failure.
+
+        Stderr is redacted before it ever reaches an exception message so an
+        authenticated clone URL can't leak a token into the console or logs.
+        """
+        try:
+            return subprocess.run(
+                cmd,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=_GIT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise RuntimeError(
+                f"git timed out after {_GIT_TIMEOUT_SECONDS}s — the repository may be "
+                "unreachable or prompting for credentials."
+            ) from exc
+
     if ref and _looks_like_sha(ref):
         # Commit SHAs don't work with --depth 1 --branch; do a full
         # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = _run_git(["git", "clone", repo_url, str(repo_path)])
         if result.returncode != 0:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
-        checkout = subprocess.run(
-            ["git", "checkout", ref],
-            cwd=str(repo_path),
-            capture_output=True,
-            text=True,
-        )
+            raise RuntimeError(
+                f"git clone failed (exit {result.returncode}):\n{_redact_credentials(result.stderr.strip())}"
+            )
+        checkout = _run_git(["git", "checkout", ref], cwd=str(repo_path))
         if checkout.returncode != 0:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
+            raise RuntimeError(f"git checkout {ref} failed:\n{_redact_credentials(checkout.stderr.strip())}")
     else:
         cmd = ["git", "clone", "--depth", "1"]
         if ref:
             cmd += ["--branch", ref]
         cmd += [repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = _run_git(cmd)
         if result.returncode != 0:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+            raise RuntimeError(
+                f"git clone failed (exit {result.returncode}):\n{_redact_credentials(result.stderr.strip())}"
+            )
 
     return repo_path
 

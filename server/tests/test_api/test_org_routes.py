@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from decision_hub.models import Organization, OrgMember
@@ -297,3 +298,34 @@ class TestGetOrg:
         """Should return 401 without auth headers."""
         resp = client.get("/v1/orgs/some-org")
         assert resp.status_code == 401
+
+
+class TestOrgRateLimit:
+    """Public org endpoints must be rate-limited (DOS protection)."""
+
+    @patch("decision_hub.api.org_routes.fetch_org_stats")
+    def test_org_stats_rate_limited(
+        self,
+        mock_fetch_stats: MagicMock,
+        test_app: FastAPI,
+    ) -> None:
+        """Exceeding the per-IP limit on /v1/orgs/stats returns HTTP 429.
+
+        The `search` param varies the cache key, so the TTL cache cannot
+        absorb an attacker hammering this DB-backed endpoint — the limiter
+        is the real protection.
+        """
+        mock_fetch_stats.return_value = []
+        test_app.state.settings.org_rate_limit = 2
+        test_app.state.settings.org_rate_window = 60
+        # Disable caching so every request reaches the limiter.
+        test_app.state.settings.cache_ttl_org_stats = 0
+        client = TestClient(test_app)
+
+        for i in range(2):
+            resp = client.get("/v1/orgs/stats", params={"search": f"q{i}"})
+            assert resp.status_code == 200
+
+        resp = client.get("/v1/orgs/stats", params={"search": "q-final"})
+        assert resp.status_code == 429
+        assert "Rate limit exceeded" in resp.json()["detail"]
