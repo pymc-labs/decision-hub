@@ -65,12 +65,23 @@ def run_command(
     # Build environment variables
     env = build_env_vars(manifest.runtime)
 
-    # Sync dependencies
+    # Sync dependencies. ``check=True`` on the raw subprocess would dump
+    # a traceback to the user; instead we catch and exit with a friendly
+    # message. The 10-min cap prevents a stuck ``uv sync`` (e.g. a
+    # hanging package server) from blocking the CLI indefinitely.
     sync_cmd = build_uv_sync_command(skill_dir)
     console.print(f"[dim]Syncing dependencies in {skill_dir}...[/]")
-    subprocess.run(sync_cmd, check=True, env=env)
+    try:
+        subprocess.run(sync_cmd, check=True, env=env, timeout=600)
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error: 'uv sync' timed out after 10 minutes.[/]")
+        raise typer.Exit(1) from None
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Error: 'uv sync' failed with exit code {exc.returncode}.[/]")
+        raise typer.Exit(exc.returncode or 1) from None
 
-    # Run the entrypoint
+    # Run the entrypoint. No timeout here: skills are arbitrary user code
+    # and may legitimately run for a long time.
     args_tuple = tuple(extra_args) if extra_args else ()
     run_cmd = build_uv_run_command(skill_dir, manifest.runtime.entrypoint, args_tuple)
     console.print(f"[dim]Running {manifest.name}...[/]")

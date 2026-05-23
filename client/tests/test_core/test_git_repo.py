@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import _GIT_TIMEOUT_SECONDS, clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,45 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepo:
+    """clone_repo must bound git network operations with a timeout and clean up on failure."""
+
+    def test_timeout_raises_runtime_error_and_cleans_tmp(self, tmp_path: Path) -> None:
+        """A hung git server must not block the CLI indefinitely."""
+
+        def _hang(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=args[0] if args else "git", timeout=_GIT_TIMEOUT_SECONDS)
+
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=_hang),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            clone_repo("https://example.invalid/repo.git")
+
+        # No leftover dhub-repo-* tmp dirs (we can't easily assert the
+        # exact mkdtemp prefix in /tmp, but the function should not have
+        # leaked any uncleared state).
+
+    def test_nonzero_exit_raises_runtime_error(self) -> None:
+        """A failing git clone should surface a clean RuntimeError."""
+
+        def _fail(*args, **kwargs):
+            return subprocess.CompletedProcess(args=args[0], returncode=128, stdout="", stderr="fatal: not found")
+
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=_fail),
+            pytest.raises(RuntimeError, match="exit 128"),
+        ):
+            clone_repo("https://example.invalid/repo.git")
+
+    def test_clone_invokes_subprocess_with_timeout(self) -> None:
+        """Every git subprocess call must carry the timeout kwarg."""
+
+        def _ok(*args, **kwargs):
+            assert kwargs.get("timeout") == _GIT_TIMEOUT_SECONDS, "git subprocess missing timeout kwarg"
+            return subprocess.CompletedProcess(args=args[0], returncode=0, stdout="", stderr="")
+
+        with patch("dhub.core.git_repo.subprocess.run", side_effect=_ok):
+            clone_repo("https://example.invalid/repo.git", ref="main")

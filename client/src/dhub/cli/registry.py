@@ -412,19 +412,25 @@ def _publish_from_git_repo(
 
 
 def _detect_branch(repo_root: Path) -> str:
-    """Detect the current branch of a cloned repo. Falls back to 'main'."""
+    """Detect the current branch of a cloned repo. Falls back to 'main'.
+
+    Bounded by a short timeout: the working tree is already on disk, so
+    rev-parse should complete in milliseconds. If git hangs (e.g. wedged
+    index lock) we fall back rather than block the publish.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_root,
+            timeout=10,
         )
         if result.returncode == 0:
             branch = result.stdout.strip()
             if branch and branch != "HEAD":
                 return branch
-    except Exception:
+    except (subprocess.TimeoutExpired, OSError):
         pass
     return "main"
 

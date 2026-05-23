@@ -1,6 +1,9 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import sys
+from stat import S_IMODE
 
 import click
 import pytest
@@ -104,6 +107,77 @@ class TestSaveConfig:
         assert loaded.orgs == ()
         assert loaded.default_org is None
         assert loaded.token == "old-tok"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions")
+    def test_token_file_is_user_only_readable(self, tmp_path, monkeypatch):
+        """Saved config containing a token must not be world-readable.
+
+        Multi-user hosts (CI runners, shared dev boxes) would otherwise
+        leak the user's API token to any other local user.
+        """
+        config_dir = tmp_path / "dhub-test"
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", config_dir)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="super-secret"))
+
+        path = config_dir / "config.dev.json"
+        assert S_IMODE(path.stat().st_mode) == 0o600
+        assert S_IMODE(config_dir.stat().st_mode) == 0o700
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions")
+    def test_overwrite_tightens_loose_permissions(self, tmp_path, monkeypatch):
+        """If a pre-existing file is world-readable, save_config should fix it."""
+        config_dir = tmp_path / "dhub-test"
+        config_dir.mkdir()
+        path = config_dir / "config.dev.json"
+        path.write_text("{}")
+        path.chmod(0o644)
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", config_dir)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="tok"))
+
+        assert S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_no_partial_tmp_file_left_on_write_failure(self, tmp_path, monkeypatch):
+        """If the write step fails after the tmp file was opened, it must be cleaned up.
+
+        Guards against accumulating partial token files in ~/.dhub/ when
+        the disk fills mid-write.
+        """
+        config_dir = tmp_path / "dhub-test"
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", config_dir)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        real_fdopen = os.fdopen
+
+        def _failing_fdopen(fd, *args, **kwargs):
+            # Wrap the real file object so write() raises but the fd is
+            # still closed properly when the context manager unwinds.
+            handle = real_fdopen(fd, *args, **kwargs)
+
+            class _Wrapper:
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *exc):
+                    handle.close()
+                    return False
+
+                def write(self_inner, _data):
+                    raise OSError("disk full")
+
+            return _Wrapper()
+
+        monkeypatch.setattr("dhub.cli.config.os.fdopen", _failing_fdopen)
+
+        with pytest.raises(OSError):
+            save_config(CliConfig(api_url="https://example.com", token="tok"))
+
+        leftover = list(config_dir.glob("*.tmp")) if config_dir.exists() else []
+        assert leftover == []
 
 
 class TestGetToken:

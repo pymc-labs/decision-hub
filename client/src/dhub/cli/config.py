@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -82,14 +83,32 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    The config holds the user's API auth token; on multi-user systems the
+    default umask leaves it world-readable. We lock the directory to 0700
+    and the file to 0600 so other users on the host cannot read it.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # chmod is a no-op on Windows but harmless; on POSIX it tightens any
+    # pre-existing loose permissions on the directory.
+    with contextlib.suppress(OSError, NotImplementedError):
+        CONFIG_DIR.chmod(0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+    # Write atomically via a tmp file with restrictive perms set at open
+    # time, so the token is never on disk world-readable even briefly.
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+    except Exception:
+        # Ensure we don't leave a partial tmp file behind on write failure.
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, path)
+    with contextlib.suppress(OSError, NotImplementedError):
+        path.chmod(0o600)
 
 
 def get_api_url() -> str:

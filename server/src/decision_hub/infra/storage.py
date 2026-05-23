@@ -13,7 +13,16 @@ from uuid import UUID
 
 import boto3
 from botocore.client import BaseClient
+from botocore.config import Config as BotoConfig
 from loguru import logger
+
+# boto3's default read timeout is 60s and connect timeout is 60s, but
+# its default retry strategy is 'legacy' which only retries a couple of
+# transient errors. We want a bounded total wait and the modern
+# 'standard' retry mode that recognises more retryable error classes.
+_S3_CONNECT_TIMEOUT_SECONDS = 10
+_S3_READ_TIMEOUT_SECONDS = 60
+_S3_MAX_ATTEMPTS = 4
 
 
 def create_s3_client(
@@ -22,7 +31,7 @@ def create_s3_client(
     secret_access_key: str,
     endpoint_url: str = "",
 ) -> BaseClient:
-    """Create an S3 client with explicit credentials.
+    """Create an S3 client with explicit credentials and bounded timeouts.
 
     Args:
         region: AWS region name (e.g. 'us-east-1').
@@ -31,12 +40,20 @@ def create_s3_client(
         endpoint_url: Optional endpoint URL for S3-compatible services (e.g. MinIO).
 
     Returns:
-        A configured boto3 S3 client.
+        A configured boto3 S3 client. Every request has an explicit
+        connect/read timeout and a bounded retry budget so a dead
+        endpoint cannot hang a worker indefinitely.
     """
+    boto_config = BotoConfig(
+        connect_timeout=_S3_CONNECT_TIMEOUT_SECONDS,
+        read_timeout=_S3_READ_TIMEOUT_SECONDS,
+        retries={"max_attempts": _S3_MAX_ATTEMPTS, "mode": "standard"},
+    )
     kwargs: dict = {
         "region_name": region,
         "aws_access_key_id": access_key_id,
         "aws_secret_access_key": secret_access_key,
+        "config": boto_config,
     }
     if endpoint_url:
         kwargs["endpoint_url"] = endpoint_url

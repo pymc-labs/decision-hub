@@ -13,6 +13,12 @@ from pathlib import Path
 _GIT_URL_PREFIXES = ("https://", "http://", "git@", "ssh://", "git://")
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 
+# Cap git network operations so a stalled remote can never hang the CLI
+# forever. 5 minutes is generous enough for fresh clones of large repos
+# on slow networks while still surfacing dead remotes within a release
+# pipeline window.
+_GIT_TIMEOUT_SECONDS = 300
+
 
 def git_url_to_https(url: str) -> str | None:
     """Convert a git-cloneable URL to an HTTPS browse URL.
@@ -66,34 +72,45 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
-    if ref and _looks_like_sha(ref):
-        # Commit SHAs don't work with --depth 1 --branch; do a full
-        # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
-        checkout = subprocess.run(
-            ["git", "checkout", ref],
-            cwd=str(repo_path),
-            capture_output=True,
-            text=True,
-        )
-        if checkout.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
-    else:
-        cmd = ["git", "clone", "--depth", "1"]
-        if ref:
-            cmd += ["--branch", ref]
-        cmd += [repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    try:
+        if ref and _looks_like_sha(ref):
+            # Commit SHAs don't work with --depth 1 --branch; do a full
+            # clone then checkout the specific commit.
+            _run_git(["git", "clone", repo_url, str(repo_path)])
+            _run_git(["git", "checkout", ref], cwd=str(repo_path))
+        else:
+            cmd = ["git", "clone", "--depth", "1"]
+            if ref:
+                cmd += ["--branch", ref]
+            cmd += [repo_url, str(repo_path)]
+            _run_git(cmd)
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     return repo_path
+
+
+def _run_git(cmd: list[str], cwd: str | None = None) -> None:
+    """Run a git command with a network timeout and a sanitized error message.
+
+    Strips trailing whitespace from stderr and raises ``RuntimeError`` with
+    the failed argv plus stderr. ``subprocess.TimeoutExpired`` is translated
+    to ``RuntimeError`` so callers handle a single exception type.
+    """
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"git command timed out after {_GIT_TIMEOUT_SECONDS}s: {' '.join(cmd[:2])}...") from exc
+
+    if result.returncode != 0:
+        raise RuntimeError(f"{' '.join(cmd[:2])} failed (exit {result.returncode}):\n{result.stderr.strip()}")
 
 
 def discover_skills(root: Path) -> list[Path]:
