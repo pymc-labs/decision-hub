@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_engine, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import get_or_create_limiter
 from decision_hub.domain.auth import create_jwt
 from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs
 from decision_hub.infra.database import upsert_user
@@ -28,14 +28,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def _enforce_auth_rate_limit(request: Request) -> None:
     """Rate-limit auth endpoints."""
-    state = request.app.state
-    if not hasattr(state, "_auth_rate_limiter"):
-        settings: Settings = state.settings
-        state._auth_rate_limiter = RateLimiter(
-            max_requests=settings.auth_rate_limit,
-            window_seconds=settings.auth_rate_window,
-        )
-    state._auth_rate_limiter(request)
+    settings: Settings = request.app.state.settings
+    get_or_create_limiter(request, "auth", settings.auth_rate_limit, settings.auth_rate_window)(request)
 
 
 # ---------------------------------------------------------------------------
