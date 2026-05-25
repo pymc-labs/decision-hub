@@ -41,6 +41,7 @@ from decision_hub.infra.database import (
     fetch_all_skills_for_index,
     fetch_registry_stats,
     fetch_similar_skills,
+    fetch_skill_summary_by_slug,
     find_active_eval_runs_for_user,
     find_audit_logs,
     find_eval_report_by_skill,
@@ -52,7 +53,6 @@ from decision_hub.infra.database import (
     find_scan_report_for_version,
     find_skill,
     find_skill_by_slug,
-    has_active_tracker_for_repo,
     increment_skill_downloads,
     insert_skill_access_grant,
     list_granted_skill_ids,
@@ -83,88 +83,50 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
+def _rate_limit_dep(name: str, limit_attr: str, window_attr: str):
+    """Build a FastAPI dependency that enforces a named rate limit.
+
+    The limiter is lazily constructed on first use and cached on
+    ``app.state`` under ``_<name>_rate_limiter``, so every request after
+    the first reuses the same sliding-window counters. ``limit_attr``
+    and ``window_attr`` name the corresponding ``Settings`` fields, so
+    the limits stay configurable per environment via the existing env
+    vars.
+
+    Previously each public endpoint had its own near-identical 9-line
+    ``_enforce_*_rate_limit`` helper — eight copies of the same boiler-
+    plate. Centralising them removes ~80 lines and makes adding a new
+    limited endpoint a one-liner.
+    """
+    cache_key = f"_{name}_rate_limiter"
+
+    def dependency(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, cache_key, None)
+        if limiter is None:
+            settings: Settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+                trust_proxy_headers=getattr(settings, "trust_proxy_headers", False),
+            )
+            setattr(state, cache_key, limiter)
+        limiter(request)
+
+    dependency.__name__ = f"_enforce_{name}_rate_limit"
+    dependency.__doc__ = f"Rate-limit the {name.replace('_', ' ')} endpoint."
+    return dependency
 
 
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+_enforce_list_skills_rate_limit = _rate_limit_dep("list_skills", "list_skills_rate_limit", "list_skills_rate_window")
+_enforce_resolve_rate_limit = _rate_limit_dep("resolve", "resolve_rate_limit", "resolve_rate_window")
+_enforce_similar_skills_rate_limit = _rate_limit_dep(
+    "similar_skills", "similar_skills_rate_limit", "similar_skills_rate_window"
+)
+_enforce_download_rate_limit = _rate_limit_dep("download", "download_rate_limit", "download_rate_window")
+_enforce_audit_log_rate_limit = _rate_limit_dep("audit_log", "audit_log_rate_limit", "audit_log_rate_window")
+_enforce_scan_report_rate_limit = _rate_limit_dep("scan_report", "scan_report_rate_limit", "scan_report_rate_window")
+_enforce_publish_rate_limit = _rate_limit_dep("publish", "publish_rate_limit", "publish_rate_window")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -649,37 +611,46 @@ def get_skill_summary(
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> SkillSummary:
-    """Return a single skill summary by org slug and skill name."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    version = resolve_latest_version(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if version is None:
-        raise HTTPException(status_code=404, detail=f"No versions found for {org_slug}/{skill_name}")
+    """Return a single skill summary by org slug and skill name.
 
-    org = find_org_by_slug(conn, org_slug)
+    Backed by a single ``SELECT`` (see ``fetch_skill_summary_by_slug``)
+    that reuses the same column set and visibility filter used by the
+    list endpoint. The previous implementation issued four sequential
+    DB calls per request (``find_skill_by_slug`` → ``resolve_latest_
+    version`` → ``find_org_by_slug`` → ``has_active_tracker_for_repo``)
+    even though every field they returned is already on the denorm-
+    alised skills row.
+    """
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    row = fetch_skill_summary_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found in {org_slug}",
+        )
+
+    created_at = row.get("created_at")
     return SkillSummary(
-        org_slug=org_slug,
-        skill_name=skill_name,
-        description=skill.description,
-        latest_version=version.semver,
-        updated_at=version.created_at.strftime("%Y-%m-%d %H:%M:%S") if version.created_at else "",
-        safety_rating=format_trust_score(version.eval_status),
-        author=resolve_author_display(version.published_by),
-        download_count=skill.download_count,
-        is_personal_org=org.is_personal if org else False,
-        category=skill.category,
-        visibility=skill.visibility,
-        source_repo_url=skill.source_repo_url,
-        manifest_path=skill.manifest_path,
-        source_repo_removed=skill.source_repo_removed,
-        github_stars=skill.github_stars,
-        github_forks=skill.github_forks,
-        github_watchers=skill.github_watchers,
-        github_is_archived=skill.github_is_archived,
-        github_license=skill.github_license,
-        is_auto_synced=bool(skill.source_repo_url and has_active_tracker_for_repo(conn, skill.source_repo_url)),
+        org_slug=row["org_slug"],
+        skill_name=row["skill_name"],
+        description=row.get("description") or "",
+        latest_version=row["latest_version"],
+        updated_at=created_at.strftime("%Y-%m-%d %H:%M:%S") if created_at else "",
+        safety_rating=format_trust_score(row.get("eval_status") or ""),
+        author=resolve_author_display(row.get("published_by") or ""),
+        download_count=row.get("download_count", 0),
+        is_personal_org=row.get("is_personal_org", False),
+        category=row.get("category") or "",
+        visibility=row.get("visibility", "public"),
+        source_repo_url=row.get("source_repo_url"),
+        manifest_path=row.get("manifest_path"),
+        source_repo_removed=row.get("source_repo_removed", False),
+        github_stars=row.get("github_stars"),
+        github_forks=row.get("github_forks"),
+        github_watchers=row.get("github_watchers"),
+        github_is_archived=row.get("github_is_archived"),
+        github_license=row.get("github_license"),
+        is_auto_synced=bool(row.get("has_tracker")),
     )
 
 

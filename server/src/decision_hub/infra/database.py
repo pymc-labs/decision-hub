@@ -1775,6 +1775,70 @@ def _build_skills_filters(
     return base
 
 
+def fetch_skill_summary_by_slug(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    *,
+    user_org_ids: list[UUID] | None = None,
+) -> dict | None:
+    """Fetch a single skill summary by (org_slug, skill_name) in one query.
+
+    Returns a dict with the same keys as ``fetch_all_skills_for_index``
+    rows — i.e. the canonical summary shape including org metadata,
+    denormalised latest-version columns, GitHub repo metadata and a
+    ``has_tracker`` flag derived from the correlated tracker subquery.
+
+    Replaces the previous 4-query path in the public ``/skills/{org}/
+    {skill}/summary`` endpoint (``find_skill_by_slug`` + ``resolve_
+    latest_version`` + ``find_org_by_slug`` + ``has_active_tracker_for
+    _repo``). All the data those calls returned is already on the
+    denormalised skills row, so we fold the lookup into a single SELECT
+    that runs the same JOIN+visibility filter used everywhere else.
+
+    Returns ``None`` when the skill does not exist, is filtered out by
+    visibility, has no published version, or has been removed/archived
+    upstream — matching the previous endpoint's 404 behaviour.
+    """
+    tracker_exists = (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+        .correlate(skills_table)
+        .exists()
+        .label("has_tracker")
+    )
+
+    stmt = (
+        sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
+        .select_from(
+            skills_table.join(
+                organizations_table,
+                skills_table.c.org_id == organizations_table.c.id,
+            )
+        )
+        .where(
+            sa.and_(
+                organizations_table.c.slug == org_slug,
+                skills_table.c.name == skill_name,
+                skills_table.c.latest_semver.isnot(None),
+            )
+        )
+    )
+    stmt = _exclude_removed_or_archived(stmt)
+    granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
+    stmt = _apply_visibility_filter(stmt, user_org_ids, granted)
+
+    row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return {**_row_to_skill_summary(row), "has_tracker": row.has_tracker}
+
+
 def fetch_all_skills_for_index(
     conn: Connection,
     *,

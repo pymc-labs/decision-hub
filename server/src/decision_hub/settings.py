@@ -73,6 +73,14 @@ class Settings(BaseSettings):
     github_app_private_key: str = ""
     github_app_installation_id: str = ""
 
+    # When the app runs behind a reverse proxy that injects
+    # X-Forwarded-For (Modal, Cloud Run, nginx, ELB, etc.), set this to
+    # True so per-IP rate limits bucket on the real client address
+    # rather than the proxy's. NEVER enable this when the app is exposed
+    # directly to the public internet: any client could spoof the header
+    # to fake a different bucket key.
+    trust_proxy_headers: bool = False
+
     # Rate limiting (per IP, sliding window)
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds

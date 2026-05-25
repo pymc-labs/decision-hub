@@ -1,7 +1,10 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
+import stat
+import tempfile
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -9,6 +12,12 @@ from pathlib import Path
 import httpx
 
 CONFIG_DIR = Path.home() / ".dhub"
+
+# Owner read+write only — protects the auth token from other users on
+# shared machines. Default umask is typically 0o022 which would leave
+# the file world-readable.
+_CONFIG_FILE_MODE = 0o600
+_CONFIG_DIR_MODE = 0o700
 
 # Per-environment default API URLs
 _DEFAULT_API_URLS: dict[str, str] = {
@@ -82,14 +91,81 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Writes are atomic and the resulting file is owner-read/write only
+    (mode 0o600). The atomic part matters because ``load_config()``
+    will refuse to read a truncated JSON file and force the user to
+    re-authenticate, and we'd rather not corrupt the file at all if
+    the process is killed mid-write. The permission part matters
+    because the file contains a long-lived bearer token; the default
+    umask of 0o022 would leave it world-readable on most systems.
+
+    Implementation: write to a sibling tempfile in ``~/.dhub`` (same
+    filesystem so ``rename`` is atomic), ``chmod`` to 0o600 *before*
+    rename (so there's never a window where the live config has loose
+    permissions), then ``os.replace`` to swap it in. The replace is
+    POSIX-atomic and also overwrites on Windows.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Tighten directory perms too — best-effort; ignore errors so we
+    # don't fail on filesystems that don't honour chmod (e.g. some
+    # network mounts).
+    with contextlib.suppress(OSError):
+        CONFIG_DIR.chmod(_CONFIG_DIR_MODE)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+
+    # mkstemp gives us a securely-created file (mode 0o600 on POSIX by
+    # default) in the target directory, so the os.replace below stays
+    # on a single filesystem and is atomic.
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(CONFIG_DIR),
     )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        # Belt-and-braces: explicit chmod in case the platform's
+        # mkstemp default differs (it shouldn't on POSIX, but Windows
+        # ACLs work differently).
+        with contextlib.suppress(OSError):
+            os.chmod(tmp_path, _CONFIG_FILE_MODE)
+        os.replace(tmp_path, path)
+    except Exception:
+        # Best-effort cleanup of the tempfile if anything went wrong
+        # before the rename — the original file is untouched.
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
+
+    # Re-assert perms on the destination — covers the case where the
+    # file already existed with looser permissions; on POSIX,
+    # ``os.replace`` keeps the *new* inode's perms, but being explicit
+    # protects against platform quirks.
+    with contextlib.suppress(OSError):
+        os.chmod(path, _CONFIG_FILE_MODE)
+
+
+def is_config_file_secure(path: Path | None = None) -> bool:
+    """Return True if the config file's POSIX perms restrict it to the owner.
+
+    Used by ``dhub doctor`` and by tests. On non-POSIX systems where the
+    permission bits don't map cleanly (e.g. Windows), returns True — we
+    rely on filesystem ACLs there and don't second-guess them.
+    """
+    path = path or config_file()
+    if not path.exists():
+        return True
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return True
+    # Any group or other perm set is considered insecure.
+    return (mode & (stat.S_IRWXG | stat.S_IRWXO)) == 0
 
 
 def get_api_url() -> str:

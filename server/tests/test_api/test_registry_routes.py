@@ -1346,6 +1346,163 @@ class TestListSkills:
 
 
 # ---------------------------------------------------------------------------
+# GET /v1/skills/{org_slug}/{skill_name}/summary
+# ---------------------------------------------------------------------------
+
+
+class TestGetSkillSummary:
+    """GET /v1/skills/{org}/{skill}/summary -- single-skill detail page.
+
+    Backed by ``fetch_skill_summary_by_slug``, a single SELECT that
+    replaces the previous 4-query path. These tests pin (a) the field
+    mapping from row → response, (b) the 404 contract when the skill
+    is filtered out, and (c) the visibility wiring (auth state → org
+    ids → query argument).
+    """
+
+    @staticmethod
+    def _summary_row(**overrides) -> dict:
+        from datetime import datetime
+
+        row = {
+            "org_slug": "acme",
+            "skill_name": "doc-writer",
+            "description": "Writes docs",
+            "download_count": 42,
+            "category": "writing",
+            "visibility": "public",
+            "source_repo_url": "https://github.com/acme/doc-writer",
+            "manifest_path": "skill/SKILL.md",
+            "source_repo_removed": False,
+            "github_stars": 12,
+            "github_forks": 3,
+            "github_watchers": 4,
+            "github_is_archived": False,
+            "github_license": "MIT",
+            "latest_version": "1.2.0",
+            "eval_status": "A",
+            "gauntlet_summary": None,
+            "created_at": datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
+            "published_by": "alice",
+            "is_personal_org": False,
+            "has_tracker": True,
+        }
+        row.update(overrides)
+        return row
+
+    @patch("decision_hub.api.registry_routes.fetch_skill_summary_by_slug")
+    def test_returns_summary(
+        self,
+        mock_fetch: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Happy path — every column on the row is surfaced in the response."""
+        mock_fetch.return_value = self._summary_row()
+
+        resp = client.get("/v1/skills/acme/doc-writer/summary")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["org_slug"] == "acme"
+        assert body["skill_name"] == "doc-writer"
+        assert body["description"] == "Writes docs"
+        assert body["latest_version"] == "1.2.0"
+        assert body["updated_at"] == "2025-06-01 12:00:00"
+        assert body["safety_rating"] == "A"
+        assert body["author"] == "alice"
+        assert body["download_count"] == 42
+        assert body["category"] == "writing"
+        assert body["is_personal_org"] is False
+        assert body["github_stars"] == 12
+        assert body["github_license"] == "MIT"
+        assert body["is_auto_synced"] is True
+
+    @patch("decision_hub.api.registry_routes.fetch_skill_summary_by_slug")
+    def test_returns_404_when_missing(
+        self,
+        mock_fetch: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """When the lookup returns None (not found, filtered out, or
+        no published version) the endpoint must 404 rather than crash."""
+        mock_fetch.return_value = None
+
+        resp = client.get("/v1/skills/acme/no-such-skill/summary")
+
+        assert resp.status_code == 404
+        assert "no-such-skill" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_routes.fetch_skill_summary_by_slug")
+    def test_passes_user_org_ids_when_authenticated(
+        self,
+        mock_fetch: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+    ) -> None:
+        """Authenticated requests trigger visibility filtering on
+        org-private skills the user can see."""
+        from uuid import uuid4
+
+        org_id = uuid4()
+        mock_fetch.return_value = self._summary_row()
+
+        with patch(
+            "decision_hub.api.registry_routes.list_user_org_ids",
+            return_value=[org_id],
+        ) as mock_list:
+            resp = client.get(
+                "/v1/skills/acme/doc-writer/summary",
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        mock_list.assert_called_once()
+        assert mock_fetch.call_args.kwargs["user_org_ids"] == [org_id]
+
+    @patch("decision_hub.api.registry_routes.fetch_skill_summary_by_slug")
+    def test_anonymous_passes_none_org_ids(
+        self,
+        mock_fetch: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Anonymous callers see public skills only — user_org_ids=None."""
+        mock_fetch.return_value = self._summary_row()
+
+        client.get("/v1/skills/acme/doc-writer/summary")
+
+        assert mock_fetch.call_args.kwargs["user_org_ids"] is None
+
+    @patch("decision_hub.api.registry_routes.fetch_skill_summary_by_slug")
+    def test_handles_null_optional_fields(
+        self,
+        mock_fetch: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Nullable columns (description, github_*, etc.) must not
+        crash the response model when absent."""
+        mock_fetch.return_value = self._summary_row(
+            description=None,
+            github_stars=None,
+            github_license=None,
+            published_by=None,
+            created_at=None,
+            has_tracker=False,
+            source_repo_url=None,
+        )
+
+        resp = client.get("/v1/skills/acme/doc-writer/summary")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["description"] == ""
+        assert body["updated_at"] == ""
+        assert body["author"] == ""
+        assert body["github_stars"] is None
+        assert body["is_auto_synced"] is False
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/skills/{org_slug}/{skill_name}/latest-version
 # ---------------------------------------------------------------------------
 

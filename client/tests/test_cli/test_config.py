@@ -1,11 +1,19 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import stat
+import sys
 
 import click
 import pytest
 
-from dhub.cli.config import CliConfig, load_config, save_config
+from dhub.cli.config import (
+    CliConfig,
+    is_config_file_secure,
+    load_config,
+    save_config,
+)
 
 
 class TestLoadConfig:
@@ -169,3 +177,117 @@ class TestGetDefaultOrg:
         result = get_default_org()
 
         assert result is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission semantics")
+class TestSaveConfigSecurity:
+    """save_config must produce an atomic, owner-only file.
+
+    The config file contains a long-lived bearer token; the default
+    umask of 0o022 would leave it world-readable on shared systems.
+    Non-atomic writes also risk leaving a half-written file behind if
+    the process is killed, which forces the user to delete the file
+    and re-authenticate.
+    """
+
+    def test_config_file_is_owner_read_write_only(self, tmp_path, monkeypatch):
+        """Saved file must have mode 0o600."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        path = tmp_path / "config.dev.json"
+        mode = path.stat().st_mode & 0o777
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+    def test_overwriting_existing_loose_file_tightens_perms(self, tmp_path, monkeypatch):
+        """A pre-existing 0o644 file is replaced by a 0o600 one."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # Simulate a config left behind by an older CLI version.
+        path = tmp_path / "config.dev.json"
+        path.write_text(json.dumps({"api_url": "https://old.example.com"}))
+        path.chmod(0o644)
+
+        save_config(CliConfig(api_url="https://new.example.com", token="t"))
+
+        mode = path.stat().st_mode & 0o777
+        assert mode == 0o600
+
+    def test_save_is_atomic(self, tmp_path, monkeypatch):
+        """Crash mid-write must leave the existing file intact.
+
+        We simulate a crash by patching ``os.fdopen`` to raise after
+        the tempfile is created but before the rename. The original
+        config — the one ``load_config`` would read — must be unchanged.
+        """
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # Seed an original config we expect to survive.
+        save_config(CliConfig(api_url="https://stable.example.com", token="original"))
+        path = tmp_path / "config.dev.json"
+        original_bytes = path.read_bytes()
+
+        # Now make the next write blow up partway through.
+        real_fdopen = os.fdopen
+
+        def boom(*args, **kwargs):
+            # Close the fd so we don't leak it, then raise.
+            fh = real_fdopen(*args, **kwargs)
+            fh.close()
+            raise OSError("simulated disk full")
+
+        monkeypatch.setattr("dhub.cli.config.os.fdopen", boom)
+
+        with pytest.raises(OSError, match="simulated disk full"):
+            save_config(CliConfig(api_url="https://overwrite.example.com", token="new"))
+
+        # Original file is byte-for-byte intact — no truncation, no
+        # corruption, and load_config still returns the old config.
+        assert path.read_bytes() == original_bytes
+        loaded = load_config()
+        assert loaded.token == "original"
+        assert loaded.api_url == "https://stable.example.com"
+
+        # No tempfile garbage left behind.
+        leftover = [p for p in tmp_path.iterdir() if p.name.startswith(".config.dev.json.") and p.name.endswith(".tmp")]
+        assert leftover == [], f"tempfile not cleaned up: {leftover}"
+
+    def test_config_dir_is_owner_only(self, tmp_path, monkeypatch):
+        """The ~/.dhub directory should also be 0o700 when we create it."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="t"))
+
+        mode = tmp_path.stat().st_mode & 0o777
+        # tmp_path itself may have stricter mode set by pytest, so we
+        # assert that no group/other bits are set rather than ==0o700.
+        assert (mode & (stat.S_IRWXG | stat.S_IRWXO)) == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission semantics")
+class TestIsConfigFileSecure:
+    """``is_config_file_secure`` is used by ``dhub doctor`` to warn users."""
+
+    def test_returns_true_when_owner_only(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        save_config(CliConfig(token="t"))
+        assert is_config_file_secure() is True
+
+    def test_returns_false_when_world_readable(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        save_config(CliConfig(token="t"))
+        (tmp_path / "config.dev.json").chmod(0o644)
+        assert is_config_file_secure() is False
+
+    def test_returns_true_when_file_missing(self, tmp_path, monkeypatch):
+        """A non-existent file is vacuously secure."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        assert is_config_file_secure() is True

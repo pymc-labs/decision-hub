@@ -63,7 +63,13 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.6;
-  font-size: 18px;
+  /* Responsive root size — every text-* variable is in rem, so this
+     anchor controls the whole typographic scale. clamp() floors at
+     15px on narrow phones (~375px) and ceilings at 18px from ~720px
+     up, which keeps the hero (4rem) readable on iPhone SE while
+     preserving the desktop look. The previous fixed 18px overflowed
+     the viewport for hero/display sizes on mobile. */
+  font-size: clamp(15px, 1rem + 0.4vw, 18px);
   /* Horizontal safe area insets for iPhone notch/dynamic island.
      Top/bottom are handled on the sticky header and footer in Layout. */
   padding-left: env(safe-area-inset-left);
