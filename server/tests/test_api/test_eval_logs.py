@@ -91,26 +91,28 @@ class TestGetEvalRun:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """A running eval with a heartbeat >5 min stale is marked failed."""
+        """A running eval with a heartbeat >5 min stale is marked failed.
+
+        Also asserts ``find_eval_run`` is only called ONCE: ``_check_zombie``
+        mutates the in-memory run dataclass on the zombie path so the handler
+        can avoid a second DB round-trip on every poll.
+        """
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
-
-        # find_eval_run is called twice: once before zombie check, once after
-        failed_run = _make_eval_run(
-            id=run.id,
-            status="failed",
-            error_message="Stale heartbeat",
-            heartbeat_at=stale_heartbeat,
-        )
-        mock_find_run.side_effect = [run, failed_run]
+        mock_find_run.return_value = run
 
         resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+        assert resp.json()["error_message"].startswith("Stale heartbeat")
         mock_update_status.assert_called_once()
         call_kwargs = mock_update_status.call_args
         assert call_kwargs.kwargs.get("status") == "failed"
+        # Regression: previously the handler did `run = find_eval_run(...)` a
+        # second time to pick up the zombie-marked status. The new path
+        # mutates the frozen dataclass in place via object.__setattr__.
+        assert mock_find_run.call_count == 1
 
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.find_eval_run")

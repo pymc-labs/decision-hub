@@ -3,8 +3,14 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
+
+# Purge stale per-IP buckets every N successful checks. Bounded so that
+# the limiter never holds more than ~N distinct idle IPs at the cost of
+# one O(distinct-IPs) sweep per N requests.
+_PURGE_EVERY_N_REQUESTS = 100
 
 
 class RateLimiter:
@@ -31,6 +37,9 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        # Counter of successful checks since last purge. Used to drive
+        # periodic eviction of idle IPs in O(1) amortised time per call.
+        self._checks_since_purge = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -53,13 +62,55 @@ class RateLimiter:
             self._requests[key].append(now)
 
             # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Driven by an explicit request counter rather than the sum of
+            # all in-flight timestamps (which would never hit the modulo
+            # boundary at steady-state).
+            self._checks_since_purge += 1
+            if self._checks_since_purge >= _PURGE_EVERY_N_REQUESTS:
                 self._purge_stale(cutoff)
+                self._checks_since_purge = 0
 
     def _purge_stale(self, cutoff: float) -> None:
         """Remove IPs with no recent activity. Caller must hold self._lock."""
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily creates a per-app RateLimiter.
+
+    Reads ``{name}_rate_limit`` and ``{name}_rate_window`` from app settings
+    on first call and caches the limiter under ``app.state.rate_limiters[name]``.
+
+    Args:
+        name: Settings prefix for this limiter (e.g. ``"publish"`` reads
+            ``settings.publish_rate_limit`` / ``settings.publish_rate_window``).
+
+    Returns:
+        A FastAPI dependency callable suitable for ``Depends(...)``.
+    """
+    max_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def dep(request: Request) -> None:
+        state = request.app.state
+        limiters: dict[str, RateLimiter]
+        # Lazily initialise the per-app limiter registry. The lookup is
+        # already inside the request hot path, so a small dict is fine.
+        if not hasattr(state, "rate_limiters"):
+            state.rate_limiters = {}
+        limiters = state.rate_limiters
+        limiter = limiters.get(name)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, max_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            limiters[name] = limiter
+        limiter(request)
+
+    dep.__name__ = f"enforce_{name}_rate_limit"
+    dep.__qualname__ = dep.__name__
+    return dep
