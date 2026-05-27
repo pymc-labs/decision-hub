@@ -1,6 +1,8 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import stat
+import sys
 
 import click
 import pytest
@@ -90,6 +92,61 @@ class TestSaveConfig:
 
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+    def test_token_file_is_owner_only(self, tmp_path, monkeypatch):
+        """Saved config file should be readable only by the owner (0600)."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="secret"))
+
+        mode = stat.S_IMODE((tmp_path / "config.dev.json").stat().st_mode)
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+    def test_write_is_atomic_no_partial_file_on_failure(self, tmp_path, monkeypatch):
+        """If the write fails mid-flight the existing config must not be corrupted."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # Prime an existing valid config.
+        save_config(CliConfig(api_url="https://before", token="kept"))
+
+        # Force the rename step to blow up. The pre-existing file must
+        # be untouched and the temp file must not be left behind.
+        def boom(*_args, **_kwargs):
+            raise OSError("simulated disk failure")
+
+        monkeypatch.setattr("dhub.cli.config.os.replace", boom)
+        with pytest.raises(OSError):
+            save_config(CliConfig(api_url="https://after", token="new"))
+
+        loaded = load_config()
+        assert loaded.api_url == "https://before"
+        assert loaded.token == "kept"
+        # No leftover .tmp files lying around.
+        leftovers = [p for p in tmp_path.iterdir() if p.suffix == ".tmp"]
+        assert leftovers == []
+
+    def test_overwrites_existing_config(self, tmp_path, monkeypatch):
+        """A second save should replace the contents of an existing file."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://one", token="t1"))
+        save_config(CliConfig(api_url="https://two", token="t2"))
+
+        loaded = load_config()
+        assert loaded.api_url == "https://two"
+        assert loaded.token == "t2"
+        # Verify the file was actually rewritten (not appended to).
+        raw = json.loads((tmp_path / "config.dev.json").read_text())
+        assert raw == {
+            "api_url": "https://two",
+            "token": "t2",
+            "orgs": [],
+            "default_org": None,
+        }
 
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""

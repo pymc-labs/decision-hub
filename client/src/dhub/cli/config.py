@@ -2,6 +2,8 @@
 
 import json
 import os
+import stat
+import tempfile
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -82,14 +84,35 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Writes to a temp file in the same directory and atomically renames
+    into place so a crash mid-write cannot corrupt an existing config
+    (which would otherwise force a re-login on next startup).  The file
+    is created with ``0600`` permissions so the auth token is not
+    world-readable on shared hosts.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+
+    # Write to a sibling temp file then rename — rename is atomic on
+    # POSIX and on Windows when both paths live on the same volume.
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
     )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        # Only owner can read/write the token file.
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def get_api_url() -> str:
