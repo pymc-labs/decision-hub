@@ -47,6 +47,27 @@ def test_decode_jwt_expired_token(jwt_secret: str) -> None:
         decode_jwt(token, jwt_secret)
 
 
+def test_decode_jwt_rejects_token_without_exp(jwt_secret: str) -> None:
+    """A token minted without an exp claim must be rejected, not accepted
+    forever. decode_jwt requires exp so a non-expiring token can't slip in."""
+    payload = {"sub": "user-1", "username": "alice"}  # no exp
+    token = jose_jwt.encode(payload, jwt_secret, algorithm="HS256")
+
+    with pytest.raises(JWTError):
+        decode_jwt(token, jwt_secret)
+
+
+def test_decode_jwt_rejects_token_without_sub(jwt_secret: str) -> None:
+    """A token without a subject is malformed for our auth model and must
+    be rejected even if it carries a valid (future) expiry."""
+    future = datetime.now(UTC) + timedelta(hours=1)
+    payload = {"username": "alice", "exp": future}  # no sub
+    token = jose_jwt.encode(payload, jwt_secret, algorithm="HS256")
+
+    with pytest.raises(JWTError):
+        decode_jwt(token, jwt_secret)
+
+
 def test_decode_jwt_wrong_secret() -> None:
     """A token signed with one secret cannot be verified with another."""
     token = create_jwt(

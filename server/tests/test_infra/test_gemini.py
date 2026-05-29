@@ -32,21 +32,18 @@ class TestGeminiPostRetry:
     """Tests for _gemini_post retry with exponential backoff on transient errors."""
 
     @respx.mock
-    def test_retries_on_403_then_succeeds(self, gemini_client: dict) -> None:
-        route = respx.post(_GEMINI_URL).mock(
-            side_effect=[
-                httpx.Response(403, text="Forbidden"),
-                httpx.Response(200, json={"candidates": []}),
-            ]
-        )
+    def test_403_raises_immediately_without_retry(self, gemini_client: dict) -> None:
+        """403 is a hard auth/permission failure (e.g. a bad API key), not a
+        transient error — it must fail fast rather than burn the retry budget."""
+        route = respx.post(_GEMINI_URL).mock(return_value=httpx.Response(403, text="Forbidden"))
         with (
             patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
-            patch("decision_hub.infra.gemini.random.uniform", return_value=0.25),
+            pytest.raises(httpx.HTTPStatusError) as exc_info,
         ):
-            result = _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
-        assert result == {"candidates": []}
-        assert route.call_count == 2
-        mock_sleep.assert_called_once_with(1.25)
+            _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
+        assert exc_info.value.response.status_code == 403
+        assert route.call_count == 1
+        mock_sleep.assert_not_called()
 
     @respx.mock
     def test_retries_on_429_with_backoff(self, gemini_client: dict) -> None:

@@ -82,14 +82,20 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory if it does not already exist. The config
+    file holds the bearer token, so it is written with owner-only (0600)
+    permissions — and the directory 0700 — to prevent other local users on a
+    shared host or CI runner from reading the credentials.
     """
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # mkdir's mode is ignored when the dir already exists, so enforce it.
+    os.chmod(CONFIG_DIR, 0o700)
     path = config_file()
     path.write_text(
         json.dumps(asdict(config), indent=2) + "\n",
         encoding="utf-8",
     )
+    os.chmod(path, 0o600)
 
 
 def get_api_url() -> str:

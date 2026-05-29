@@ -98,11 +98,14 @@ class CLIVersionMiddleware:
         # Browser / frontend requests don't send the header and should pass through.
         # Malformed version headers are treated as outdated — return 426 so the
         # client upgrades to a version that sends a valid semver header.
+        # Kept as a single block so client_parsed can never be referenced unbound.
         if client_ver:
             try:
                 client_parsed = _parse_semver(client_ver)
             except ValueError:
                 client_parsed = (0, 0, 0)
+        else:
+            client_parsed = self._min_parsed
         if client_ver and client_parsed < self._min_parsed:
             body = _json.dumps(
                 {

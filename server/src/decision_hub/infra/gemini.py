@@ -62,7 +62,10 @@ def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = Non
     }
 
 
-_RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
+# 403 is a hard auth/permission failure (e.g. a bad GOOGLE_API_KEY), not a
+# transient error — retrying it only burns the gauntlet's time budget before
+# failing anyway. Google signals rate limits with 429, which is retriable.
+_RETRIABLE_STATUS_CODES = {429, 500, 502, 503}
 
 
 def gemini_request_with_retry(
@@ -76,8 +79,8 @@ def gemini_request_with_retry(
 ) -> dict:
     """POST to a Gemini API endpoint with retry and exponential backoff.
 
-    Retries on transient HTTP errors (403 rate-limit, 429, 500, 502, 503)
-    and timeouts.  Non-retriable errors propagate immediately.
+    Retries on transient HTTP errors (429, 500, 502, 503) and timeouts.
+    Non-retriable errors (including 403 auth failures) propagate immediately.
 
     Args:
         client: Gemini client config dict with api_key, base_url, http_client.

@@ -20,9 +20,13 @@ def parse_skill_ref(skill_ref: str) -> tuple[str, str]:
     """Parse 'org/skill' reference into (org_slug, skill_name).
 
     Raises:
-        ValueError: If the reference is not in org/skill format.
+        ValueError: If the reference is not in org/skill format, or if either
+            the org or skill component is empty (e.g. 'org/' or '/skill').
     """
     parts = skill_ref.split("/", 1)
-    if len(parts) != 2:
+    # ``"org/".split("/", 1)`` yields ``["org", ""]`` — length 2 but with an
+    # empty half — so guard the components explicitly. An empty skill name
+    # would otherwise resolve to the org directory itself (e.g. ~/.dhub/skills/org/).
+    if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError(f"Skill reference must be in org/skill format, got: '{skill_ref}'")
     return parts[0], parts[1]

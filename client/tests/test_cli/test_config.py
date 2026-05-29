@@ -91,6 +91,20 @@ class TestSaveConfig:
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
 
+    def test_token_file_is_owner_only(self, tmp_path, monkeypatch):
+        """The config holds the bearer token, so it must be written 0600
+        (and its dir 0700) to keep other local users from reading it."""
+        import stat
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://test.example.com", token="secret"))
+
+        config_path = tmp_path / "config.dev.json"
+        assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""
         monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)

@@ -55,6 +55,15 @@ def decode_jwt(
         Decoded token payload as a dictionary.
 
     Raises:
-        jose.JWTError: If the token is invalid, expired, or tampered with.
+        jose.JWTError: If the token is invalid, expired, tampered with, or
+            missing the required ``exp``/``sub`` claims.
     """
-    return jwt.decode(token, secret, algorithms=[algorithm])
+    # Require exp + sub so a token minted without an expiry (e.g. by a
+    # different signer sharing the secret) can never be accepted as valid.
+    # python-jose uses per-claim require_* flags (not PyJWT's `require` list).
+    return jwt.decode(
+        token,
+        secret,
+        algorithms=[algorithm],
+        options={"require_exp": True, "require_sub": True},
+    )

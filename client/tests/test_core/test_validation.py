@@ -6,7 +6,7 @@ since validate_semver and validate_skill_name are defined in dhub_core.
 
 import pytest
 
-from dhub.core.validation import bump_version, parse_semver
+from dhub.core.validation import bump_version, parse_semver, parse_skill_ref
 
 
 class TestBumpVersion:
@@ -56,3 +56,28 @@ class TestParseSemverReexport:
     def test_invalid_raises(self) -> None:
         with pytest.raises(ValueError):
             parse_semver("not-a-version")
+
+
+class TestParseSkillRef:
+    """parse_skill_ref splits 'org/skill' and rejects malformed refs."""
+
+    def test_valid(self) -> None:
+        assert parse_skill_ref("pymc-labs/pymc-modeling") == ("pymc-labs", "pymc-modeling")
+
+    def test_skill_name_may_not_be_empty(self) -> None:
+        # "org/" splits into ["org", ""] -- length 2 but an empty skill name,
+        # which would otherwise resolve to the org directory itself.
+        with pytest.raises(ValueError, match="org/skill format"):
+            parse_skill_ref("org/")
+
+    def test_org_may_not_be_empty(self) -> None:
+        with pytest.raises(ValueError, match="org/skill format"):
+            parse_skill_ref("/skill")
+
+    def test_lone_slash_rejected(self) -> None:
+        with pytest.raises(ValueError, match="org/skill format"):
+            parse_skill_ref("/")
+
+    def test_missing_slash_rejected(self) -> None:
+        with pytest.raises(ValueError, match="org/skill format"):
+            parse_skill_ref("just-a-name")

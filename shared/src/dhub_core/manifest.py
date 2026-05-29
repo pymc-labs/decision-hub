@@ -95,9 +95,14 @@ def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
 
     When yaml.safe_load fails, falls back to quoting values that contain
     markdown links [text](url) or unquoted colons, then retries parsing.
+
+    Always returns a dict: empty or comment-only frontmatter (which
+    ``yaml.safe_load`` parses as ``None``) and non-mapping scalars both
+    collapse to ``{}`` so callers can rely on the ``-> dict`` contract.
     """
     try:
-        return yaml.safe_load(frontmatter_str)
+        data = yaml.safe_load(frontmatter_str)
+        return data if isinstance(data, dict) else {}
     except yaml.YAMLError:
         pass
 
@@ -123,7 +128,8 @@ def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
         patched.append(line)
 
     patched_str = "\n".join(patched)
-    return yaml.safe_load(patched_str)
+    data = yaml.safe_load(patched_str)
+    return data if isinstance(data, dict) else {}
 
 
 def split_frontmatter(content: str) -> tuple[str, str]:

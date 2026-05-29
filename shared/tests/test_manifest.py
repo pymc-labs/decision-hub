@@ -86,6 +86,17 @@ class TestParseFrontmatterYaml:
         with pytest.raises(yaml.YAMLError):
             parse_frontmatter_yaml(":\n  :\n    - [invalid")
 
+    def test_empty_string_returns_empty_dict(self) -> None:
+        # yaml.safe_load("") is None; the -> dict contract must still hold.
+        assert parse_frontmatter_yaml("") == {}
+
+    def test_comment_only_returns_empty_dict(self) -> None:
+        assert parse_frontmatter_yaml("# just a comment\n") == {}
+
+    def test_scalar_returns_empty_dict(self) -> None:
+        # A bare scalar parses to a str, not a mapping -> collapse to {}.
+        assert parse_frontmatter_yaml("just-a-string") == {}
+
 
 # ---------------------------------------------------------------------------
 # parse_runtime

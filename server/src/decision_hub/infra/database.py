@@ -1960,9 +1960,15 @@ def fetch_skills_by_repo(
         .where(
             sa.and_(
                 skills_table.c.latest_semver.isnot(None),
-                sa.func.rtrim(
-                    sa.func.regexp_replace(skills_table.c.source_repo_url, r"\.git$", ""),
-                    "/",
+                # Mirror _normalize_repo_url's order exactly: strip trailing
+                # slashes FIRST, then the .git suffix. Doing it the other way
+                # leaves "repo.git/" as "repo.git" (the regexp's $ won't match
+                # before the slash), which then fails to match the Python-side
+                # "repo" and hides the skill from the repo page.
+                sa.func.regexp_replace(
+                    sa.func.rtrim(skills_table.c.source_repo_url, "/"),
+                    r"\.git$",
+                    "",
                 )
                 == normalized,
             )
@@ -2040,7 +2046,9 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # id is the unique tiebreaker so rank ties produce a deterministic page
+        # (and a stable vector-vs-FTS dedup winner across identical queries).
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2060,7 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2478,10 +2486,12 @@ def find_audit_logs(
         sa.select(eval_audit_logs_table)
         .where(where)
         .order_by(eval_audit_logs_table.c.created_at.desc(), eval_audit_logs_table.c.id.desc())
-        .offset(offset)
     )
     if limit is not None:
-        stmt = stmt.limit(limit)
+        # Only page when bounded — applying OFFSET without a LIMIT silently
+        # returns the entire unbounded tail past the offset, which is never
+        # what an "all rows" (limit=None) caller intends.
+        stmt = stmt.limit(limit).offset(offset)
 
     rows = conn.execute(stmt).all()
     return [_row_to_audit_log_entry(row) for row in rows], total
