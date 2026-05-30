@@ -3,8 +3,41 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
+
+
+def make_rate_limiter_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that enforces a per-IP rate limit.
+
+    Reads ``<name>_rate_limit`` and ``<name>_rate_window`` from ``app.state.settings``
+    and memoises a :class:`RateLimiter` on ``app.state._<name>_rate_limiter`` so the
+    same limiter is reused across requests within a container.
+
+    Usage::
+
+        _enforce_search_rate_limit = make_rate_limiter_dep("search")
+
+        @router.get("/search", dependencies=[Depends(_enforce_search_rate_limit)])
+        def search(...): ...
+    """
+    attr = f"_{name}_rate_limiter"
+
+    def dependency(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, f"{name}_rate_limit"),
+                window_seconds=getattr(settings, f"{name}_rate_window"),
+            )
+            setattr(state, attr, limiter)
+        limiter(request)
+
+    dependency.__name__ = f"_enforce_{name}_rate_limit"
+    return dependency
 
 
 class RateLimiter:

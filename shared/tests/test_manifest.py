@@ -300,6 +300,33 @@ class TestValidateManifest:
         errors = validate_manifest(manifest)
         assert any("allowed_tools" in e for e in errors)
 
+    def test_body_within_limit_accepted(self) -> None:
+        # A body well under the cap should validate cleanly.
+        from dhub_core.manifest import MAX_BODY_BYTES
+
+        manifest = self._make_manifest(body="x" * (MAX_BODY_BYTES // 2))
+        assert validate_manifest(manifest) == []
+
+    def test_body_over_limit_rejected(self) -> None:
+        # Bodies above the cap must produce a clear error so oversized prompts
+        # cannot reach the LLM-backed checks.
+        from dhub_core.manifest import MAX_BODY_BYTES
+
+        manifest = self._make_manifest(body="x" * (MAX_BODY_BYTES + 1))
+        errors = validate_manifest(manifest)
+        assert any("body" in e.lower() and "limit" in e.lower() for e in errors)
+
+    def test_body_limit_counts_utf8_bytes(self) -> None:
+        # Multi-byte characters should be measured by their encoded byte length,
+        # not Python character count.
+        from dhub_core.manifest import MAX_BODY_BYTES
+
+        # Each "€" is 3 UTF-8 bytes, so MAX_BODY_BYTES // 3 + 1 characters exceeds the cap.
+        body = "€" * (MAX_BODY_BYTES // 3 + 1)
+        manifest = self._make_manifest(body=body)
+        errors = validate_manifest(manifest)
+        assert any("body" in e.lower() and "limit" in e.lower() for e in errors)
+
 
 # ---------------------------------------------------------------------------
 # allowed_tools type coercion in parse_skill_md

@@ -280,6 +280,49 @@ describe("AskModal", () => {
     expect(sendBtn).toBeDisabled();
   });
 
+  it("clears conversation state when the modal is closed and re-opened", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    // Render a wrapper component so we can flip isOpen without unmounting AskModal.
+    const { rerender } = render(
+      <MemoryRouter>
+        <AskModal isOpen={true} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    // Send a query and wait for the response so we have visible state to clear.
+    await user.type(screen.getByPlaceholderText("Ask about skills..."), "analyze data");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => {
+      expect(screen.getByText(/great skills/)).toBeInTheDocument();
+    });
+
+    // Type a partial query into the input that should also be cleared.
+    await user.type(screen.getByPlaceholderText("Ask about skills..."), "next question");
+    expect(screen.getByPlaceholderText("Ask about skills...")).toHaveValue("next question");
+
+    // Close the modal.
+    rerender(
+      <MemoryRouter>
+        <AskModal isOpen={false} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    // Re-open the modal.
+    rerender(
+      <MemoryRouter>
+        <AskModal isOpen={true} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    // The empty state should be visible again and the previous query gone.
+    expect(screen.getByText("What are you looking for?")).toBeInTheDocument();
+    expect(screen.queryByText("analyze data")).not.toBeInTheDocument();
+    expect(screen.queryByText(/great skills/)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Ask about skills...")).toHaveValue("");
+  });
+
   describe("recently viewed strip", () => {
     const STORAGE_KEY = "dhub:recently-viewed";
 

@@ -22,6 +22,12 @@ from dhub_core.models import (
 )
 from dhub_core.validation import _SKILL_NAME_PATTERN
 
+# Upper bound on the SKILL.md body (system prompt). Sits well above the
+# server-side gauntlet review cap (50KB) so this acts as a cheap pre-filter
+# that rejects clearly oversized payloads before any LLM work runs, while
+# still leaving headroom for legitimate long prompts.
+MAX_BODY_BYTES = 200_000
+
 
 def parse_skill_md(path: Path) -> SkillManifest:
     """Parse a SKILL.md file into a SkillManifest.
@@ -351,6 +357,8 @@ def validate_manifest(manifest: SkillManifest) -> list[str]:
 
     if not manifest.body:
         errors.append("Body (system prompt) must not be empty.")
+    elif len(manifest.body.encode("utf-8")) > MAX_BODY_BYTES:
+        errors.append(f"Body (system prompt) exceeds {MAX_BODY_BYTES // 1000}KB limit.")
 
     if manifest.allowed_tools is not None and not isinstance(manifest.allowed_tools, str):
         errors.append(f"allowed_tools must be a string, got {type(manifest.allowed_tools).__name__}")
