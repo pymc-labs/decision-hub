@@ -22,6 +22,12 @@ GITHUB_USER_ORGS_URL = "https://api.github.com/user/orgs"
 
 _ACCEPT_JSON = "application/json"
 
+# Default per-request timeout for all GitHub API calls. Without this, a stalled
+# upstream can pin a FastAPI worker indefinitely (the underlying httpx default
+# is "no timeout"). 15s covers normal API latency with healthy headroom; the
+# device-flow poll endpoint is bounded by the caller's retry loop.
+_GITHUB_TIMEOUT = httpx.Timeout(15.0)
+
 
 class AuthorizationPending(Exception):
     """Raised when the user has not yet completed GitHub authorization."""
@@ -44,7 +50,7 @@ async def request_device_code(client_id: str) -> DeviceCodeResponse:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.post(
             GITHUB_DEVICE_CODE_URL,
             data={"client_id": client_id, "scope": "read:org"},
@@ -79,7 +85,7 @@ async def poll_for_access_token(client_id: str, device_code: str, interval: int 
         RuntimeError: If the user denies access or the device code expires.
         httpx.HTTPStatusError: If the GitHub API returns an unexpected error.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.post(
             GITHUB_ACCESS_TOKEN_URL,
             data={
@@ -123,7 +129,7 @@ async def get_github_user(access_token: str) -> dict:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             GITHUB_USER_URL,
             headers={
@@ -168,7 +174,7 @@ async def list_user_orgs(access_token: str) -> list[dict]:
     orgs: list[dict] = []
     url: str | None = f"{GITHUB_USER_ORGS_URL}?per_page=100"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         while url is not None:
             response = await client.get(
                 url,
@@ -201,7 +207,7 @@ async def check_org_membership(access_token: str, org: str, username: str) -> bo
     Returns:
         True if the user is a member of the organization.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             f"https://api.github.com/orgs/{org}/members/{username}",
             headers={
@@ -235,7 +241,7 @@ async def fetch_org_metadata(access_token: str, org_login: str) -> dict:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             f"https://api.github.com/orgs/{org_login}",
             headers={
@@ -270,7 +276,7 @@ async def fetch_user_metadata(access_token: str, username: str) -> dict:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             f"https://api.github.com/users/{username}",
             headers={

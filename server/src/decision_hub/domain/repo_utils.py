@@ -57,12 +57,18 @@ def clone_repo(
     if result.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         stderr = result.stderr.strip()
+        stdout = result.stdout
+        # Strip the token from both streams: git can echo the remote URL (which
+        # contains the token in the userinfo position) to either stderr or
+        # stdout depending on the failure mode, and CalledProcessError keeps
+        # both for logging/inspection.
         if github_token:
             stderr = stderr.replace(github_token, "***")
+            stdout = stdout.replace(github_token, "***")
         raise subprocess.CalledProcessError(
             result.returncode,
             cmd[0],
-            output=result.stdout,
+            output=stdout,
             stderr=stderr,
         )
     return tmp_dir / "repo"

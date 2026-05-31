@@ -5,6 +5,7 @@ import pytest
 import respx
 
 from decision_hub.infra.github import (
+    _GITHUB_TIMEOUT,
     _parse_next_link,
     fetch_org_metadata,
     fetch_user_metadata,
@@ -199,3 +200,41 @@ class TestFetchUserMetadata:
 
         with pytest.raises(httpx.HTTPStatusError):
             await fetch_user_metadata("gh-token", "ghost")
+
+
+class TestGithubTimeouts:
+    """Regression: every AsyncClient in infra.github must carry a timeout.
+
+    Without an explicit timeout, httpx defaults to no timeout, so a stalled
+    GitHub API can pin a FastAPI worker indefinitely. We assert both that the
+    module-level constant is set to a finite per-phase value and that calls
+    actually pass it through to the underlying client (verified by patching
+    AsyncClient and inspecting the kwargs it receives).
+    """
+
+    def test_module_timeout_is_finite_and_short(self) -> None:
+        # 15s is the in-code default; the assertion locks against future
+        # accidental removal (e.g. switching to httpx.Timeout(None)).
+        assert isinstance(_GITHUB_TIMEOUT, httpx.Timeout)
+        assert _GITHUB_TIMEOUT.connect is not None
+        assert _GITHUB_TIMEOUT.read is not None
+        assert _GITHUB_TIMEOUT.connect <= 30
+        assert _GITHUB_TIMEOUT.read <= 30
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_org_metadata_passes_timeout(self, monkeypatch) -> None:
+        captured: dict = {}
+        original_cls = httpx.AsyncClient
+
+        class CapturingAsyncClient(original_cls):  # type: ignore[misc, valid-type]
+            def __init__(self, *args, **kwargs):
+                captured["timeout"] = kwargs.get("timeout")
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", CapturingAsyncClient)
+        respx.get("https://api.github.com/orgs/acme").mock(return_value=httpx.Response(200, json={}))
+
+        await fetch_org_metadata("gh-token", "acme")
+
+        assert captured["timeout"] == _GITHUB_TIMEOUT

@@ -69,8 +69,11 @@ export default function SkillDetailPage() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  // Reset state when navigating to a different skill. activeTab must reset
+  // too — keeping e.g. "Audit" selected when navigating from skill A to
+  // skill B surfaces an unrelated tab on first paint of the new skill.
   useEffect(() => {
+    setActiveTab("overview");
     setZipData(null);
     setZipError(null);
     setZipLoading(false);
@@ -694,9 +697,13 @@ export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
                 ? styles.severityFail
                 : styles.severityWarn;
           const isExpanded = expandedIndex === i;
+          // Use check_name + index as the key. check_name alone isn't
+          // guaranteed unique (server may emit duplicates across categories),
+          // but combining with the index gives stability across reorders
+          // while keeping React's reconciliation correct when checks change.
           return (
             <div
-              key={i}
+              key={`${checkName}-${i}`}
               className={`${styles.checkCard} ${severityClass}`}
               onClick={() => setExpandedIndex(isExpanded ? null : i)}
             >

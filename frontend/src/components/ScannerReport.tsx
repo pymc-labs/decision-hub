@@ -204,7 +204,7 @@ export default function ScannerReport({ report }: { report: ScanReport }) {
       {report.llm_primary_threats && report.llm_primary_threats.length > 0 && (
         <div className={styles.primaryThreats}>
           {report.llm_primary_threats.map((t, i) => (
-            <span key={i} className={styles.threatTag}>{t}</span>
+            <span key={`${t}-${i}`} className={styles.threatTag}>{t}</span>
           ))}
         </div>
       )}
@@ -217,7 +217,7 @@ export default function ScannerReport({ report }: { report: ScanReport }) {
         <div className={styles.correlations}>
           <h4>Correlated Findings</h4>
           {actionableCorrelations.map((c, i) => (
-            <div key={i} className={styles.correlationGroup}>
+            <div key={`${String(c.group_name ?? "group")}-${i}`} className={styles.correlationGroup}>
               <div className={styles.correlationHeader}>
                 <AlertTriangle size={14} />
                 <strong>{String(c.group_name || `Group ${i + 1}`)}</strong>
@@ -287,7 +287,7 @@ export default function ScannerReport({ report }: { report: ScanReport }) {
         <div className={styles.recommendations}>
           <h4>Recommendations</h4>
           {report.meta_recommendations.map((r, i) => (
-            <div key={i} className={styles.recommendation}>
+            <div key={`${String(r.title ?? r.fix ?? "rec")}-${i}`} className={styles.recommendation}>
               <span className={styles.recPriority}>
                 {Number(r.priority) || i + 1}.
               </span>

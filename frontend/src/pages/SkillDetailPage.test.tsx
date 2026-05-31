@@ -1,5 +1,6 @@
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -311,5 +312,60 @@ describe("SkillDetailPage", () => {
     // Switch back to Overview
     await user.click(screen.getByText("Overview"));
     expect(screen.getByText("Overview").closest("button")!.className).toMatch(/tabActive/);
+  });
+
+  it("resets activeTab to overview when navigating to a different skill", async () => {
+    // Add MSW handlers for a second skill so the route change resolves.
+    const SKILL_B = makeSkill({
+      org_slug: "acme",
+      skill_name: "other-tool",
+      description: "Another skill",
+      latest_version: "1.0.0",
+    });
+    server.use(
+      http.get("/v1/skills/acme/other-tool/summary", () => HttpResponse.json(SKILL_B)),
+      http.get("/v1/skills/acme/other-tool/eval-report", () => HttpResponse.json(null)),
+      http.get("/v1/skills/acme/other-tool/audit-log", () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 }),
+      ),
+      http.get("/v1/skills/acme/other-tool/similar", () => HttpResponse.json([])),
+      http.get("/v1/skills/acme/other-tool/download", () =>
+        new HttpResponse(EMPTY_ZIP, { headers: { "Content-Type": "application/zip" } }),
+      ),
+    );
+
+    // We need a real client-side navigation (not a remount) to verify that
+    // the useEffect on [orgSlug, skillName] actually resets activeTab when
+    // the URL changes while the component instance stays alive. A wrapper
+    // with useNavigate gives us that.
+    function Nav() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate("/skills/acme/other-tool")}>
+          go-to-other
+        </button>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/skills/acme/data-tool"]}>
+        <Nav />
+        <Routes>
+          <Route path="/skills/:orgSlug/:skillName" element={<SkillDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("data-tool");
+    await user.click(screen.getByText("Audit Log"));
+    expect(screen.getByText("Audit Log").closest("button")!.className).toMatch(/tabActive/);
+
+    await user.click(screen.getByText("go-to-other"));
+    await screen.findByText("other-tool");
+
+    // Active tab must have reset back to Overview, not stayed on Audit Log.
+    expect(screen.getByText("Overview").closest("button")!.className).toMatch(/tabActive/);
+    expect(screen.getByText("Audit Log").closest("button")!.className).not.toMatch(/tabActive/);
   });
 });

@@ -955,6 +955,31 @@ class TestCloneRepo:
         with pytest.raises(RuntimeError, match="timed out"):
             clone_repo("https://github.com/a/b.git", timeout=120)
 
+    @patch("decision_hub.domain.repo_utils.subprocess.run")
+    def test_token_sanitized_from_stderr_and_stdout(self, mock_run):
+        """When `git clone` fails, the token must not leak into either stream
+        of the raised CalledProcessError. Previously only stderr was scrubbed,
+        so a token echoed to stdout would survive in logs/crash reports.
+        """
+        from decision_hub.domain.repo_utils import clone_repo
+
+        token = "ghp_secrettoken1234567890"
+        # Simulate git echoing the authenticated remote URL to BOTH streams,
+        # which can happen depending on the git version and failure path.
+        mock_result = MagicMock()
+        mock_result.returncode = 128
+        mock_result.stdout = f"Cloning into 'tmp'... from https://x-access-token:{token}@github.com/a/b.git"
+        mock_result.stderr = f"fatal: Authentication failed for 'https://x-access-token:{token}@github.com/a/b.git'"
+        mock_run.return_value = mock_result
+
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            clone_repo("https://github.com/a/b.git", github_token=token)
+
+        assert token not in (exc_info.value.stderr or "")
+        assert token not in (exc_info.value.output or "")
+        assert "***" in (exc_info.value.stderr or "")
+        assert "***" in (exc_info.value.output or "")
+
 
 # ---------------------------------------------------------------------------
 # Repo URL parsing tests
