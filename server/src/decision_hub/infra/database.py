@@ -1187,6 +1187,10 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    Repo URLs commonly contain ``_`` (e.g. ``github.com/foo_bar/baz``) which is
+    a LIKE wildcard, so we escape with ``_escape_like`` to avoid cross-matching
+    e.g. ``github.com/fooXbar/baz``.
     """
     for repo_url, stars in repo_stars.items():
         stmt = (
@@ -1194,7 +1198,7 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(f"{_escape_like(repo_url)}/%", escape="\\"),
                 )
             )
             .values(github_stars=stars)
@@ -1209,7 +1213,8 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
     ``forks``, ``watchers``, ``is_archived``, ``license``.
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
-    subdirectories of the same repo).
+    subdirectories of the same repo). See ``batch_update_github_stars`` for
+    why we escape ``_``/``%`` in the URL.
     """
     for repo_url, meta in repo_metadata.items():
         stmt = (
@@ -1217,7 +1222,7 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(f"{_escape_like(repo_url)}/%", escape="\\"),
                 )
             )
             .values(
