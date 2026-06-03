@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import get_or_create_limiter
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,52 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
+# Each tuple is (state-attribute, max-requests setting name, window setting name).
+# Keeping the table here (rather than at module load) lets us read fresh values
+# from app.state.settings on first request, matching the previous lazy behaviour.
+_RATE_LIMIT_CONFIGS: tuple[tuple[str, str, str], ...] = (
+    ("_list_skills_rate_limiter", "list_skills_rate_limit", "list_skills_rate_window"),
+    ("_resolve_rate_limiter", "resolve_rate_limit", "resolve_rate_window"),
+    ("_similar_skills_rate_limiter", "similar_skills_rate_limit", "similar_skills_rate_window"),
+    ("_download_rate_limiter", "download_rate_limit", "download_rate_window"),
+    ("_audit_log_rate_limiter", "audit_log_rate_limit", "audit_log_rate_window"),
+    ("_scan_report_rate_limiter", "scan_report_rate_limit", "scan_report_rate_window"),
+    ("_publish_rate_limiter", "publish_rate_limit", "publish_rate_window"),
+)
+
+
+def _make_enforcer(state_attr: str, limit_attr: str, window_attr: str):
+    """Build a FastAPI dependency that enforces one rate-limit slot.
+
+    Returns a function whose ``__name__`` is unique per slot so FastAPI's
+    dependency cache treats them as distinct dependencies, matching the
+    behaviour of the previously hand-written enforcers.
+    """
+
+    def _enforce(request: Request) -> None:
+        settings: Settings = request.app.state.settings
+        limiter = get_or_create_limiter(
+            request.app.state,
+            state_attr,
+            max_requests=getattr(settings, limit_attr),
+            window_seconds=getattr(settings, window_attr),
         )
-    state._list_skills_rate_limiter(request)
+        limiter(request)
+
+    _enforce.__name__ = f"enforce{state_attr}"
+    _enforce.__qualname__ = _enforce.__name__
+    return _enforce
 
 
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+(
+    _enforce_list_skills_rate_limit,
+    _enforce_resolve_rate_limit,
+    _enforce_similar_skills_rate_limit,
+    _enforce_download_rate_limit,
+    _enforce_audit_log_rate_limit,
+    _enforce_scan_report_rate_limit,
+    _enforce_publish_rate_limit,
+) = (_make_enforcer(*cfg) for cfg in _RATE_LIMIT_CONFIGS)
 
 
 _VALID_VISIBILITIES = {"public", "org"}

@@ -3,8 +3,14 @@
 import threading
 import time
 from collections import defaultdict
+from typing import Any
 
 from fastapi import HTTPException, Request
+
+# Periodically scan for and evict stale IPs so memory growth is bounded.
+# Triggered every Nth call rather than on every call to keep the hot path
+# cheap. Counter-based so the cadence is independent of traffic shape.
+_PURGE_EVERY_N_CALLS = 1024
 
 
 class RateLimiter:
@@ -31,6 +37,12 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        # Per-instance call counter drives periodic stale-IP eviction.
+        # Earlier this used `total = sum(len(v) for v in requests.values()) % 100`,
+        # which rarely hit zero once timestamps were pruned each call and made
+        # the purge cadence depend on request rate per IP. A plain counter
+        # purges reliably every N calls regardless of traffic shape.
+        self._call_count = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -52,10 +64,9 @@ class RateLimiter:
 
             self._requests[key].append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            self._call_count += 1
+            if self._call_count >= _PURGE_EVERY_N_CALLS:
+                self._call_count = 0
                 self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:
@@ -63,3 +74,24 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def get_or_create_limiter(
+    app_state: Any,
+    attr_name: str,
+    *,
+    max_requests: int,
+    window_seconds: int,
+) -> RateLimiter:
+    """Return a RateLimiter from app.state, lazily creating it on first call.
+
+    Centralises the "check attribute, build from settings, stash on state"
+    pattern that was previously duplicated across every public route module.
+    The first caller pays the construction cost; every subsequent caller
+    reuses the same limiter instance.
+    """
+    limiter = getattr(app_state, attr_name, None)
+    if limiter is None:
+        limiter = RateLimiter(max_requests=max_requests, window_seconds=window_seconds)
+        setattr(app_state, attr_name, limiter)
+    return limiter

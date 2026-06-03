@@ -269,3 +269,50 @@ class TestExtractForEvaluation:
         )
         _, _, _, unscanned = extract_for_evaluation(zip_bytes)
         assert unscanned == []
+
+
+class TestNonUtf8Handling:
+    """Non-UTF-8 bytes in source files used to surface as 500 from .decode().
+
+    Source files should now decode with ``errors="replace"`` and get flagged
+    as unscanned so the gauntlet records partial coverage. Manifest files
+    (SKILL.md, lockfiles) must still be strict UTF-8 since they drive
+    identity and dependency resolution.
+    """
+
+    def test_binary_source_file_is_replaced_and_flagged(self) -> None:
+        """A .py entry with arbitrary bytes shouldn't raise — extract surfaces it."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            zf.writestr("binary.py", b"\xff\xfe\xfd\x00garbage\x80")
+        zip_bytes = buf.getvalue()
+
+        _, sources, _lockfile, unscanned = extract_for_evaluation(zip_bytes)
+
+        assert "binary.py" in unscanned, "binary file should be flagged as unscanned"
+        source_names = [n for n, _ in sources]
+        assert "binary.py" in source_names, "binary file should still be present for scanners"
+        binary_content = next(c for n, c in sources if n == "binary.py")
+        assert "�" in binary_content or "garbage" in binary_content
+
+    def test_non_utf8_skill_md_raises_value_error(self) -> None:
+        """SKILL.md must be valid UTF-8 — fail with 422-style ValueError."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", b"---\nname: s\xff\nd: d\n---\n")
+        zip_bytes = buf.getvalue()
+
+        with pytest.raises(ValueError, match=r"SKILL\.md is not valid UTF-8"):
+            extract_for_evaluation(zip_bytes)
+
+    def test_non_utf8_lockfile_raises_value_error(self) -> None:
+        """Lockfiles drive dependency resolution — strict UTF-8 only."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            zf.writestr("requirements.txt", b"requests\xff==2.31.0\n")
+        zip_bytes = buf.getvalue()
+
+        with pytest.raises(ValueError, match="not valid UTF-8"):
+            extract_for_evaluation(zip_bytes)

@@ -18,18 +18,10 @@ router = APIRouter(tags=["seo"])
 _BASE_URL = "https://hub.decision.ai"
 
 
-@router.get("/sitemap.xml", include_in_schema=False)
-def sitemap_xml(
-    conn: Connection = Depends(get_connection),
-    cache: TTLCache = Depends(get_cache),
-    settings: Settings = Depends(get_settings),
-) -> Response:
-    """Generate a dynamic XML sitemap with all public skills and orgs."""
-    ttl = settings.cache_ttl_sitemap
-    cached = cache.get("sitemap_xml") if ttl else None
-    if cached is not None:
-        return cached
-
+def _build_sitemap_xml(conn: Connection) -> str:
+    """Render the sitemap body. Split out so the route caches the XML string,
+    not a Starlette ``Response`` object (which carries mutable per-request
+    state and is unsafe to share across requests)."""
     today = datetime.now(UTC).strftime("%Y-%m-%d")
 
     urls: list[tuple[str, str, str]] = [
@@ -81,8 +73,10 @@ def sitemap_xml(
     for row in conn.execute(org_stmt):
         urls.append((f"{_BASE_URL}/orgs/{row[0]}", today, "weekly"))
 
-    lines = ['<?xml version="1.0" encoding="UTF-8"?>']
-    lines.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
     for loc, lastmod, changefreq in urls:
         lines.append("  <url>")
         lines.append(f"    <loc>{escape(loc)}</loc>")
@@ -90,13 +84,25 @@ def sitemap_xml(
         lines.append(f"    <changefreq>{escape(changefreq)}</changefreq>")
         lines.append("  </url>")
     lines.append("</urlset>")
+    return "\n".join(lines)
 
-    xml = "\n".join(lines)
+
+@router.get("/sitemap.xml", include_in_schema=False)
+def sitemap_xml(
+    conn: Connection = Depends(get_connection),
+    cache: TTLCache = Depends(get_cache),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """Generate a dynamic XML sitemap with all public skills and orgs."""
+    ttl = settings.cache_ttl_sitemap
+    xml = cache.get("sitemap_xml") if ttl else None
+    if xml is None:
+        xml = _build_sitemap_xml(conn)
+        if ttl:
+            cache.set("sitemap_xml", xml, ttl=ttl)
+
     headers = {"Cache-Control": f"public, max-age={ttl}"} if ttl else {}
-    result = Response(content=xml, media_type="application/xml", headers=headers)
-    if ttl:
-        cache.set("sitemap_xml", result, ttl=ttl)
-    return result
+    return Response(content=xml, media_type="application/xml", headers=headers)
 
 
 _PROD_HOSTS = {"hub.decision.ai", "decisionhub.dev"}

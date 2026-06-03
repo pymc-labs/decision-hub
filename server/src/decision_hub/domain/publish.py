@@ -121,11 +121,29 @@ def extract_for_evaluation(
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
 
             if basename == "SKILL.md":
-                skill_md = zf.read(name).decode()
+                # SKILL.md must be valid UTF-8 — it's the source of truth
+                # for skill identity. A malformed manifest is a 422, not a 500.
+                try:
+                    skill_md = zf.read(name).decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ValueError(f"SKILL.md is not valid UTF-8: {exc}") from exc
             elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
-                lockfile_content = zf.read(name).decode()
+                try:
+                    lockfile_content = zf.read(name).decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ValueError(f"Lockfile '{name}' is not valid UTF-8: {exc}") from exc
             elif _is_scannable_file(basename):
-                source_files.append((name, zf.read(name).decode()))
+                # A source file with an expected extension but binary content
+                # would previously raise UnicodeDecodeError, bubbling up as a
+                # 500. Decode with ``errors="replace"`` so the scanner still
+                # gets a string and surface the file in unscanned_files so
+                # the gauntlet can flag partial coverage.
+                raw = zf.read(name)
+                try:
+                    source_files.append((name, raw.decode("utf-8")))
+                except UnicodeDecodeError:
+                    source_files.append((name, raw.decode("utf-8", errors="replace")))
+                    unscanned_files.append(name)
             else:
                 unscanned_files.append(name)
 
