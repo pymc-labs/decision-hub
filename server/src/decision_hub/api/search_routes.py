@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import get_or_create_limiter
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
@@ -31,14 +31,14 @@ router = APIRouter(prefix="/v1", tags=["search"])
 
 def _enforce_search_rate_limit(request: Request) -> None:
     """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
-    state = request.app.state
-    if not hasattr(state, "_search_rate_limiter"):
-        settings: Settings = state.settings
-        state._search_rate_limiter = RateLimiter(
-            max_requests=settings.search_rate_limit,
-            window_seconds=settings.search_rate_window,
-        )
-    state._search_rate_limiter(request)
+    settings: Settings = request.app.state.settings
+    limiter = get_or_create_limiter(
+        request.app.state,
+        name="search",
+        max_requests=settings.search_rate_limit,
+        window_seconds=settings.search_rate_window,
+    )
+    limiter(request)
 
 
 # ---------------------------------------------------------------------------

@@ -91,26 +91,28 @@ class TestGetEvalRun:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """A running eval with a heartbeat >5 min stale is marked failed."""
+        """A running eval with a heartbeat >5 min stale is marked failed.
+
+        Also asserts ``find_eval_run`` is called exactly once -- the
+        previous implementation re-read the row after the zombie
+        UPDATE; ``_check_zombie`` now mirrors the update in memory and
+        the route returns the mutated object directly.
+        """
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
-
-        # find_eval_run is called twice: once before zombie check, once after
-        failed_run = _make_eval_run(
-            id=run.id,
-            status="failed",
-            error_message="Stale heartbeat",
-            heartbeat_at=stale_heartbeat,
-        )
-        mock_find_run.side_effect = [run, failed_run]
+        mock_find_run.return_value = run
 
         resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+        # Regression guard: the zombie path must not trigger a second
+        # SELECT against eval_runs on a read endpoint.
+        assert mock_find_run.call_count == 1
         mock_update_status.assert_called_once()
         call_kwargs = mock_update_status.call_args
         assert call_kwargs.kwargs.get("status") == "failed"
+        assert "Stale heartbeat" in (call_kwargs.kwargs.get("error_message") or "")
 
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.find_eval_run")
@@ -407,6 +409,9 @@ class TestGetEvalRunLogs:
         assert resp.status_code == 200
         assert resp.json()["run_status"] == "failed"
         mock_update_status.assert_called_once()
+        # Regression guard: log fetch must not re-read the run row
+        # after the zombie UPDATE.
+        assert mock_find_run.call_count == 1
 
 
 # ---------------------------------------------------------------------------

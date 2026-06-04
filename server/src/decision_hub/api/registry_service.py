@@ -17,9 +17,9 @@ from sqlalchemy.engine import Connection
 
 # Re-export pipeline functions for backward compatibility.
 # Scripts (backfills, crawler), tests, and modal_app may import these
-# from ``decision_hub.api.registry_service``.
-# Re-export private helpers used by test patches.
-from decision_hub.domain.publish_pipeline import (  # noqa: F401  # noqa: F401
+# from ``decision_hub.api.registry_service``.  Private helpers
+# (``_build_*``) are re-exported so existing test patches keep working.
+from decision_hub.domain.publish_pipeline import (  # noqa: F401
     _build_analyze_fn,
     _build_analyze_prompt_fn,
     _build_review_body_fn,
@@ -93,9 +93,16 @@ def run_assessment_background(
     from decision_hub.infra.database import create_engine, get_api_keys_for_eval
     from decision_hub.infra.modal_client import get_agent_config, validate_api_key
 
+    # One engine for the entire task lifecycle, success or failure.  The
+    # previous implementation created up to three separate engines per
+    # invocation (success path + two error handlers) which thrashed the
+    # connection pool and never disposed them.  ``engine.dispose()`` in
+    # the ``finally`` block returns connections cleanly even when the
+    # Modal container is reused for another assessment.
+    engine = create_engine(settings.database_url)
+
     try:
         logger.info("Assessment phase 1: loading API keys for {}/{}", org_slug, skill_name)
-        engine = create_engine(settings.database_url)
 
         # --- Phase 1: read API keys then release the connection ---
         # Retrieve the publishing user's own API keys for the assessment
@@ -214,16 +221,16 @@ def run_assessment_background(
     except Exception as e:
         logger.error("Agent assessment failed for version {}: {}", version_id, e)
 
-        # Update run row if using streaming pipeline
+        # Update run row if using streaming pipeline.  Reuses the same
+        # engine that the success path uses -- previously this opened a
+        # second engine, and the report insert opened a third.
         if run_id is not None:
             try:
                 from datetime import datetime
 
-                from decision_hub.infra.database import create_engine as _ce
                 from decision_hub.infra.database import update_eval_run_status
 
-                err_engine = _ce(settings.database_url)
-                with err_engine.connect() as err_conn:
+                with engine.connect() as err_conn:
                     update_eval_run_status(
                         err_conn,
                         run_id,
@@ -235,13 +242,11 @@ def run_assessment_background(
             except Exception as inner:
                 logger.error("Failed to update run {}: {}", run_id, inner)
 
-        # INSERT an error report
+        # INSERT an error report (also reuses the success-path engine).
         try:
-            from decision_hub.infra.database import create_engine as _create_engine
             from decision_hub.infra.database import insert_eval_report
 
-            err_engine = _create_engine(settings.database_url)
-            with err_engine.connect() as err_conn:
+            with engine.connect() as err_conn:
                 insert_eval_report(
                     err_conn,
                     version_id=version_id,
@@ -261,3 +266,9 @@ def run_assessment_background(
                 version_id,
                 inner,
             )
+
+    finally:
+        # Return pooled connections so the next eval in this container
+        # starts with a clean pool.  Modal may reuse a container across
+        # invocations of the eval task.
+        engine.dispose()

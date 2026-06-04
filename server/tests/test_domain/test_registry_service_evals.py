@@ -215,3 +215,65 @@ class TestMaybeTriggerAgentAssessment:
             "prompt": "Do something",
             "judge_criteria": "PASS: works\nFAIL: breaks",
         }
+
+
+class TestRunAssessmentBackgroundEngineReuse:
+    """``run_assessment_background`` must reuse one SQLAlchemy engine.
+
+    The previous implementation created a new engine on the success
+    path and a separate one for *each* error-handler branch (run-status
+    update + error-report insert), producing up to three engines per
+    invocation.  Modal can keep containers warm across multiple eval
+    tasks, so engine churn -- and missing ``dispose()`` calls -- meant
+    the connection pool drifted with every failure.
+    """
+
+    def test_failure_path_reuses_single_engine_and_disposes(self) -> None:
+        from decision_hub.api.registry_service import run_assessment_background
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_engine.connect.return_value = mock_conn
+
+        # ``run_assessment_background`` imports ``create_engine`` and
+        # ``get_api_keys_for_eval`` lazily from ``infra.database``; we
+        # patch at the source module.  Forcing the API-key lookup to
+        # raise exits through the error path that previously created
+        # two additional engines (one for the run-status update, one
+        # for the error-report insert).
+        with (
+            patch(
+                "decision_hub.infra.database.create_engine",
+                return_value=mock_engine,
+            ) as mock_create_engine,
+            patch(
+                "decision_hub.infra.database.get_api_keys_for_eval",
+                side_effect=RuntimeError("simulated DB failure"),
+            ),
+            patch(
+                "decision_hub.infra.modal_client.get_agent_config",
+                return_value=MagicMock(key_env_var="ANTHROPIC_API_KEY"),
+            ),
+            patch("decision_hub.infra.database.update_eval_run_status"),
+            patch("decision_hub.infra.database.insert_eval_report"),
+        ):
+            run_assessment_background(
+                version_id=uuid4(),
+                assessment_config=_make_eval_config(),
+                assessment_cases=_make_eval_cases(1),
+                skill_zip=b"",
+                org_slug="org",
+                skill_name="skill",
+                settings=_make_settings(),
+                user_id=uuid4(),
+                run_id=uuid4(),
+            )
+
+            # One engine for the whole invocation -- success path + both
+            # error-handler branches reuse it.
+            assert mock_create_engine.call_count == 1
+            # ``finally`` must dispose the pool so a reused Modal container
+            # starts the next eval with a clean slate.
+            mock_engine.dispose.assert_called_once()

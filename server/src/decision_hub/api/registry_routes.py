@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import get_or_create_limiter
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,36 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
+# Each endpoint that needs a rate limit goes through this single helper
+# rather than its own ``hasattr`` block.  ``get_or_create_limiter``
+# lazily attaches a named limiter to ``app.state`` (one bucket per
+# endpoint per container) and reads its parameters from settings.
+def _rate_limit_dep(name: str, limit_attr: str, window_attr: str):
+    """Build a FastAPI dependency that enforces a named rate limit."""
+
+    def _dep(request: Request) -> None:
+        settings: Settings = request.app.state.settings
+        limiter = get_or_create_limiter(
+            request.app.state,
+            name=name,
+            max_requests=getattr(settings, limit_attr),
+            window_seconds=getattr(settings, window_attr),
         )
-    state._list_skills_rate_limiter(request)
+        limiter(request)
+
+    _dep.__name__ = f"_enforce_{name}_rate_limit"
+    return _dep
 
 
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+_enforce_list_skills_rate_limit = _rate_limit_dep("list_skills", "list_skills_rate_limit", "list_skills_rate_window")
+_enforce_resolve_rate_limit = _rate_limit_dep("resolve", "resolve_rate_limit", "resolve_rate_window")
+_enforce_similar_skills_rate_limit = _rate_limit_dep(
+    "similar_skills", "similar_skills_rate_limit", "similar_skills_rate_window"
+)
+_enforce_download_rate_limit = _rate_limit_dep("download", "download_rate_limit", "download_rate_window")
+_enforce_audit_log_rate_limit = _rate_limit_dep("audit_log", "audit_log_rate_limit", "audit_log_rate_window")
+_enforce_scan_report_rate_limit = _rate_limit_dep("scan_report", "scan_report_rate_limit", "scan_report_rate_window")
+_enforce_publish_rate_limit = _rate_limit_dep("publish", "publish_rate_limit", "publish_rate_window")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -1097,27 +1045,42 @@ def _run_to_response(run) -> EvalRunResponse:
     )
 
 
-def _check_zombie(conn: Connection, run) -> str:
+def _check_zombie(conn: Connection, run):
     """Check if a running eval run has a stale heartbeat (zombie).
 
-    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    Returns the eval run, possibly with its status mutated in place if
+    a stale heartbeat caused us to flip it to ``failed``.  The caller
+    therefore does not need to re-read the row after this call.
     """
     if run.status not in ("running", "judging", "provisioning"):
-        return run.status
+        return run
     if run.heartbeat_at is None:
-        return run.status
+        return run
     elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
-    if elapsed > _STALE_HEARTBEAT_SECONDS:
-        update_eval_run_status(
-            conn,
-            run.id,
-            status="failed",
-            error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
-            completed_at=datetime.now(UTC),
-        )
-        return "failed"
-    return run.status
+    if elapsed <= _STALE_HEARTBEAT_SECONDS:
+        return run
+
+    error_message = f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed."
+    completed_at = datetime.now(UTC)
+    update_eval_run_status(
+        conn,
+        run.id,
+        status="failed",
+        error_message=error_message,
+        completed_at=completed_at,
+    )
+    # Mirror the DB update on the in-memory model so callers see the
+    # post-update state without a second SELECT.  The dataclass is
+    # frozen, so we use ``dataclasses.replace`` to build the updated
+    # copy.
+    from dataclasses import replace
+
+    return replace(
+        run,
+        status="failed",
+        error_message=error_message,
+        completed_at=completed_at,
+    )
 
 
 @router.get("/eval-runs/{run_id}", response_model=EvalRunResponse)
@@ -1131,9 +1094,9 @@ def get_eval_run(
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
-    _check_zombie(conn, run)
-    # Re-read after potential zombie update
-    run = find_eval_run(conn, parsed_id)
+    # _check_zombie returns the (possibly mutated) run so we avoid an
+    # extra SELECT after the optional UPDATE.
+    run = _check_zombie(conn, run)
     return _run_to_response(run)
 
 
@@ -1152,8 +1115,11 @@ def get_eval_run_logs(
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
 
-    # Zombie detection on read
-    effective_status = _check_zombie(conn, run)
+    # Zombie detection on read.  ``_check_zombie`` returns the run with
+    # status flipped to ``failed`` in memory if its heartbeat was stale,
+    # so we use the returned object rather than re-reading from the DB.
+    run = _check_zombie(conn, run)
+    effective_status = run.status
 
     # Fetch all S3 chunks for the run. The cursor is an event sequence number
     # (e.g. 50), not a chunk file sequence number (e.g. 3), so we can't use
