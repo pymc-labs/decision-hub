@@ -1,12 +1,22 @@
 """Access grant management commands for private skills."""
 
-import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
 
 console = Console()
 access_app = typer.Typer(help="Manage access grants for private skills", no_args_is_help=True)
+
+
+def _parse_skill_ref(skill_ref: str) -> tuple[str, str]:
+    """Parse ``org/skill`` and exit with a clear error on bad input."""
+    from dhub.core.validation import parse_skill_ref
+
+    try:
+        return parse_skill_ref(skill_ref)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
 
 
 @access_app.command("grant")
@@ -16,24 +26,18 @@ def grant_command(
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate without creating the grant"),
 ) -> None:
     """Grant an organisation access to a private skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
-    from dhub.core.validation import parse_skill_ref
+    # Local import: keeps existing test patches at ``dhub.cli.config.get_token``
+    # and ``dhub.cli.config.get_api_url`` working without churn.
+    from dhub.cli.config import api_client, get_token, raise_for_status
 
-    try:
-        org_slug, skill_name = parse_skill_ref(skill_ref)
-    except ValueError as exc:
-        console.print(f"[red]Error: {exc}[/]")
-        raise typer.Exit(1) from None
-
-    api_url = get_api_url()
-    headers = build_headers(get_token())
+    org_slug, skill_name = _parse_skill_ref(skill_ref)
 
     if dry_run:
         from dhub.cli.output import is_json, print_json
 
         # Just verify the skill exists
-        with httpx.Client(timeout=60) as client:
-            resp = client.get(f"{api_url}/v1/skills/{org_slug}/{skill_name}/access", headers=headers)
+        with api_client(token=get_token()) as client:
+            resp = client.get(f"/v1/skills/{org_slug}/{skill_name}/access")
             if resp.status_code == 404:
                 console.print(f"[red]Error: {resp.json().get('detail', 'Not found')}[/]")
                 raise typer.Exit(1)
@@ -45,10 +49,9 @@ def grant_command(
             console.print(f"[yellow]Dry run:[/] Would grant access to '{grantee}' for {org_slug}/{skill_name}")
         return
 
-    with httpx.Client(timeout=60) as client:
+    with api_client(token=get_token()) as client:
         resp = client.post(
-            f"{api_url}/v1/skills/{org_slug}/{skill_name}/access",
-            headers=headers,
+            f"/v1/skills/{org_slug}/{skill_name}/access",
             json={"grantee_org_slug": grantee},
         )
         if resp.status_code == 404:
@@ -71,23 +74,12 @@ def revoke_command(
     grantee: str = typer.Argument(help="Organisation slug to revoke access from"),
 ) -> None:
     """Revoke an organisation's access to a private skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
-    from dhub.core.validation import parse_skill_ref
+    from dhub.cli.config import api_client, get_token, raise_for_status
 
-    try:
-        org_slug, skill_name = parse_skill_ref(skill_ref)
-    except ValueError as exc:
-        console.print(f"[red]Error: {exc}[/]")
-        raise typer.Exit(1) from None
+    org_slug, skill_name = _parse_skill_ref(skill_ref)
 
-    api_url = get_api_url()
-    headers = build_headers(get_token())
-
-    with httpx.Client(timeout=60) as client:
-        resp = client.delete(
-            f"{api_url}/v1/skills/{org_slug}/{skill_name}/access/{grantee}",
-            headers=headers,
-        )
+    with api_client(token=get_token()) as client:
+        resp = client.delete(f"/v1/skills/{org_slug}/{skill_name}/access/{grantee}")
         if resp.status_code == 404:
             console.print(f"[red]Error: {resp.json().get('detail', 'Not found')}[/]")
             raise typer.Exit(1)
@@ -104,23 +96,12 @@ def list_command(
     skill_ref: str = typer.Argument(help="Skill reference (org/skill)"),
 ) -> None:
     """List access grants for a private skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
-    from dhub.core.validation import parse_skill_ref
+    from dhub.cli.config import api_client, get_token, raise_for_status
 
-    try:
-        org_slug, skill_name = parse_skill_ref(skill_ref)
-    except ValueError as exc:
-        console.print(f"[red]Error: {exc}[/]")
-        raise typer.Exit(1) from None
+    org_slug, skill_name = _parse_skill_ref(skill_ref)
 
-    api_url = get_api_url()
-    headers = build_headers(get_token())
-
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/skills/{org_slug}/{skill_name}/access",
-            headers=headers,
-        )
+    with api_client(token=get_token()) as client:
+        resp = client.get(f"/v1/skills/{org_slug}/{skill_name}/access")
         if resp.status_code == 404:
             console.print(f"[red]Error: {resp.json().get('detail', 'Not found')}[/]")
             raise typer.Exit(1)

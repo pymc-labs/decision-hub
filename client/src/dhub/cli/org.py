@@ -1,6 +1,5 @@
 """Organization management commands."""
 
-import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -12,13 +11,12 @@ org_app = typer.Typer(help="Manage organizations", no_args_is_help=True)
 @org_app.command("list")
 def list_orgs() -> None:
     """List namespaces you can publish to."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
+    # Local import: keeps ``@patch("dhub.cli.config.get_token", ...)`` working
+    # in the test suite (see test_org_cli.py).
+    from dhub.cli.config import api_client, get_token, raise_for_status
 
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{get_api_url()}/v1/orgs",
-            headers=build_headers(get_token()),
-        )
+    with api_client(token=get_token()) as client:
+        resp = client.get("/v1/orgs")
         raise_for_status(resp)
         orgs = resp.json()
 

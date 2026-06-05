@@ -169,3 +169,72 @@ class TestGetDefaultOrg:
         result = get_default_org()
 
         assert result is None
+
+
+class TestApiClient:
+    """``api_client()`` is the centralized httpx.Client context manager.
+
+    It bundles the (resolve API URL, build CLI version header, attach bearer
+    token, set timeout) sequence that used to be repeated at 38 call sites
+    across the CLI.  These tests verify the contract: the returned client
+    has the right base_url, default headers, and resolves relative paths
+    against the API.
+    """
+
+    def test_yields_client_with_base_url(self, tmp_path, monkeypatch):
+        """``base_url`` is set to the resolved API URL so callers can use paths."""
+        from dhub.cli.config import api_client
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "https://test.example.com")
+
+        with api_client() as client:
+            assert str(client.base_url) == "https://test.example.com"
+
+    def test_adds_cli_version_header(self, tmp_path, monkeypatch):
+        """Every request carries ``X-DHub-Client-Version`` so the server can gate."""
+        from dhub.cli.config import api_client
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "https://test.example.com")
+
+        with api_client() as client:
+            assert client.headers.get("x-dhub-client-version")
+
+    def test_adds_bearer_token_when_given(self, tmp_path, monkeypatch):
+        """Passing ``token=...`` attaches ``Authorization: Bearer <token>``."""
+        from dhub.cli.config import api_client
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "https://test.example.com")
+
+        with api_client(token="abc123") as client:
+            assert client.headers.get("authorization") == "Bearer abc123"
+
+    def test_omits_authorization_when_token_none(self, tmp_path, monkeypatch):
+        """Without a token, no Authorization header is sent (anonymous read paths)."""
+        from dhub.cli.config import api_client
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "https://test.example.com")
+
+        with api_client(token=None) as client:
+            assert "authorization" not in client.headers
+
+    def test_custom_timeout_is_applied(self, tmp_path, monkeypatch):
+        """Caller can override the 60s default (e.g. for fast health checks)."""
+        from dhub.cli.config import DEFAULT_HTTP_TIMEOUT, api_client
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_API_URL", "https://test.example.com")
+
+        with api_client(timeout=5.0) as client:
+            assert client.timeout.connect == 5.0
+        # And sanity-check the default for the more common code path.
+        with api_client() as client:
+            assert client.timeout.connect == DEFAULT_HTTP_TIMEOUT

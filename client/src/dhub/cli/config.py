@@ -2,11 +2,17 @@
 
 import json
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
 
 import httpx
+
+# Default timeout (seconds) for every server-bound HTTP request.  Modal cold
+# starts can stall the first request 30-60 seconds, so 60s is the floor.
+DEFAULT_HTTP_TIMEOUT: float = 60.0
 
 CONFIG_DIR = Path.home() / ".dhub"
 
@@ -174,3 +180,34 @@ def raise_for_status(resp: httpx.Response) -> None:
             fatal=True,
         )
     resp.raise_for_status()
+
+
+@contextmanager
+def api_client(
+    *,
+    token: str | None = None,
+    timeout: float = DEFAULT_HTTP_TIMEOUT,
+) -> Iterator[httpx.Client]:
+    """Context manager yielding an httpx.Client preconfigured for the dhub API.
+
+    Wraps the (api_url, build_headers, httpx.Client) trio that every command
+    used to assemble by hand.  The returned client has ``base_url`` set to the
+    resolved API URL and default headers including ``X-DHub-Client-Version``
+    plus the optional bearer token, so callers can just write::
+
+        with api_client(token=get_token()) as client:
+            resp = client.get("/v1/orgs")
+            raise_for_status(resp)
+
+    Args:
+        token: Optional bearer token.  When omitted, requests go out
+            unauthenticated.  Use ``get_optional_token()`` if the
+            command is read-only and may be invoked anonymously.
+        timeout: Per-request timeout in seconds; defaults to
+            :data:`DEFAULT_HTTP_TIMEOUT` (60s) to survive Modal cold
+            starts.
+    """
+    base_url = get_api_url()
+    headers = build_headers(token)
+    with httpx.Client(base_url=base_url, headers=headers, timeout=timeout) as client:
+        yield client

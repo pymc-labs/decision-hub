@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,50 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dep(
+    name: str,
+    max_attr: str,
+    window_attr: str,
+) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that enforces a named per-IP rate limit.
+
+    Replaces the ``_enforce_<name>_rate_limit`` boilerplate that used to
+    be copy-pasted across every route module.  The returned callable
+    lazily constructs a :class:`RateLimiter` on first use, caches it on
+    ``request.app.state`` under ``f"_{name}_rate_limiter"`` (so it
+    survives across requests within the same container), and then
+    delegates to it.
+
+    Args:
+        name: Logical identifier (e.g. ``"publish"``, ``"search"``).
+            Used both for the cache attribute and the function's
+            ``__name__`` — keep it stable so debug/trace output is
+            readable.
+        max_attr: Attribute on ``settings`` that holds the request
+            count (e.g. ``"publish_rate_limit"``).
+        window_attr: Attribute on ``settings`` that holds the window
+            length in seconds.
+
+    Returns:
+        A callable suitable for ``Depends(...)``.
+    """
+    state_attr = f"_{name}_rate_limiter"
+
+    def dep(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, max_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    dep.__name__ = f"enforce_{name}_rate_limit"
+    dep.__qualname__ = dep.__name__
+    dep.__doc__ = f"Rate-limit dependency for the {name!r} endpoint group."
+    return dep

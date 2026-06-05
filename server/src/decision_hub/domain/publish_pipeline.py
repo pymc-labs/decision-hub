@@ -171,110 +171,61 @@ def parse_manifest_from_content(
 # ---------------------------------------------------------------------------
 
 
-def _build_analyze_fn(settings: Settings, gemini: dict | None = None):
-    """Build a Gemini analyze callback if google_api_key is configured."""
+def _make_gemini_callback(settings: Settings, fn_name: str, gemini: dict | None = None):
+    """Build a closure that calls ``decision_hub.infra.gemini.<fn_name>``.
+
+    Returns ``None`` when ``google_api_key`` is unset — every gauntlet
+    analyzer treats ``None`` as "LLM judge unavailable" and downgrades
+    to regex-only mode.  Otherwise lazily imports the target function,
+    creates (or reuses) a Gemini HTTP client, and returns a closure that
+    forwards positional/keyword args along with ``model=gemini_model``.
+
+    The five wrappers below (``_build_analyze_fn`` &c.) exist only as
+    public-by-name handles for monkey-patching in tests — the actual
+    construction logic lives here.
+    """
     if not settings.google_api_key:
         return None
 
-    from decision_hub.infra.gemini import analyze_code_safety, create_gemini_client
+    from decision_hub.infra import gemini as gemini_module
 
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
+    target = getattr(gemini_module, fn_name)
+    client = gemini or gemini_module.create_gemini_client(settings.google_api_key)
 
-    def analyze_fn(snippets, source_files, skill_name, skill_description):
-        return analyze_code_safety(
-            gemini_client,
-            snippets,
-            source_files,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+    def callback(*args, **kwargs):
+        return target(client, *args, model=settings.gemini_model, **kwargs)
 
-    return analyze_fn
+    callback.__name__ = f"{fn_name}_callback"
+    return callback
+
+
+# Thin wrappers preserved so existing tests that ``@patch`` these names
+# (server/tests/test_api/test_registry_routes.py, conftest.py) continue
+# to work without churn.  All the construction logic is in
+# ``_make_gemini_callback``.
+def _build_analyze_fn(settings: Settings, gemini: dict | None = None):
+    """Build a Gemini analyze callback if google_api_key is configured."""
+    return _make_gemini_callback(settings, "analyze_code_safety", gemini)
 
 
 def _build_analyze_prompt_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini prompt analyze callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_prompt_safety, create_gemini_client
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def analyze_prompt_fn(prompt_hits, skill_name, skill_description):
-        return analyze_prompt_safety(
-            gemini_client,
-            prompt_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_prompt_fn
+    return _make_gemini_callback(settings, "analyze_prompt_safety", gemini)
 
 
 def _build_review_body_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini holistic body review callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import create_gemini_client, review_prompt_body_safety
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def review_body_fn(body, skill_name, skill_description):
-        return review_prompt_body_safety(
-            gemini_client,
-            body,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return review_body_fn
+    return _make_gemini_callback(settings, "review_prompt_body_safety", gemini)
 
 
 def _build_review_code_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini holistic code review callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import create_gemini_client, review_code_body_safety
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def review_code_fn(source_files, skill_name, skill_description):
-        return review_code_body_safety(
-            gemini_client,
-            source_files,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return review_code_fn
+    return _make_gemini_callback(settings, "review_code_body_safety", gemini)
 
 
 def _build_analyze_credential_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini credential entropy review callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_credential_entropy, create_gemini_client
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def analyze_credential_fn(entropy_hits, skill_name, skill_description):
-        return analyze_credential_entropy(
-            gemini_client,
-            entropy_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_credential_fn
+    return _make_gemini_callback(settings, "analyze_credential_entropy", gemini)
 
 
 def run_gauntlet_pipeline(
