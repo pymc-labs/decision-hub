@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from decision_hub.domain.evals import _redact_secrets, run_eval_pipeline
+from decision_hub.domain.evals import (
+    _judge_case,
+    _make_case_result,
+    _redact_secrets,
+    run_eval_pipeline,
+)
 from decision_hub.models import EvalCase, EvalConfig
 
 
@@ -277,6 +282,186 @@ class TestRedactSecrets:
         result = _redact_secrets(text)
         assert "sk-ant" not in result
         assert "[REDACTED]" in result
+
+    @pytest.mark.parametrize(
+        "secret,fragment",
+        [
+            ("gho_" + "a" * 36, "gho_"),
+            ("ghp_" + "B" * 36, "ghp_"),
+            ("ghs_" + "C" * 36, "ghs_"),
+            ("ghu_" + "D" * 36, "ghu_"),
+            ("github_pat_" + "E" * 50, "github_pat_"),
+            ("AKIA" + "0" * 12 + "ABCD", "AKIA"),
+            ("xoxb-" + "1" * 30, "xoxb-"),
+            ("xoxp-" + "2" * 30, "xoxp-"),
+        ],
+        ids=["gho", "ghp", "ghs", "ghu", "github-pat", "aws-akia", "slack-bot", "slack-user"],
+    )
+    def test_additional_provider_keys_redacted(self, secret: str, fragment: str) -> None:
+        """GitHub PATs, AWS access keys, and Slack tokens are redacted.
+
+        These joined the pattern list after a defensive review — agent
+        output can leak any of these (sandbox env vars, repro scripts, etc).
+        """
+        text = f"key={secret}"
+        result = _redact_secrets(text)
+        assert fragment not in result, f"{fragment!r} should not remain in redacted output {result!r}"
+        assert "[REDACTED]" in result
+
+
+class TestMakeCaseResult:
+    """Tests for the shared case-result builder used by both pipelines.
+
+    The shape of ``case_results`` entries is consumed by ``insert_eval_report``,
+    the API response models, and the frontend — any drift here ripples through
+    several layers. This suite locks down the field set and the redaction
+    invariants regardless of which pipeline produced the entry.
+    """
+
+    def _case(self) -> EvalCase:
+        return EvalCase(
+            name="case-x",
+            description="desc",
+            prompt="prompt",
+            judge_criteria="criteria",
+        )
+
+    def test_sandbox_stage_has_empty_outputs(self) -> None:
+        """Sandbox-stage errors record no agent output (the agent never ran)."""
+        result = _make_case_result(
+            self._case(),
+            stage="sandbox",
+            verdict="error",
+            reasoning="Sandbox error: container OOM",
+        )
+        assert result["stage"] == "sandbox"
+        assert result["verdict"] == "error"
+        assert result["agent_output"] == ""
+        assert result["agent_stderr"] == ""
+        assert result["exit_code"] == -1
+        assert result["duration_ms"] == 0
+
+    def test_agent_stage_preserves_exit_code_and_streams(self) -> None:
+        """Agent-stage errors carry stdout/stderr/exit_code through to the report."""
+        result = _make_case_result(
+            self._case(),
+            stage="agent",
+            verdict="error",
+            reasoning="Agent exited with code 1: ModuleNotFoundError",
+            stdout="partial output",
+            stderr="ModuleNotFoundError: no module named 'pandas'",
+            exit_code=1,
+            duration_ms=4321,
+        )
+        assert result["stage"] == "agent"
+        assert result["exit_code"] == 1
+        assert result["duration_ms"] == 4321
+        assert result["agent_output"] == "partial output"
+        assert "ModuleNotFoundError" in result["agent_stderr"]
+
+    def test_judge_stage_preserves_pass_verdict(self) -> None:
+        result = _make_case_result(
+            self._case(),
+            stage="judge",
+            verdict="pass",
+            reasoning="Output matched all criteria",
+            stdout="good output",
+            stderr="",
+            exit_code=0,
+            duration_ms=5000,
+        )
+        assert result["stage"] == "judge"
+        assert result["verdict"] == "pass"
+        assert result["duration_ms"] == 5000
+
+    def test_secrets_redacted_in_all_text_fields(self) -> None:
+        """API keys leak through any of reasoning/stdout/stderr; all three are scrubbed.
+
+        The streaming pipeline relied on the caller to redact each field
+        individually, so a missed call site (e.g. forgetting to wrap
+        ``stderr``) would persist a raw secret into the audit trail. The
+        builder now enforces the invariant.
+        """
+        leaky = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA"
+        result = _make_case_result(
+            self._case(),
+            stage="judge",
+            verdict="error",
+            reasoning=f"Saw {leaky}",
+            stdout=f"output contains {leaky}",
+            stderr=f"err: {leaky}",
+            exit_code=0,
+            duration_ms=100,
+        )
+        assert "sk-ant" not in result["reasoning"]
+        assert "sk-ant" not in result["agent_output"]
+        assert "sk-ant" not in result["agent_stderr"]
+        assert result["reasoning"].count("[REDACTED]") == 1
+        assert result["agent_output"].count("[REDACTED]") == 1
+        assert result["agent_stderr"].count("[REDACTED]") == 1
+
+    def test_case_identity_fields_copied(self) -> None:
+        """name + description come from the EvalCase, not from kwargs."""
+        case = EvalCase(name="unique-name", description="unique-desc", prompt="p", judge_criteria="c")
+        result = _make_case_result(case, stage="judge", verdict="pass", reasoning="ok")
+        assert result["name"] == "unique-name"
+        assert result["description"] == "unique-desc"
+
+
+class TestJudgeCase:
+    """Tests for ``_judge_case`` — the single judge call site for both pipelines."""
+
+    def _config(self) -> EvalConfig:
+        return EvalConfig(agent="claude", judge_model="claude-sonnet-4-5-20250929")
+
+    def _case(self) -> EvalCase:
+        return EvalCase(name="j-case", description="d", prompt="p", judge_criteria="crit")
+
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    def test_pass_verdict_propagated(self, mock_judge: MagicMock) -> None:
+        mock_judge.return_value = {"verdict": "pass", "reasoning": "Looks good"}
+        verdict, reasoning = _judge_case(self._config(), self._case(), "judge-key", "agent output")
+        assert verdict == "pass"
+        assert reasoning == "Looks good"
+
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    def test_fail_verdict_propagated(self, mock_judge: MagicMock) -> None:
+        mock_judge.return_value = {"verdict": "fail", "reasoning": "Missing null check"}
+        verdict, reasoning = _judge_case(self._config(), self._case(), "judge-key", "out")
+        assert verdict == "fail"
+        assert "null check" in reasoning
+
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    def test_exception_becomes_error_verdict(self, mock_judge: MagicMock) -> None:
+        """Judge API failures must NOT propagate — they become error-stage results.
+
+        If the exception escaped, the entire pipeline would abort mid-suite
+        and any remaining cases would be lost. The helper swallows the
+        exception, logs it, and returns ('error', 'Judge error: ...')
+        so the caller records the case and moves on.
+        """
+        mock_judge.side_effect = RuntimeError("Anthropic API rate limited")
+        verdict, reasoning = _judge_case(self._config(), self._case(), "judge-key", "out")
+        assert verdict == "error"
+        assert "rate limited" in reasoning
+        assert reasoning.startswith("Judge error:")
+
+    @patch("decision_hub.domain.evals.judge_eval_output")
+    def test_passes_judge_model_and_criteria(self, mock_judge: MagicMock) -> None:
+        """The judge call uses the EvalConfig.judge_model and case.judge_criteria.
+
+        Regression: an earlier draft of the refactor accidentally hard-coded
+        the model string. This locks the wiring against future drift.
+        """
+        mock_judge.return_value = {"verdict": "pass", "reasoning": "ok"}
+        _judge_case(self._config(), self._case(), "my-key", "stdout-text")
+        mock_judge.assert_called_once_with(
+            api_key="my-key",
+            model="claude-sonnet-4-5-20250929",
+            eval_case_name="j-case",
+            eval_criteria="crit",
+            agent_output="stdout-text",
+        )
 
 
 class TestInsertEvalReportConflict:

@@ -3,9 +3,12 @@
 Orchestrates running assessment cases in agent sandboxes and judging results with an LLM.
 Each case goes through: sandbox execution -> exit code check -> LLM judge.
 
-Two pipelines:
-- run_eval_pipeline(): original batch mode (no streaming, used as fallback)
-- run_streaming_eval(): streaming mode with S3 log persistence and DB heartbeats
+Two pipelines share the same Stage 1/2/3 semantics via ``_make_case_result`` and
+``_judge_case``:
+
+- run_eval_pipeline(): batch mode (no streaming, used when run_id is absent)
+- stream_eval_pipeline(): generator that yields structured events
+- run_streaming_eval(): consumes the streaming generator, flushes to S3, updates DB
 """
 
 import json
@@ -28,10 +31,19 @@ _SECRET_PATTERNS = [
     re.compile(r"sk-ant-[a-zA-Z0-9\-_]{20,}"),  # Anthropic
     re.compile(r"sk-[a-zA-Z0-9\-_]{20,}"),  # OpenAI (incl. sk-proj-*, sk-svcacct-*)
     re.compile(r"AIza[a-zA-Z0-9\-_]{30,}"),  # Google API keys
+    re.compile(r"gh[opsu]_[A-Za-z0-9]{30,}"),  # GitHub PATs (gho_, ghp_, ghs_, ghu_)
+    re.compile(r"github_pat_[A-Za-z0-9_]{30,}"),  # GitHub fine-grained PATs
+    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key IDs
+    re.compile(r"xox[bporsa]-[A-Za-z0-9-]{20,}"),  # Slack tokens
 ]
 
 # Maximum size for individual event content (10 KB)
 _MAX_CONTENT_LEN = 10 * 1024
+
+# Cap on stderr length included in agent-error reasoning strings.
+# Long stderr can include stack traces hundreds of KB long; truncating
+# keeps eval reports and S3 chunks readable.
+_STDERR_REASONING_LIMIT = 500
 
 
 def _redact_secrets(text: str) -> str:
@@ -62,6 +74,83 @@ def _make_event(seq: int, event_type: str, **kwargs) -> dict:
     if "reasoning" in event and isinstance(event["reasoning"], str):
         event["reasoning"] = _truncate(_redact_secrets(event["reasoning"]))
     return event
+
+
+# ---------------------------------------------------------------------------
+# Shared case-result construction (used by both batch and streaming pipelines)
+# ---------------------------------------------------------------------------
+
+
+def _make_case_result(
+    case: EvalCase,
+    *,
+    stage: str,
+    verdict: str,
+    reasoning: str,
+    stdout: str = "",
+    stderr: str = "",
+    exit_code: int = -1,
+    duration_ms: int = 0,
+) -> dict:
+    """Build a single ``case_results`` entry with consistent redaction.
+
+    Both the batch and streaming pipelines emit the same dict shape for each
+    case, so the construction lives here to keep the field set in lock-step.
+    All free-form text fields (``reasoning``, ``stdout``, ``stderr``) are run
+    through :func:`_redact_secrets` so API keys leaking from agent output never
+    reach the database, S3 chunks, or downstream LLM reports.
+
+    Args:
+        case: The eval case being recorded.
+        stage: Which pipeline stage produced this result — ``"sandbox"``
+            (sandbox crashed), ``"agent"`` (agent exited non-zero), or
+            ``"judge"`` (judge ran, whether it passed, failed, or errored).
+        verdict: ``"pass"``, ``"fail"``, or ``"error"``.
+        reasoning: Human-readable explanation of the verdict.
+        stdout: Captured agent stdout (empty on sandbox crash).
+        stderr: Captured agent stderr (empty on sandbox crash).
+        exit_code: Agent process exit code (``-1`` if the sandbox crashed
+            before the agent could run).
+        duration_ms: Sandbox wall-clock duration in milliseconds.
+    """
+    return {
+        "name": case.name,
+        "description": case.description,
+        "verdict": verdict,
+        "reasoning": _redact_secrets(reasoning),
+        "agent_output": _redact_secrets(stdout),
+        "agent_stderr": _redact_secrets(stderr),
+        "exit_code": exit_code,
+        "duration_ms": duration_ms,
+        "stage": stage,
+    }
+
+
+def _judge_case(
+    eval_config: EvalConfig,
+    case: EvalCase,
+    judge_api_key: str,
+    stdout: str,
+) -> tuple[str, str]:
+    """Run the LLM judge for a single case and map exceptions to error verdicts.
+
+    Returns ``(verdict, reasoning)``. On any exception from
+    :func:`judge_eval_output`, returns ``("error", "Judge error: ...")``
+    rather than propagating — the caller records the failure as an
+    error-stage result and continues with the next case.
+    """
+    try:
+        judgment = judge_eval_output(
+            api_key=judge_api_key,
+            model=eval_config.judge_model,
+            eval_case_name=case.name,
+            eval_criteria=case.judge_criteria,
+            agent_output=stdout,
+        )
+        return judgment["verdict"], judgment["reasoning"]
+    except Exception as e:
+        logger.error("Judge error for case '{}': {}", case.name, e)
+        return "error", f"Judge error: {e}"
 
 
 def run_eval_pipeline(
@@ -128,17 +217,7 @@ def run_eval_pipeline(
         except Exception as e:
             logger.error("Sandbox error for case '{}': {}", case.name, e)
             case_results.append(
-                {
-                    "name": case.name,
-                    "description": case.description,
-                    "verdict": "error",
-                    "reasoning": _redact_secrets(f"Sandbox error: {e}"),
-                    "agent_output": "",
-                    "agent_stderr": "",
-                    "exit_code": -1,
-                    "duration_ms": 0,
-                    "stage": "sandbox",
-                }
+                _make_case_result(case, stage="sandbox", verdict="error", reasoning=f"Sandbox error: {e}")
             )
             continue
 
@@ -150,54 +229,37 @@ def run_eval_pipeline(
         # Stage 2: Check exit code — non-zero means agent failed
         if exit_code != 0:
             case_results.append(
-                {
-                    "name": case.name,
-                    "description": case.description,
-                    "verdict": "error",
-                    "reasoning": _redact_secrets(f"Agent exited with code {exit_code}: {stderr}"),
-                    "agent_output": _redact_secrets(stdout),
-                    "agent_stderr": _redact_secrets(stderr),
-                    "exit_code": exit_code,
-                    "duration_ms": duration_ms,
-                    "stage": "agent",
-                }
+                _make_case_result(
+                    case,
+                    stage="agent",
+                    verdict="error",
+                    reasoning=f"Agent exited with code {exit_code}: {stderr[:_STDERR_REASONING_LIMIT]}",
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=exit_code,
+                    duration_ms=duration_ms,
+                )
             )
             continue
 
         # Stage 3: Judge the output with LLM
         logger.info("Judging case '{}' with model={}", case.name, eval_config.judge_model)
-        try:
-            judgment = judge_eval_output(
-                api_key=judge_api_key,
-                model=eval_config.judge_model,
-                eval_case_name=case.name,
-                eval_criteria=case.judge_criteria,
-                agent_output=stdout,
-            )
-            verdict = judgment["verdict"]
-            reasoning = judgment["reasoning"]
-            stage = "judge"
-        except Exception as e:
-            logger.error("Judge error for case '{}': {}", case.name, e)
-            verdict = "error"
-            reasoning = f"Judge error: {e}"
-            stage = "judge"
+        verdict, reasoning = _judge_case(eval_config, case, judge_api_key, stdout)
 
         if verdict == "pass":
             passed += 1
 
         case_results.append(
-            {
-                "name": case.name,
-                "description": case.description,
-                "verdict": verdict,
-                "reasoning": _redact_secrets(reasoning),
-                "agent_output": _redact_secrets(stdout),
-                "agent_stderr": _redact_secrets(stderr),
-                "exit_code": exit_code,
-                "duration_ms": duration_ms,
-                "stage": stage,
-            }
+            _make_case_result(
+                case,
+                stage="judge",
+                verdict=verdict,
+                reasoning=reasoning,
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=exit_code,
+                duration_ms=duration_ms,
+            )
         )
 
     return case_results, passed, len(eval_cases), total_duration_ms
@@ -253,6 +315,7 @@ def stream_eval_pipeline(
         stderr = ""
         exit_code = -1
         duration_ms = 0
+        sandbox_error: Exception | None = None
 
         try:
             gen = stream_eval_case_in_sandbox(
@@ -283,28 +346,23 @@ def stream_eval_pipeline(
                 if stop.value is not None:
                     stdout, stderr, exit_code, duration_ms = stop.value
         except Exception as e:
-            case_results.append(
-                {
-                    "name": case.name,
-                    "description": case.description,
-                    "verdict": "error",
-                    "reasoning": _redact_secrets(f"Sandbox error: {e}"),
-                    "agent_output": "",
-                    "agent_stderr": "",
-                    "exit_code": -1,
-                    "duration_ms": 0,
-                    "stage": "sandbox",
-                }
+            sandbox_error = e
+
+        # Stage 1 outcome: sandbox crashed before producing results
+        if sandbox_error is not None:
+            result = _make_case_result(
+                case, stage="sandbox", verdict="error", reasoning=f"Sandbox error: {sandbox_error}"
             )
+            case_results.append(result)
             seq += 1
             yield _make_event(
                 seq,
                 "case_result",
                 case_index=case_idx,
                 case_name=case.name,
-                verdict="error",
-                reasoning=_redact_secrets(f"Sandbox error: {e}"),
-                duration_ms=0,
+                verdict=result["verdict"],
+                reasoning=result["reasoning"],
+                duration_ms=result["duration_ms"],
             )
             continue
 
@@ -312,29 +370,26 @@ def stream_eval_pipeline(
 
         # Stage 2: Check exit code
         if exit_code != 0:
-            reasoning = _redact_secrets(f"Agent exited with code {exit_code}: {stderr[:500]}")
-            case_results.append(
-                {
-                    "name": case.name,
-                    "description": case.description,
-                    "verdict": "error",
-                    "reasoning": reasoning,
-                    "agent_output": _redact_secrets(stdout),
-                    "agent_stderr": _redact_secrets(stderr),
-                    "exit_code": exit_code,
-                    "duration_ms": duration_ms,
-                    "stage": "agent",
-                }
+            result = _make_case_result(
+                case,
+                stage="agent",
+                verdict="error",
+                reasoning=f"Agent exited with code {exit_code}: {stderr[:_STDERR_REASONING_LIMIT]}",
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=exit_code,
+                duration_ms=duration_ms,
             )
+            case_results.append(result)
             seq += 1
             yield _make_event(
                 seq,
                 "case_result",
                 case_index=case_idx,
                 case_name=case.name,
-                verdict="error",
-                reasoning=reasoning,
-                duration_ms=duration_ms,
+                verdict=result["verdict"],
+                reasoning=result["reasoning"],
+                duration_ms=result["duration_ms"],
             )
             continue
 
@@ -342,38 +397,22 @@ def stream_eval_pipeline(
         seq += 1
         yield _make_event(seq, "judge_start", case_index=case_idx, case_name=case.name)
 
-        try:
-            judgment = judge_eval_output(
-                api_key=judge_api_key,
-                model=eval_config.judge_model,
-                eval_case_name=case.name,
-                eval_criteria=case.judge_criteria,
-                agent_output=stdout,
-            )
-            verdict = judgment["verdict"]
-            reasoning = judgment["reasoning"]
-            stage = "judge"
-        except Exception as e:
-            verdict = "error"
-            reasoning = f"Judge error: {e}"
-            stage = "judge"
+        verdict, reasoning = _judge_case(eval_config, case, judge_api_key, stdout)
 
         if verdict == "pass":
             passed += 1
 
-        case_results.append(
-            {
-                "name": case.name,
-                "description": case.description,
-                "verdict": verdict,
-                "reasoning": _redact_secrets(reasoning),
-                "agent_output": _redact_secrets(stdout),
-                "agent_stderr": _redact_secrets(stderr),
-                "exit_code": exit_code,
-                "duration_ms": duration_ms,
-                "stage": stage,
-            }
+        result = _make_case_result(
+            case,
+            stage="judge",
+            verdict=verdict,
+            reasoning=reasoning,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
         )
+        case_results.append(result)
 
         seq += 1
         yield _make_event(
@@ -381,9 +420,9 @@ def stream_eval_pipeline(
             "case_result",
             case_index=case_idx,
             case_name=case.name,
-            verdict=verdict,
-            reasoning=_redact_secrets(reasoning),
-            duration_ms=duration_ms,
+            verdict=result["verdict"],
+            reasoning=result["reasoning"],
+            duration_ms=result["duration_ms"],
         )
 
     # Final summary event

@@ -82,7 +82,9 @@ def parse_eval_cases_from_zip(skill_zip: bytes) -> tuple[EvalCase, ...]:
     cases: list[EvalCase] = []
 
     with zipfile.ZipFile(io.BytesIO(skill_zip)) as zf:
-        for name in zf.namelist():
+        # Sort so case ordering is deterministic across uploads with the
+        # same content but different zip-entry orders.
+        for name in sorted(zf.namelist()):
             if name.startswith("evals/") and name.endswith(".yaml"):
                 content = zf.read(name).decode("utf-8")
                 data = yaml.safe_load(content)
