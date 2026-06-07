@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,52 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dependency(
+    name: str,
+    *,
+    max_requests_setting: str,
+    window_seconds_setting: str,
+) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily creates a per-app ``RateLimiter``.
+
+    Previously each route declared its own ``_enforce_*_rate_limit`` wrapper
+    -- nine near-identical copies across registry, search, and auth routes.
+    This factory collapses that boilerplate. The limiter is cached on
+    ``app.state`` under ``_<name>_rate_limiter`` so it is built once per
+    container, and its limits are read from settings by attribute name so
+    each route keeps its independent budget.
+
+    Args:
+        name: Used as the limiter's identifier and the attribute key on
+            ``app.state``. Pick the same short label the route is named for
+            (e.g. ``"publish"``, ``"download"``, ``"auth"``).
+        max_requests_setting: Name of the Settings attribute holding the
+            request budget (e.g. ``"publish_rate_limit"``).
+        window_seconds_setting: Name of the Settings attribute holding the
+            window length in seconds (e.g. ``"publish_rate_window"``).
+
+    Returns:
+        A callable suitable for use with ``Depends(...)``. Calling it with
+        a ``Request`` records the hit and raises HTTP 429 when over budget.
+    """
+    state_attr = f"_{name}_rate_limiter"
+
+    def _dependency(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, max_requests_setting),
+                window_seconds=getattr(settings, window_seconds_setting),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    # Give the closure a stable, debuggable name in stack traces and
+    # OpenAPI dependency lists.
+    _dependency.__name__ = f"enforce_{name}_rate_limit"
+    _dependency.__qualname__ = _dependency.__name__
+    return _dependency

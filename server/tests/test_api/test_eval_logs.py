@@ -95,19 +95,15 @@ class TestGetEvalRun:
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
 
-        # find_eval_run is called twice: once before zombie check, once after
-        failed_run = _make_eval_run(
-            id=run.id,
-            status="failed",
-            error_message="Stale heartbeat",
-            heartbeat_at=stale_heartbeat,
-        )
-        mock_find_run.side_effect = [run, failed_run]
+        # _check_zombie now applies the failure fields locally via
+        # dataclasses.replace, so the endpoint only calls find_eval_run once.
+        mock_find_run.return_value = run
 
         resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+        assert mock_find_run.call_count == 1
         mock_update_status.assert_called_once()
         call_kwargs = mock_update_status.call_args
         assert call_kwargs.kwargs.get("status") == "failed"
@@ -382,6 +378,44 @@ class TestGetEvalRunLogs:
 
         assert resp.status_code == 404
 
+    @patch("decision_hub.api.registry_routes.read_eval_log_chunk")
+    @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_malformed_lines_are_skipped(
+        self,
+        mock_find_run: MagicMock,
+        mock_list_chunks: MagicMock,
+        mock_read_chunk: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A corrupted line in an S3 chunk must not 500 the live tail.
+
+        Eval workers append JSON lines to S3; a partial flush or truncated
+        multi-part write can leave one broken line surrounded by valid
+        events. Before the fix, ``json.loads`` would raise inside the route
+        handler and the entire poll returned HTTP 500 -- the UI saw the run
+        as dead until the next chunk shifted past the bad line. After the
+        fix the bad line is dropped and surrounding events are streamed.
+        """
+        run = _make_eval_run()
+        mock_find_run.return_value = run
+        mock_list_chunks.return_value = [(1, "eval-logs/test-run/0001.jsonl")]
+        mock_read_chunk.return_value = (
+            '{"seq":1,"type":"setup","content":"init"}\n{not valid json\n{"seq":2,"type":"log","content":"hello"}\n'
+        )
+
+        resp = client.get(
+            f"/v1/eval-runs/{run.id}/logs?cursor=0",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        event_seqs = [e["seq"] for e in data["events"]]
+        assert event_seqs == [1, 2]
+        assert data["next_cursor"] == 2
+
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
     @patch("decision_hub.api.registry_routes.find_eval_run")
@@ -434,7 +468,7 @@ class TestListEvalRuns:
         assert len(data) == 1
         assert data[0]["id"] == str(run.id)
 
-    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version")
+    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version_and_user")
     def test_list_runs_by_version_id(
         self,
         mock_find_runs: MagicMock,
@@ -454,6 +488,11 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["version_id"] == str(version_id)
+        # The route passes the authenticated user's id straight to the DB
+        # function so visibility is enforced server-side.
+        args = mock_find_runs.call_args.args
+        assert args[1] == version_id
+        assert args[2] == SAMPLE_USER_ID
 
     @patch("decision_hub.api.registry_routes.find_active_eval_runs_for_user")
     def test_list_runs_empty(
@@ -469,18 +508,24 @@ class TestListEvalRuns:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version")
+    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version_and_user")
     def test_list_by_version_filters_to_current_user(
         self,
         mock_find_runs: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """When filtering by version_id, only the current user's runs come back.
+
+        The user filter is enforced inside the SQL query, so the mocked DB
+        function should already receive ``current_user.id`` and return only
+        the caller's rows. Previously the route fetched every row for the
+        version and then filtered in Python -- this regression test pins the
+        invariant that the DB function is what does the filtering.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +536,7 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+        assert mock_find_runs.call_args.args[2] == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------

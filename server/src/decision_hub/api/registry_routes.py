@@ -3,10 +3,11 @@
 import json
 import math
 import zipfile
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +20,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import make_rate_limit_dependency
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -45,7 +46,7 @@ from decision_hub.infra.database import (
     find_audit_logs,
     find_eval_report_by_skill,
     find_eval_run,
-    find_eval_runs_for_version,
+    find_eval_runs_for_version_and_user,
     find_latest_scan_report_for_skill,
     find_org_by_slug,
     find_scan_findings_for_report,
@@ -83,88 +84,45 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Rate-limit dependencies for each public endpoint. The factory builds a
+# closure that lazily instantiates a RateLimiter on app.state the first time
+# it runs, so we keep per-endpoint budgets without repeating the same six
+# lines of init code seven times.
+_enforce_list_skills_rate_limit = make_rate_limit_dependency(
+    "list_skills",
+    max_requests_setting="list_skills_rate_limit",
+    window_seconds_setting="list_skills_rate_window",
+)
+_enforce_resolve_rate_limit = make_rate_limit_dependency(
+    "resolve",
+    max_requests_setting="resolve_rate_limit",
+    window_seconds_setting="resolve_rate_window",
+)
+_enforce_similar_skills_rate_limit = make_rate_limit_dependency(
+    "similar_skills",
+    max_requests_setting="similar_skills_rate_limit",
+    window_seconds_setting="similar_skills_rate_window",
+)
+_enforce_download_rate_limit = make_rate_limit_dependency(
+    "download",
+    max_requests_setting="download_rate_limit",
+    window_seconds_setting="download_rate_window",
+)
+_enforce_audit_log_rate_limit = make_rate_limit_dependency(
+    "audit_log",
+    max_requests_setting="audit_log_rate_limit",
+    window_seconds_setting="audit_log_rate_window",
+)
+_enforce_scan_report_rate_limit = make_rate_limit_dependency(
+    "scan_report",
+    max_requests_setting="scan_report_rate_limit",
+    window_seconds_setting="scan_report_rate_window",
+)
+_enforce_publish_rate_limit = make_rate_limit_dependency(
+    "publish",
+    max_requests_setting="publish_rate_limit",
+    window_seconds_setting="publish_rate_window",
+)
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -1097,27 +1055,39 @@ def _run_to_response(run) -> EvalRunResponse:
     )
 
 
-def _check_zombie(conn: Connection, run) -> str:
-    """Check if a running eval run has a stale heartbeat (zombie).
+def _check_zombie(conn: Connection, run):
+    """Mark a stale-heartbeat run as failed and return the (possibly updated) run.
 
-    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    If the run is in a non-terminal state and its heartbeat is older than
+    ``_STALE_HEARTBEAT_SECONDS``, the DB row is updated to ``failed`` and a
+    copy of the run is returned with those fields applied. Otherwise the
+    original run is returned unchanged. Returning the updated run lets
+    callers avoid a redundant ``find_eval_run`` round-trip.
     """
     if run.status not in ("running", "judging", "provisioning"):
-        return run.status
+        return run
     if run.heartbeat_at is None:
-        return run.status
+        return run
     elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
-    if elapsed > _STALE_HEARTBEAT_SECONDS:
-        update_eval_run_status(
-            conn,
-            run.id,
-            status="failed",
-            error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
-            completed_at=datetime.now(UTC),
-        )
-        return "failed"
-    return run.status
+    if elapsed <= _STALE_HEARTBEAT_SECONDS:
+        return run
+    error_message = f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed."
+    completed_at = datetime.now(UTC)
+    update_eval_run_status(
+        conn,
+        run.id,
+        status="failed",
+        error_message=error_message,
+        completed_at=completed_at,
+    )
+    # dataclasses.replace preserves frozen-instance semantics; EvalRun is
+    # a frozen dataclass and is otherwise read-only.
+    return replace(
+        run,
+        status="failed",
+        error_message=error_message,
+        completed_at=completed_at,
+    )
 
 
 @router.get("/eval-runs/{run_id}", response_model=EvalRunResponse)
@@ -1131,9 +1101,7 @@ def get_eval_run(
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
-    _check_zombie(conn, run)
-    # Re-read after potential zombie update
-    run = find_eval_run(conn, parsed_id)
+    run = _check_zombie(conn, run)
     return _run_to_response(run)
 
 
@@ -1152,8 +1120,10 @@ def get_eval_run_logs(
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
 
-    # Zombie detection on read
-    effective_status = _check_zombie(conn, run)
+    # Zombie detection on read — use the returned run so subsequent fields
+    # (run_status, error_message) reflect the post-update state.
+    run = _check_zombie(conn, run)
+    effective_status = run.status
 
     # Fetch all S3 chunks for the run. The cursor is an event sequence number
     # (e.g. 50), not a chunk file sequence number (e.g. 3), so we can't use
@@ -1165,19 +1135,26 @@ def get_eval_run_logs(
         after_seq=0,
     )
 
-    # Read and parse events from each chunk, filtering by cursor
+    # Read and parse events from each chunk, filtering by cursor. Skip
+    # malformed lines (truncated writes, partial S3 multi-part uploads) so a
+    # single bad log chunk can't return HTTP 500 and break the live tail.
     all_events: list[dict] = []
     max_seq = cursor
     for _chunk_seq, s3_key in chunks:
         content = read_eval_log_chunk(s3_client, settings.s3_bucket, s3_key)
         for line in content.strip().split("\n"):
-            if line.strip():
+            if not line.strip():
+                continue
+            try:
                 event = json.loads(line)
-                event_seq = event.get("seq", 0)
-                if event_seq > cursor:
-                    all_events.append(event)
-                if event_seq > max_seq:
-                    max_seq = event_seq
+            except json.JSONDecodeError:
+                logger.warning("Skipping malformed eval-log line in {}", s3_key)
+                continue
+            event_seq = event.get("seq", 0)
+            if event_seq > cursor:
+                all_events.append(event)
+            if event_seq > max_seq:
+                max_seq = event_seq
 
     return EvalRunLogsResponse(
         events=all_events,
@@ -1194,11 +1171,14 @@ def list_eval_runs(
     conn: Connection = Depends(get_connection),
     current_user: User = Depends(get_current_user),
 ) -> list[EvalRunResponse]:
-    """List eval runs, optionally filtered by version ID."""
+    """List eval runs, optionally filtered by version ID.
+
+    Always scoped to the current user — version_id is a filter, not an
+    authorisation boundary.
+    """
     if version_id is not None:
         parsed_vid = _parse_uuid(version_id, "version_id")
-        runs = find_eval_runs_for_version(conn, parsed_vid)
-        runs = [r for r in runs if r.user_id == current_user.id]
+        runs = find_eval_runs_for_version_and_user(conn, parsed_vid, current_user.id)
     else:
         runs = find_active_eval_runs_for_user(conn, current_user.id)
     return [_run_to_response(r) for r in runs]

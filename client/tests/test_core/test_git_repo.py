@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import _GIT_TIMEOUT_SECONDS, _run_git, clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,52 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestRunGitTimeout:
+    """Hung git remotes must not hang the CLI forever."""
+
+    def test_run_git_passes_timeout_to_subprocess(self) -> None:
+        """_run_git forwards the module timeout to subprocess.run."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=["git", "--version"], returncode=0, stdout="", stderr=""
+            )
+
+            _run_git(["git", "--version"])
+
+            kwargs = mock_run.call_args.kwargs
+            assert kwargs["timeout"] == _GIT_TIMEOUT_SECONDS
+            assert kwargs["capture_output"] is True
+            assert kwargs["text"] is True
+
+    def test_run_git_converts_timeout_to_runtime_error(self) -> None:
+        """A subprocess timeout becomes a RuntimeError with a clean message."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd=["git", "clone"], timeout=_GIT_TIMEOUT_SECONDS)
+
+            with pytest.raises(RuntimeError, match="timed out"):
+                _run_git(["git", "clone", "https://example.invalid/repo.git"])
+
+    def test_clone_repo_cleans_tmpdir_on_timeout(self, tmp_path: Path) -> None:
+        """A timed-out clone deletes its temp dir instead of leaving a partial clone."""
+        created_paths: list[Path] = []
+
+        original_mkdtemp = __import__("tempfile").mkdtemp
+
+        def tracking_mkdtemp(*args, **kwargs):
+            path = original_mkdtemp(*args, **kwargs)
+            created_paths.append(Path(path))
+            return path
+
+        with (
+            patch("dhub.core.git_repo.tempfile.mkdtemp", side_effect=tracking_mkdtemp),
+            patch("dhub.core.git_repo.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd=["git", "clone"], timeout=_GIT_TIMEOUT_SECONDS)
+
+            with pytest.raises(RuntimeError):
+                clone_repo("https://example.invalid/repo.git")
+
+        assert created_paths, "expected tempfile.mkdtemp to be called"
+        assert not created_paths[0].exists()

@@ -2708,12 +2708,23 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     return _row_to_eval_run(row)
 
 
-def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
-    """List all eval runs for a version, newest first."""
+def find_eval_runs_for_version_and_user(conn: Connection, version_id: UUID, user_id: UUID) -> list[EvalRun]:
+    """List a single user's eval runs for a version, newest first.
+
+    Pushes the user-id filter into the WHERE clause so the API layer no
+    longer fetches every run for the version and then filters in Python.
+    Eval runs for shared/team versions can accumulate quickly; the previous
+    approach was O(total_runs) per request even when the caller only owned
+    a handful. With this query the DB does the filter (and uses the
+    eval_runs(user_id) index where present).
+    """
     stmt = (
         sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .where(
+            eval_runs_table.c.version_id == version_id,
+            eval_runs_table.c.user_id == user_id,
+        )
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
     )
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
