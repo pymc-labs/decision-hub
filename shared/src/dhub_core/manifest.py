@@ -95,11 +95,16 @@ def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
 
     When yaml.safe_load fails, falls back to quoting values that contain
     markdown links [text](url) or unquoted colons, then retries parsing.
+
+    Raises:
+        yaml.YAMLError: When even the patched fallback fails. The original
+            cause is preserved on ``__cause__`` so callers can surface it
+            with the offending input for debugging.
     """
     try:
         return yaml.safe_load(frontmatter_str)
-    except yaml.YAMLError:
-        pass
+    except yaml.YAMLError as primary_exc:
+        original = primary_exc
 
     # Fallback: quote values containing markdown links [text](url) which
     # YAML misinterprets as flow sequences, then retry parsing.
@@ -123,7 +128,14 @@ def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
         patched.append(line)
 
     patched_str = "\n".join(patched)
-    return yaml.safe_load(patched_str)
+    try:
+        return yaml.safe_load(patched_str)
+    except yaml.YAMLError as fallback_exc:
+        # Preserve both the original and the fallback failure so callers
+        # logging the exception see exactly which retry path failed.
+        raise yaml.YAMLError(
+            f"SKILL.md frontmatter could not be parsed even after quoting fallback: {fallback_exc}"
+        ) from original
 
 
 def split_frontmatter(content: str) -> tuple[str, str]:

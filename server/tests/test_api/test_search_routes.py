@@ -77,6 +77,7 @@ def search_settings() -> MagicMock:
     settings.s3_bucket = "test-bucket"
     settings.search_rate_limit = 100
     settings.search_rate_window = 60
+    settings.trust_proxy_hops = 0
     settings.search_candidate_limit = 20
     settings.embedding_model = "gemini-embedding-001"
     return settings

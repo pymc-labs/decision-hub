@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     github_app_installation_id: str = ""
 
     # Rate limiting (per IP, sliding window)
+    # Number of trusted reverse-proxy hops in front of the server. When > 0
+    # the rate limiter reads X-Forwarded-For and attributes requests to the
+    # IP added by the Nth-from-rightmost trusted hop. Leave at 0 for direct
+    # client connections (request.client.host is the real client).
+    trust_proxy_hops: int = 0
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds
 

@@ -15,6 +15,12 @@ def validate_zip_entries(zf: zipfile.ZipFile, target_dir: str) -> None:
     stays within *target_dir*.  This prevents zip-slip attacks where
     entries like ``../../.bashrc`` write outside the intended location.
 
+    Uses ``os.path.realpath`` (not just ``normpath``) on both target
+    and resolved entry paths so symlinks in the target directory are
+    followed before the prefix check.  ``normpath`` only collapses
+    ``..`` lexically, which lets a symlinked subdir escape on extraction
+    even though the textual path looks safe.
+
     Args:
         zf: An open ZipFile to validate.
         target_dir: The directory entries will be extracted into.
@@ -22,10 +28,11 @@ def validate_zip_entries(zf: zipfile.ZipFile, target_dir: str) -> None:
     Raises:
         ValueError: If any entry resolves outside target_dir.
     """
-    safe_prefix = os.path.normpath(target_dir) + os.sep
+    safe_root = os.path.realpath(target_dir)
+    safe_prefix = safe_root + os.sep
 
     for info in zf.infolist():
-        resolved = os.path.normpath(os.path.join(target_dir, info.filename))
+        resolved = os.path.realpath(os.path.join(target_dir, info.filename))
         # Allow the target dir itself (for directory entries named ".")
-        if resolved != os.path.normpath(target_dir) and not resolved.startswith(safe_prefix):
+        if resolved != safe_root and not resolved.startswith(safe_prefix):
             raise ValueError(f"Zip entry escapes target directory: {info.filename!r}")

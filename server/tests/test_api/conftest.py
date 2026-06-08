@@ -36,6 +36,7 @@ def test_settings() -> MagicMock:
     settings.required_github_orgs = []
     settings.min_cli_version = ""
     # Rate limiting
+    settings.trust_proxy_hops = 0
     settings.search_rate_limit = 10
     settings.search_rate_window = 60
     settings.list_skills_rate_limit = 30

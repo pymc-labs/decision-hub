@@ -86,6 +86,21 @@ class TestParseFrontmatterYaml:
         with pytest.raises(yaml.YAMLError):
             parse_frontmatter_yaml(":\n  :\n    - [invalid")
 
+    def test_fallback_failure_preserves_original_cause(self) -> None:
+        """When the patched fallback also fails, the original YAMLError
+        must remain on ``__cause__`` so the operator log shows what the
+        user actually submitted, not just the post-patch garble."""
+        import yaml
+
+        # YAML that survives the quote-adding patch (no colon-containing
+        # values to quote) but is structurally broken — so both passes
+        # of ``yaml.safe_load`` fail.
+        with pytest.raises(yaml.YAMLError) as exc_info:
+            parse_frontmatter_yaml(":\n  :\n    - [invalid")
+
+        assert exc_info.value.__cause__ is not None
+        assert isinstance(exc_info.value.__cause__, yaml.YAMLError)
+
 
 # ---------------------------------------------------------------------------
 # parse_runtime

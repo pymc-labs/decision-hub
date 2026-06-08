@@ -144,13 +144,16 @@ function TreeNodeView({
   );
 }
 
-// Custom theme based on oneDark with neon accents
+// Custom theme based on oneDark with neon accents. The syntax-highlighter
+// theme is a JS object (not a CSS module), so referencing the typographic
+// scale variable directly keeps file rendering consistent with the rest of
+// the design system per the CLAUDE.md font-scale rule.
 const neonTheme = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
     background: "#0d0d1a",
-    fontSize: "0.85rem",
+    fontSize: "var(--text-sm)",
     lineHeight: "1.6",
   },
   'code[class*="language-"]': {

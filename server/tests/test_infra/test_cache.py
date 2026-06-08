@@ -94,6 +94,35 @@ class TestTTLCacheEviction:
         assert cache.get("a") == 10
         assert cache.get("b") == 2
 
+    def test_eviction_pick_does_not_mutate_during_iteration(self) -> None:
+        """Repeatedly filling the cache must not raise — regression test.
+
+        The original ``_evict_one`` deleted from the dict while iterating
+        ``items()`` and relied on an early ``return`` to dodge the
+        ``RuntimeError: dictionary changed size during iteration``.
+        Tightening the loop to pick its target before mutating should
+        keep this safe under heavy churn.
+        """
+        cache = TTLCache(default_ttl=60, max_size=4)
+        # Fill, then keep overwriting fresh keys so every set call has to
+        # evict something — and force the "no expired entries" branch by
+        # using a long TTL.
+        for i in range(200):
+            cache.set(f"key-{i}", i)
+        assert len(cache._store) == 4
+
+    def test_eviction_picks_soonest_expiring_when_none_expired(self) -> None:
+        """When the cache is full and nothing is expired, evict the entry
+        with the earliest ``expires_at`` so longest-lived data wins."""
+        cache = TTLCache(default_ttl=60, max_size=2)
+        cache.set("short", "x", ttl=1)
+        cache.set("long", "y", ttl=60)
+        cache.set("newest", "z", ttl=60)  # forces an eviction
+        # "short" was expiring the soonest — it should have been dropped.
+        assert cache.get("short") is None
+        assert cache.get("long") == "y"
+        assert cache.get("newest") == "z"
+
 
 class TestTTLCacheDisabledTTL:
     """Verify zero-TTL means caching is effectively disabled."""

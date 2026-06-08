@@ -86,3 +86,36 @@ class TestValidateZipEntries:
         with pytest.raises(ValueError, match="escapes target directory"):
             validate_zip_entries(zf, "/tmp/target")
         zf.close()
+
+    def test_rejects_entry_escaping_via_symlinked_target(self, tmp_path) -> None:
+        """Symlinked target dirs must not provide a bypass.
+
+        With ``normpath`` alone, ``target_dir/escape/x.txt`` could resolve
+        to ``/tmp/.../target/escape/x.txt`` lexically — looking safe —
+        even when ``target/escape`` is a symlink pointing outside the
+        sandbox. ``realpath`` follows the symlink so the real on-disk
+        path is checked.
+        """
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = tmp_path / "target"
+        target.mkdir()
+        # ``escape`` lives inside the target dir lexically but resolves
+        # to ``outside`` on disk.
+        (target / "escape").symlink_to(outside, target_is_directory=True)
+
+        zf = _make_zip({"escape/poisoned.txt": b"x"})
+        with pytest.raises(ValueError, match="escapes target directory"):
+            validate_zip_entries(zf, str(target))
+        zf.close()
+
+    def test_accepts_safe_entry_when_target_itself_is_symlink(self, tmp_path) -> None:
+        """A symlinked target is fine as long as entries stay under it."""
+        real = tmp_path / "real-target"
+        real.mkdir()
+        linked = tmp_path / "linked-target"
+        linked.symlink_to(real, target_is_directory=True)
+
+        zf = _make_zip({"SKILL.md": b"# Skill"})
+        validate_zip_entries(zf, str(linked))  # must not raise
+        zf.close()
