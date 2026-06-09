@@ -7,13 +7,13 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dependency
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
@@ -28,17 +28,8 @@ from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["search"])
 
-
-def _enforce_search_rate_limit(request: Request) -> None:
-    """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
-    state = request.app.state
-    if not hasattr(state, "_search_rate_limiter"):
-        settings: Settings = state.settings
-        state._search_rate_limiter = RateLimiter(
-            max_requests=settings.search_rate_limit,
-            window_seconds=settings.search_rate_window,
-        )
-    state._search_rate_limiter(request)
+# Per-IP sliding window for the ask/search endpoints.
+_enforce_search_rate_limit = rate_limit_dependency("search", "search_rate_limit", "search_rate_window")
 
 
 # ---------------------------------------------------------------------------
@@ -136,11 +127,16 @@ def _log_ask_analytics(
     username: str | None,
     *,
     fallback: bool = False,
+    off_topic: bool = False,
 ) -> None:
     """Upload search log to S3 and insert metadata row.
 
     Runs as a FastAPI background task with its own DB connection so the
     request connection is already closed when this executes.
+
+    ``off_topic=True`` records queries that the LLM guard rejected as
+    not-a-skill-question; we still log them so we can analyse what users
+    are asking that gets bounced.
     """
     try:
         metadata = {
@@ -152,6 +148,8 @@ def _log_ask_analytics(
         }
         if fallback:
             metadata["fallback"] = True
+        if off_topic:
+            metadata["off_topic"] = True
 
         s3_key = upload_search_log(s3_client, s3_bucket, log_id, query, answer, metadata)
 
@@ -348,6 +346,25 @@ def _ask_skills_inner(
         query_embedding, embed_ms = embed_future.result()
 
     if not guard_result.is_skill_query:
+        # Log off-topic queries too so we can see what users are asking
+        # that the guard rejects — useful for tuning the topicality prompt
+        # and spotting categories of demand we're not serving yet.
+        off_topic_latency_ms = int((time.monotonic() - start_time) * 1000)
+        background_tasks.add_task(
+            _log_ask_analytics,
+            engine=engine,
+            s3_client=s3_client,
+            s3_bucket=settings.s3_bucket,
+            log_id=uuid4(),
+            query=q,
+            answer=_OFF_TOPIC_ANSWER,
+            results_count=0,
+            model=settings.gemini_model,
+            latency_ms=off_topic_latency_ms,
+            user_id=current_user.id if current_user else None,
+            username=current_user.username if current_user else None,
+            off_topic=True,
+        )
         return AskResponse(query=q, answer=_OFF_TOPIC_ANSWER, skills=[])
 
     result = _run_retrieval(

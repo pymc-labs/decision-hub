@@ -98,12 +98,16 @@ class CLIVersionMiddleware:
         # Browser / frontend requests don't send the header and should pass through.
         # Malformed version headers are treated as outdated — return 426 so the
         # client upgrades to a version that sends a valid semver header.
-        if client_ver:
-            try:
-                client_parsed = _parse_semver(client_ver)
-            except ValueError:
-                client_parsed = (0, 0, 0)
-        if client_ver and client_parsed < self._min_parsed:
+        if not client_ver:
+            await self.app(scope, receive, send)
+            return
+
+        try:
+            client_parsed = _parse_semver(client_ver)
+        except ValueError:
+            client_parsed = (0, 0, 0)
+
+        if client_parsed < self._min_parsed:
             body = _json.dumps(
                 {
                     "detail": (

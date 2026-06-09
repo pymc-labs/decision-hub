@@ -26,9 +26,16 @@ def sitemap_xml(
 ) -> Response:
     """Generate a dynamic XML sitemap with all public skills and orgs."""
     ttl = settings.cache_ttl_sitemap
-    cached = cache.get("sitemap_xml") if ttl else None
-    if cached is not None:
-        return cached
+    # Cache the rendered XML string, not the Response object. Re-serving
+    # a cached Response would replay its original Cache-Control header
+    # so each downstream client would believe the sitemap stays fresh
+    # for a full TTL window from *its* request time instead of from the
+    # original render time. Building a fresh Response per request keeps
+    # the max-age semantics correct.
+    cached_xml = cache.get("sitemap_xml") if ttl else None
+    if cached_xml is not None:
+        headers = {"Cache-Control": f"public, max-age={ttl}"} if ttl else {}
+        return Response(content=cached_xml, media_type="application/xml", headers=headers)
 
     today = datetime.now(UTC).strftime("%Y-%m-%d")
 
@@ -92,11 +99,10 @@ def sitemap_xml(
     lines.append("</urlset>")
 
     xml = "\n".join(lines)
-    headers = {"Cache-Control": f"public, max-age={ttl}"} if ttl else {}
-    result = Response(content=xml, media_type="application/xml", headers=headers)
     if ttl:
-        cache.set("sitemap_xml", result, ttl=ttl)
-    return result
+        cache.set("sitemap_xml", xml, ttl=ttl)
+    headers = {"Cache-Control": f"public, max-age={ttl}"} if ttl else {}
+    return Response(content=xml, media_type="application/xml", headers=headers)
 
 
 _PROD_HOSTS = {"hub.decision.ai", "decisionhub.dev"}

@@ -91,23 +91,22 @@ class TestGetEvalRun:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """A running eval with a heartbeat >5 min stale is marked failed."""
+        """A running eval with a heartbeat >5 min stale is marked failed.
+
+        Regression guard: ``find_eval_run`` is called exactly once per
+        request — the route uses the in-memory zombie status instead of
+        re-reading the row after the UPDATE.
+        """
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
-
-        # find_eval_run is called twice: once before zombie check, once after
-        failed_run = _make_eval_run(
-            id=run.id,
-            status="failed",
-            error_message="Stale heartbeat",
-            heartbeat_at=stale_heartbeat,
-        )
-        mock_find_run.side_effect = [run, failed_run]
+        mock_find_run.return_value = run
 
         resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+        # Single DB read, single UPDATE — no re-fetch after the zombie flip.
+        assert mock_find_run.call_count == 1
         mock_update_status.assert_called_once()
         call_kwargs = mock_update_status.call_args
         assert call_kwargs.kwargs.get("status") == "failed"
@@ -476,11 +475,18 @@ class TestListEvalRuns:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """When filtering by version_id, the user-id filter is pushed into SQL.
+
+        The route forwards ``user_id=current_user.id`` to
+        ``find_eval_runs_for_version`` so the database never returns rows
+        belonging to other users. Previously the route fetched all rows
+        and discarded foreign ones in Python — both wasteful and a small
+        cross-tenant data exposure on the wire.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        # The DB-layer mock only ever returns the caller's rows.
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +497,10 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+
+        # The user filter is passed as a keyword argument.
+        _args, kwargs = mock_find_runs.call_args
+        assert kwargs.get("user_id") == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------
