@@ -7,14 +7,19 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
-from decision_hub.api.rate_limit import RateLimiter
-from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
+from decision_hub.api.rate_limit import make_rate_limit_dependency
+from decision_hub.domain.search import (
+    build_index_entry_from_row,
+    format_trust_score,
+    resolve_author_display,
+    serialize_index,
+)
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
 from decision_hub.infra.gemini import (
@@ -29,16 +34,9 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/v1", tags=["search"])
 
 
-def _enforce_search_rate_limit(request: Request) -> None:
-    """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
-    state = request.app.state
-    if not hasattr(state, "_search_rate_limiter"):
-        settings: Settings = state.settings
-        state._search_rate_limiter = RateLimiter(
-            max_requests=settings.search_rate_limit,
-            window_seconds=settings.search_rate_window,
-        )
-    state._search_rate_limiter(request)
+_enforce_search_rate_limit = make_rate_limit_dependency(
+    "_search_rate_limiter", "search_rate_limit", "search_rate_window"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -86,26 +84,7 @@ def _run_retrieval(
     if not candidates:
         return None
 
-    entries = tuple(
-        build_index_entry(
-            org_slug=row["org_slug"],
-            skill_name=row["skill_name"],
-            description=row.get("description", ""),
-            latest_version=row["latest_version"],
-            eval_status=row["eval_status"],
-            author=resolve_author_display(row.get("published_by", "")),
-            category=row.get("category", ""),
-            download_count=row.get("download_count", 0),
-            source_repo_url=row.get("source_repo_url"),
-            gauntlet_summary=row.get("gauntlet_summary"),
-            github_stars=row.get("github_stars"),
-            github_forks=row.get("github_forks"),
-            github_license=row.get("github_license"),
-            source_repo_removed=row.get("source_repo_removed", False),
-            github_is_archived=row.get("github_is_archived"),
-        )
-        for row in candidates
-    )
+    entries = tuple(build_index_entry_from_row(row) for row in candidates)
     index_content = serialize_index(list(entries))
 
     return RetrievalResult(

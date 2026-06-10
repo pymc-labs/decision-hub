@@ -5,6 +5,7 @@ from datetime import UTC
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from decision_hub.models import Organization, OrgMember, Skill, Version
@@ -808,6 +809,34 @@ class TestResolveSkill:
         call_kwargs = mock_resolve.call_args
         assert call_kwargs.kwargs.get("allow_risky") is True
 
+    @patch("decision_hub.api.registry_routes.increment_skill_downloads")
+    @patch("decision_hub.api.registry_routes.generate_presigned_url")
+    @patch("decision_hub.api.registry_routes.resolve_version")
+    def test_resolve_does_not_increment_when_presign_fails(
+        self,
+        mock_resolve: MagicMock,
+        mock_presign: MagicMock,
+        mock_increment: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """If presigned URL generation fails the download counter must not advance.
+
+        Guards against the 'state advanced on failure' anti-pattern that CLAUDE.md
+        calls out: the count would diverge from real downloads on every S3 outage.
+        """
+        org = _make_org()
+        skill = _make_skill(org)
+        version = _make_version(skill)
+
+        mock_resolve.return_value = version
+        mock_presign.side_effect = RuntimeError("S3 boom")
+
+        # The TestClient re-raises server exceptions; we care that no DB
+        # mutation happened before the failure bubbled up.
+        with pytest.raises(RuntimeError, match="S3 boom"):
+            client.get("/v1/resolve/test-org/my-skill?spec=latest")
+        mock_increment.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/skills/{org_slug}/{skill_name}/audit-log
@@ -1489,6 +1518,52 @@ class TestDownloadSkillVisibility:
         assert resp.status_code == 404
         mock_resolve.assert_called_once()
         assert mock_resolve.call_args.kwargs["user_org_ids"] is None
+
+    @patch("decision_hub.api.registry_routes.increment_skill_downloads")
+    @patch("decision_hub.api.registry_routes.download_zip_from_s3")
+    @patch("decision_hub.api.registry_routes.resolve_version")
+    def test_download_does_not_increment_when_s3_fails(
+        self,
+        mock_resolve: MagicMock,
+        mock_download: MagicMock,
+        mock_increment: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """If the S3 fetch fails the download counter must not advance."""
+        org = _make_org()
+        skill = _make_skill(org)
+        version = _make_version(skill)
+
+        mock_resolve.return_value = version
+        mock_download.side_effect = RuntimeError("S3 boom")
+
+        with pytest.raises(RuntimeError, match="S3 boom"):
+            client.get("/v1/skills/test-org/my-skill/download")
+        mock_increment.assert_not_called()
+
+    @patch("decision_hub.api.registry_routes.increment_skill_downloads")
+    @patch("decision_hub.api.registry_routes.download_zip_from_s3")
+    @patch("decision_hub.api.registry_routes.resolve_version")
+    def test_download_increments_after_successful_fetch(
+        self,
+        mock_resolve: MagicMock,
+        mock_download: MagicMock,
+        mock_increment: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Successful download must bump the counter exactly once with the skill id."""
+        org = _make_org()
+        skill = _make_skill(org)
+        version = _make_version(skill)
+
+        mock_resolve.return_value = version
+        mock_download.return_value = b"zip bytes"
+
+        resp = client.get("/v1/skills/test-org/my-skill/download")
+
+        assert resp.status_code == 200
+        mock_increment.assert_called_once()
+        assert mock_increment.call_args[0][1] == version.skill_id
 
 
 # ---------------------------------------------------------------------------

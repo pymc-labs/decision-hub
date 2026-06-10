@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import RateLimiter, make_rate_limit_dependency
 
 
 def _make_request(host: str = "127.0.0.1") -> MagicMock:
@@ -84,3 +84,60 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+
+class TestMakeRateLimitDependency:
+    """The factory builds the dependency closure used by every rate-limited route."""
+
+    def _request_with_settings(self, **rate_settings: int) -> MagicMock:
+        request = MagicMock()
+        request.client.host = "10.0.0.1"
+        request.app.state = MagicMock(spec=[])  # bare state, no cached limiter
+        request.app.state.settings = MagicMock(**rate_settings)
+        return request
+
+    def test_lazy_initialises_limiter_on_first_call(self) -> None:
+        dep = make_rate_limit_dependency("_demo_limiter", "demo_limit", "demo_window")
+        request = self._request_with_settings(demo_limit=5, demo_window=60)
+
+        assert not hasattr(request.app.state, "_demo_limiter")
+        dep(request)
+
+        limiter = request.app.state._demo_limiter
+        assert isinstance(limiter, RateLimiter)
+        assert limiter.max_requests == 5
+        assert limiter.window_seconds == 60
+
+    def test_reuses_cached_limiter_across_calls(self) -> None:
+        dep = make_rate_limit_dependency("_demo_limiter", "demo_limit", "demo_window")
+        request = self._request_with_settings(demo_limit=10, demo_window=60)
+
+        dep(request)
+        first = request.app.state._demo_limiter
+        dep(request)
+        assert request.app.state._demo_limiter is first
+
+    def test_enforces_configured_limit(self) -> None:
+        dep = make_rate_limit_dependency("_demo_limiter", "demo_limit", "demo_window")
+        request = self._request_with_settings(demo_limit=2, demo_window=60)
+
+        for _ in range(2):
+            dep(request)
+
+        with pytest.raises(HTTPException) as exc_info:
+            dep(request)
+        assert exc_info.value.status_code == 429
+
+    def test_different_attr_names_isolate_limiters(self) -> None:
+        """Two factory instances on the same state are independent."""
+        dep_a = make_rate_limit_dependency("_a_limiter", "a_limit", "a_window")
+        dep_b = make_rate_limit_dependency("_b_limiter", "b_limit", "b_window")
+        request = self._request_with_settings(a_limit=1, a_window=60, b_limit=5, b_window=60)
+
+        dep_a(request)
+        with pytest.raises(HTTPException):
+            dep_a(request)
+
+        # _b_limiter has plenty of budget left and uses its own bucket.
+        for _ in range(5):
+            dep_b(request)

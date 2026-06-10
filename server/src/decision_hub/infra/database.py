@@ -598,6 +598,16 @@ skill_trackers_table = Table(
     sa.UniqueConstraint("user_id", "repo_url", "branch"),
 )
 
+# Partial index that backs claim_due_trackers (ORDER BY next_check_at ASC NULLS
+# FIRST + FOR UPDATE SKIP LOCKED) — defined in migration
+# 20260219_230810_add_next_check_at.sql, repeated here so the schema-drift
+# replay produces matching metadata and so create_all() works in tests.
+sa.Index(
+    "ix_skill_trackers_next_check",
+    skill_trackers_table.c.next_check_at.asc().nulls_first(),
+    postgresql_where=skill_trackers_table.c.enabled.is_(True),
+)
+
 tracker_metrics_table = Table(
     "tracker_metrics",
     metadata,
@@ -1180,6 +1190,18 @@ def update_skill_manifest_path(conn: Connection, skill_id: UUID, manifest_path: 
     conn.execute(stmt)
 
 
+def _matches_repo_url(repo_url_col: sa.Column, repo_url: str) -> sa.ColumnElement[bool]:
+    """Predicate matching skills whose source_repo_url is *repo_url* or a sub-path.
+
+    Tracker rows may live in a subdirectory of the repo (``…/owner/repo/path``),
+    so we match both the exact URL and any URL that starts with ``repo_url/``.
+    """
+    return sa.or_(
+        repo_url_col == repo_url,
+        repo_url_col.like(f"{repo_url}/%"),
+    )
+
+
 def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> None:
     """Batch-update github_stars on the skills table by source_repo_url.
 
@@ -1187,19 +1209,25 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    Issues a single UPDATE driven by a VALUES table so a crawler batch of N
+    repos costs one round-trip instead of N.
     """
-    for repo_url, stars in repo_stars.items():
-        stmt = (
-            sa.update(skills_table)
-            .where(
-                sa.or_(
-                    skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
-                )
-            )
-            .values(github_stars=stars)
-        )
-        conn.execute(stmt)
+    if not repo_stars:
+        return
+
+    pairs = sa.values(
+        sa.column("repo_url", Text),
+        sa.column("stars", sa.Integer),
+        name="repo_stars",
+    ).data(list(repo_stars.items()))
+
+    stmt = (
+        sa.update(skills_table)
+        .values(github_stars=pairs.c.stars)
+        .where(_matches_repo_url(skills_table.c.source_repo_url, pairs.c.repo_url))
+    )
+    conn.execute(stmt)
 
 
 def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str, dict]) -> None:
@@ -1210,24 +1238,43 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    Issues a single UPDATE driven by a VALUES table so a crawler batch of N
+    repos costs one round-trip instead of N.
     """
-    for repo_url, meta in repo_metadata.items():
-        stmt = (
-            sa.update(skills_table)
-            .where(
-                sa.or_(
-                    skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
-                )
-            )
-            .values(
-                github_forks=meta.get("forks"),
-                github_watchers=meta.get("watchers"),
-                github_is_archived=meta.get("is_archived"),
-                github_license=meta.get("license"),
-            )
+    if not repo_metadata:
+        return
+
+    rows = [
+        (
+            repo_url,
+            meta.get("forks"),
+            meta.get("watchers"),
+            meta.get("is_archived"),
+            meta.get("license"),
         )
-        conn.execute(stmt)
+        for repo_url, meta in repo_metadata.items()
+    ]
+    pairs = sa.values(
+        sa.column("repo_url", Text),
+        sa.column("forks", sa.Integer),
+        sa.column("watchers", sa.Integer),
+        sa.column("is_archived", Boolean),
+        sa.column("license", Text),
+        name="repo_meta",
+    ).data(rows)
+
+    stmt = (
+        sa.update(skills_table)
+        .values(
+            github_forks=pairs.c.forks,
+            github_watchers=pairs.c.watchers,
+            github_is_archived=pairs.c.is_archived,
+            github_license=pairs.c.license,
+        )
+        .where(_matches_repo_url(skills_table.c.source_repo_url, pairs.c.repo_url))
+    )
+    conn.execute(stmt)
 
 
 def insert_skill_access_grant(

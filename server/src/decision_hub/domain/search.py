@@ -1,6 +1,8 @@
 """Search index building and trust score formatting."""
 
 import json
+from collections.abc import Mapping
+from typing import Any
 
 from decision_hub.models import SkillIndexEntry
 
@@ -61,6 +63,34 @@ def build_index_entry(
         github_forks=github_forks,
         github_license=github_license,
         source_status=source_status,
+    )
+
+
+def build_index_entry_from_row(row: Mapping[str, Any]) -> SkillIndexEntry:
+    """Build a :class:`SkillIndexEntry` directly from a skill summary row.
+
+    The row is the dict produced by ``_row_to_skill_summary()`` (see
+    ``infra/database.py``), driven by ``_SKILL_SUMMARY_COLUMNS``. Centralising
+    the row→entry mapping here means new columns flow through the search
+    pipeline automatically as soon as they're added to that list, without
+    touching every call site that builds index entries.
+    """
+    return build_index_entry(
+        org_slug=row["org_slug"],
+        skill_name=row["skill_name"],
+        description=row.get("description", "") or "",
+        latest_version=row["latest_version"],
+        eval_status=row["eval_status"],
+        author=resolve_author_display(row.get("published_by", "") or ""),
+        category=row.get("category", "") or "",
+        download_count=row.get("download_count", 0) or 0,
+        source_repo_url=row.get("source_repo_url"),
+        gauntlet_summary=row.get("gauntlet_summary"),
+        github_stars=row.get("github_stars"),
+        github_forks=row.get("github_forks"),
+        github_license=row.get("github_license"),
+        source_repo_removed=row.get("source_repo_removed", False) or False,
+        github_is_archived=row.get("github_is_archived"),
     )
 
 

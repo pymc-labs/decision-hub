@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,38 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dependency(
+    state_attr: str,
+    max_requests_attr: str,
+    window_seconds_attr: str,
+) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily initialises a :class:`RateLimiter`.
+
+    The limiter is stored on ``request.app.state`` under ``state_attr`` so a
+    single instance is shared across the process while still being created
+    on demand from the application settings.
+
+    Args:
+        state_attr: Attribute name on ``app.state`` for the cached limiter
+            (e.g. ``"_publish_rate_limiter"``).
+        max_requests_attr: Settings field name holding the request cap
+            (e.g. ``"publish_rate_limit"``).
+        window_seconds_attr: Settings field name holding the window size
+            (e.g. ``"publish_rate_window"``).
+    """
+
+    def dependency(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, max_requests_attr),
+                window_seconds=getattr(settings, window_seconds_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    return dependency

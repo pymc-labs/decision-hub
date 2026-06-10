@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import make_rate_limit_dependency
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,30 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Rate-limit dependencies are constructed via a shared factory so each route
+# only declares which settings field it reads. The limiter instance itself is
+# lazily cached on ``app.state`` by the factory.
+_enforce_list_skills_rate_limit = make_rate_limit_dependency(
+    "_list_skills_rate_limiter", "list_skills_rate_limit", "list_skills_rate_window"
+)
+_enforce_resolve_rate_limit = make_rate_limit_dependency(
+    "_resolve_rate_limiter", "resolve_rate_limit", "resolve_rate_window"
+)
+_enforce_similar_skills_rate_limit = make_rate_limit_dependency(
+    "_similar_skills_rate_limiter", "similar_skills_rate_limit", "similar_skills_rate_window"
+)
+_enforce_download_rate_limit = make_rate_limit_dependency(
+    "_download_rate_limiter", "download_rate_limit", "download_rate_window"
+)
+_enforce_audit_log_rate_limit = make_rate_limit_dependency(
+    "_audit_log_rate_limiter", "audit_log_rate_limit", "audit_log_rate_window"
+)
+_enforce_scan_report_rate_limit = make_rate_limit_dependency(
+    "_scan_report_rate_limiter", "scan_report_rate_limit", "scan_report_rate_window"
+)
+_enforce_publish_rate_limit = make_rate_limit_dependency(
+    "_publish_rate_limiter", "publish_rate_limit", "publish_rate_window"
+)
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -768,13 +710,15 @@ def resolve_skill(
             detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
         )
 
-    increment_skill_downloads(conn, version.skill_id)
-
+    # Mint the presigned URL first; if S3 fails we must not advance the
+    # download counter for an attempt the caller never received.
     download_url = generate_presigned_url(
         s3_client,
         settings.s3_bucket,
         version.s3_key,
     )
+
+    increment_skill_downloads(conn, version.skill_id)
 
     return ResolveResponse(
         version=version.semver,
@@ -806,9 +750,11 @@ def download_skill(
             detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
         )
 
+    # Fetch the zip first; if S3 fails we must not advance the download
+    # counter for an attempt the caller never received.
+    data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
     increment_skill_downloads(conn, version.skill_id)
 
-    data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
     filename = f"{org_slug}_{skill_name}_{version.semver}.zip"
     return Response(
         content=data,
