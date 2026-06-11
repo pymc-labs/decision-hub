@@ -1,7 +1,8 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  ApiError,
   listSkillsFiltered,
   getSkill,
   getRegistryStats,
@@ -236,25 +237,134 @@ describe("downloadSkillZip", () => {
 });
 
 describe("error handling", () => {
-  it("throws with status and body on non-OK response", async () => {
+  it("throws ApiError with status on plain-text non-OK response", async () => {
     server.use(
       http.get("/v1/skills", () =>
-        new HttpResponse("Internal Server Error", { status: 500 }),
+        new HttpResponse("Internal Server Error", {
+          status: 500,
+          headers: { "Content-Type": "text/plain" },
+        }),
       ),
     );
 
-    await expect(listSkillsFiltered()).rejects.toThrow("API 500: Internal Server Error");
+    await expect(listSkillsFiltered()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 500,
+      message: "Internal Server Error",
+    });
   });
 
-  it("throws on download failure", async () => {
+  it("extracts FastAPI {detail} message from JSON error bodies", async () => {
+    server.use(
+      http.get("/v1/skills", () =>
+        HttpResponse.json({ detail: "Rate limit exceeded" }, { status: 429 }),
+      ),
+    );
+
+    await expect(listSkillsFiltered()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 429,
+      message: "Rate limit exceeded",
+      body: { detail: "Rate limit exceeded" },
+    });
+  });
+
+  it("never leaks raw HTML bodies into the user-facing message", async () => {
+    const html =
+      "<html><head><title>502</title></head><body><h1>Bad Gateway</h1></body></html>";
+    server.use(
+      http.get("/v1/skills", () =>
+        new HttpResponse(html, {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    );
+
+    try {
+      await listSkillsFiltered();
+      throw new Error("expected ApiError to be thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(502);
+      // The user-facing message must not contain any HTML.
+      expect(apiErr.message).not.toContain("<");
+      expect(apiErr.message).toMatch(/502/);
+      // The raw body is still attached for debug surfaces.
+      expect(apiErr.body).toBe(html);
+    }
+  });
+
+  it("treats summary FastAPI validation errors as a one-line message", async () => {
+    server.use(
+      http.get("/v1/skills", () =>
+        HttpResponse.json(
+          {
+            detail: [
+              { loc: ["query", "page"], msg: "field required", type: "missing" },
+              { loc: ["query", "sort"], msg: "string does not match regex", type: "value_error" },
+            ],
+          },
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await expect(listSkillsFiltered()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 422,
+      message: "Validation failed (2 issues).",
+    });
+  });
+
+  it("aborts and throws ApiError(status=0) on timeout", async () => {
+    server.use(
+      http.get("/v1/skills", async () => {
+        // Hold the response open longer than the test's timeout below.
+        await delay(200);
+        return HttpResponse.json({
+          items: [],
+          total: 0,
+          page: 1,
+          page_size: 20,
+          total_pages: 1,
+        });
+      }),
+    );
+
+    // listSkillsFiltered() always uses the default 30s, so call the
+    // public API surface but also exercise the timeout path on a
+    // dedicated request — listSkillsFiltered's params don't include a
+    // timeout override, so we run a direct fetch through the same
+    // function by overriding it via listSkillsFiltered fallback below.
+    // Use downloadSkillZip's exposed timeoutMs argument instead.
+    server.use(
+      http.get("/v1/skills/:org/:skill/download", async () => {
+        await delay(200);
+        return new HttpResponse(new Uint8Array([0]));
+      }),
+    );
+
+    await expect(downloadSkillZip("acme", "skill", "latest", false, 25))
+      .rejects.toMatchObject({
+        name: "ApiError",
+        status: 0,
+        message: expect.stringMatching(/timed out/i),
+      });
+  });
+
+  it("throws ApiError on download failure", async () => {
     server.use(
       http.get("/v1/skills/:org/:skill/download", () =>
         new HttpResponse(null, { status: 404 }),
       ),
     );
 
-    await expect(downloadSkillZip("acme", "my-skill")).rejects.toThrow(
-      "Download failed: 404",
-    );
+    await expect(downloadSkillZip("acme", "my-skill")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 404,
+      message: "Download failed (404).",
+    });
   });
 });

@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dep
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,16 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Per-endpoint rate limiters built via the factory in ``api.rate_limit``.
+# Each binds to ``settings.<name>_rate_limit`` / ``<name>_rate_window`` and
+# is eagerly registered on ``app.state`` during ``create_app()``.
+_enforce_list_skills_rate_limit = rate_limit_dep("list_skills")
+_enforce_resolve_rate_limit = rate_limit_dep("resolve")
+_enforce_similar_skills_rate_limit = rate_limit_dep("similar_skills")
+_enforce_download_rate_limit = rate_limit_dep("download")
+_enforce_audit_log_rate_limit = rate_limit_dep("audit_log")
+_enforce_scan_report_rate_limit = rate_limit_dep("scan_report")
+_enforce_publish_rate_limit = rate_limit_dep("publish")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -442,6 +370,39 @@ class AccessGrantListEntry(BaseModel):
 _STALE_HEARTBEAT_SECONDS = 300
 
 
+def _skill_summary_from_row(row: dict) -> SkillSummary:
+    """Build a :class:`SkillSummary` from a ``_row_to_skill_summary`` dict.
+
+    Centralises the row → response transform so the list, search, and
+    ask endpoints stay aligned with the canonical column set defined in
+    ``database._SKILL_SUMMARY_COLUMNS``. New summary columns become
+    available here automatically — only the model field still needs
+    adding when a column should be surfaced.
+    """
+    return SkillSummary(
+        org_slug=row["org_slug"],
+        skill_name=row["skill_name"],
+        description=row.get("description") or "",
+        latest_version=row["latest_version"],
+        updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
+        safety_rating=format_trust_score(row.get("eval_status", "")),
+        author=resolve_author_display(row.get("published_by") or ""),
+        download_count=row.get("download_count", 0) or 0,
+        is_personal_org=bool(row.get("is_personal_org", False)),
+        category=row.get("category") or "",
+        visibility=row.get("visibility") or "public",
+        source_repo_url=row.get("source_repo_url"),
+        manifest_path=row.get("manifest_path"),
+        source_repo_removed=bool(row.get("source_repo_removed", False)),
+        github_stars=row.get("github_stars"),
+        github_forks=row.get("github_forks"),
+        github_watchers=row.get("github_watchers"),
+        github_is_archived=row.get("github_is_archived"),
+        github_license=row.get("github_license"),
+        is_auto_synced=bool(row.get("has_tracker", False)),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -605,33 +566,8 @@ def list_skills(
         sort_dir=sort_dir,
     )
     total_pages = math.ceil(total / page_size) if total > 0 else 1
-    items = [
-        SkillSummary(
-            org_slug=row["org_slug"],
-            skill_name=row["skill_name"],
-            description=row.get("description", ""),
-            latest_version=row["latest_version"],
-            updated_at=row["created_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("created_at") else "",
-            safety_rating=format_trust_score(row["eval_status"]),
-            author=resolve_author_display(row.get("published_by", "")),
-            download_count=row.get("download_count", 0),
-            is_personal_org=row.get("is_personal_org", False),
-            category=row.get("category", ""),
-            visibility=row.get("visibility", "public"),
-            source_repo_url=row.get("source_repo_url"),
-            manifest_path=row.get("manifest_path"),
-            source_repo_removed=row.get("source_repo_removed", False),
-            github_stars=row.get("github_stars"),
-            github_forks=row.get("github_forks"),
-            github_watchers=row.get("github_watchers"),
-            github_is_archived=row.get("github_is_archived"),
-            github_license=row.get("github_license"),
-            is_auto_synced=row.get("has_tracker", False),
-        )
-        for row in rows
-    ]
     return PaginatedSkillsResponse(
-        items=items,
+        items=[_skill_summary_from_row(row) for row in rows],
         total=total,
         page=page,
         page_size=page_size,

@@ -259,7 +259,7 @@ describe("AskModal", () => {
   it("shows error state on API failure", async () => {
     server.use(
       http.post("/v1/ask", () =>
-        new HttpResponse("Internal Server Error", { status: 500 }),
+        HttpResponse.json({ detail: "Backend unavailable" }, { status: 500 }),
       ),
     );
     const user = userEvent.setup();
@@ -270,7 +270,9 @@ describe("AskModal", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
-      expect(screen.getByText(/API 500/)).toBeInTheDocument();
+      // The FastAPI {detail} message is surfaced verbatim — no "API 500"
+      // wrapper, no raw HTML — see ApiError formatting in api/client.ts.
+      expect(screen.getByText(/Backend unavailable/)).toBeInTheDocument();
     });
   });
 

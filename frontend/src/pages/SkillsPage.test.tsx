@@ -228,4 +228,41 @@ describe("SkillsPage", () => {
       { timeout: 2000 },
     );
   });
+
+  describe("URL-persisted filters", () => {
+    it("seeds the category filter from the URL", async () => {
+      // Server only returns the api-gen skill when category matches
+      // "Backend & APIs" — proves the page passed the URL param through.
+      let receivedCategory: string | null = null;
+      server.use(
+        http.get("/v1/skills", ({ request }) => {
+          receivedCategory = new URL(request.url).searchParams.get("category");
+          return filterSkillsHandler({ request });
+        }),
+      );
+
+      renderWithRouter(<SkillsPage />, { initialEntries: ["/skills?category=Backend+%26+APIs"], path: "/skills" });
+
+      await screen.findByText("api-gen");
+      expect(receivedCategory).toBe("Backend & APIs");
+      expect(screen.queryByText("llm-tool")).not.toBeInTheDocument();
+      // The category <select> reflects the URL.
+      expect(getCategorySelect().value).toBe("Backend & APIs");
+    });
+
+    it("seeds the org filter from the URL", async () => {
+      let receivedOrg: string | null = null;
+      server.use(
+        http.get("/v1/skills", ({ request }) => {
+          receivedOrg = new URL(request.url).searchParams.get("org");
+          return filterSkillsHandler({ request });
+        }),
+      );
+
+      renderWithRouter(<SkillsPage />, { initialEntries: ["/skills?org=acme"], path: "/skills" });
+
+      await screen.findByText("api-gen");
+      expect(receivedOrg).toBe("acme");
+    });
+  });
 });

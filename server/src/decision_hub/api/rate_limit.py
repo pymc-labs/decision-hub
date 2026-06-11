@@ -1,8 +1,11 @@
 """In-memory sliding-window rate limiter for FastAPI dependencies."""
 
+from __future__ import annotations
+
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +66,76 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+# ---------------------------------------------------------------------------
+# Dependency factory
+# ---------------------------------------------------------------------------
+
+# Per-endpoint rate limiters are eagerly registered on app.state during
+# create_app() so that:
+#   * the first request to each endpoint doesn't pay the init cost,
+#   * there is no first-request race window on `hasattr` + assignment,
+#   * the settings → limiter wiring is centralised (one source of truth).
+
+
+def install_rate_limiters(app_state, settings) -> None:
+    """Eagerly install all rate limiters on ``app.state``.
+
+    Each *name* must correspond to a pair of settings fields:
+    ``<name>_rate_limit`` and ``<name>_rate_window``. The limiter is
+    stored on ``app_state._<name>_rate_limiter`` and looked up by
+    ``rate_limit_dep`` below.
+    """
+    for name in _RATE_LIMIT_NAMES:
+        max_requests = getattr(settings, f"{name}_rate_limit")
+        window_seconds = getattr(settings, f"{name}_rate_window")
+        setattr(
+            app_state,
+            f"_{name}_rate_limiter",
+            RateLimiter(max_requests=max_requests, window_seconds=window_seconds),
+        )
+
+
+def rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that enforces the limiter named *name*.
+
+    The limiter must already exist on ``request.app.state`` (installed by
+    :func:`install_rate_limiters`). If it's missing — e.g. in a test app
+    that didn't call ``install_rate_limiters`` — we fall back to creating
+    one from settings so existing tests continue to pass.
+    """
+    attr = f"_{name}_rate_limiter"
+
+    def dep(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, f"{name}_rate_limit"),
+                window_seconds=getattr(settings, f"{name}_rate_window"),
+            )
+            setattr(state, attr, limiter)
+        limiter(request)
+
+    dep.__name__ = f"rate_limit_{name}"
+    dep.__doc__ = f"Enforce the '{name}' rate limit (settings.{name}_rate_limit per settings.{name}_rate_window s)."
+    return dep
+
+
+# Canonical list of rate-limiter names. The corresponding settings fields
+# (``<name>_rate_limit`` and ``<name>_rate_window``) must exist on
+# :class:`Settings`. Add new names here when introducing a new public
+# endpoint that needs rate limiting.
+_RATE_LIMIT_NAMES: tuple[str, ...] = (
+    "auth",
+    "search",
+    "list_skills",
+    "resolve",
+    "similar_skills",
+    "download",
+    "audit_log",
+    "scan_report",
+    "publish",
+)

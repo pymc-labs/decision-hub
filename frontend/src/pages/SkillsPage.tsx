@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Search, Package, Filter, User, Tag, Layers, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
 import type { SkillSortField } from "../api/client";
@@ -16,19 +16,69 @@ import styles from "./SkillsPage.module.css";
 const PAGE_SIZE = 12;
 const DEBOUNCE_MS = 300;
 
-export default function SkillsPage() {
-  const [searchInput, setSearchInput] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [orgFilter, setOrgFilter] = useState<string>("all");
-  const [gradeFilter, setGradeFilter] = useState<string>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<SkillSortField>("updated");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [viewMode, setViewMode] = useState<"grid" | "grouped">("grid");
+// Natural default direction for each sort field
+function defaultDirFor(field: SkillSortField): "asc" | "desc" {
+  return field === "name" || field === "safety_rating" ? "asc" : "desc";
+}
 
-  // Natural default direction for each sort field
-  const defaultDirFor = (field: SkillSortField): "asc" | "desc" =>
-    field === "name" || field === "safety_rating" ? "asc" : "desc";
+const SORT_FIELDS: readonly SkillSortField[] = [
+  "updated",
+  "name",
+  "downloads",
+  "github_stars",
+  "safety_rating",
+] as const;
+
+function asSortField(v: string | null): SkillSortField {
+  return (SORT_FIELDS as readonly string[]).includes(v ?? "") ? (v as SkillSortField) : "updated";
+}
+
+function asSortDir(v: string | null): "asc" | "desc" {
+  return v === "asc" ? "asc" : "desc";
+}
+
+function asViewMode(v: string | null): "grid" | "grouped" {
+  return v === "grouped" ? "grouped" : "grid";
+}
+
+export default function SkillsPage() {
+  // Filter state is canonicalised into the URL search params so reload,
+  // back/forward, and shared links all preserve the user's selection.
+  // We treat ``searchParams`` as the source of truth and derive the
+  // local form fields from it.
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const orgFilter = searchParams.get("org") ?? "all";
+  const gradeFilter = searchParams.get("grade") ?? "all";
+  const categoryFilter = searchParams.get("category") ?? "all";
+  const sortBy = asSortField(searchParams.get("sort"));
+  const sortDir = asSortDir(searchParams.get("sort_dir"));
+  const viewMode = asViewMode(searchParams.get("view"));
+  const urlSearch = searchParams.get("search") ?? "";
+
+  // The text input has a debounced echo so we only commit to the URL
+  // (and trigger a fetch) when the user pauses typing.
+  const [searchInput, setSearchInput] = useState(urlSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(urlSearch);
+
+  /** Merge a partial set of param updates into the URL. */
+  const updateParams = useCallback(
+    (patch: Record<string, string | null>) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [k, v] of Object.entries(patch)) {
+            // null/empty/"all" → drop the param so the URL stays clean.
+            if (v == null || v === "" || v === "all") next.delete(k);
+            else next.set(k, v);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   useSEO({
     title: "Skills",
@@ -45,14 +95,29 @@ export default function SkillsPage() {
     [stats],
   );
 
-  // Debounce the search input
+  // Debounce the search input → URL → server. The URL becomes the
+  // single source of truth, so deep-linking a search/filter combination
+  // works and back/forward navigation restores prior state.
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     debounceRef.current = setTimeout(() => {
       setDebouncedSearch(searchInput);
+      updateParams({ search: searchInput || null });
     }, DEBOUNCE_MS);
     return () => clearTimeout(debounceRef.current);
-  }, [searchInput]);
+  }, [searchInput, updateParams]);
+
+  // If the URL changes externally (back/forward, deep link) re-sync the
+  // input so the displayed text matches the active filter.
+  useEffect(() => {
+    if (urlSearch !== debouncedSearch) {
+      setSearchInput(urlSearch);
+      setDebouncedSearch(urlSearch);
+    }
+    // We intentionally watch only urlSearch here; debouncedSearch is the
+    // local mirror and shouldn't retrigger this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSearch]);
 
   // Build API fetcher for infinite scroll
   const fetchPage = useCallback(
@@ -129,7 +194,7 @@ export default function SkillsPage() {
           <select
             aria-label="Filter by organization"
             value={orgFilter}
-            onChange={(e) => setOrgFilter(e.target.value)}
+            onChange={(e) => updateParams({ org: e.target.value })}
             className={styles.select}
           >
             <option value="all">All Orgs</option>
@@ -143,7 +208,7 @@ export default function SkillsPage() {
           <select
             aria-label="Filter by safety grade"
             value={gradeFilter}
-            onChange={(e) => setGradeFilter(e.target.value)}
+            onChange={(e) => updateParams({ grade: e.target.value })}
             className={styles.select}
           >
             <option value="all">All Grades</option>
@@ -155,7 +220,7 @@ export default function SkillsPage() {
           <select
             aria-label="Filter by category"
             value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            onChange={(e) => updateParams({ category: e.target.value })}
             className={styles.select}
           >
             <option value="all">All Categories</option>
@@ -181,8 +246,7 @@ export default function SkillsPage() {
             value={sortBy}
             onChange={(e) => {
               const field = e.target.value as SkillSortField;
-              setSortBy(field);
-              setSortDir(defaultDirFor(field));
+              updateParams({ sort: field, sort_dir: defaultDirFor(field) });
             }}
             className={styles.sortSelect}
           >
@@ -195,7 +259,7 @@ export default function SkillsPage() {
 
           <button
             className={styles.sortDirBtn}
-            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+            onClick={() => updateParams({ sort_dir: sortDir === "asc" ? "desc" : "asc" })}
             title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"}
             aria-label="Toggle sort direction"
           >
@@ -204,7 +268,7 @@ export default function SkillsPage() {
 
           <button
             className={`${styles.viewToggle} ${viewMode === "grouped" ? styles.viewToggleActive : ""}`}
-            onClick={() => setViewMode(viewMode === "grid" ? "grouped" : "grid")}
+            onClick={() => updateParams({ view: viewMode === "grid" ? "grouped" : "grid" })}
             title={viewMode === "grid" ? "Group by category" : "Flat grid view"}
           >
             <Layers size={16} />

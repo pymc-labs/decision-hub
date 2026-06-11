@@ -32,6 +32,19 @@ ignore = [
 known-first-party = ["dhub", "dhub_core", "decision_hub"]
 
 # ---------------------------------------------------------------------------
+# pytest – shared config across the workspace
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+# Register custom markers so pytest doesn't warn about unknown ones and
+# silently swallow typos. The default ``-m "not slow"`` matches what
+# ``make test-server`` already passes, so ad-hoc ``pytest`` invocations
+# stay fast unless the caller explicitly opts in with ``-m slow``.
+markers = [
+    "slow: end-to-end / LLM-backed tests that hit real external APIs; opt-in via -m slow",
+]
+addopts = "-m 'not slow'"
+
+# ---------------------------------------------------------------------------
 # mypy – gradual type checking (CI-only, not pre-commit)
 # ---------------------------------------------------------------------------
 [tool.mypy]

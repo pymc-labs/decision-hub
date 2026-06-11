@@ -36,7 +36,12 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
 
   const { items: skills, total: totalSkills, loading, loadingMore, error, hasMore, sentinelRef, retry } =
     useInfiniteScroll(fetchPage, [orgSlug]);
-  const { data: profile, loading: profileLoading, error: profileError } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
+  const {
+    data: profile,
+    loading: profileLoading,
+    error: profileError,
+    errorStatus: profileErrorStatus,
+  } = useApi(() => getOrgProfile(orgSlug), [orgSlug]);
 
   const blogUrl = profile?.blog
     ? profile.blog.match(/^https?:\/\//) ? profile.blog : `https://${profile.blog}`
@@ -54,7 +59,7 @@ function OrgDetailPageInner({ orgSlug }: { orgSlug: string }) {
   }
   const isOrgNotFound = !loading && !profileLoading && profileError && totalSkills === 0;
   if (isOrgNotFound) {
-    const is404 = /API 404\b/.test(profileError);
+    const is404 = profileErrorStatus === 404;
     return (
       <div className="container" style={{ textAlign: "center", paddingTop: "4rem" }}>
         {is404 ? (

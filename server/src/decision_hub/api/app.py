@@ -165,6 +165,13 @@ def create_app() -> FastAPI:
 
     app.state.cache = TTLCache(default_ttl=60)
 
+    # Eagerly create per-endpoint rate limiters so the first request to
+    # each endpoint doesn't pay the init cost and there's no concurrent
+    # first-request race on lazy assignment.
+    from decision_hub.api.rate_limit import install_rate_limiters
+
+    install_rate_limiters(app.state, settings)
+
     # Request logging with correlation IDs — outermost middleware (added first
     # so Starlette wraps it last, ensuring it runs before everything else).
     app.add_middleware(RequestLoggingMiddleware)
