@@ -1,8 +1,40 @@
-"""Tests for stale token detection in get_current_user."""
+"""Tests for stale token detection in get_current_user and shared helpers in deps.py."""
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
+import pytest
+from fastapi import HTTPException
 from jose import jwt
+
+from decision_hub.api.deps import parse_uuid_param
+
+
+class TestParseUuidParam:
+    """Unit tests for the shared parse_uuid_param helper.
+
+    Both registry and tracker routes used to ship their own copy of this
+    function with slightly different error messages. We standardised on
+    the message asserted by test_eval_logs.py — keep that contract.
+    """
+
+    def test_valid_uuid_returns_uuid_instance(self) -> None:
+        value = "12345678-1234-5678-1234-567812345678"
+        assert parse_uuid_param(value, "tracker_id") == UUID(value)
+
+    def test_invalid_uuid_raises_422_with_named_field(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            parse_uuid_param("not-a-uuid", "tracker_id")
+        assert exc_info.value.status_code == 422
+        # The "Invalid UUID" prefix is asserted by test_eval_logs.py — must stay.
+        assert "Invalid UUID" in exc_info.value.detail
+        assert "tracker_id" in exc_info.value.detail
+        assert "not-a-uuid" in exc_info.value.detail
+
+    def test_empty_string_raises_422(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            parse_uuid_param("", "run_id")
+        assert exc_info.value.status_code == 422
 
 
 class TestStaleTokenDetection:

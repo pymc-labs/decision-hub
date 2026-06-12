@@ -97,6 +97,20 @@ def get_current_user(
     )
 
 
+def parse_uuid_param(value: str, name: str) -> UUID:
+    """Parse a path/query parameter string as a UUID, raising HTTP 422 otherwise.
+
+    Centralises the conversion so route handlers don't each grow their own
+    private ``_parse_uuid`` helper. The 422 detail format ("Invalid UUID for
+    {name}: '{value}'") is asserted by ``tests/test_api/test_eval_logs.py``
+    — keep it stable.
+    """
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
+
+
 def get_current_user_optional(
     request: Request,
     settings: Settings = Depends(get_settings),
