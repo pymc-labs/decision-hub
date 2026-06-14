@@ -1,7 +1,9 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
+import tempfile
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -82,14 +84,40 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory if it does not already exist.  The
+    config file holds the user's long-lived JWT bearer token, so we
+
+    * write to a temp file in the same directory, then ``os.replace``
+      so a crash or full disk can't leave a half-written file in place,
+    * chmod the temp file to ``0o600`` before the rename so the token is
+      never readable by other local users — the default ``write_text``
+      path inherits the user's umask, which is often ``0o022`` and would
+      leave the token world-readable.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Best-effort: a non-default mode on the parent dir is desirable but not
+    # load-bearing — the per-file 0o600 below is the guarantee.
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_DIR, 0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+    _atomic_write_text(path, payload, mode=0o600)
+
+
+def _atomic_write_text(path: Path, content: str, *, mode: int) -> None:
+    """Write ``content`` to ``path`` atomically with the given file mode."""
+    tmp_fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp:
+            tmp.write(content)
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    except Exception:
+        # Don't leave the half-written temp file around if anything failed.
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def get_api_url() -> str:

@@ -2040,7 +2040,13 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Tiebreaker on (org_slug, skill_name) so pagination is deterministic
+        # when multiple rows score identically on ts_rank_cd.
+        fts_stmt = fts_stmt.order_by(
+            sa.text("fts_rank DESC"),
+            organizations_table.c.slug.asc(),
+            skills_table.c.name.asc(),
+        ).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2058,13 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # Tiebreaker on (org_slug, skill_name) for deterministic ordering
+        # when distances are equal (rare with floats but possible).
+        vec_stmt = vec_stmt.order_by(
+            sa.text("vec_dist ASC"),
+            organizations_table.c.slug.asc(),
+            skills_table.c.name.asc(),
+        ).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---

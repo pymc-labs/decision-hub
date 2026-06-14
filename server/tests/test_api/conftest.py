@@ -56,7 +56,6 @@ def test_settings() -> MagicMock:
     settings.cache_ttl_taxonomy = 300
     settings.cache_ttl_org_profiles = 60
     settings.cache_ttl_org_stats = 60
-    settings.cache_ttl_skill_list = 30
     settings.cache_ttl_stats = 60
     settings.cache_ttl_sitemap = 300
     return settings

@@ -1,6 +1,9 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import stat
+import sys
 
 import click
 import pytest
@@ -104,6 +107,33 @@ class TestSaveConfig:
         assert loaded.orgs == ()
         assert loaded.default_org is None
         assert loaded.token == "old-tok"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes only")
+    def test_config_file_is_user_only_readable(self, tmp_path, monkeypatch):
+        """The config file holds the JWT — must be 0o600 so other local
+        users on a shared machine can't read the token."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="secret"))
+        mode = stat.S_IMODE(os.stat(tmp_path / "config.dev.json").st_mode)
+        assert mode == 0o600
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes only")
+    def test_save_is_atomic(self, tmp_path, monkeypatch):
+        """A crash mid-write must not leave a half-written config behind."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://first", token="first-tok"))
+        # No temp files lingering after a successful save.
+        leftovers = [p for p in tmp_path.iterdir() if p.name.startswith("config.dev.json.")]
+        assert leftovers == []
+        # Overwriting succeeds and doesn't corrupt the existing file.
+        save_config(CliConfig(api_url="https://second", token="second-tok"))
+        loaded = load_config()
+        assert loaded.token == "second-tok"
+        assert loaded.api_url == "https://second"
 
 
 class TestGetToken:

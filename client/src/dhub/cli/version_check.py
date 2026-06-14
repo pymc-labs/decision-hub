@@ -51,14 +51,20 @@ def _read_cache() -> str | None:
 
 
 def _write_cache(latest_version: str) -> None:
-    """Persist the latest version and current timestamp to disk."""
+    """Persist the latest version and current timestamp to disk.
+
+    Uses the same atomic temp-file + ``os.replace`` pattern as the config
+    file so an interrupted CLI invocation can never leave the cache in a
+    half-written state (which would re-trigger the corrupted-cache path
+    on every subsequent run).
+    """
+    from dhub.cli.config import _atomic_write_text
+
     try:
         path = _cache_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"latest_version": latest_version, "checked_at": time.time()}) + "\n",
-            encoding="utf-8",
-        )
+        payload = json.dumps({"latest_version": latest_version, "checked_at": time.time()}) + "\n"
+        _atomic_write_text(path, payload, mode=0o644)
     except Exception:
         pass
 

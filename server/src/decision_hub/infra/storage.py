@@ -166,26 +166,28 @@ def list_eval_log_chunks(
 ) -> list[tuple[int, str]]:
     """List eval log chunk keys with sequence number > after_seq.
 
+    Uses ``list_objects_v2`` paginator so long-running evals with more than
+    1000 chunks (the per-page cap) don't silently truncate.
+
     Returns:
         List of (seq, s3_key) tuples sorted by seq ascending.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-
+    paginator = client.get_paginator("list_objects_v2")
     chunks: list[tuple[int, str]] = []
-    for obj in contents:
-        key = obj["Key"]
-        # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
-        filename = key.rsplit("/", 1)[-1]
-        if not filename.endswith(".jsonl"):
-            continue
-        seq_str = filename.replace(".jsonl", "")
-        try:
-            seq = int(seq_str)
-        except ValueError:
-            continue
-        if seq > after_seq:
-            chunks.append((seq, key))
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
+            filename = key.rsplit("/", 1)[-1]
+            if not filename.endswith(".jsonl"):
+                continue
+            seq_str = filename.replace(".jsonl", "")
+            try:
+                seq = int(seq_str)
+            except ValueError:
+                continue
+            if seq > after_seq:
+                chunks.append((seq, key))
 
     chunks.sort(key=lambda x: x[0])
     return chunks
@@ -208,20 +210,27 @@ def delete_eval_logs(
 ) -> int:
     """Delete all eval log chunks under a prefix.
 
+    Walks the listing with a paginator and batches deletes in groups of
+    1000 (the S3 ``DeleteObjects`` per-call cap), so runs with more than
+    1000 chunks delete completely instead of being silently truncated.
+
     Returns:
         Number of objects deleted.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-    if not contents:
-        return 0
-
-    objects = [{"Key": obj["Key"]} for obj in contents]
-    client.delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": objects},
-    )
-    return len(objects)
+    paginator = client.get_paginator("list_objects_v2")
+    batch: list[dict] = []
+    deleted = 0
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        for obj in page.get("Contents", []):
+            batch.append({"Key": obj["Key"]})
+            if len(batch) == 1000:
+                client.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+                deleted += len(batch)
+                batch = []
+    if batch:
+        client.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+        deleted += len(batch)
+    return deleted
 
 
 # ---------------------------------------------------------------------------
