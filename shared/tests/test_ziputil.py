@@ -86,3 +86,67 @@ class TestValidateZipEntries:
         with pytest.raises(ValueError, match="escapes target directory"):
             validate_zip_entries(zf, "/tmp/target")
         zf.close()
+
+
+def _make_zip_with_mode(filename: str, content: bytes, unix_mode: int) -> zipfile.ZipFile:
+    """Create an in-memory ZipFile where ``filename`` has the given Unix mode."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        info = zipfile.ZipInfo(filename)
+        info.create_system = 3  # Unix
+        info.external_attr = unix_mode << 16
+        zf.writestr(info, content)
+    buf.seek(0)
+    return zipfile.ZipFile(buf, "r")
+
+
+class TestSpecialFileTypes:
+    """validate_zip_entries rejects symlinks and other non-regular files."""
+
+    def test_symlink_entry_rejected(self) -> None:
+        """A symlink entry (S_IFLNK | 0o777) must be rejected even when the
+        filename itself resolves inside the target directory. Without this
+        guard, an extractor that honors symlinks (e.g. system ``unzip``)
+        could materialize the link and let subsequent writes escape."""
+        # 0o120777 == S_IFLNK | rwxrwxrwx
+        zf = _make_zip_with_mode("link", b"../../etc/passwd", 0o120777)
+        with pytest.raises(ValueError, match="unsupported file type"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_device_node_entry_rejected(self) -> None:
+        """Character/block device entries must be rejected."""
+        # 0o020666 == S_IFCHR | rw-rw-rw-
+        zf = _make_zip_with_mode("dev_null", b"", 0o020666)
+        with pytest.raises(ValueError, match="unsupported file type"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_regular_file_with_explicit_mode_allowed(self) -> None:
+        """A regular file with a Unix mode set must still be accepted."""
+        # 0o100644 == S_IFREG | rw-r--r--
+        zf = _make_zip_with_mode("README.md", b"hi", 0o100644)
+        validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_directory_entry_with_unix_mode_allowed(self) -> None:
+        """A directory entry with an explicit Unix mode must be accepted."""
+        # 0o040755 == S_IFDIR | rwxr-xr-x
+        zf = _make_zip_with_mode("subdir/", b"", 0o040755)
+        validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_non_unix_create_system_not_treated_as_symlink(self) -> None:
+        """When create_system != 3 (e.g. Windows), the external_attr bits
+        aren't Unix mode bits and must not be misinterpreted as a symlink."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("normal.txt")
+            info.create_system = 0  # MS-DOS / Windows
+            # Bits that would look like S_IFLNK if read as Unix mode
+            info.external_attr = 0o120000 << 16
+            zf.writestr(info, b"content")
+        buf.seek(0)
+        zf = zipfile.ZipFile(buf, "r")
+        validate_zip_entries(zf, "/tmp/target")
+        zf.close()

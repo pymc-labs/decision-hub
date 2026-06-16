@@ -8,6 +8,7 @@ functions: extract_body, extract_description, parse_eval_cases_from_zip.
 import re
 
 import yaml
+from loguru import logger
 
 from decision_hub.models import EvalCase
 from dhub_core.manifest import (  # noqa: F401
@@ -26,7 +27,8 @@ def extract_body(content: str) -> str:
     try:
         _, body = split_frontmatter(content)
         return body
-    except ValueError:
+    except ValueError as exc:
+        logger.debug("extract_body: frontmatter split failed ({}), returning empty body", exc)
         return ""
 
 
@@ -40,7 +42,8 @@ def extract_description(content: str) -> str:
     """
     try:
         frontmatter_str, _ = split_frontmatter(content)
-    except ValueError:
+    except ValueError as exc:
+        logger.debug("extract_description: frontmatter split failed ({})", exc)
         return ""
 
     # Try standard YAML parsing first
@@ -49,8 +52,11 @@ def extract_description(content: str) -> str:
         if isinstance(data, dict):
             desc = data.get("description")
             return str(desc) if desc else ""
-    except yaml.YAMLError:
-        pass
+    except yaml.YAMLError as exc:
+        # Frontmatter contains values YAML can't parse (e.g. unquoted
+        # colons in the description).  Fall through to the regex path
+        # rather than dropping the field on the floor.
+        logger.debug("extract_description: YAML parse failed ({}), falling back to regex", exc)
 
     # Fallback: extract description line directly via regex.
     # Handles values with unquoted YAML-special characters like colons.
