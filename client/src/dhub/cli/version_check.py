@@ -36,22 +36,36 @@ def _cache_path() -> Path:
 
 
 def _read_cache() -> str | None:
-    """Return the cached latest version if the cache is still fresh."""
+    """Return the cached latest version if the cache is still fresh.
+
+    Only catches filesystem and JSON-parsing failures — unexpected exceptions
+    (bugs in this module) bubble up to the outer ``show_update_notice`` guard
+    so they're not silently masked here.
+    """
     try:
         path = _cache_path()
         if not path.exists():
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
-        checked_at = data.get("checked_at", 0)
-        if time.time() - checked_at > _CACHE_TTL_SECONDS:
-            return None
-        return data.get("latest_version")
-    except Exception:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
+    if not isinstance(data, dict):
+        return None
+    checked_at = data.get("checked_at", 0)
+    if not isinstance(checked_at, int | float):
+        return None
+    if time.time() - checked_at > _CACHE_TTL_SECONDS:
+        return None
+    version = data.get("latest_version")
+    return version if isinstance(version, str) else None
 
 
 def _write_cache(latest_version: str) -> None:
-    """Persist the latest version and current timestamp to disk."""
+    """Persist the latest version and current timestamp to disk.
+
+    Filesystem errors are swallowed (the update check is best-effort), but
+    other exceptions surface so coding mistakes are caught in tests.
+    """
     try:
         path = _cache_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,7 +73,7 @@ def _write_cache(latest_version: str) -> None:
             json.dumps({"latest_version": latest_version, "checked_at": time.time()}) + "\n",
             encoding="utf-8",
         )
-    except Exception:
+    except OSError:
         pass
 
 

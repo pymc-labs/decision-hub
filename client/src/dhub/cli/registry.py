@@ -412,20 +412,26 @@ def _publish_from_git_repo(
 
 
 def _detect_branch(repo_root: Path) -> str:
-    """Detect the current branch of a cloned repo. Falls back to 'main'."""
+    """Detect the current branch of a cloned repo. Falls back to 'main'.
+
+    A bare ``except Exception`` previously swallowed every error here; we
+    narrow it to the specific failures we expect (git missing, git hung,
+    repo path not a directory) so unrelated bugs surface.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_root,
+            timeout=5,
         )
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-            if branch and branch != "HEAD":
-                return branch
-    except Exception:
-        pass
+    except (FileNotFoundError, NotADirectoryError, PermissionError, subprocess.TimeoutExpired):
+        return "main"
+    if result.returncode == 0:
+        branch = result.stdout.strip()
+        if branch and branch != "HEAD":
+            return branch
     return "main"
 
 

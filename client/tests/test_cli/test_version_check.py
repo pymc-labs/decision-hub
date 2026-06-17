@@ -57,6 +57,24 @@ class TestCache:
         cache_file.write_text("not json!!")
         assert _read_cache() is None
 
+    def test_cache_with_non_dict_root_returns_none(self, tmp_path, monkeypatch):
+        cache_file = tmp_path / ".version_cache.json"
+        monkeypatch.setattr("dhub.cli.version_check._cache_path", lambda: cache_file)
+
+        # Legacy / hand-edited caches sometimes contain a bare string instead
+        # of a JSON object; the reader should not crash on .get().
+        cache_file.write_text('"0.9.0"')
+        assert _read_cache() is None
+
+    def test_cache_with_non_string_version_returns_none(self, tmp_path, monkeypatch):
+        cache_file = tmp_path / ".version_cache.json"
+        monkeypatch.setattr("dhub.cli.version_check._cache_path", lambda: cache_file)
+
+        cache_file.write_text(
+            json.dumps({"latest_version": 990, "checked_at": time.time()}),
+        )
+        assert _read_cache() is None
+
 
 class TestGetLatestVersion:
     @respx.mock
