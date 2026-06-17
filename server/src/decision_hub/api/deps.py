@@ -88,13 +88,17 @@ def get_current_user(
         )
 
     # The JWT 'sub' claim holds the user id and 'username' holds the login.
-    # We trust the signed token and avoid a DB lookup on every request.
-    return User(
-        id=UUID(payload["sub"]),
-        github_id="",
-        username=payload["username"],
-        github_orgs=tuple(payload["github_orgs"]),
-    )
+    # A signed-but-malformed token (missing required claims) must yield 401, not 500.
+    try:
+        return User(
+            id=UUID(payload["sub"]),
+            github_id="",
+            username=payload["username"],
+            github_orgs=tuple(payload["github_orgs"]),
+        )
+    except (KeyError, ValueError, TypeError) as exc:
+        logger.warning("Malformed JWT payload: {}", exc)
+        raise HTTPException(status_code=401, detail="Invalid token") from None
 
 
 def get_current_user_optional(
@@ -125,9 +129,12 @@ def get_current_user_optional(
     if "github_orgs" not in payload:
         return None
 
-    return User(
-        id=UUID(payload["sub"]),
-        github_id="",
-        username=payload["username"],
-        github_orgs=tuple(payload["github_orgs"]),
-    )
+    try:
+        return User(
+            id=UUID(payload["sub"]),
+            github_id="",
+            username=payload["username"],
+            github_orgs=tuple(payload["github_orgs"]),
+        )
+    except (KeyError, ValueError, TypeError):
+        return None
