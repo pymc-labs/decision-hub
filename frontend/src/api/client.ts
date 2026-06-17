@@ -18,19 +18,42 @@ import type {
 // For local dev against a remote API, set VITE_API_URL.
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+// Cap every JSON request so a hung backend or proxy can't leave the UI
+// spinning forever. The Anthropic-judge route used by the ask endpoint can
+// take ~20s, so we err on the high side. Tests run synchronously and finish
+// well before this fires.
+const DEFAULT_TIMEOUT_MS = 45_000;
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API ${res.status}: ${text}`);
+  // Honor a caller-provided AbortSignal but still enforce our default timeout.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  if (init?.signal) {
+    if (init.signal.aborted) controller.abort();
+    else init.signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
-  return res.json();
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API ${res.status}: ${text}`);
+    }
+    return await res.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`API request timed out after ${DEFAULT_TIMEOUT_MS}ms: ${path}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export type SkillSortField = "updated" | "name" | "downloads" | "github_stars" | "safety_rating";

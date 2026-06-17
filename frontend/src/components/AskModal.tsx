@@ -179,8 +179,10 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
           )}
 
           {messages.map((msg, i) => (
+            // Append-only list; role+index makes the key self-describing and
+            // robust if we later let the user edit or delete past turns.
             <div
-              key={i}
+              key={`${msg.role}-${i}`}
               className={`${styles.message} ${
                 msg.role === "user" ? styles.userMessage : styles.assistantMessage
               }`}
