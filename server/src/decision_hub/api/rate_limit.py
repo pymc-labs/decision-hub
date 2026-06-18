@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,39 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dep(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that enforces a named rate limit.
+
+    The limiter is lazily instantiated on first request from
+    ``settings.<name>_rate_limit`` / ``settings.<name>_rate_window`` and
+    cached on ``request.app.state`` under ``_<name>_rate_limiter`` so all
+    workers in the same container share a single sliding window.
+
+    Usage::
+
+        _enforce_publish_rate_limit = make_rate_limit_dep("publish")
+
+        @router.post("/publish", dependencies=[Depends(_enforce_publish_rate_limit)])
+        def publish(...): ...
+    """
+    state_attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def dep(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    dep.__name__ = f"_enforce_{name}_rate_limit"
+    dep.__qualname__ = dep.__name__
+    return dep

@@ -1,8 +1,41 @@
 """Tests for stale token detection in get_current_user."""
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
+import pytest
+from fastapi import HTTPException
 from jose import jwt
+
+from decision_hub.api.deps import parse_uuid_param
+
+
+class TestParseUuidParam:
+    """parse_uuid_param centralises the route-level UUID parsing pattern."""
+
+    def test_returns_uuid_for_valid_string(self) -> None:
+        value = uuid4()
+        assert parse_uuid_param(str(value), "tracker_id") == value
+
+    def test_returns_uuid_for_uppercase_string(self) -> None:
+        """UUID parsing should be case-insensitive."""
+        value = uuid4()
+        parsed = parse_uuid_param(str(value).upper(), "tracker_id")
+        assert isinstance(parsed, UUID)
+        assert parsed == value
+
+    def test_raises_422_for_invalid_string(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            parse_uuid_param("not-a-uuid", "tracker_id")
+        assert exc_info.value.status_code == 422
+        assert "tracker_id" in exc_info.value.detail
+        assert "not-a-uuid" in exc_info.value.detail
+
+    def test_raises_422_for_empty_string(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            parse_uuid_param("", "run_id")
+        assert exc_info.value.status_code == 422
+        assert "run_id" in exc_info.value.detail
 
 
 class TestStaleTokenDetection:
