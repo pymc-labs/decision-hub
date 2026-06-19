@@ -2040,7 +2040,13 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Tiebreaker: when multiple skills share an FTS rank, sort by (org_slug, skill_name)
+        # so the LIMIT cut is deterministic across requests and pagination is stable.
+        fts_stmt = fts_stmt.order_by(
+            sa.text("fts_rank DESC"),
+            organizations_table.c.slug.asc(),
+            skills_table.c.name.asc(),
+        ).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2058,13 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # Tiebreaker: identical cosine distances are rare but possible; sort by
+        # (org_slug, skill_name) so the LIMIT slice is deterministic.
+        vec_stmt = vec_stmt.order_by(
+            sa.text("vec_dist ASC"),
+            organizations_table.c.slug.asc(),
+            skills_table.c.name.asc(),
+        ).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,7 +2137,11 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        .order_by(
+            sa.text("vec_dist ASC"),
+            organizations_table.c.slug.asc(),
+            skills_table.c.name.asc(),
+        )
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -2724,7 +2740,9 @@ def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int =
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        # id is a unique tiebreaker so two runs created in the same instant
+        # don't reorder between requests.
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()
@@ -3036,6 +3054,29 @@ def batch_set_tracker_errors(conn: Connection, tracker_ids: list[UUID], error_me
     return conn.execute(stmt).rowcount
 
 
+def batch_mark_trackers_orphaned(
+    conn: Connection,
+    tracker_ids: list[UUID],
+    *,
+    checked_at: datetime,
+    error_message: str,
+) -> int:
+    """Update last_checked_at and last_error for orphaned trackers in one UPDATE.
+
+    Replaces a per-tracker loop calling ``update_skill_tracker`` (N round-trips)
+    with a single statement, which matters when a Modal container failure orphans
+    a whole batch of trackers at once.
+    """
+    if not tracker_ids:
+        return 0
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(last_checked_at=checked_at, last_error=error_message)
+    )
+    return conn.execute(stmt).rowcount
+
+
 def batch_defer_trackers(conn: Connection, tracker_ids: list[UUID], error_message: str) -> int:
     """Set last_error and clear next_check_at for multiple trackers. Returns rowcount."""
     if not tracker_ids:
@@ -3249,7 +3290,12 @@ def insert_tracker_metrics(
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
     """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    stmt = (
+        sa.select(tracker_metrics_table)
+        # id breaks ties when batch_duration_seconds writes land in the same instant.
+        .order_by(tracker_metrics_table.c.recorded_at.desc(), tracker_metrics_table.c.id.desc())
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 

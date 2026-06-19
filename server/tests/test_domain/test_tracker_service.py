@@ -314,9 +314,12 @@ class TestProcessTrackerAllFailed:
 
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
-            # SHA should advance since at least one succeeded
+            # SHA should advance since at least one succeeded.
             assert kwargs["last_commit_sha"] == "new_sha_xyz"
-            assert kwargs["last_error"] is None
+            # Partial failure must remain visible — previously last_error was
+            # silently cleared, hiding the broken skill until the next commit.
+            assert kwargs["last_error"] is not None
+            assert "gauntlet error" in kwargs["last_error"]
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
@@ -630,32 +633,35 @@ class TestDispatchChangedTrackers:
         assert processed == 0
         assert failed == 1
 
-    @patch("decision_hub.infra.database.update_skill_tracker")
-    def test_persist_orphaned_tracker_errors(self, mock_update):
-        """When Modal containers die (timeout/OOM), last_error should be persisted."""
-        tracker = self._make_tracker()
-        changed = [(tracker, "new_sha")]
+    @patch("decision_hub.infra.database.batch_mark_trackers_orphaned")
+    def test_persist_orphaned_tracker_errors(self, mock_batch_mark):
+        """When Modal containers die (timeout/OOM), last_error should be persisted via a single batched UPDATE."""
+        tracker_a = self._make_tracker()
+        tracker_b = self._make_tracker()
+        changed = [(tracker_a, "new_sha_a"), (tracker_b, "new_sha_b")]
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
 
         _persist_orphaned_tracker_errors(
-            {tracker.id},
+            {tracker_a.id, tracker_b.id},
             changed,
             mock_engine,
             error_msg="Modal container failed (timeout/OOM)",
         )
 
-        mock_update.assert_called_once()
-        call_kwargs = mock_update.call_args
-        assert call_kwargs[0][1] == tracker.id
-        assert "timeout" in call_kwargs[1]["last_error"]
-        assert call_kwargs[1]["last_checked_at"] is not None
+        # One batched UPDATE for both orphans, not N per-tracker round-trips.
+        mock_batch_mark.assert_called_once()
+        args, kwargs = mock_batch_mark.call_args
+        assert args[0] is mock_conn
+        assert set(args[1]) == {tracker_a.id, tracker_b.id}
+        assert "timeout" in kwargs["error_message"]
+        assert kwargs["checked_at"] is not None
         mock_conn.commit.assert_called_once()
 
-    @patch("decision_hub.infra.database.update_skill_tracker")
-    def test_persist_orphaned_no_op_when_all_completed(self, mock_update):
+    @patch("decision_hub.infra.database.batch_mark_trackers_orphaned")
+    def test_persist_orphaned_no_op_when_all_completed(self, mock_batch_mark):
         """When all trackers completed, no DB update should happen."""
         mock_engine = MagicMock()
 
@@ -666,7 +672,7 @@ class TestDispatchChangedTrackers:
             error_msg="should not be written",
         )
 
-        mock_update.assert_not_called()
+        mock_batch_mark.assert_not_called()
         mock_engine.connect.assert_not_called()
 
 
@@ -1790,11 +1796,14 @@ class TestProcessTrackerMultiSkillPartialFailure:
 
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
-            # SHA advances because at least one skill succeeded
+            # SHA advances because at least one skill succeeded.
             assert kwargs["last_commit_sha"] == "new_sha_multi"
-            # last_error is None because not all failed
-            assert kwargs["last_error"] is None
-            # last_published_at should be set because 3 skills were published
+            # Partial failures must remain visible to operators — both failing
+            # skills should appear in last_error even though three succeeded.
+            assert kwargs["last_error"] is not None
+            assert "skill-b" in kwargs["last_error"]
+            assert "skill-e" in kwargs["last_error"]
+            # last_published_at should be set because 3 skills were published.
             assert kwargs["last_published_at"] is not None
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")

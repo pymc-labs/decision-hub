@@ -16,6 +16,7 @@ from decision_hub.infra.database import (
     batch_clear_tracker_errors,
     batch_defer_trackers,
     batch_disable_trackers,
+    batch_mark_trackers_orphaned,
     batch_set_tracker_errors,
     claim_due_trackers,
     delete_skill_tracker,
@@ -272,6 +273,37 @@ class TestBatchSetTrackerErrors:
         conn.execute.assert_called_once()
 
 
+class TestBatchMarkTrackersOrphaned:
+    def test_empty_list_skips_db(self):
+        conn = MagicMock()
+        result = batch_mark_trackers_orphaned(
+            conn,
+            [],
+            checked_at=datetime.now(UTC),
+            error_message="modal died",
+        )
+        assert result == 0
+        conn.execute.assert_not_called()
+
+    def test_non_empty_issues_single_update(self):
+        conn = MagicMock()
+        conn.execute.return_value.rowcount = 5
+        ids = [uuid4() for _ in range(5)]
+        now = datetime.now(UTC)
+
+        result = batch_mark_trackers_orphaned(
+            conn,
+            ids,
+            checked_at=now,
+            error_message="Modal container failed (timeout/OOM)",
+        )
+
+        assert result == 5
+        # Critical: must be exactly ONE execute call (not N), to avoid
+        # N round-trips when a whole Modal batch dies.
+        conn.execute.assert_called_once()
+
+
 class TestBatchDeferTrackers:
     def test_empty_list_skips_db(self):
         conn = MagicMock()
@@ -411,3 +443,17 @@ class TestListTrackerMetrics:
 
         result = list_tracker_metrics(conn)
         assert result == []
+
+    def test_orders_by_recorded_at_with_id_tiebreaker(self):
+        """Two rows recorded in the same instant must order deterministically by id."""
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        list_tracker_metrics(conn, limit=10)
+
+        # Inspect the compiled SQL: ORDER BY recorded_at DESC, id DESC.
+        executed_stmt = conn.execute.call_args[0][0]
+        sql = str(executed_stmt.compile(compile_kwargs={"literal_binds": True}))
+        # Strip newlines/extra whitespace so the assertion is stable across SQLAlchemy versions.
+        normalized = " ".join(sql.split()).lower()
+        assert "order by tracker_metrics.recorded_at desc, tracker_metrics.id desc" in normalized

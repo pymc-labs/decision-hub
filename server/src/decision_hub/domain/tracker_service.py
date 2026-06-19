@@ -613,30 +613,34 @@ def _persist_orphaned_tracker_errors(
     *,
     error_msg: str,
 ) -> None:
-    """Update last_error for trackers whose Modal containers died before writing a result."""
-    from decision_hub.infra.database import update_skill_tracker
+    """Update last_error for trackers whose Modal containers died before writing a result.
+
+    Issues a single batched UPDATE rather than one per tracker so a wave of
+    Modal failures doesn't translate into N database round-trips.
+    """
+    from decision_hub.infra.database import batch_mark_trackers_orphaned
 
     if not orphaned_ids:
         return
 
     now = datetime.now(UTC)
     tracker_by_id = {t.id: t for t, _ in changed_trackers}
+    for tid in orphaned_ids:
+        tracker = tracker_by_id.get(tid)
+        logger.warning(
+            "tracker_id={} repo={} status=orphaned_failure error={}",
+            tid,
+            tracker.repo_url if tracker else "?",
+            error_msg,
+        )
     try:
         with engine.connect() as conn:
-            for tid in orphaned_ids:
-                tracker = tracker_by_id.get(tid)
-                logger.warning(
-                    "tracker_id={} repo={} status=orphaned_failure error={}",
-                    tid,
-                    tracker.repo_url if tracker else "?",
-                    error_msg,
-                )
-                update_skill_tracker(
-                    conn,
-                    tid,
-                    last_checked_at=now,
-                    last_error=error_msg,
-                )
+            batch_mark_trackers_orphaned(
+                conn,
+                list(orphaned_ids),
+                checked_at=now,
+                error_message=error_msg,
+            )
             conn.commit()
     except Exception:
         logger.opt(exception=True).error("Failed to persist orphaned tracker errors")
@@ -802,6 +806,10 @@ def process_tracker(
                     )
 
             all_failed = published_count == 0 and len(errors) > 0
+            # Surface per-skill errors even on partial success — previously the
+            # tracker recorded last_error=None when any skill succeeded, hiding
+            # broken skills from operators until the next commit churned them.
+            error_msg = "; ".join(errors)[:500] if errors else None
             with engine.connect() as conn:
                 update_skill_tracker(
                     conn,
@@ -811,7 +819,7 @@ def process_tracker(
                     last_commit_sha=current_sha if not all_failed else None,
                     last_checked_at=now,
                     last_published_at=now if published_count > 0 else None,
-                    last_error="; ".join(errors)[:500] if all_failed else None,
+                    last_error=error_msg,
                 )
                 conn.commit()
 

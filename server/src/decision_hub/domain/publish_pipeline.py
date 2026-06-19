@@ -841,8 +841,13 @@ def _try_store_scan_result(
             )
             fresh_conn.commit()
     except Exception:
+        # Side-operation: never block publish on scan-storage failure (CLAUDE.md
+        # "Isolate side operations" rule). Capture enough identifiers so the
+        # orphaned scan can be backfilled from logs via backfill_scan_reports.
         logger.opt(exception=True).warning(
-            "Failed to store scan report for {}/{} — scan data lost but publish succeeded",
+            "Failed to store scan report for {}/{} version={} version_id={} — scan data lost but publish succeeded",
             org_slug,
             skill_name,
+            version,
+            version_id,
         )
