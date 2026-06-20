@@ -2675,9 +2675,19 @@ def update_eval_run_status(
     log_seq: int | None = None,
     error_message: str | None = None,
     completed_at: datetime | None = None,
+    bump_heartbeat: bool = True,
 ) -> None:
-    """Update eval run operational state and bump heartbeat."""
-    values: dict = {"heartbeat_at": sa.func.now()}
+    """Update eval run operational state and (by default) bump heartbeat.
+
+    Workers should leave ``bump_heartbeat`` at ``True`` so the row reflects
+    that they're still alive.  Callers that are *recording a worker death*
+    (e.g. the API's zombie sweep) must pass ``bump_heartbeat=False`` — otherwise
+    the heartbeat gets refreshed by the very write that records the failure,
+    which would mask the next zombie-detection cycle.
+    """
+    values: dict = {}
+    if bump_heartbeat:
+        values["heartbeat_at"] = sa.func.now()
     if status is not None:
         values["status"] = status
     if stage is not None:
@@ -2692,6 +2702,9 @@ def update_eval_run_status(
         values["error_message"] = error_message
     if completed_at is not None:
         values["completed_at"] = completed_at
+
+    if not values:
+        return
 
     stmt = sa.update(eval_runs_table).where(eval_runs_table.c.id == run_id).values(**values)
     conn.execute(stmt)
