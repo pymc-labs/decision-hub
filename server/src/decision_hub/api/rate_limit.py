@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,33 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limiter_dep(limit_attr: str, window_attr: str) -> Callable[[Request], None]:
+    """Return a FastAPI dependency that lazily applies a per-IP rate limiter.
+
+    The limiter is created on first use from ``request.app.state.settings``
+    (reading ``limit_attr`` and ``window_attr``) and cached on ``app.state``
+    under a derived attribute name, so each ``(limit_attr, window_attr)`` pair
+    gets a single shared instance per process.
+
+    Lazy init lets tests swap ``Settings`` between fixtures without rebuilding
+    the limiter at import time. The double-attribute key prevents collisions
+    when several endpoints share the same set of settings fields.
+    """
+    state_attr = f"_rate_limiter__{limit_attr}__{window_attr}"
+
+    def dep(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    dep.__name__ = f"rate_limit_dep_{limit_attr}"
+    return dep

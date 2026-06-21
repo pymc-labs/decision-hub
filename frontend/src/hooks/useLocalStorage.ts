@@ -8,7 +8,9 @@ export function useLocalStorage<T>(
     try {
       const raw = localStorage.getItem(key);
       return raw ? (JSON.parse(raw) as T) : initial;
-    } catch {
+    } catch (err) {
+      // Surface corrupted/unreadable storage so we don't silently drop user state.
+      console.warn(`useLocalStorage: failed to parse "${key}", falling back to initial value`, err);
       return initial;
     }
   });
@@ -19,8 +21,9 @@ export function useLocalStorage<T>(
         const next = typeof val === "function" ? (val as (p: T) => T)(prev) : val;
         try {
           localStorage.setItem(key, JSON.stringify(next));
-        } catch {
-          // quota exceeded — ignore
+        } catch (err) {
+          // Most often quota exceeded; warn so the issue is debuggable in DevTools.
+          console.warn(`useLocalStorage: failed to write "${key}"`, err);
         }
         return next;
       });

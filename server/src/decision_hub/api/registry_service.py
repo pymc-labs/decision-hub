@@ -19,7 +19,7 @@ from sqlalchemy.engine import Connection
 # Scripts (backfills, crawler), tests, and modal_app may import these
 # from ``decision_hub.api.registry_service``.
 # Re-export private helpers used by test patches.
-from decision_hub.domain.publish_pipeline import (  # noqa: F401  # noqa: F401
+from decision_hub.domain.publish_pipeline import (  # noqa: F401
     _build_analyze_fn,
     _build_analyze_prompt_fn,
     _build_review_body_fn,

@@ -7,6 +7,11 @@ from rich.console import Console
 
 console = Console()
 
+# Bound dependency resolution so a hung index can't freeze the CLI forever.
+# Resolution + download for typical skills finishes in under a minute; allow
+# 10 minutes for unusually large dependency graphs.
+_UV_SYNC_TIMEOUT_SECONDS = 600
+
 
 def run_command(
     skill_ref: str = typer.Argument(help="Skill reference: org/skill"),
@@ -68,7 +73,14 @@ def run_command(
     # Sync dependencies
     sync_cmd = build_uv_sync_command(skill_dir)
     console.print(f"[dim]Syncing dependencies in {skill_dir}...[/]")
-    subprocess.run(sync_cmd, check=True, env=env)
+    try:
+        subprocess.run(sync_cmd, check=True, env=env, timeout=_UV_SYNC_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        console.print(
+            f"[red]Error: dependency sync timed out after {_UV_SYNC_TIMEOUT_SECONDS}s. "
+            "Check your network connection or retry.[/]"
+        )
+        raise typer.Exit(1) from None
 
     # Run the entrypoint
     args_tuple = tuple(extra_args) if extra_args else ()
