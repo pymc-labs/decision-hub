@@ -135,7 +135,7 @@ export default function OrgsPage() {
           Organizations
         </h1>
         <p className={styles.subtitle}>
-          {orgs.length} organizations found
+          {(data?.total ?? orgs.length)} organizations found
         </p>
       </div>
 

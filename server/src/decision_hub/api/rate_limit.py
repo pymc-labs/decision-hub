@@ -3,8 +3,38 @@
 import threading
 import time
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request
+
+if TYPE_CHECKING:
+    from decision_hub.settings import Settings
+
+
+def client_ip(request: Request) -> str:
+    """Return the originating client IP, honouring proxy headers.
+
+    Modal's edge (and most CDNs / load balancers) terminates TCP at the
+    proxy, so ``request.client.host`` is the proxy IP — identical for
+    every caller behind it.  We trust ``X-Forwarded-For`` (left-most
+    entry is the original client) and ``X-Real-IP`` as a fallback, then
+    finally the direct peer address.
+
+    Returning the real client IP keeps the per-IP rate limiter from
+    collapsing all traffic into a single bucket, which would let one
+    noisy client lock out everyone else sharing the edge.
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        first = xff.split(",", 1)[0].strip()
+        if first:
+            return first
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+    if request.client:
+        return request.client.host
+    return "unknown"
 
 
 class RateLimiter:
@@ -33,7 +63,7 @@ class RateLimiter:
         self._lock = threading.Lock()
 
     def __call__(self, request: Request) -> None:
-        key = request.client.host if request.client else "unknown"
+        key = client_ip(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
 
@@ -63,3 +93,36 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def rate_limiter_dep(name: str):
+    """Return a FastAPI dependency that lazily builds a named rate limiter.
+
+    ``name`` is the prefix of two settings fields on ``Settings``:
+    ``{name}_rate_limit`` (max requests) and ``{name}_rate_window``
+    (window in seconds).  The limiter instance lives on ``app.state``
+    under ``_rate_limiter_{name}`` and is shared across requests served
+    by the same container.
+
+    Replaces nine near-identical ``_enforce_*_rate_limit`` helpers that
+    were copy-pasted across the route modules.  Adding a new limited
+    endpoint is now one line of dependency wiring plus the two
+    ``Settings`` fields.
+    """
+    attr = f"_rate_limiter_{name}"
+
+    def _enforce(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, attr, None)
+        if limiter is None:
+            settings: Settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, f"{name}_rate_limit"),
+                window_seconds=getattr(settings, f"{name}_rate_window"),
+            )
+            setattr(state, attr, limiter)
+        limiter(request)
+
+    _enforce.__name__ = f"enforce_{name}_rate_limit"
+    _enforce.__doc__ = f"Per-IP rate limit for endpoints in the '{name}' group."
+    return _enforce

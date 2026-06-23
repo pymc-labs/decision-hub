@@ -183,6 +183,11 @@ export interface OrgStatsEntry {
 
 export interface OrgStatsResponse {
   items: OrgStatsEntry[];
+  // Server-side total count. Use this for "N organizations found"
+  // displays — never `items.length`. Today the endpoint returns
+  // every match in one shot so `total === items.length`; the field
+  // exists so the UI stays correct when server pagination lands.
+  total: number;
 }
 
 export interface SimilarSkillRef {

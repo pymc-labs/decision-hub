@@ -149,6 +149,12 @@ class OrgStatsResponse(BaseModel):
     """Response for the /orgs/stats endpoint."""
 
     items: list[OrgStatsEntry]
+    # Authoritative count for the page header. Today the endpoint returns
+    # every matching org in one shot so ``total == len(items)``; the field
+    # exists so the UI never falls back to ``items.length`` (project rule)
+    # and so adding server-side pagination later does not require a
+    # frontend type change.
+    total: int
 
 
 @org_public_router.get("/stats", response_model=OrgStatsResponse)
@@ -184,7 +190,7 @@ def get_org_stats(
         )
         for row in rows
     ]
-    result = OrgStatsResponse(items=items)
+    result = OrgStatsResponse(items=items, total=len(items))
     if ttl:
         cache.set(cache_key, result, ttl=ttl)
     return result

@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limiter_dep
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -82,89 +82,16 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
-
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Per-IP rate limiters lazily initialized from settings on first request.
+# Each ``rate_limiter_dep("foo")`` reads ``settings.foo_rate_limit`` and
+# ``settings.foo_rate_window`` and stashes the limiter on ``app.state``.
+_enforce_list_skills_rate_limit = rate_limiter_dep("list_skills")
+_enforce_resolve_rate_limit = rate_limiter_dep("resolve")
+_enforce_similar_skills_rate_limit = rate_limiter_dep("similar_skills")
+_enforce_download_rate_limit = rate_limiter_dep("download")
+_enforce_audit_log_rate_limit = rate_limiter_dep("audit_log")
+_enforce_scan_report_rate_limit = rate_limiter_dep("scan_report")
+_enforce_publish_rate_limit = rate_limiter_dep("publish")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -556,12 +483,20 @@ def publish_skill(
 
 @public_router.get(
     "/stats",
+    dependencies=[Depends(_enforce_list_skills_rate_limit)],
 )
 def get_registry_stats(
     response: Response,
     conn: Connection = Depends(get_connection),
 ) -> dict:
-    """Return aggregate registry statistics (total skills, orgs, downloads)."""
+    """Return aggregate registry statistics (total skills, orgs, downloads).
+
+    Shares the ``list_skills`` per-IP rate limit — both are lightweight
+    public reads served from the same DB. The 60s Cache-Control header
+    plus the in-container TTL cache mean a hot ``/stats`` resolves
+    without touching Postgres at all, so the limiter is mainly a guard
+    against pathological traffic rather than a load-shedding mechanism.
+    """
     response.headers["Cache-Control"] = "public, max-age=60"
     return fetch_registry_stats(conn)
 

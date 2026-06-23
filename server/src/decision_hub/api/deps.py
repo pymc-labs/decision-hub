@@ -12,6 +12,7 @@ from jose import JWTError
 from loguru import logger
 from sqlalchemy.engine import Connection, Engine
 
+from decision_hub.api.rate_limit import client_ip
 from decision_hub.domain.auth import decode_jwt
 from decision_hub.infra.cache import TTLCache
 from decision_hub.models import User
@@ -75,7 +76,7 @@ def get_current_user(
     try:
         payload = decode_jwt(token, settings.jwt_secret, settings.jwt_algorithm)
     except JWTError:
-        logger.warning("Invalid JWT from {}", request.client.host if request.client else "unknown")
+        logger.warning("Invalid JWT from {}", client_ip(request))
         raise HTTPException(status_code=401, detail="Invalid token") from None
 
     # Tokens issued before the org refactor lack the github_orgs claim.

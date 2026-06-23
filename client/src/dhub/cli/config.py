@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -80,16 +81,27 @@ def load_config() -> CliConfig:
 
 
 def save_config(config: CliConfig) -> None:
-    """Save CLI config to ~/.dhub/config.{env}.json.
+    """Save CLI config to ``~/.dhub/config.{env}.json``.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ``~/.dhub`` directory if needed and tightens permissions
+    on both the directory and the file to user-only (``0700``/``0600``).
+    The config holds a long-lived bearer token, so on multi-user systems
+    or CI containers with permissive umasks the default ``0644`` would
+    leave the token world-readable. ``chmod`` is a no-op on Windows.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # ``chmod`` is best-effort: on Windows or a read-only mount it can
+    # legitimately fail without affecting save correctness, so we
+    # swallow OSError rather than aborting the save.
+    with contextlib.suppress(OSError):
+        CONFIG_DIR.chmod(0o700)
     path = config_file()
     path.write_text(
         json.dumps(asdict(config), indent=2) + "\n",
         encoding="utf-8",
     )
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
 
 
 def get_api_url() -> str:

@@ -127,6 +127,7 @@ describe("listOrgStats", () => {
   it("returns org statistics with filters", async () => {
     const response = {
       items: [{ slug: "acme", skill_count: 5, total_downloads: 100 }],
+      total: 1,
     };
     server.use(
       http.get("/v1/orgs/stats", ({ request }) => {

@@ -91,6 +91,30 @@ class TestSaveConfig:
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
 
+    def test_file_and_dir_permissions_are_tightened(self, tmp_path, monkeypatch):
+        """Saved config and parent dir must be user-only (0600/0700).
+
+        The config file holds a long-lived bearer token. On systems with
+        a permissive umask (CI containers, shared hosts) the default file
+        mode would be world-readable, leaking the token.
+        """
+        import platform
+
+        if platform.system() == "Windows":
+            pytest.skip("POSIX file modes are no-ops on Windows")
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path / "dhub")
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        config_dir = tmp_path / "dhub"
+        config_path = config_dir / "config.dev.json"
+
+        # 0o777 mask to strip the file-type bits before comparison.
+        assert (config_dir.stat().st_mode & 0o777) == 0o700
+        assert (config_path.stat().st_mode & 0o777) == 0o600
+
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""
         monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
