@@ -3,8 +3,40 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
+
+
+def make_rate_limit_dependency(name: str) -> Callable[[Request], None]:
+    """Return a FastAPI dependency that enforces a named per-IP rate limit.
+
+    Looks up ``{name}_rate_limit`` and ``{name}_rate_window`` on
+    ``request.app.state.settings`` and lazily caches the limiter on
+    app.state under ``_{name}_rate_limiter`` so the same limit budget
+    is shared across all routes wired to that name.
+
+    Replaces 9 near-identical hand-rolled enforcer functions that
+    previously lived inline in each routes module.
+    """
+    limiter_attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def dependency(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, limiter_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, limiter_attr, limiter)
+        limiter(request)
+
+    dependency.__name__ = f"_enforce_{name}_rate_limit"
+    return dependency
 
 
 class RateLimiter:

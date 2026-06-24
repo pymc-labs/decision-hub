@@ -36,8 +36,14 @@ def _make_tracker_row(
     enabled: bool = True,
     last_error: str | None = None,
     next_check_at: datetime | None = None,
+    consecutive_permanent_failures: int = 0,
 ) -> MagicMock:
-    """Create a mock row that simulates a skill_trackers row."""
+    """Create a mock row that simulates a skill_trackers row.
+
+    Provides both attribute access (used by older mappers) and the
+    ``_mapping`` dict-like view used by the current _row_to_skill_tracker
+    which derives its target fields from SkillTracker's dataclass fields.
+    """
     row = MagicMock()
     row.id = tracker_id or uuid4()
     row.user_id = user_id or uuid4()
@@ -51,7 +57,24 @@ def _make_tracker_row(
     row.last_published_at = None
     row.last_error = last_error
     row.next_check_at = next_check_at
+    row.consecutive_permanent_failures = consecutive_permanent_failures
     row.created_at = datetime.now(UTC)
+    row._mapping = {
+        "id": row.id,
+        "user_id": row.user_id,
+        "org_slug": row.org_slug,
+        "repo_url": row.repo_url,
+        "branch": row.branch,
+        "last_commit_sha": row.last_commit_sha,
+        "poll_interval_minutes": row.poll_interval_minutes,
+        "enabled": row.enabled,
+        "last_checked_at": row.last_checked_at,
+        "last_published_at": row.last_published_at,
+        "last_error": row.last_error,
+        "next_check_at": row.next_check_at,
+        "consecutive_permanent_failures": row.consecutive_permanent_failures,
+        "created_at": row.created_at,
+    }
     return row
 
 
@@ -73,6 +96,14 @@ class TestRowToSkillTracker:
         row = _make_tracker_row(next_check_at=now)
         tracker = _row_to_skill_tracker(row)
         assert tracker.next_check_at == now
+
+    def test_maps_consecutive_permanent_failures(self):
+        # Regression: prior hand-rolled mapper silently dropped this column,
+        # so the disable-after-N-failures policy could never disable a tracker
+        # because every read materialised the field as the dataclass default 0.
+        row = _make_tracker_row(consecutive_permanent_failures=7)
+        tracker = _row_to_skill_tracker(row)
+        assert tracker.consecutive_permanent_failures == 7
 
 
 class TestInsertSkillTracker:

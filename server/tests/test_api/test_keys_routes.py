@@ -49,6 +49,34 @@ class TestStoreKey:
         )
         assert resp.status_code == 401
 
+    def test_rejects_oversized_value(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A 10 MB value should be refused at the schema layer with 422,
+        not silently encrypted, stored, and later decrypted into the eval
+        worker — that's a cheap memory-amplification vector.
+        """
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "huge", "value": "x" * (8192 + 1)},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_rejects_oversized_key_name(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "x" * 129, "value": "sk-ok"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
 
 class TestListKeys:
     """GET /v1/keys -- list stored API key names."""

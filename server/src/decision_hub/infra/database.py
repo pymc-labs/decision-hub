@@ -2440,6 +2440,12 @@ def has_recent_quarantine(
     return conn.execute(stmt).scalar_one_or_none() is not None
 
 
+# Hard upper bound on a single find_audit_logs call. Skills with thousands
+# of rejected publish attempts would otherwise stream every row into memory
+# and through the response serializer when callers pass limit=None.
+_AUDIT_LOGS_MAX_LIMIT = 1000
+
+
 def find_audit_logs(
     conn: Connection,
     org_slug: str,
@@ -2456,7 +2462,8 @@ def find_audit_logs(
         org_slug: Organization slug.
         skill_name: Skill name.
         semver: Optional version to filter by.
-        limit: Maximum number of rows to return (None = all).
+        limit: Maximum number of rows to return. None or values above
+            _AUDIT_LOGS_MAX_LIMIT are capped to _AUDIT_LOGS_MAX_LIMIT.
         offset: Number of rows to skip.
 
     Returns:
@@ -2474,14 +2481,14 @@ def find_audit_logs(
     count_stmt = sa.select(sa.func.count()).select_from(eval_audit_logs_table).where(where)
     total = conn.execute(count_stmt).scalar() or 0
 
+    effective_limit = _AUDIT_LOGS_MAX_LIMIT if limit is None else min(limit, _AUDIT_LOGS_MAX_LIMIT)
     stmt = (
         sa.select(eval_audit_logs_table)
         .where(where)
         .order_by(eval_audit_logs_table.c.created_at.desc(), eval_audit_logs_table.c.id.desc())
         .offset(offset)
+        .limit(effective_limit)
     )
-    if limit is not None:
-        stmt = stmt.limit(limit)
 
     rows = conn.execute(stmt).all()
     return [_row_to_audit_log_entry(row) for row in rows], total
@@ -2788,22 +2795,14 @@ def insert_search_log(
 
 
 def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
-    """Map a database row to a SkillTracker model."""
-    return SkillTracker(
-        id=row.id,
-        user_id=row.user_id,
-        org_slug=row.org_slug,
-        repo_url=row.repo_url,
-        branch=row.branch,
-        last_commit_sha=row.last_commit_sha,
-        poll_interval_minutes=row.poll_interval_minutes,
-        enabled=row.enabled,
-        last_checked_at=row.last_checked_at,
-        last_published_at=row.last_published_at,
-        last_error=row.last_error,
-        next_check_at=row.next_check_at,
-        created_at=row.created_at,
-    )
+    """Map a database row to a SkillTracker model.
+
+    Pulls every column declared on SkillTracker from the row mapping so a new
+    column added to the model + table is picked up automatically — a previous
+    hand-rolled version silently dropped consecutive_permanent_failures.
+    """
+    fields = SkillTracker.__dataclass_fields__
+    return SkillTracker(**{k: v for k, v in row._mapping.items() if k in fields})
 
 
 def insert_skill_tracker(

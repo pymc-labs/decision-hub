@@ -39,6 +39,24 @@ _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per extracted file
 _MAX_TOTAL_EXTRACTED = 100 * 1024 * 1024  # 100 MB total uncompressed
 _MAX_ZIP_ENTRIES = 500  # maximum number of entries in the zip
 
+
+def _safe_read(zf: zipfile.ZipFile, name: str, remaining_budget: int) -> bytes:
+    """Read a zip member while enforcing per-file and remaining-total caps.
+
+    ZipInfo.file_size is taken from the central directory, which the
+    archive can lie about. Reading via zf.open() and accumulating the
+    actual decompressed bytes is the only honest way to bound a zip-bomb.
+    """
+    cap = min(_MAX_FILE_SIZE, remaining_budget) + 1
+    with zf.open(name) as fh:
+        data = fh.read(cap)
+    if len(data) > _MAX_FILE_SIZE:
+        raise ValueError(f"File '{name}' exceeds maximum size of {_MAX_FILE_SIZE // (1024 * 1024)} MB")
+    if len(data) > remaining_budget:
+        raise ValueError(f"Total uncompressed size exceeds limit of {_MAX_TOTAL_EXTRACTED // (1024 * 1024)} MB")
+    return data
+
+
 # File types to extract for security scanning
 _SECURITY_SCAN_EXTENSIONS = frozenset(
     {
@@ -100,32 +118,31 @@ def extract_for_evaluation(
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         entries = zf.infolist()
 
-        # Zip bomb prevention: check entry count and total uncompressed size
+        # Zip bomb prevention: bound the entry count immediately.  The
+        # per-file and total-size budgets are enforced during read, since
+        # ZipInfo.file_size is attacker-controlled metadata.
         if len(entries) > _MAX_ZIP_ENTRIES:
             raise ValueError(f"Zip archive contains {len(entries)} entries, exceeding limit of {_MAX_ZIP_ENTRIES}")
 
-        total_uncompressed = sum(info.file_size for info in entries)
-        if total_uncompressed > _MAX_TOTAL_EXTRACTED:
-            raise ValueError(
-                f"Total uncompressed size ({total_uncompressed // (1024 * 1024)} MB) "
-                f"exceeds limit of {_MAX_TOTAL_EXTRACTED // (1024 * 1024)} MB"
-            )
-
+        remaining_budget = _MAX_TOTAL_EXTRACTED
         for name in zf.namelist():
             if name.endswith("/"):
                 continue
 
-            if zf.getinfo(name).file_size > _MAX_FILE_SIZE:
-                raise ValueError(f"File '{name}' exceeds maximum size of {_MAX_FILE_SIZE // (1024 * 1024)} MB")
-
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
 
             if basename == "SKILL.md":
-                skill_md = zf.read(name).decode()
+                data = _safe_read(zf, name, remaining_budget)
+                remaining_budget -= len(data)
+                skill_md = data.decode()
             elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
-                lockfile_content = zf.read(name).decode()
+                data = _safe_read(zf, name, remaining_budget)
+                remaining_budget -= len(data)
+                lockfile_content = data.decode()
             elif _is_scannable_file(basename):
-                source_files.append((name, zf.read(name).decode()))
+                data = _safe_read(zf, name, remaining_budget)
+                remaining_budget -= len(data)
+                source_files.append((name, data.decode()))
             else:
                 unscanned_files.append(name)
 

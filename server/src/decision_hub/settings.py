@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
+    # Aggregate read endpoints (stats, summary, latest-version, eval-report)
+    # previously had no rate limiter; group them under a shared "read" budget.
+    skill_read_rate_limit: int = 120
+    skill_read_rate_window: int = 60
+    stats_rate_limit: int = 30
+    stats_rate_window: int = 60
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

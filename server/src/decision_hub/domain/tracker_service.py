@@ -802,6 +802,10 @@ def process_tracker(
                     )
 
             all_failed = published_count == 0 and len(errors) > 0
+            # Preserve last_error whenever any sub-publish failed — clearing it
+            # on partial success would hide regressions on individual skills
+            # in a multi-skill repo from operators.
+            last_error = "; ".join(errors)[:500] if errors else None
             with engine.connect() as conn:
                 update_skill_tracker(
                     conn,
@@ -811,7 +815,7 @@ def process_tracker(
                     last_commit_sha=current_sha if not all_failed else None,
                     last_checked_at=now,
                     last_published_at=now if published_count > 0 else None,
-                    last_error="; ".join(errors)[:500] if all_failed else None,
+                    last_error=last_error,
                 )
                 conn.commit()
 

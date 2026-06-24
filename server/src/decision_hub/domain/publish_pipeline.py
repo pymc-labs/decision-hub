@@ -171,110 +171,58 @@ def parse_manifest_from_content(
 # ---------------------------------------------------------------------------
 
 
-def _build_analyze_fn(settings: Settings, gemini: dict | None = None):
-    """Build a Gemini analyze callback if google_api_key is configured."""
+def _build_gemini_fn(
+    settings: Settings,
+    gemini: dict | None,
+    fn_name: str,
+):
+    """Build a Gemini-backed callback that forwards extra positional args.
+
+    Returns None when no API key is configured so callers can wire fall-back
+    behavior (the gauntlet skips LLM-dependent checks in that case).
+    The single shared factory replaces five near-identical _build_*_fn
+    closures that used to differ only in which gemini.* function they
+    invoked.
+    """
     if not settings.google_api_key:
         return None
 
-    from decision_hub.infra.gemini import analyze_code_safety, create_gemini_client
+    from decision_hub.infra import gemini as gemini_mod
 
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
+    gemini_client = gemini or gemini_mod.create_gemini_client(settings.google_api_key)
+    impl = getattr(gemini_mod, fn_name)
 
-    def analyze_fn(snippets, source_files, skill_name, skill_description):
-        return analyze_code_safety(
-            gemini_client,
-            snippets,
-            source_files,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+    def _fn(*args):
+        return impl(gemini_client, *args, model=settings.gemini_model)
 
-    return analyze_fn
+    return _fn
+
+
+# Thin named wrappers preserve the patch surface used by ~30 test stacks
+# and the historical import in api/registry_service.py.
+def _build_analyze_fn(settings: Settings, gemini: dict | None = None):
+    """Build a Gemini analyze callback if google_api_key is configured."""
+    return _build_gemini_fn(settings, gemini, "analyze_code_safety")
 
 
 def _build_analyze_prompt_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini prompt analyze callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_prompt_safety, create_gemini_client
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def analyze_prompt_fn(prompt_hits, skill_name, skill_description):
-        return analyze_prompt_safety(
-            gemini_client,
-            prompt_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_prompt_fn
+    return _build_gemini_fn(settings, gemini, "analyze_prompt_safety")
 
 
 def _build_review_body_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini holistic body review callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import create_gemini_client, review_prompt_body_safety
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def review_body_fn(body, skill_name, skill_description):
-        return review_prompt_body_safety(
-            gemini_client,
-            body,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return review_body_fn
+    return _build_gemini_fn(settings, gemini, "review_prompt_body_safety")
 
 
 def _build_review_code_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini holistic code review callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import create_gemini_client, review_code_body_safety
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def review_code_fn(source_files, skill_name, skill_description):
-        return review_code_body_safety(
-            gemini_client,
-            source_files,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return review_code_fn
+    return _build_gemini_fn(settings, gemini, "review_code_body_safety")
 
 
 def _build_analyze_credential_fn(settings: Settings, gemini: dict | None = None):
     """Build a Gemini credential entropy review callback if google_api_key is configured."""
-    if not settings.google_api_key:
-        return None
-
-    from decision_hub.infra.gemini import analyze_credential_entropy, create_gemini_client
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
-
-    def analyze_credential_fn(entropy_hits, skill_name, skill_description):
-        return analyze_credential_entropy(
-            gemini_client,
-            entropy_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
-
-    return analyze_credential_fn
+    return _build_gemini_fn(settings, gemini, "analyze_credential_entropy")
 
 
 def run_gauntlet_pipeline(
@@ -485,7 +433,7 @@ def maybe_trigger_agent_assessment(
 
         import modal
 
-        from decision_hub.infra.database import create_engine, insert_eval_run
+        from decision_hub.infra.database import create_engine, insert_eval_run, update_eval_run_status
 
         run_uuid = uuid4()
         log_s3_prefix = f"eval-logs/{run_uuid}/"
@@ -528,18 +476,37 @@ def maybe_trigger_agent_assessment(
             settings.modal_app_name,
             "run_eval_task",
         )
-        run_eval.spawn(
-            version_id=str(version_id),
-            eval_run_id=str(eval_run.id),
-            eval_agent=eval_config.agent,
-            eval_judge_model=eval_config.judge_model,
-            eval_cases_dicts=cases_dicts,
-            s3_key=s3_key,
-            s3_bucket=s3_bucket,
-            org_slug=org_slug,
-            skill_name=skill_name,
-            user_id=str(user_id),
-        )
+        try:
+            run_eval.spawn(
+                version_id=str(version_id),
+                eval_run_id=str(eval_run.id),
+                eval_agent=eval_config.agent,
+                eval_judge_model=eval_config.judge_model,
+                eval_cases_dicts=cases_dicts,
+                s3_key=s3_key,
+                s3_bucket=s3_bucket,
+                org_slug=org_slug,
+                skill_name=skill_name,
+                user_id=str(user_id),
+            )
+        except Exception as exc:
+            # Spawn failed — the eval_run row would otherwise sit in 'pending'
+            # forever (zombie detection only covers running/judging/provisioning).
+            # Mark it failed so the CLI's tail loop terminates and the operator
+            # sees the spawn-side error.
+            logger.opt(exception=True).warning("Modal spawn failed for eval_run={}; marking failed", eval_run.id)
+            from datetime import UTC, datetime
+
+            with engine.connect() as eval_conn:
+                update_eval_run_status(
+                    eval_conn,
+                    eval_run.id,
+                    status="failed",
+                    error_message=f"Failed to spawn eval task: {exc}"[:500],
+                    completed_at=datetime.now(UTC),
+                )
+                eval_conn.commit()
+            raise
         return "pending", str(eval_run.id)
     return None, None
 

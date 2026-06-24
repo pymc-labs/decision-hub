@@ -771,12 +771,6 @@ function AuditTab({
             {entry.check_results.length > 0 && (
               <CheckResultsGrid checks={entry.check_results} />
             )}
-
-            {entry.quarantine_s3_key && (
-              <span className={styles.auditQuarantine}>
-                Quarantined: {entry.quarantine_s3_key}
-              </span>
-            )}
           </div>
         </NeonCard>
       ))}

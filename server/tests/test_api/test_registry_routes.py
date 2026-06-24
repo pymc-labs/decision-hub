@@ -860,7 +860,7 @@ class TestGetAuditLog:
             check_results=[{"check_name": "manifest_schema", "severity": "pass", "message": "ok"}],
             llm_reasoning=None,
             publisher="testuser",
-            quarantine_s3_key=None,
+            quarantine_s3_key="quarantine/test-org/my-skill/1.0.0/sha.zip",
             created_at=datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
         )
         mock_find.return_value = ([entry], 1)
@@ -872,6 +872,9 @@ class TestGetAuditLog:
         assert len(data["items"]) == 1
         assert data["items"][0]["grade"] == "A"
         assert data["items"][0]["publisher"] == "testuser"
+        # quarantine_s3_key is an internal S3 path and must never reach
+        # public callers, even when the underlying domain model has it set.
+        assert "quarantine_s3_key" not in data["items"][0]
         assert data["total"] == 1
         assert data["page"] == 1
 

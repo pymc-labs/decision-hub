@@ -92,7 +92,6 @@ export interface AuditLogEntry {
   check_results: CheckResult[];
   llm_reasoning: Record<string, unknown> | null;
   publisher: string;
-  quarantine_s3_key: string | null;
   created_at: string | null;
 }
 

@@ -15,23 +15,14 @@ from fastapi import HTTPException
 from loguru import logger
 from sqlalchemy.engine import Connection
 
-# Re-export pipeline functions for backward compatibility.
-# Scripts (backfills, crawler), tests, and modal_app may import these
-# from ``decision_hub.api.registry_service``.
-# Re-export private helpers used by test patches.
-from decision_hub.domain.publish_pipeline import (  # noqa: F401  # noqa: F401
-    _build_analyze_fn,
-    _build_analyze_prompt_fn,
-    _build_review_body_fn,
-    _build_review_code_fn,
+# Real callers of these two live in scripts/ (backfill_categories,
+# backfill_gauntlet, gauntlet_comparison) and in scripts/crawler/processing.py;
+# keep them re-exported here so those import paths stay stable. The other
+# pipeline helpers used to be re-exported "for test patching" but every test
+# actually patches them at the domain location, so the F401 stubs were dead.
+from decision_hub.domain.publish_pipeline import (  # noqa: F401
     classify_skill_category,
-    extract_assessment_config,
-    extract_runtime_config_dict,
-    maybe_trigger_agent_assessment,
-    parse_manifest_from_content,
-    quarantine_and_log_rejection,
     run_gauntlet_pipeline,
-    try_parse_assessment_cases,
 )
 from decision_hub.infra.database import (
     find_org_by_slug,

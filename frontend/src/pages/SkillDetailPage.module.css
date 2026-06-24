@@ -613,16 +613,6 @@ a.metaItem:hover {
   background: rgba(255, 230, 0, 0.08);
 }
 
-.auditQuarantine {
-  font-family: 'Share Tech Mono', monospace;
-  font-size: var(--text-xs);
-  color: var(--neon-pink);
-  padding: 4px 8px;
-  background: rgba(255, 45, 149, 0.08);
-  border-radius: 4px;
-  align-self: flex-start;
-}
-
 /* Similar Skills panel */
 .similarHeader {
   font-family: 'Rajdhani', sans-serif;

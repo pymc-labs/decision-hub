@@ -103,18 +103,20 @@ def _run() -> None:
 
     created = 0
     skipped = 0
+    # Commit after each insert: a single shared transaction would let one
+    # IntegrityError's rollback discard every uncommitted prior insert,
+    # silently overstating `created` vs. what actually landed in the DB.
     with engine.connect() as conn:
         for repo_url, org_slug in missing:
             try:
                 insert_skill_tracker(conn, user_id=crawler_user_id, org_slug=org_slug, repo_url=repo_url)
+                conn.commit()
                 created += 1
             except IntegrityError:
-                # Race condition or duplicate — skip
                 conn.rollback()
                 skipped += 1
                 print(f"  [skip] already exists: {org_slug} | {repo_url}")
                 continue
-        conn.commit()
 
     print(f"\nDone. Created {created} trackers, skipped {skipped}.")
 

@@ -13,7 +13,18 @@ from uuid import UUID
 
 import boto3
 from botocore.client import BaseClient
+from botocore.config import Config
 from loguru import logger
+
+# boto3 defaults to a 60s connect/read timeout and a 5-attempt "legacy"
+# retry mode, so a single stalled S3 call can hold an event-loop worker
+# for ~5 minutes. With max_inputs=100 per Modal container, a couple of
+# stalled streams is enough to wedge a replica.
+_S3_CLIENT_CONFIG = Config(
+    connect_timeout=3,
+    read_timeout=15,
+    retries={"max_attempts": 3, "mode": "standard"},
+)
 
 
 def create_s3_client(
@@ -37,6 +48,7 @@ def create_s3_client(
         "region_name": region,
         "aws_access_key_id": access_key_id,
         "aws_secret_access_key": secret_access_key,
+        "config": _S3_CLIENT_CONFIG,
     }
     if endpoint_url:
         kwargs["endpoint_url"] = endpoint_url
