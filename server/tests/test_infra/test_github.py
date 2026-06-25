@@ -199,3 +199,28 @@ class TestFetchUserMetadata:
 
         with pytest.raises(httpx.HTTPStatusError):
             await fetch_user_metadata("gh-token", "ghost")
+
+
+class TestRequestTimeouts:
+    """Every GitHub API helper must apply an explicit per-request timeout.
+
+    Without this, a slow upstream hangs the worker (and any in-flight OAuth
+    device flow) indefinitely. Asserting the constant value here is a
+    cheap guard against accidentally removing it in a future refactor.
+    """
+
+    def test_timeout_constant_is_defined_and_finite(self) -> None:
+        from decision_hub.infra.github import _GITHUB_HTTP_TIMEOUT
+
+        assert _GITHUB_HTTP_TIMEOUT is not None
+        assert 0 < _GITHUB_HTTP_TIMEOUT <= 60
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_request_times_out_on_slow_upstream(self) -> None:
+        """A hanging GitHub endpoint must raise within the configured budget,
+        not block the worker indefinitely."""
+        respx.get("https://api.github.com/orgs/slow-org").mock(side_effect=httpx.ReadTimeout("Read timeout"))
+
+        with pytest.raises(httpx.ReadTimeout):
+            await fetch_org_metadata("gh-token", "slow-org")

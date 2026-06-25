@@ -84,3 +84,42 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+    def test_purge_stale_drops_expired_ips(self) -> None:
+        """Stale IPs are evicted from the internal dict every _PURGE_EVERY
+        calls, bounding memory growth.
+
+        Regression test for a bug where the purge used a modulo over the
+        live count (``total % 100 == 0``), which almost never fired, so the
+        dict grew unbounded over the container's lifetime.
+        """
+        # Tight knob: purge every 5 calls instead of 100.
+        limiter = RateLimiter(max_requests=10, window_seconds=1)
+        limiter._PURGE_EVERY = 5  # type: ignore[misc]
+
+        with patch("decision_hub.api.rate_limit.time") as mock_time:
+            # Five distinct stale IPs at t=1000.
+            mock_time.monotonic.return_value = 1000.0
+            for i in range(5):
+                limiter(_make_request(f"10.0.0.{i}"))
+            assert len(limiter._requests) == 5
+
+            # Advance well past the window so all five are stale.
+            mock_time.monotonic.return_value = 1100.0
+            # Five more calls from a fresh IP — the 5th call should purge
+            # the stale entries (calls_since_purge wraps).
+            for _ in range(5):
+                limiter(_make_request("10.0.0.99"))
+
+            # Only the active IP should remain.
+            assert list(limiter._requests.keys()) == ["10.0.0.99"]
+
+    def test_purge_counter_advances_every_call(self) -> None:
+        """Each call increments the purge counter exactly once, regardless
+        of how many timestamps already exist for the caller's IP."""
+        limiter = RateLimiter(max_requests=100, window_seconds=60)
+        request = _make_request()
+
+        for n in range(1, 11):
+            limiter(request)
+            assert limiter._calls_since_purge == n % limiter._PURGE_EVERY

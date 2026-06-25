@@ -37,6 +37,7 @@ const ASK_RESPONSE: AskResponse = {
       source_repo_url: "https://github.com/acme/data-tool",
       gauntlet_summary: null,
       github_stars: 120,
+      github_forks: 30,
       github_license: "MIT",
     },
   ],

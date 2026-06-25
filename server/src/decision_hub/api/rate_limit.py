@@ -26,11 +26,19 @@ class RateLimiter:
         def search(...): ...
     """
 
+    _PURGE_EVERY = 100
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        # Monotonic counter — drives the periodic purge. Previously we summed
+        # all timestamps in `_requests` and checked `total % 100 == 0`, but
+        # `total` recomputed each call almost never landed exactly on a
+        # multiple of 100, so `_purge_stale` effectively never ran and IPs
+        # accumulated for the lifetime of the (long-lived) Modal container.
+        self._calls_since_purge = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -40,9 +48,10 @@ class RateLimiter:
         with self._lock:
             # Prune expired timestamps for this key
             timestamps = self._requests[key]
-            self._requests[key] = [t for t in timestamps if t > cutoff]
+            timestamps = [t for t in timestamps if t > cutoff]
+            self._requests[key] = timestamps
 
-            if len(self._requests[key]) >= self.max_requests:
+            if len(timestamps) >= self.max_requests:
                 raise HTTPException(
                     status_code=429,
                     detail=(
@@ -50,12 +59,13 @@ class RateLimiter:
                     ),
                 )
 
-            self._requests[key].append(now)
+            timestamps.append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Bound memory growth by purging IPs whose entries are all older
+            # than the window once every _PURGE_EVERY calls.
+            self._calls_since_purge += 1
+            if self._calls_since_purge >= self._PURGE_EVERY:
+                self._calls_since_purge = 0
                 self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:

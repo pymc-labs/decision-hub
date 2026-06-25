@@ -249,6 +249,65 @@ class TestAskSkills:
         call_kwargs = mock_hybrid.call_args
         assert call_kwargs[1]["category"] == "Data Science"
 
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational")
+    def test_ask_response_includes_github_forks(
+        self,
+        mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """github_forks round-trips through the LLM-success enrichment path.
+
+        Regression test for the CLAUDE.md ``_SKILL_SUMMARY_COLUMNS`` sync
+        chain — the field was already in ``SkillIndexEntry`` and the DB
+        query, but ``AskSkillRef`` dropped it on the way out.
+        """
+        candidate = dict(_SAMPLE_CANDIDATES[0])
+        candidate["github_forks"] = 42
+        candidate["github_stars"] = 100
+        mock_hybrid.return_value = [candidate]
+        mock_llm.return_value = {
+            "answer": "Try acme/weather.",
+            "referenced_skills": [
+                {"org_slug": "acme", "skill_name": "weather", "reason": "matches"},
+            ],
+        }
+
+        resp = search_client.get("/v1/ask", params={"q": "weather forecast"})
+
+        assert resp.status_code == 200
+        skill = resp.json()["skills"][0]
+        assert skill["github_forks"] == 42
+        assert skill["github_stars"] == 100
+
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational", side_effect=Exception("Gemini down"))
+    def test_ask_fallback_includes_github_forks(
+        self,
+        _mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """github_forks also round-trips through the LLM-failure fallback path."""
+        candidate = dict(_SAMPLE_CANDIDATES[0])
+        candidate["github_forks"] = 7
+        mock_hybrid.return_value = [candidate]
+
+        resp = search_client.get("/v1/ask", params={"q": "weather forecast"})
+
+        assert resp.status_code == 200
+        skill = resp.json()["skills"][0]
+        assert skill["github_forks"] == 7
+
     def test_ask_rate_limited(self, search_app: FastAPI) -> None:
         """Exceeding the rate limit returns HTTP 429."""
         search_app.state.settings.search_rate_limit = 2

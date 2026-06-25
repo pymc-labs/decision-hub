@@ -207,6 +207,7 @@ export interface AskSkillRef {
   source_repo_url: string | null;
   gauntlet_summary: string | null;
   github_stars: number | null;
+  github_forks: number | null;
   github_license: string | null;
 }
 

@@ -54,6 +54,7 @@ def backfill(batch_size: int = 100) -> None:
                     )
                 )
                 .where(skills_table.c.embedding.is_(None))
+                .order_by(skills_table.c.id)  # CLAUDE.md: every LIMIT needs an explicit ORDER BY
                 .limit(batch_size)
             )
             rows = conn.execute(stmt).all()
@@ -97,9 +98,11 @@ def backfill(batch_size: int = 100) -> None:
                 update_skill_embedding(conn, row.id, embedding)
 
             conn.commit()
-            total_processed += len(rows)
+            batch_count = len(rows)
+            total_processed += batch_count
             consecutive_errors = 0  # reset circuit breaker on success
-            logger.info("Backfilled {}/{} skills", total_processed, total_processed)
+            # Previously logged total_processed twice, masking batch progress.
+            logger.info("Backfilled batch of {} (total: {})", batch_count, total_processed)
 
     logger.info(
         "Backfill complete: {} skills processed, {} errors",

@@ -186,7 +186,12 @@ _OFF_TOPIC_ANSWER = (
 
 
 class AskSkillRef(BaseModel):
-    """A skill referenced in the conversational answer."""
+    """A skill referenced in the conversational answer.
+
+    Keep this in lockstep with ``SkillIndexEntry`` (shared/models.py) and
+    ``frontend/src/types/api.ts::AskSkillRef`` — see CLAUDE.md
+    ``_SKILL_SUMMARY_COLUMNS`` sync rule.
+    """
 
     org_slug: str
     skill_name: str
@@ -200,6 +205,7 @@ class AskSkillRef(BaseModel):
     source_repo_url: str | None = None
     gauntlet_summary: str | None = None
     github_stars: int | None = None
+    github_forks: int | None = None
     github_license: str | None = None
 
 
@@ -403,6 +409,7 @@ def _ask_skills_inner(
                 source_repo_url=e.source_repo_url,
                 gauntlet_summary=e.gauntlet_summary,
                 github_stars=e.github_stars,
+                github_forks=e.github_forks,
                 github_license=e.github_license,
             )
             for e in result.entries[:5]
@@ -476,6 +483,7 @@ def _ask_skills_inner(
                     source_repo_url=row.get("source_repo_url"),
                     gauntlet_summary=row.get("gauntlet_summary"),
                     github_stars=row.get("github_stars"),
+                    github_forks=row.get("github_forks"),
                     github_license=row.get("github_license"),
                 )
             )
