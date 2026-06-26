@@ -3,8 +3,12 @@
 import threading
 import time
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request
+
+if TYPE_CHECKING:
+    from starlette.datastructures import State
 
 
 class RateLimiter:
@@ -63,3 +67,60 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+# Single lock that guards lazy creation of all per-name limiters on app.state.
+# The `hasattr` / setattr dance below is otherwise racy under the FastAPI sync
+# threadpool: two threads could both miss the attribute and create separate
+# limiter instances, the second silently overwriting the first's tracking
+# state. Creation only happens once per limiter name per process, so a single
+# coarse lock is cheap and avoids the need for per-name locks.
+_LIMITER_INIT_LOCK = threading.Lock()
+
+
+def get_or_create_limiter(
+    state: "State",
+    name: str,
+    max_requests: int,
+    window_seconds: int,
+) -> RateLimiter:
+    """Return the limiter named ``name`` from ``state``, creating it on first use.
+
+    The limiter is stored on ``state`` as the attribute ``_<name>_rate_limiter``.
+    Used to back per-endpoint FastAPI dependencies — see ``enforce_rate_limit``.
+    """
+    attr = f"_{name}_rate_limiter"
+    limiter = getattr(state, attr, None)
+    if limiter is not None:
+        return limiter
+    with _LIMITER_INIT_LOCK:
+        # Re-check under the lock to avoid clobbering an instance another
+        # thread created while we were waiting.
+        limiter = getattr(state, attr, None)
+        if limiter is None:
+            limiter = RateLimiter(max_requests=max_requests, window_seconds=window_seconds)
+            setattr(state, attr, limiter)
+    return limiter
+
+
+def enforce_rate_limit(name: str, max_attr: str, window_attr: str):
+    """Build a FastAPI dependency that rate-limits requests.
+
+    Reads ``max_attr`` and ``window_attr`` from ``request.app.state.settings``
+    on first use and caches the limiter on ``request.app.state``. Returns a
+    callable suitable for ``Depends(...)``.
+    """
+
+    def _dep(request: Request) -> None:
+        state = request.app.state
+        settings = state.settings
+        limiter = get_or_create_limiter(
+            state,
+            name,
+            getattr(settings, max_attr),
+            getattr(settings, window_attr),
+        )
+        limiter(request)
+
+    _dep.__name__ = f"enforce_{name}_rate_limit"
+    return _dep

@@ -22,6 +22,11 @@ from dhub_core.models import (
 )
 from dhub_core.validation import _SKILL_NAME_PATTERN
 
+# Matches a single YAML `key: value` line. Pre-compiled because
+# _load_yaml_with_fallback iterates this over every line of frontmatter on the
+# retry path; recompiling per line is wasteful on large manifests.
+_YAML_KEY_VALUE_PATTERN = re.compile(r"^(\s*[\w][\w-]*:\s*)(.+)$")
+
 
 def parse_skill_md(path: Path) -> SkillManifest:
     """Parse a SKILL.md file into a SkillManifest.
@@ -106,7 +111,7 @@ def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
     lines = frontmatter_str.split("\n")
     patched: list[str] = []
     for line in lines:
-        m = re.match(r"^(\s*[\w][\w-]*:\s*)(.+)$", line)
+        m = _YAML_KEY_VALUE_PATTERN.match(line)
         if m:
             value = m.group(2)
             needs_quoting = (

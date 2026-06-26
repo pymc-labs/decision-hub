@@ -262,7 +262,12 @@ def update_tracker(
     )
 
     updated = find_skill_tracker(conn, tid)
-    assert updated is not None
+    if updated is None:
+        # Defensive: the row was just updated in the same transaction so it
+        # must exist. Raise explicitly instead of using `assert` because
+        # Python `-O` strips assertions and we'd otherwise hit an attribute
+        # error in _tracker_to_response.
+        raise HTTPException(status_code=500, detail="Tracker disappeared after update")
     return _tracker_to_response(updated)
 
 

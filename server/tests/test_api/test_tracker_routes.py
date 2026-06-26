@@ -266,6 +266,27 @@ class TestUpdateTracker:
         assert resp.status_code == 200
         assert resp.json()["poll_interval_minutes"] == 30
 
+    @patch("decision_hub.api.tracker_routes.find_skill_tracker")
+    @patch("decision_hub.api.tracker_routes.update_skill_tracker")
+    def test_update_tracker_disappears_after_update_returns_500(
+        self, mock_update, mock_find, tracker_client, auth_headers, sample_user_id
+    ):
+        """If the post-update lookup unexpectedly returns None, the endpoint
+        must raise 500 instead of crashing on an attribute access. Previously
+        a bare ``assert`` here would be stripped under ``python -O``.
+        """
+        tracker = _make_tracker(user_id=sample_user_id)
+        # First find returns the tracker (auth check passes); second returns
+        # None to simulate the impossible-but-defensively-handled case.
+        mock_find.side_effect = [tracker, None]
+
+        resp = tracker_client.patch(
+            f"/v1/trackers/{tracker.id}",
+            headers=auth_headers,
+            json={"enabled": False},
+        )
+        assert resp.status_code == 500
+
 
 class TestDeleteTracker:
     @patch("decision_hub.api.tracker_routes.delete_skill_tracker")
