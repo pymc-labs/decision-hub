@@ -83,88 +83,70 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
+def _make_rate_limit_enforcer(attr_name: str, limit_attr: str, window_attr: str, name: str):
+    """Build a FastAPI dependency that lazily attaches a RateLimiter to app.state.
+
+    Replaces eight near-identical helper functions that previously each
+    did the same hasattr/RateLimiter/__call__ dance with a single
+    factory. ``attr_name`` is the per-app cache slot on ``app.state``,
+    ``limit_attr`` and ``window_attr`` are the matching attributes on
+    ``Settings``, and ``name`` is the human-readable label that
+    appears in the rate_limit_exceeded warning log.
+    """
+
+    def _enforce(request: Request) -> None:
+        state = request.app.state
+        if not hasattr(state, attr_name):
+            settings: Settings = state.settings
+            setattr(
+                state,
+                attr_name,
+                RateLimiter(
+                    max_requests=getattr(settings, limit_attr),
+                    window_seconds=getattr(settings, window_attr),
+                    name=name,
+                ),
+            )
+        getattr(state, attr_name)(request)
+
+    return _enforce
 
 
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+_enforce_list_skills_rate_limit = _make_rate_limit_enforcer(
+    "_list_skills_rate_limiter", "list_skills_rate_limit", "list_skills_rate_window", "list_skills"
+)
+_enforce_resolve_rate_limit = _make_rate_limit_enforcer(
+    "_resolve_rate_limiter", "resolve_rate_limit", "resolve_rate_window", "resolve"
+)
+_enforce_similar_skills_rate_limit = _make_rate_limit_enforcer(
+    "_similar_skills_rate_limiter", "similar_skills_rate_limit", "similar_skills_rate_window", "similar_skills"
+)
+_enforce_download_rate_limit = _make_rate_limit_enforcer(
+    "_download_rate_limiter", "download_rate_limit", "download_rate_window", "download"
+)
+_enforce_audit_log_rate_limit = _make_rate_limit_enforcer(
+    "_audit_log_rate_limiter", "audit_log_rate_limit", "audit_log_rate_window", "audit_log"
+)
+_enforce_scan_report_rate_limit = _make_rate_limit_enforcer(
+    "_scan_report_rate_limiter", "scan_report_rate_limit", "scan_report_rate_window", "scan_report"
+)
+_enforce_publish_rate_limit = _make_rate_limit_enforcer(
+    "_publish_rate_limiter", "publish_rate_limit", "publish_rate_window", "publish"
+)
+# Previously unprotected public GETs. Generous defaults so the frontend
+# is unaffected; the limits exist to cap scrapers and enumeration.
+_enforce_stats_rate_limit = _make_rate_limit_enforcer(
+    "_stats_rate_limiter", "stats_rate_limit", "stats_rate_window", "stats"
+)
+_enforce_skill_summary_rate_limit = _make_rate_limit_enforcer(
+    "_skill_summary_rate_limiter", "skill_summary_rate_limit", "skill_summary_rate_window", "skill_summary"
+)
+_enforce_latest_version_rate_limit = _make_rate_limit_enforcer(
+    "_latest_version_rate_limiter", "latest_version_rate_limit", "latest_version_rate_window", "latest_version"
+)
+_enforce_eval_report_rate_limit = _make_rate_limit_enforcer(
+    "_eval_report_rate_limiter", "eval_report_rate_limit", "eval_report_rate_window", "eval_report"
+)
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -556,6 +538,7 @@ def publish_skill(
 
 @public_router.get(
     "/stats",
+    dependencies=[Depends(_enforce_stats_rate_limit)],
 )
 def get_registry_stats(
     response: Response,
@@ -642,6 +625,7 @@ def list_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/summary",
     response_model=SkillSummary,
+    dependencies=[Depends(_enforce_skill_summary_rate_limit)],
 )
 def get_skill_summary(
     org_slug: str,
@@ -692,13 +676,20 @@ def get_similar_skills(
     org_slug: str,
     skill_name: str,
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> list[SimilarSkillRef]:
     """Return up to 5 similar public skills by vector distance.
 
     Returns 404 if the skill does not exist or is not public.
     Returns an empty list if the skill has no stored embedding.
     """
-    skill = find_skill_by_slug(conn, org_slug, skill_name)
+    # Pass the caller's org IDs so private/org-scoped skills the user
+    # can see remain visible. Other detail-page endpoints (summary,
+    # latest-version, scan-report, audit-log) already do this — keeping
+    # /similar consistent avoids leaking the existence of a non-public
+    # skill via 404 vs 200 timing.
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     rows = fetch_similar_skills(conn, org_slug, skill_name, limit=5)
@@ -718,6 +709,7 @@ def get_similar_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/latest-version",
     response_model=LatestVersionResponse,
+    dependencies=[Depends(_enforce_latest_version_rate_limit)],
 )
 def get_latest_version(
     org_slug: str,
@@ -955,6 +947,7 @@ def get_scan_report(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(_enforce_eval_report_rate_limit)],
 )
 def get_eval_report_by_skill(
     org_slug: str,
@@ -977,6 +970,7 @@ def get_eval_report_by_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/versions/{semver}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(_enforce_eval_report_rate_limit)],
 )
 def get_eval_report_by_version_path(
     org_slug: str,

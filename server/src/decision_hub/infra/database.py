@@ -910,6 +910,9 @@ def list_all_org_profiles(conn: Connection) -> list[Organization]:
 
 def org_has_public_skills(conn: Connection, org_id: UUID) -> bool:
     """Check whether an org has at least one published public skill."""
+    # ORDER BY required for deterministic LIMIT (CLAUDE.md SQL rule).
+    # The choice of column doesn't affect the boolean result but keeps
+    # the query plan stable across PostgreSQL versions.
     stmt = (
         sa.select(sa.literal(1))
         .select_from(skills_table)
@@ -920,6 +923,7 @@ def org_has_public_skills(conn: Connection, org_id: UUID) -> bool:
                 skills_table.c.latest_semver.isnot(None),
             )
         )
+        .order_by(skills_table.c.id)
         .limit(1)
     )
     return conn.execute(stmt).first() is not None
@@ -1187,19 +1191,38 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    The previous implementation issued one UPDATE per repo (an N+1 over the
+    tracker resolution set, which runs every tick). We now collapse the whole
+    batch into a single ``UPDATE skills SET ... FROM (VALUES ...) v WHERE
+    skills.source_repo_url = v.repo_url OR skills.source_repo_url LIKE v.like_pat``
+    statement, with the LIKE prefix pre-escaped to handle repo names that
+    legitimately contain ``_`` (a SQL LIKE wildcard).
     """
-    for repo_url, stars in repo_stars.items():
-        stmt = (
-            sa.update(skills_table)
-            .where(
-                sa.or_(
-                    skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
-                )
+    if not repo_stars:
+        return
+    # Pre-escape ``_`` and ``%`` in repo URLs before they become LIKE
+    # patterns. Repo names with underscores (very common) would otherwise
+    # match unrelated paths. We append ``/%`` after escaping so the
+    # trailing wildcard stays a wildcard.
+    rows = [(url, _escape_like(url) + "/%", stars) for url, stars in repo_stars.items()]
+    v = sa.values(
+        sa.column("repo_url", sa.Text),
+        sa.column("like_pat", sa.Text),
+        sa.column("stars", sa.Integer),
+        name="v",
+    ).data(rows)
+    stmt = (
+        sa.update(skills_table)
+        .values(github_stars=v.c.stars)
+        .where(
+            sa.or_(
+                skills_table.c.source_repo_url == v.c.repo_url,
+                skills_table.c.source_repo_url.like(v.c.like_pat, escape="\\"),
             )
-            .values(github_stars=stars)
         )
-        conn.execute(stmt)
+    )
+    conn.execute(stmt)
 
 
 def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str, dict]) -> None:
@@ -1210,24 +1233,48 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    Like ``batch_update_github_stars``, this used to be an N+1 loop and is
+    now a single multi-row UPDATE driven by a VALUES table.
     """
-    for repo_url, meta in repo_metadata.items():
-        stmt = (
-            sa.update(skills_table)
-            .where(
-                sa.or_(
-                    skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
-                )
-            )
-            .values(
-                github_forks=meta.get("forks"),
-                github_watchers=meta.get("watchers"),
-                github_is_archived=meta.get("is_archived"),
-                github_license=meta.get("license"),
+    if not repo_metadata:
+        return
+    rows = [
+        (
+            url,
+            _escape_like(url) + "/%",
+            meta.get("forks"),
+            meta.get("watchers"),
+            meta.get("is_archived"),
+            meta.get("license"),
+        )
+        for url, meta in repo_metadata.items()
+    ]
+    v = sa.values(
+        sa.column("repo_url", sa.Text),
+        sa.column("like_pat", sa.Text),
+        sa.column("forks", sa.Integer),
+        sa.column("watchers", sa.Integer),
+        sa.column("is_archived", sa.Boolean),
+        sa.column("license", sa.Text),
+        name="v",
+    ).data(rows)
+    stmt = (
+        sa.update(skills_table)
+        .values(
+            github_forks=v.c.forks,
+            github_watchers=v.c.watchers,
+            github_is_archived=v.c.is_archived,
+            github_license=v.c.license,
+        )
+        .where(
+            sa.or_(
+                skills_table.c.source_repo_url == v.c.repo_url,
+                skills_table.c.source_repo_url.like(v.c.like_pat, escape="\\"),
             )
         )
-        conn.execute(stmt)
+    )
+    conn.execute(stmt)
 
 
 def insert_skill_access_grant(
@@ -1531,10 +1578,17 @@ def resolve_version(
     base = base.where(versions_table.c.eval_status.in_(allowed_statuses))
 
     if spec == "latest":
+        # semver triple is unique per skill by constraint, but add
+        # created_at/id as deterministic tiebreakers (CLAUDE.md rule:
+        # every LIMIT must have an ORDER BY with a unique tiebreaker).
+        # If the unique constraint is ever relaxed, this still returns
+        # the most recently inserted row instead of an arbitrary one.
         stmt = base.order_by(
             versions_table.c.semver_major.desc(),
             versions_table.c.semver_minor.desc(),
             versions_table.c.semver_patch.desc(),
+            versions_table.c.created_at.desc(),
+            versions_table.c.id.desc(),
         ).limit(1)
     else:
         stmt = base.where(versions_table.c.semver == spec)
@@ -2125,7 +2179,9 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        # Tiebreak ties in cosine distance with skills.id so pagination
+        # and rendering order are deterministic (CLAUDE.md SQL rule).
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id)
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()

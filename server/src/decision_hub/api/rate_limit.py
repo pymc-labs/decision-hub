@@ -5,6 +5,7 @@ import time
 from collections import defaultdict
 
 from fastapi import HTTPException, Request
+from loguru import logger
 
 
 class RateLimiter:
@@ -24,11 +25,18 @@ class RateLimiter:
 
         @router.get("/search", dependencies=[Depends(limiter)])
         def search(...): ...
+
+    When the limit is hit the limiter logs a warning carrying the IP,
+    HTTP method, and path so operators can spot scrapers and bursty
+    clients in the logs. The HTTPException response stays generic.
     """
 
-    def __init__(self, max_requests: int, window_seconds: int) -> None:
+    def __init__(self, max_requests: int, window_seconds: int, *, name: str | None = None) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        # Optional human-readable label that appears in the warning log
+        # when a request is rejected. Defaults to "rate_limiter".
+        self.name = name or "rate_limiter"
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
 
@@ -43,6 +51,19 @@ class RateLimiter:
             self._requests[key] = [t for t in timestamps if t > cutoff]
 
             if len(self._requests[key]) >= self.max_requests:
+                # Observability: rate-limit hits used to be silent 429s
+                # which made it hard to spot abuse in practice. Log at
+                # warning level with greppable identifiers (limiter name,
+                # client IP, method, path) per CLAUDE.md logging rules.
+                logger.warning(
+                    "rate_limit_exceeded limiter={} ip={} method={} path={} limit={}/{}s",
+                    self.name,
+                    key,
+                    request.method,
+                    request.url.path,
+                    self.max_requests,
+                    self.window_seconds,
+                )
                 raise HTTPException(
                     status_code=429,
                     detail=(

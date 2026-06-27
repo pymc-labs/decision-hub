@@ -92,6 +92,19 @@ class Settings(BaseSettings):
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
+    # Registry-stats endpoint — cheap query but loops a DB call; keep
+    # generous since the frontend hits it often, but cap scrapers.
+    stats_rate_limit: int = 120
+    stats_rate_window: int = 60
+    # Per-skill summary / latest-version / eval-report. Generous limits
+    # because these power skill detail pages, but they were previously
+    # unprotected and exposed enumeration vectors over the catalogue.
+    skill_summary_rate_limit: int = 120
+    skill_summary_rate_window: int = 60
+    latest_version_rate_limit: int = 120
+    latest_version_rate_window: int = 60
+    eval_report_rate_limit: int = 60
+    eval_report_rate_window: int = 60
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

@@ -8,10 +8,12 @@ from fastapi import HTTPException
 from decision_hub.api.rate_limit import RateLimiter
 
 
-def _make_request(host: str = "127.0.0.1") -> MagicMock:
-    """Create a mock Request with a given client IP."""
+def _make_request(host: str = "127.0.0.1", method: str = "GET", path: str = "/v1/foo") -> MagicMock:
+    """Create a mock Request with a given client IP, method, and path."""
     request = MagicMock()
     request.client.host = host
+    request.method = method
+    request.url.path = path
     return request
 
 
@@ -77,6 +79,8 @@ class TestRateLimiter:
         limiter = RateLimiter(max_requests=2, window_seconds=60)
         request = MagicMock()
         request.client = None
+        request.method = "GET"
+        request.url.path = "/v1/foo"
 
         for _ in range(2):
             limiter(request)
@@ -84,3 +88,48 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+    def test_logs_warning_when_limit_exceeded(self) -> None:
+        """Rate-limit hits used to be silent 429s. Verify the limiter now
+        logs a warning with the limiter name, client IP, method, and path
+        so operators can spot scrapers in the logs."""
+        from loguru import logger
+
+        limiter = RateLimiter(max_requests=1, window_seconds=60, name="test_limiter")
+        request = _make_request(host="10.1.2.3", method="GET", path="/v1/stats")
+
+        # First request passes, second is rate-limited.
+        limiter(request)
+
+        seen: list[str] = []
+        sink_id = logger.add(lambda msg: seen.append(str(msg)), level="WARNING")
+        try:
+            with pytest.raises(HTTPException):
+                limiter(request)
+        finally:
+            logger.remove(sink_id)
+
+        # Concatenate all captured lines so the assertion isn't sensitive
+        # to loguru's formatter splitting on newlines.
+        captured = "\n".join(seen)
+        assert "rate_limit_exceeded" in captured
+        assert "test_limiter" in captured
+        assert "10.1.2.3" in captured
+        assert "/v1/stats" in captured
+
+    def test_unnamed_limiter_logs_default_name(self) -> None:
+        """When no name is provided, the warning falls back to 'rate_limiter'."""
+        from loguru import logger
+
+        limiter = RateLimiter(max_requests=1, window_seconds=60)
+        request = _make_request()
+        limiter(request)
+
+        seen: list[str] = []
+        sink_id = logger.add(lambda msg: seen.append(str(msg)), level="WARNING")
+        try:
+            with pytest.raises(HTTPException):
+                limiter(request)
+        finally:
+            logger.remove(sink_id)
+        assert "rate_limiter" in "\n".join(seen)
