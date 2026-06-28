@@ -1490,6 +1490,37 @@ class TestDownloadSkillVisibility:
         mock_resolve.assert_called_once()
         assert mock_resolve.call_args.kwargs["user_org_ids"] is None
 
+    @patch("decision_hub.api.registry_routes.increment_skill_downloads")
+    @patch("decision_hub.api.registry_routes.download_zip_from_s3")
+    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.registry_routes.resolve_version")
+    def test_content_disposition_uses_rfc6266_encoded_filename(
+        self,
+        mock_resolve: MagicMock,
+        mock_list_orgs: MagicMock,
+        mock_download: MagicMock,
+        mock_increment: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """``Content-Disposition`` must use the RFC 6266 ``filename*=UTF-8''``
+        form with percent-encoded slug parts so user-controlled org / skill
+        names cannot smuggle quotes or CRLF into the header."""
+        org = _make_org()
+        skill = _make_skill(org)
+        version = _make_version(skill)
+        mock_list_orgs.return_value = None
+        mock_resolve.return_value = version
+        mock_download.return_value = b"zipdata"
+
+        resp = client.get("/v1/skills/test-org/my-skill/download")
+
+        assert resp.status_code == 200
+        cd = resp.headers["content-disposition"]
+        assert cd.startswith("attachment; filename*=UTF-8''")
+        # Underscore in our test slug separator is safe but it must NOT be
+        # inside double quotes (legacy ``filename="..."`` form).
+        assert 'filename="' not in cd
+
 
 # ---------------------------------------------------------------------------
 # POST /v1/publish -- visibility preservation on re-publish

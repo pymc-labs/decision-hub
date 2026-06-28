@@ -1180,6 +1180,20 @@ def update_skill_manifest_path(conn: Connection, skill_id: UUID, manifest_path: 
     conn.execute(stmt)
 
 
+def _repo_url_match(url: str) -> sa.ColumnElement[bool]:
+    """Return a predicate matching skills whose ``source_repo_url`` is the
+    given repo URL, or a subdirectory path under it.
+
+    The ``LIKE`` half escapes ``%`` / ``_`` / ``\\`` in the user-controlled
+    URL so a manifest like ``https://github.com/foo/bar_baz`` cannot match
+    unrelated repos via wildcard injection.
+    """
+    return sa.or_(
+        skills_table.c.source_repo_url == url,
+        skills_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+    )
+
+
 def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> None:
     """Batch-update github_stars on the skills table by source_repo_url.
 
@@ -1187,19 +1201,20 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    Issues a single UPDATE with a ``CASE`` over all URLs instead of one
+    statement per repo — turns N round-trips into 1.
     """
-    for repo_url, stars in repo_stars.items():
-        stmt = (
-            sa.update(skills_table)
-            .where(
-                sa.or_(
-                    skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
-                )
-            )
-            .values(github_stars=stars)
-        )
-        conn.execute(stmt)
+    if not repo_stars:
+        return
+    cases = [(_repo_url_match(url), stars) for url, stars in repo_stars.items()]
+    predicates = [pred for pred, _ in cases]
+    stmt = (
+        sa.update(skills_table)
+        .where(sa.or_(*predicates))
+        .values(github_stars=sa.case(*cases, else_=skills_table.c.github_stars))
+    )
+    conn.execute(stmt)
 
 
 def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str, dict]) -> None:
@@ -1210,24 +1225,27 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    One UPDATE with per-column ``CASE`` expressions instead of one per repo.
     """
-    for repo_url, meta in repo_metadata.items():
-        stmt = (
-            sa.update(skills_table)
-            .where(
-                sa.or_(
-                    skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
-                )
-            )
-            .values(
-                github_forks=meta.get("forks"),
-                github_watchers=meta.get("watchers"),
-                github_is_archived=meta.get("is_archived"),
-                github_license=meta.get("license"),
-            )
+    if not repo_metadata:
+        return
+    predicates = [_repo_url_match(url) for url in repo_metadata]
+    forks_cases = [(_repo_url_match(url), meta.get("forks")) for url, meta in repo_metadata.items()]
+    watchers_cases = [(_repo_url_match(url), meta.get("watchers")) for url, meta in repo_metadata.items()]
+    archived_cases = [(_repo_url_match(url), meta.get("is_archived")) for url, meta in repo_metadata.items()]
+    license_cases = [(_repo_url_match(url), meta.get("license")) for url, meta in repo_metadata.items()]
+    stmt = (
+        sa.update(skills_table)
+        .where(sa.or_(*predicates))
+        .values(
+            github_forks=sa.case(*forks_cases, else_=skills_table.c.github_forks),
+            github_watchers=sa.case(*watchers_cases, else_=skills_table.c.github_watchers),
+            github_is_archived=sa.case(*archived_cases, else_=skills_table.c.github_is_archived),
+            github_license=sa.case(*license_cases, else_=skills_table.c.github_license),
         )
-        conn.execute(stmt)
+    )
+    conn.execute(stmt)
 
 
 def insert_skill_access_grant(

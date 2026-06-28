@@ -15,6 +15,14 @@ from rich.table import Table
 
 console = Console()
 
+# httpx timeouts in seconds. ``_API_TIMEOUT`` covers ordinary JSON calls;
+# downloads can legitimately take longer because skill zips are several
+# megabytes and may travel through a corporate proxy. Anything that
+# uploads or downloads the actual archive should opt into the larger
+# value explicitly.
+_API_TIMEOUT = 60
+_DOWNLOAD_TIMEOUT = 300
+
 
 def _publish_skill_directory(
     path: Path,
@@ -98,7 +106,7 @@ def _publish_skill_directory(
     metadata = json.dumps(meta)
 
     with console.status(f"Publishing {org}/{name}@{version}..."):
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.post(
                 f"{api_url}/v1/publish",
                 headers=build_headers(token),
@@ -440,7 +448,7 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
 
     # Check if a tracker already exists for this repo+branch
     try:
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.get(f"{api_url}/v1/trackers", headers=headers)
             raise_for_status(resp)
             existing = resp.json()
@@ -454,7 +462,7 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
     if match is None:
         # No tracker exists — create one
         try:
-            with httpx.Client(timeout=60) as client:
+            with httpx.Client(timeout=_API_TIMEOUT) as client:
                 resp = client.post(
                     f"{api_url}/v1/trackers",
                     headers=headers,
@@ -475,7 +483,7 @@ def _ensure_tracker(api_url: str, headers: dict, repo_url: str, branch: str, *, 
     if not match["enabled"] and track:
         # Tracker exists but paused, and user asked to re-enable
         try:
-            with httpx.Client(timeout=60) as client:
+            with httpx.Client(timeout=_API_TIMEOUT) as client:
                 resp = client.patch(
                     f"{api_url}/v1/trackers/{match['id']}",
                     headers=headers,
@@ -521,7 +529,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
         raise typer.Exit(1)
 
     # 3. Fall back to API (old config without cached orgs)
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(
             f"{api_url}/v1/orgs",
             headers=build_headers(token),
@@ -577,7 +585,7 @@ def _auto_bump_version(
     """
     from dhub.cli.config import build_headers, raise_for_status
 
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(
             f"{api_url}/v1/skills/{org}/{name}/latest-version",
             headers=build_headers(token),
@@ -699,7 +707,7 @@ def list_command(
     page = 1
     total = 0
     found_any = False
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         while True:
             params: dict[str, int | str] = {"page": page, "page_size": page_size, "sort": "downloads"}
             if org:
@@ -789,7 +797,7 @@ def delete_command(
 
     if dry_run:
         # Verify skill exists
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.get(f"{api_url}/v1/skills/{org_slug}/{skill_name}/summary", headers=headers)
             if resp.status_code == 404:
                 console.print(f"[red]Error: Skill '{skill_name}' not found in {org_slug}.[/]")
@@ -817,7 +825,7 @@ def delete_command(
                 abort=True,
             )
 
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.delete(
                 f"{api_url}/v1/skills/{org_slug}/{skill_name}",
                 headers=headers,
@@ -838,7 +846,7 @@ def delete_command(
         console.print(f"[green]Deleted {count} version(s) of {org_slug}/{skill_name}[/]")
     else:
         # Delete a single version
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.delete(
                 f"{api_url}/v1/skills/{org_slug}/{skill_name}/{version}",
                 headers=headers,
@@ -880,7 +888,7 @@ def eval_report_command(
     headers = build_headers(get_token())
 
     # Fetch the eval report
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(
             f"{api_url}/v1/skills/{org_slug}/{skill_name}/versions/{version}/eval-report",
             headers=headers,
@@ -991,7 +999,10 @@ def _install_single_skill(
         resolve_params: dict[str, str] = {"spec": version}
         if allow_risky:
             resolve_params["allow_risky"] = "true"
-        with console.status(f"Resolving {org_slug}/{skill_name}@{version}..."), httpx.Client(timeout=60) as client:
+        with (
+            console.status(f"Resolving {org_slug}/{skill_name}@{version}..."),
+            httpx.Client(timeout=_API_TIMEOUT) as client,
+        ):
             resp = client.get(
                 f"{base_url}/v1/resolve/{org_slug}/{skill_name}",
                 params=resolve_params,
@@ -1007,10 +1018,11 @@ def _install_single_skill(
         download_url = data["download_url"]
         expected_checksum = data["checksum"]
 
-    # Download and verify
+    # Download and verify. Skill zips can be several megabytes and may
+    # traverse a corporate proxy, so use the larger download timeout.
     with (
         console.status(f"Downloading {org_slug}/{skill_name}@{resolved_version}..."),
-        httpx.Client(timeout=60) as client,
+        httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as client,
     ):
         resp = client.get(download_url)
         raise_for_status(resp)
@@ -1080,7 +1092,7 @@ def _install_from_repo(
         raise typer.Exit(1)
 
     # Fetch all skills from the repo
-    with console.status(f"Fetching skills from {repo_ref}..."), httpx.Client(timeout=60) as client:
+    with console.status(f"Fetching skills from {repo_ref}..."), httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(
             f"{base_url}/v1/skills/by-repo",
             params={"repo_url": repo_url},
@@ -1196,7 +1208,7 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
     uuid_pattern = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
     if uuid_pattern.match(skill_ref):
         # Verify it exists
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.get(f"{api_url}/v1/eval-runs/{skill_ref}", headers=headers)
             if resp.status_code == 200:
                 return skill_ref
@@ -1217,7 +1229,7 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
     # Resolve version to version_id
     if version is None:
         # Get latest version
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.get(
                 f"{api_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
                 headers=headers,
@@ -1227,7 +1239,7 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
             version = resp.json()["version"]
 
     # Use eval-report endpoint to get version_id, then filter runs by it
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(
             f"{api_url}/v1/skills/{org_slug}/{skill_name}/eval-report",
             params={"semver": version},
@@ -1248,7 +1260,7 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
             return None
 
     # Fallback: no eval report for this version, list user's recent runs
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(
             f"{api_url}/v1/eval-runs",
             headers=headers,
@@ -1266,7 +1278,7 @@ def _list_recent_runs(api_url: str, headers: dict) -> None:
     """List recent eval runs for the current user."""
     from dhub.cli.config import raise_for_status
 
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(f"{api_url}/v1/eval-runs", headers=headers)
         raise_for_status(resp)
         runs = resp.json()
@@ -1323,7 +1335,7 @@ def _show_run_status(api_url: str, headers: dict, run_id: str) -> None:
     """Show current status of an eval run."""
     from dhub.cli.config import raise_for_status
 
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(f"{api_url}/v1/eval-runs/{run_id}", headers=headers)
         raise_for_status(resp)
         run = resp.json()
@@ -1371,7 +1383,7 @@ def _tail_eval_logs(api_url: str, headers: dict, run_id: str) -> None:
         console.print(f"[dim]Tailing eval run {run_id[:8]}...[/]\n")
 
     while True:
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=_API_TIMEOUT) as client:
             resp = client.get(
                 f"{api_url}/v1/eval-runs/{run_id}/logs",
                 params={"cursor": cursor},
@@ -1525,7 +1537,7 @@ def _update_single_skill(skill_ref: str) -> None:
     headers = build_headers(get_optional_token())
     base_url = get_api_url()
 
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         # Quick version check via /latest-version (does NOT inflate download count)
         resp = client.get(
             f"{base_url}/v1/skills/{org_slug}/{skill_name}/latest-version",
@@ -1581,7 +1593,7 @@ def _update_all_skills() -> None:
     up_to_date = 0
     failed = 0
 
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         for org_slug, skill_name in installed_skills:
             installed = get_installed_version(org_slug, skill_name)
             installed_version = installed.version if installed else None
@@ -1657,7 +1669,7 @@ def visibility_command(
     api_url = get_api_url()
     headers = build_headers(get_token())
 
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.put(
             f"{api_url}/v1/skills/{org_slug}/{skill_name}/visibility",
             headers=headers,
@@ -1725,7 +1737,7 @@ def info_command(
     headers = build_headers(get_optional_token())
 
     # Fetch skill summary
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=_API_TIMEOUT) as client:
         resp = client.get(
             f"{api_url}/v1/skills/{org_slug}/{skill_name}/summary",
             headers=headers,

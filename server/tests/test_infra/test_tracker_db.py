@@ -17,6 +17,8 @@ from decision_hub.infra.database import (
     batch_defer_trackers,
     batch_disable_trackers,
     batch_set_tracker_errors,
+    batch_update_github_repo_metadata,
+    batch_update_github_stars,
     claim_due_trackers,
     delete_skill_tracker,
     find_skill_tracker,
@@ -321,6 +323,120 @@ class TestMarkSkillsSourceRemoved:
         result = mark_skills_source_removed(conn, urls)
         assert result == 2
         conn.execute.assert_called_once()
+
+
+def _compile_postgres(stmt) -> str:
+    """Render a SQLAlchemy Core statement as a Postgres SQL string."""
+    import sqlalchemy as sa
+
+    return str(stmt.compile(dialect=sa.dialects.postgresql.dialect()))
+
+
+class TestBatchUpdateGithubStars:
+    def test_empty_dict_skips_db(self):
+        """No work to do — must not issue an UPDATE at all."""
+        conn = MagicMock()
+        batch_update_github_stars(conn, {})
+        conn.execute.assert_not_called()
+
+    def test_issues_single_statement_for_many_repos(self):
+        """N repos must collapse into ONE UPDATE (was N updates before)."""
+        conn = MagicMock()
+        repo_stars = {
+            "https://github.com/owner/repo1": 42,
+            "https://github.com/owner/repo2": 100,
+            "https://github.com/owner/repo3": 7,
+        }
+        batch_update_github_stars(conn, repo_stars)
+        assert conn.execute.call_count == 1
+
+    def test_sql_uses_case_expression(self):
+        """The generated SQL must use CASE to pick the right value per row."""
+        conn = MagicMock()
+        repo_stars = {
+            "https://github.com/owner/repo1": 42,
+            "https://github.com/owner/repo2": 100,
+        }
+        batch_update_github_stars(conn, repo_stars)
+        compiled = _compile_postgres(conn.execute.call_args[0][0]).upper()
+        assert "CASE" in compiled
+        assert "UPDATE SKILLS" in compiled
+
+    def test_escapes_like_wildcards_in_repo_url(self):
+        """A repo URL containing ``%`` / ``_`` must be escaped — otherwise a
+        malicious manifest could match unrelated skills via wildcard injection."""
+        conn = MagicMock()
+        repo_stars = {"https://github.com/foo/bar_baz": 1}
+        batch_update_github_stars(conn, repo_stars)
+        stmt = conn.execute.call_args[0][0]
+        # ``literal_binds`` materialises the parameters so we can inspect the
+        # escaped pattern.
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        # The underscore must appear escaped — ``bar\_baz`` — not raw.
+        assert "bar\\_baz" in compiled
+        assert "bar_baz/%" not in compiled.replace("bar\\_baz", "")
+
+
+class TestBatchUpdateGithubRepoMetadata:
+    def test_empty_dict_skips_db(self):
+        conn = MagicMock()
+        batch_update_github_repo_metadata(conn, {})
+        conn.execute.assert_not_called()
+
+    def test_issues_single_statement_for_many_repos(self):
+        conn = MagicMock()
+        repo_metadata = {
+            "https://github.com/owner/repo1": {
+                "forks": 3,
+                "watchers": 5,
+                "is_archived": False,
+                "license": "MIT",
+            },
+            "https://github.com/owner/repo2": {
+                "forks": 1,
+                "watchers": 2,
+                "is_archived": True,
+                "license": "Apache-2.0",
+            },
+        }
+        batch_update_github_repo_metadata(conn, repo_metadata)
+        assert conn.execute.call_count == 1
+
+    def test_sql_uses_case_for_each_column(self):
+        """Each of the four columns must get its own CASE — not one CASE shared."""
+        conn = MagicMock()
+        repo_metadata = {
+            "https://github.com/owner/repo1": {
+                "forks": 3,
+                "watchers": 5,
+                "is_archived": False,
+                "license": "MIT",
+            },
+            "https://github.com/owner/repo2": {
+                "forks": 1,
+                "watchers": 2,
+                "is_archived": True,
+                "license": "Apache-2.0",
+            },
+        }
+        batch_update_github_repo_metadata(conn, repo_metadata)
+        compiled = _compile_postgres(conn.execute.call_args[0][0]).upper()
+        # Four columns, four CASEs.
+        assert compiled.count("CASE") == 4
+
+    def test_escapes_like_wildcards_in_repo_url(self):
+        conn = MagicMock()
+        repo_metadata = {
+            "https://github.com/foo/bar%baz": {
+                "forks": 1,
+                "watchers": 1,
+                "is_archived": False,
+                "license": "MIT",
+            }
+        }
+        batch_update_github_repo_metadata(conn, repo_metadata)
+        compiled = str(conn.execute.call_args[0][0].compile(compile_kwargs={"literal_binds": True}))
+        assert "bar\\%baz" in compiled
 
 
 # ---------------------------------------------------------------------------

@@ -12,9 +12,40 @@ import respx
 from typer.testing import CliRunner
 
 from dhub.cli.app import app
-from dhub.cli.registry import _MAX_ZIP_ENTRIES, _create_zip
+from dhub.cli.registry import (
+    _API_TIMEOUT,
+    _DOWNLOAD_TIMEOUT,
+    _MAX_ZIP_ENTRIES,
+    _create_zip,
+)
 
 runner = CliRunner()
+
+
+class TestHttpxTimeoutConstants:
+    """The CLI's httpx timeouts must come from named constants so they can
+    be tuned in one place. ``_DOWNLOAD_TIMEOUT`` exists because skill zips
+    can take longer than a single JSON round-trip (multi-megabyte payloads,
+    corporate proxies)."""
+
+    def test_api_timeout_is_a_positive_int(self) -> None:
+        assert isinstance(_API_TIMEOUT, int)
+        assert _API_TIMEOUT > 0
+
+    def test_download_timeout_is_strictly_larger_than_api_timeout(self) -> None:
+        assert _DOWNLOAD_TIMEOUT > _API_TIMEOUT
+
+    def test_module_does_not_hardcode_timeout_60(self) -> None:
+        """``timeout=60`` literals were the previous source of duplication —
+        if a contributor adds another one we should fail loudly."""
+        import inspect
+
+        from dhub.cli import registry as registry_module
+
+        source = inspect.getsource(registry_module)
+        # The constant value can appear in the constant definition itself,
+        # but the literal pattern ``timeout=60`` must NOT.
+        assert "timeout=60" not in source
 
 
 # ---------------------------------------------------------------------------
