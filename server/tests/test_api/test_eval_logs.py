@@ -470,17 +470,21 @@ class TestListEvalRuns:
         assert resp.json() == []
 
     @patch("decision_hub.api.registry_routes.find_eval_runs_for_version")
-    def test_list_by_version_filters_to_current_user(
+    def test_list_by_version_pushes_user_filter_to_db(
         self,
         mock_find_runs: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """The user filter is applied at the DB layer so other users' runs
+        never reach the API process — this asserts the authorization
+        boundary, not just that the response is correctly trimmed.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        # DB returns ONLY the caller's runs because user_id is in the WHERE
+        # clause; if the route ever stops passing it, this test catches it.
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +495,11 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+        # The route must pass user_id through to the DB query — this is the
+        # core auth check, not a side effect of result filtering.
+        mock_find_runs.assert_called_once()
+        _, kwargs = mock_find_runs.call_args
+        assert kwargs.get("user_id") == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------

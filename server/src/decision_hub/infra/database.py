@@ -47,7 +47,7 @@ from decision_hub.models import (
     UserApiKey,
     Version,
 )
-from dhub_core.validation import parse_semver as parse_semver_parts
+from dhub_core.validation import parse_semver
 
 metadata = MetaData()
 
@@ -1450,7 +1450,7 @@ def insert_version(
     Returns:
         The newly created Version.
     """
-    major, minor, patch = parse_semver_parts(semver)
+    major, minor, patch = parse_semver(semver)
     stmt = (
         sa.insert(versions_table)
         .values(
@@ -2708,13 +2708,25 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     return _row_to_eval_run(row)
 
 
-def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
-    """List all eval runs for a version, newest first."""
-    stmt = (
-        sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
-    )
+def find_eval_runs_for_version(
+    conn: Connection,
+    version_id: UUID,
+    *,
+    user_id: UUID | None = None,
+) -> list[EvalRun]:
+    """List eval runs for a version, newest first.
+
+    When ``user_id`` is provided the filter is applied at the database
+    layer so other users' runs never reach the API process — both faster
+    (smaller result set) and tighter as an authorization boundary than
+    filtering after the fact.
+    """
+    stmt = sa.select(eval_runs_table).where(eval_runs_table.c.version_id == version_id)
+    if user_id is not None:
+        stmt = stmt.where(eval_runs_table.c.user_id == user_id)
+    # ``id`` tiebreaker keeps ordering deterministic when multiple runs
+    # share a created_at (Postgres timestamp resolution is ~microsecond).
+    stmt = stmt.order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
 
@@ -2724,7 +2736,8 @@ def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int =
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        # ``id`` tiebreaker for deterministic ordering under LIMIT.
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()

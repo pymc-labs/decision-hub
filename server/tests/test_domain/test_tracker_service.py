@@ -282,7 +282,7 @@ class TestProcessTrackerAllFailed:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
-    def test_partial_success_advances_sha(
+    def test_partial_success_advances_sha_and_surfaces_error(
         self,
         mock_publish,
         _mock_s3,
@@ -291,7 +291,9 @@ class TestProcessTrackerAllFailed:
         _mock_commits,
         _mock_token,
     ):
-        """When at least one skill succeeds, SHA advances and no error is recorded."""
+        """At least one skill succeeds → SHA advances; the failed-skill
+        error is still surfaced so operators see partial failures.
+        """
         tracker = self._make_tracker()
         mock_clone.return_value = Path("/tmp/fake/repo")
         mock_discover.return_value = [
@@ -314,9 +316,12 @@ class TestProcessTrackerAllFailed:
 
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
-            # SHA should advance since at least one succeeded
+            # SHA advances because at least one skill succeeded
             assert kwargs["last_commit_sha"] == "new_sha_xyz"
-            assert kwargs["last_error"] is None
+            # …but the per-skill failure must still be recorded
+            assert kwargs["last_error"] is not None
+            assert "skill-b" in kwargs["last_error"]
+            assert "gauntlet error" in kwargs["last_error"]
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
@@ -1758,7 +1763,13 @@ class TestProcessTrackerMultiSkillPartialFailure:
         _mock_commits,
         _mock_token,
     ):
-        """When 3 out of 5 skills succeed and 2 fail, SHA advances and last_error is cleared."""
+        """Partial success advances SHA and surfaces the per-skill errors.
+
+        Previously the route cleared last_error whenever *some* skills
+        published, hiding partial failures from operators.  Now any
+        publish error is recorded — operators can see "3/5 skills shipped
+        from this commit, here are the 2 that didn't".
+        """
         tracker = self._make_tracker()
         mock_clone.return_value = Path("/tmp/fake/repo")
         mock_discover.return_value = [
@@ -1792,8 +1803,11 @@ class TestProcessTrackerMultiSkillPartialFailure:
             _, kwargs = mock_update.call_args
             # SHA advances because at least one skill succeeded
             assert kwargs["last_commit_sha"] == "new_sha_multi"
-            # last_error is None because not all failed
-            assert kwargs["last_error"] is None
+            # last_error must surface the per-skill failures even though
+            # the batch as a whole isn't a total failure.
+            assert kwargs["last_error"] is not None
+            assert "skill-b" in kwargs["last_error"]
+            assert "skill-e" in kwargs["last_error"]
             # last_published_at should be set because 3 skills were published
             assert kwargs["last_published_at"] is not None
 
