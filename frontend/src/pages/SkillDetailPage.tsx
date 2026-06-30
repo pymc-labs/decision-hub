@@ -171,7 +171,11 @@ export default function SkillDetailPage() {
   });
 
   // Download zip once, extract SKILL.md and file list from it.
-  // Retries up to MAX_ZIP_ATTEMPTS total on transient failures with exponential backoff.
+  // Retries up to MAX_ZIP_ATTEMPTS total on transient failures with
+  // exponential backoff. The retry path explicitly schedules another
+  // loadZip() call instead of relying on dependency re-evaluation,
+  // which was hard to read and easy to break in a future refactor.
+  const loadZipRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const loadZip = useCallback(async () => {
     if (!orgSlug || !skillName || !skill || zipData || zipLoading) return;
     setZipLoading(true);
@@ -197,6 +201,7 @@ export default function SkillDetailPage() {
       setFiles(fileList);
       setZipData(buf);
       zipRetries.current = 0;
+      setZipLoading(false);
     } catch (err) {
       zipRetries.current += 1;
       if (zipRetries.current < MAX_ZIP_ATTEMPTS) {
@@ -204,16 +209,22 @@ export default function SkillDetailPage() {
         retryTimer.current = setTimeout(() => {
           retryTimer.current = null;
           setZipLoading(false);
+          // Call the latest loadZip via the ref so we always retry with
+          // current state/skill rather than a closed-over stale version.
+          void loadZipRef.current();
         }, delay);
         return;
       }
       setZipError(err instanceof Error ? err.message : "Failed to load package");
-    } finally {
-      if (zipRetries.current === 0 || zipRetries.current >= MAX_ZIP_ATTEMPTS) {
-        setZipLoading(false);
-      }
+      setZipLoading(false);
     }
   }, [orgSlug, skillName, zipData, zipLoading, skill]);
+
+  // Keep the ref pointed at the latest loadZip so deferred retries pick up
+  // any state changes that occurred between the original call and the timer.
+  useEffect(() => {
+    loadZipRef.current = loadZip;
+  }, [loadZip]);
 
   // Trigger zip download when overview or files tab is first visited
   useEffect(() => {

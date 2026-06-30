@@ -658,9 +658,14 @@ def create_engine(database_url: str) -> Engine:
 
     @sa.event.listens_for(engine, "connect")
     def _set_search_path(dbapi_conn, connection_record):
+        # try/finally ensures the cursor is closed even if execute() raises;
+        # otherwise a permission/transient failure here would leak cursors
+        # for the lifetime of each connection in the pool.
         cursor = dbapi_conn.cursor()
-        cursor.execute("SET search_path TO public")
-        cursor.close()
+        try:
+            cursor.execute("SET search_path TO public")
+        finally:
+            cursor.close()
 
     return engine
 

@@ -2,8 +2,10 @@
 
 import json
 import math
+import re
 import zipfile
 from datetime import UTC, datetime
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -81,6 +83,24 @@ from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
+
+# Restrict the ASCII-safe Content-Disposition filename to characters that
+# never need quoting and can't be interpreted as path separators or shell
+# metacharacters. Anything else becomes an underscore; full-fidelity unicode
+# is offered via the RFC 5987 filename* parameter.
+_FILENAME_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _content_disposition_attachment(filename: str) -> str:
+    """Build a Content-Disposition header that's safe against header injection.
+
+    Returns both a quoted ASCII fallback and an RFC 5987 ``filename*`` variant
+    so non-ASCII filenames survive while no user-controlled bytes can break
+    out of the header (CR/LF, quotes, semicolons all get scrubbed).
+    """
+    safe_ascii = _FILENAME_SAFE_RE.sub("_", filename) or "download"
+    encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{safe_ascii}\"; filename*=UTF-8''{encoded}"
 
 
 def _enforce_list_skills_rate_limit(request: Request) -> None:
@@ -698,7 +718,11 @@ def get_similar_skills(
     Returns 404 if the skill does not exist or is not public.
     Returns an empty list if the skill has no stored embedding.
     """
-    skill = find_skill_by_slug(conn, org_slug, skill_name)
+    # Explicitly pass user_org_ids=None so the existence check is restricted
+    # to public skills — matching the public-only contract documented above.
+    # (None is the existing default; making it explicit prevents a future
+    # refactor from quietly widening this endpoint's visibility.)
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=None)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     rows = fetch_similar_skills(conn, org_slug, skill_name, limit=5)
@@ -813,7 +837,7 @@ def download_skill(
     return Response(
         content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition_attachment(filename)},
     )
 
 

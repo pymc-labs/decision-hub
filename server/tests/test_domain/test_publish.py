@@ -269,3 +269,61 @@ class TestExtractForEvaluation:
         )
         _, _, _, unscanned = extract_for_evaluation(zip_bytes)
         assert unscanned == []
+
+    def test_rejects_invalid_utf8(self) -> None:
+        """A scannable file with invalid UTF-8 bytes must be rejected.
+
+        Silently substituting U+FFFD would let an attacker hide bytes from
+        the gauntlet that are still present in the bytes downstream code
+        ends up executing.
+        """
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            # 0xff is never valid in UTF-8.
+            zf.writestr("malicious.py", b"\xff\xfe import os")
+        with pytest.raises(ValueError, match="not valid UTF-8"):
+            extract_for_evaluation(buf.getvalue())
+
+    def test_rejects_negative_file_size(self) -> None:
+        """A crafted entry with a negative declared file_size is rejected."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            info = zipfile.ZipInfo("payload.py")
+            zf.writestr(info, "")
+        # Tamper with the parsed infolist after read so we exercise the guard
+        # without having to forge a malformed zip on disk.
+        import decision_hub.domain.publish as pub_mod
+
+        real_zipfile = pub_mod.zipfile.ZipFile
+
+        class _NegSizeZF(real_zipfile):  # type: ignore[misc]
+            def infolist(self_inner):
+                items = super().infolist()
+                for item in items:
+                    if item.filename == "payload.py":
+                        item.file_size = -1
+                return items
+
+        original = pub_mod.zipfile.ZipFile
+        pub_mod.zipfile.ZipFile = _NegSizeZF  # type: ignore[assignment]
+        try:
+            with pytest.raises(ValueError, match="negative declared size"):
+                extract_for_evaluation(buf.getvalue())
+        finally:
+            pub_mod.zipfile.ZipFile = original  # type: ignore[assignment]
+
+    def test_rejects_symlink_entry(self) -> None:
+        """A symlink entry in the skill zip must be rejected up-front."""
+        import stat as _stat
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            info = zipfile.ZipInfo("evil-link.py")
+            info.create_system = 3  # Unix
+            info.external_attr = (_stat.S_IFLNK | 0o777) << 16
+            zf.writestr(info, b"/etc/passwd")
+        with pytest.raises(ValueError, match="symbolic link"):
+            extract_for_evaluation(buf.getvalue())

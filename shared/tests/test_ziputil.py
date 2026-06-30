@@ -86,3 +86,26 @@ class TestValidateZipEntries:
         with pytest.raises(ValueError, match="escapes target directory"):
             validate_zip_entries(zf, "/tmp/target")
         zf.close()
+
+    def test_symlink_entry_rejected(self) -> None:
+        """A zip entry encoded as a Unix symlink should be rejected.
+
+        Even though the entry *name* may stay inside target_dir, the symlink
+        target can point anywhere on the host filesystem and would be silently
+        followed when later code reads the extracted file.
+        """
+        import stat as _stat
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("inside/link.txt")
+            # 0o120000 marks the entry as a symlink in the Unix mode bits;
+            # bits live in the upper 16 of external_attr per the zip spec.
+            info.create_system = 3  # Unix
+            info.external_attr = (_stat.S_IFLNK | 0o777) << 16
+            zf.writestr(info, b"/etc/passwd")
+        buf.seek(0)
+        zf = zipfile.ZipFile(buf, "r")
+        with pytest.raises(ValueError, match="symbolic link"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()

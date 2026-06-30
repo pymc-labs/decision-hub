@@ -464,6 +464,24 @@
   color: var(--neon-pink);
   font-size: var(--text-sm);
   align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.retryBtn {
+  background: rgba(255, 45, 149, 0.18);
+  border: 1px solid rgba(255, 45, 149, 0.4);
+  color: var(--neon-pink);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.retryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ===== Input Area ===== */

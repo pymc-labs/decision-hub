@@ -347,4 +347,43 @@ describe("AskModal", () => {
       expect(onClose).toHaveBeenCalled();
     });
   });
+
+  describe("state reset", () => {
+    it("clears the prior conversation when the modal is closed and re-opened", async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      const { rerender } = render(
+        <MemoryRouter>
+          <AskModal isOpen={true} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      const input = screen.getByPlaceholderText("Ask about skills...");
+      await user.type(input, "analyze data");
+      await user.click(screen.getByRole("button", { name: "Send" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("acme/data-tool")).toBeInTheDocument();
+      });
+
+      // Close the modal — state should reset on close.
+      rerender(
+        <MemoryRouter>
+          <AskModal isOpen={false} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      // Re-open: the previous question, response, and skill card should
+      // all be gone (the empty state must be shown instead).
+      rerender(
+        <MemoryRouter>
+          <AskModal isOpen={true} onClose={onClose} />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByText("analyze data")).not.toBeInTheDocument();
+      expect(screen.queryByText("acme/data-tool")).not.toBeInTheDocument();
+      expect(screen.getByText("What are you looking for?")).toBeInTheDocument();
+    });
+  });
 });

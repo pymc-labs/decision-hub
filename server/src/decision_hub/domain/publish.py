@@ -5,6 +5,7 @@ import os
 import zipfile
 
 from dhub_core.validation import validate_semver, validate_skill_name
+from dhub_core.ziputil import _is_symlink
 
 __all__ = ["validate_semver", "validate_skill_name"]
 
@@ -100,9 +101,20 @@ def extract_for_evaluation(
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         entries = zf.infolist()
 
-        # Zip bomb prevention: check entry count and total uncompressed size
+        # Zip bomb prevention: check entry count and total uncompressed size.
+        # Reject negative file_size values up-front: a crafted zip with bogus
+        # headers could otherwise wrap the sum and bypass the size cap.
         if len(entries) > _MAX_ZIP_ENTRIES:
             raise ValueError(f"Zip archive contains {len(entries)} entries, exceeding limit of {_MAX_ZIP_ENTRIES}")
+
+        if any(info.file_size < 0 for info in entries):
+            raise ValueError("Zip archive contains an entry with a negative declared size")
+
+        # Reject symlink entries: even if the entry name stays inside the
+        # target, the link target can point anywhere on the host.
+        for info in entries:
+            if _is_symlink(info):
+                raise ValueError(f"Zip entry is a symbolic link, which is not allowed: {info.filename!r}")
 
         total_uncompressed = sum(info.file_size for info in entries)
         if total_uncompressed > _MAX_TOTAL_EXTRACTED:
@@ -120,14 +132,20 @@ def extract_for_evaluation(
 
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
 
-            if basename == "SKILL.md":
-                skill_md = zf.read(name).decode()
-            elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
-                lockfile_content = zf.read(name).decode()
-            elif _is_scannable_file(basename):
-                source_files.append((name, zf.read(name).decode()))
-            else:
-                unscanned_files.append(name)
+            # Strict UTF-8 — never silently replace bad bytes. A corrupt
+            # decode here means the gauntlet would scan a sanitized string
+            # that no longer matches the bytes that get executed downstream.
+            try:
+                if basename == "SKILL.md":
+                    skill_md = zf.read(name).decode("utf-8")
+                elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
+                    lockfile_content = zf.read(name).decode("utf-8")
+                elif _is_scannable_file(basename):
+                    source_files.append((name, zf.read(name).decode("utf-8")))
+                else:
+                    unscanned_files.append(name)
+            except UnicodeDecodeError as exc:
+                raise ValueError(f"File '{name}' is not valid UTF-8: {exc}") from exc
 
     if not skill_md:
         raise ValueError("Zip archive does not contain a SKILL.md file")

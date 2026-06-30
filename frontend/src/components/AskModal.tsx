@@ -32,6 +32,16 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { items: recentlyViewed, refresh: refreshRecentlyViewed } = useRecentlyViewed();
 
+  // Reset conversation/input/error when the modal closes so reopening
+  // doesn't show the previous session's state.
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery("");
+      setMessages([]);
+      setError(null);
+    }
+  }, [isOpen]);
+
   // Focus input when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -73,19 +83,18 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
     };
   }, [isOpen]);
 
-  const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      const trimmed = query.trim();
-      if (!trimmed || loading) return;
+  const sendQuestion = useCallback(
+    async (question: string) => {
+      const trimmed = question.trim();
+      if (!trimmed) return;
 
       setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
-      setQuery("");
       setLoading(true);
       setError(null);
 
       try {
-        // Build history from previous messages (only role + content, no skills)
+        // Build history from already-stored messages (excluding the one we
+        // just appended); only role + content, never skill metadata.
         const history = messages.map((msg) => ({
           role: msg.role,
           content: msg.content,
@@ -105,8 +114,34 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
         setLoading(false);
       }
     },
-    [query, loading, messages]
+    [messages]
   );
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const trimmed = query.trim();
+      if (!trimmed || loading) return;
+      setQuery("");
+      await sendQuestion(trimmed);
+    },
+    [query, loading, sendQuestion]
+  );
+
+  const handleRetry = useCallback(() => {
+    // Retry the last user message that resulted in an error. The user
+    // message is already in `messages`, so we just need to re-ask it
+    // and let the LLM response append after.
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) {
+      setError(null);
+      return;
+    }
+    // Pop the failed user turn so sendQuestion re-appends it (preserves
+    // the natural conversation order in `messages`).
+    setMessages((prev) => prev.slice(0, -1));
+    void sendQuestion(lastUser.content);
+  }, [messages, sendQuestion]);
 
   if (!isOpen) return null;
 
@@ -260,7 +295,15 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
 
           {error && (
             <div className={styles.errorMessage}>
-              {error}
+              <span>{error}</span>
+              <button
+                type="button"
+                className={styles.retryBtn}
+                onClick={handleRetry}
+                disabled={loading}
+              >
+                Retry
+              </button>
             </div>
           )}
 

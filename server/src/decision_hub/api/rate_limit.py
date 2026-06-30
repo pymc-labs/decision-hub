@@ -26,6 +26,13 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # Hard ceiling on tracked IPs. A slow-and-low attack from many unique
+    # source addresses (or IPv6, where each /64 has 2**64 addresses) could
+    # otherwise grow _requests without bound between the periodic purges.
+    # Tuned to comfortably cover realistic traffic per container while
+    # capping worst-case RSS at a few MB.
+    _MAX_TRACKED_KEYS = 10_000
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
@@ -52,14 +59,32 @@ class RateLimiter:
 
             self._requests[key].append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Bound memory: if we ever exceed the cap (which the "every 100
+            # requests" purge can fail to prevent under high-cardinality IP
+            # spray), purge stale keys immediately, and then evict the
+            # oldest-active keys if we're still over.
+            if len(self._requests) > self._MAX_TRACKED_KEYS:
                 self._purge_stale(cutoff)
+                if len(self._requests) > self._MAX_TRACKED_KEYS:
+                    self._evict_oldest(self._MAX_TRACKED_KEYS // 10)
+            else:
+                # Cheap periodic purge under normal load.
+                total = sum(len(v) for v in self._requests.values())
+                if total % 100 == 0:
+                    self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:
         """Remove IPs with no recent activity. Caller must hold self._lock."""
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
+            del self._requests[k]
+
+    def _evict_oldest(self, count: int) -> None:
+        """Evict *count* keys whose most-recent request is oldest.
+
+        Used only as a backstop when the tracked-key cap is exceeded after
+        a normal purge. Caller must hold self._lock.
+        """
+        ordered = sorted(self._requests.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)
+        for k, _ in ordered[:count]:
             del self._requests[k]

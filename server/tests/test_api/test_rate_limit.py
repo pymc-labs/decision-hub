@@ -84,3 +84,21 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+    def test_tracked_keys_are_capped(self) -> None:
+        """A slow-and-low spray from many unique IPs must not grow unbounded.
+
+        Without the hard cap, an attacker (or pathological client behind a
+        carrier-grade NAT cycling source IPs) could allocate memory per IP
+        until the container OOMs. We verify that exceeding the cap triggers
+        eviction down toward the cap.
+        """
+        limiter = RateLimiter(max_requests=10, window_seconds=60)
+        # Shrink the cap so the test is fast and deterministic instead of
+        # spraying ten thousand mock requests.
+        limiter._MAX_TRACKED_KEYS = 50  # type: ignore[attr-defined]
+
+        for i in range(200):
+            limiter(_make_request(f"10.0.{i // 256}.{i % 256}"))
+
+        assert len(limiter._requests) <= 50

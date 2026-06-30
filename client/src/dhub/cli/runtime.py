@@ -65,14 +65,30 @@ def run_command(
     # Build environment variables
     env = build_env_vars(manifest.runtime)
 
-    # Sync dependencies
+    # Sync dependencies — catch the subprocess error so the user sees a
+    # friendly message instead of a Python traceback (which would expose the
+    # full env dict if typer's pretty_exceptions are ever enabled).
     sync_cmd = build_uv_sync_command(skill_dir)
     console.print(f"[dim]Syncing dependencies in {skill_dir}...[/]")
-    subprocess.run(sync_cmd, check=True, env=env)
+    try:
+        subprocess.run(sync_cmd, check=True, env=env)
+    except subprocess.CalledProcessError as exc:
+        console.print(
+            f"[red]Error: Dependency sync failed (exit {exc.returncode}). "
+            "Check that 'uv' is installed and the skill's lockfile is valid.[/]"
+        )
+        raise typer.Exit(1) from None
+    except FileNotFoundError:
+        console.print("[red]Error: 'uv' was not found on PATH. Install it from https://docs.astral.sh/uv/[/]")
+        raise typer.Exit(1) from None
 
     # Run the entrypoint
     args_tuple = tuple(extra_args) if extra_args else ()
     run_cmd = build_uv_run_command(skill_dir, manifest.runtime.entrypoint, args_tuple)
     console.print(f"[dim]Running {manifest.name}...[/]")
-    result = subprocess.run(run_cmd, env=env)
+    try:
+        result = subprocess.run(run_cmd, env=env)
+    except FileNotFoundError:
+        console.print("[red]Error: 'uv' was not found on PATH. Install it from https://docs.astral.sh/uv/[/]")
+        raise typer.Exit(1) from None
     raise typer.Exit(result.returncode)
