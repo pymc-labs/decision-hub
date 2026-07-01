@@ -990,7 +990,7 @@ class TestDeleteSkillVersion:
         mock_find_org.return_value = org
         mock_find_member.return_value = _make_member(org, sample_user_id)
         mock_find_skill.return_value = skill
-        mock_delete_version.return_value = True
+        mock_delete_version.return_value = "skills/test-org/my-skill/1.0.0.zip"
 
         resp = client.delete(
             "/v1/skills/test-org/my-skill/1.0.0",
@@ -1003,6 +1003,8 @@ class TestDeleteSkillVersion:
         assert data["skill_name"] == "my-skill"
         assert data["version"] == "1.0.0"
         mock_delete_zip.assert_called_once()
+        # S3 delete must use the DB-returned key, not a reconstructed one.
+        assert mock_delete_zip.call_args.args[-1] == "skills/test-org/my-skill/1.0.0.zip"
 
     def test_delete_no_auth(self, client: TestClient) -> None:
         """Deleting without auth should return 401."""
@@ -1121,7 +1123,7 @@ class TestDeleteSkillVersion:
         mock_find_org.return_value = org
         mock_find_member.return_value = _make_member(org, sample_user_id)
         mock_find_skill.return_value = skill
-        mock_delete_version.return_value = False
+        mock_delete_version.return_value = None
 
         resp = client.delete(
             "/v1/skills/test-org/my-skill/9.9.9",
@@ -1157,7 +1159,7 @@ class TestDeleteSkillVersion:
             role="admin",
         )
         mock_find_skill.return_value = skill
-        mock_delete_version.return_value = True
+        mock_delete_version.return_value = "skills/test-org/my-skill/1.0.0.zip"
 
         resp = client.delete(
             "/v1/skills/test-org/my-skill/1.0.0",

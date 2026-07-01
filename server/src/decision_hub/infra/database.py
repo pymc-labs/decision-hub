@@ -1628,29 +1628,31 @@ def delete_skill(conn: Connection, skill_id: UUID) -> None:
     logger.debug("Deleted skill id={}", skill_id)
 
 
-def delete_version(conn: Connection, skill_id: UUID, semver: str) -> bool:
+def delete_version(conn: Connection, skill_id: UUID, semver: str) -> str | None:
     """Delete a specific version of a skill.
 
-    Args:
-        conn: Active database connection.
-        skill_id: UUID of the parent skill.
-        semver: Semantic version string to delete.
-
-    Returns:
-        True if a version was deleted, False if no matching version was found.
+    Returns the deleted row's ``s3_key`` so the caller can clean the S3
+    object using the DB-stored key rather than a reconstructed one (which
+    would drift if the S3 key layout ever changed). Returns ``None`` when
+    no matching version was found.
     """
-    stmt = sa.delete(versions_table).where(
-        sa.and_(
-            versions_table.c.skill_id == skill_id,
-            versions_table.c.semver == semver,
+    stmt = (
+        sa.delete(versions_table)
+        .where(
+            sa.and_(
+                versions_table.c.skill_id == skill_id,
+                versions_table.c.semver == semver,
+            )
         )
+        .returning(versions_table.c.s3_key)
     )
     result = conn.execute(stmt)
-    deleted = result.rowcount > 0
-    if deleted:
-        _refresh_skill_latest_version(conn, skill_id)
-        logger.debug("Deleted version skill={} semver={}", skill_id, semver)
-    return deleted
+    row = result.first()
+    if row is None:
+        return None
+    _refresh_skill_latest_version(conn, skill_id)
+    logger.debug("Deleted version skill={} semver={}", skill_id, semver)
+    return row.s3_key
 
 
 # ---------------------------------------------------------------------------

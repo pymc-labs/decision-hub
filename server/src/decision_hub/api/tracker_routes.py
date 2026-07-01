@@ -262,7 +262,10 @@ def update_tracker(
     )
 
     updated = find_skill_tracker(conn, tid)
-    assert updated is not None
+    if updated is None:
+        # Only possible if another request deleted the tracker between the
+        # update and this re-read. Return 404 (matches delete/get semantics).
+        raise HTTPException(status_code=404, detail="Tracker not found")
     return _tracker_to_response(updated)
 
 

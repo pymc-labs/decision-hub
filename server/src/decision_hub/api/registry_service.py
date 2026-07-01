@@ -111,7 +111,10 @@ def run_assessment_background(
             encrypted_keys = get_api_keys_for_eval(conn, user_id, required_keys)
             conn.commit()
 
-        logger.info("Got {} API keys: {}", len(encrypted_keys), list(encrypted_keys.keys()))
+        # Log only the count -- key names can leak which third-party services
+        # a user integrates with. required_keys is already known at this scope
+        # so we can report how many of them were found.
+        logger.info("Got {}/{} API keys for eval sandbox", len(encrypted_keys), len(required_keys))
 
         fernet = Fernet(settings.fernet_key.encode())
         agent_env_vars = {name: fernet.decrypt(value).decode() for name, value in encrypted_keys.items()}

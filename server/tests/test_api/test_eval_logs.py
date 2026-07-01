@@ -94,23 +94,18 @@ class TestGetEvalRun:
         """A running eval with a heartbeat >5 min stale is marked failed."""
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
-
-        # find_eval_run is called twice: once before zombie check, once after
-        failed_run = _make_eval_run(
-            id=run.id,
-            status="failed",
-            error_message="Stale heartbeat",
-            heartbeat_at=stale_heartbeat,
-        )
-        mock_find_run.side_effect = [run, failed_run]
+        mock_find_run.return_value = run
 
         resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
 
+        # The response reflects the zombie-updated status without needing a
+        # second DB read (which could race a delete and return None).
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+        assert resp.json()["error_message"].startswith("Stale heartbeat")
+        assert mock_find_run.call_count == 1
         mock_update_status.assert_called_once()
-        call_kwargs = mock_update_status.call_args
-        assert call_kwargs.kwargs.get("status") == "failed"
+        assert mock_update_status.call_args.kwargs.get("status") == "failed"
 
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.find_eval_run")
