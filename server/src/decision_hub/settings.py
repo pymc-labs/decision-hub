@@ -73,7 +73,12 @@ class Settings(BaseSettings):
     github_app_private_key: str = ""
     github_app_installation_id: str = ""
 
-    # Rate limiting (per IP, sliding window)
+    # Rate limiting (per IP, sliding window).
+    # Modal terminates TLS on a load balancer that appends the caller's IP
+    # to X-Forwarded-For. Set ``trusted_proxy_count`` to the number of
+    # proxies between the app and the client (1 for Modal). When 0 (local
+    # dev), rate limits key off the direct peer IP.
+    trusted_proxy_count: int = 0
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds
 

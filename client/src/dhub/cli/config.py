@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -83,13 +84,39 @@ def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
     Creates the ~/.dhub directory if it does not already exist.
+
+    The token is a bearer credential, so we write the file 0600 (owner
+    read/write only) via a temp-file + atomic rename. The rename also
+    protects against a partially-written file if the process is killed
+    mid-write -- ``load_config`` would otherwise treat the JSON as
+    "corrupted" and force the user to re-login.
+
+    On Windows, ``os.chmod``/POSIX permission bits are a no-op; anyone
+    protecting a home directory there should already be relying on OS
+    ACLs rather than umask.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Restrict the parent dir too so a subsequent user on a shared host
+    # can't at least list the config file names.
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_DIR, 0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+    # Open with restrictive mode so the token bytes never touch disk with
+    # default umask (typically 0644 -> world-readable on shared hosts).
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+    except Exception:
+        # Best-effort cleanup so a failed write doesn't leave a rogue
+        # .tmp file next to the real config.
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+    os.replace(tmp_path, path)
 
 
 def get_api_url() -> str:

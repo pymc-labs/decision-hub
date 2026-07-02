@@ -50,6 +50,7 @@ def _make_client(*, with_frontend: bool = True) -> TestClient:
     settings.download_rate_window = 60
     settings.audit_log_rate_limit = 30
     settings.audit_log_rate_window = 60
+    settings.trusted_proxy_count = 0
 
     patches = [
         patch("decision_hub.api.app.create_settings", return_value=settings),

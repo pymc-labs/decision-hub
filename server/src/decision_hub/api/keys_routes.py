@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
@@ -23,10 +23,14 @@ router = APIRouter(prefix="/v1/keys", tags=["keys"])
 
 
 class StoreKeyRequest(BaseModel):
-    """Payload to store a new encrypted API key."""
+    """Payload to store a new encrypted API key.
 
-    key_name: str
-    value: str
+    Bounded lengths per the CLAUDE.md rule -- keeps oversized payloads
+    from reaching the DB or the Fernet encryptor.
+    """
+
+    key_name: str = Field(min_length=1, max_length=128)
+    value: str = Field(min_length=1, max_length=8192)
 
 
 class StoreKeyResponse(BaseModel):

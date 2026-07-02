@@ -561,6 +561,51 @@ class TestInstallCommand:
     @patch("dhub.core.install.get_dhub_skill_path")
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_install_removes_stale_files_from_prior_version(
+        self,
+        _mock_url,
+        _mock_token,
+        mock_skill_path,
+        mock_checksum,
+        tmp_path: Path,
+    ) -> None:
+        """Reinstalling must delete files removed between versions.
+
+        Regression: previously ``mkdir(exist_ok=True)`` + ``extractall``
+        left orphaned files behind because the zip only contains files
+        still present in the new version. This test seeds a stale file
+        and asserts it's gone after install.
+        """
+        skill_dir = tmp_path / "myorg" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        stale = skill_dir / "removed-in-new-version.md"
+        stale.write_text("junk that should be deleted on reinstall\n")
+
+        zip_bytes = _make_zip_bytes()
+        respx.get("http://test:8000/v1/resolve/myorg/my-skill").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "version": "1.0.0",
+                    "download_url": "http://test:8000/download/skill.zip",
+                    "checksum": "abc123",
+                },
+            )
+        )
+        respx.get("http://test:8000/download/skill.zip").mock(return_value=httpx.Response(200, content=zip_bytes))
+        mock_skill_path.return_value = skill_dir
+
+        result = runner.invoke(app, ["install", "myorg/my-skill"])
+
+        assert result.exit_code == 0, result.output
+        assert not stale.exists(), "stale file from prior install still present"
+        assert (skill_dir / "SKILL.md").exists()
+
+    @respx.mock
+    @patch("dhub.core.install.verify_checksum")
+    @patch("dhub.core.install.get_dhub_skill_path")
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_install_rejects_zip_slip(
         self,
         _mock_url,

@@ -1017,8 +1017,17 @@ def _install_single_skill(
         zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
 
-    # Extract to the canonical skill path
+    # Extract to the canonical skill path. Clear any prior contents first
+    # so files removed between versions don't linger from an earlier
+    # install (the zip only carries files that still exist in the new
+    # version, so extractall alone leaves deletions un-applied).
     skill_path = get_dhub_skill_path(org_slug, skill_name)
+    if skill_path.exists():
+        # Use rmtree rather than mkdir(exist_ok=True) so stale files leave.
+        # Fresh installs don't need this branch.
+        import shutil
+
+        shutil.rmtree(skill_path)
     skill_path.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:

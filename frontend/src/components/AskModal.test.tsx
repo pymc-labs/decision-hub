@@ -170,6 +170,45 @@ describe("AskModal", () => {
     expect(skillLink).toHaveAttribute("href", "/skills/acme/data-tool");
   });
 
+  it("clears prior conversation when the modal is reopened", async () => {
+    // Regression: previously the modal held its `messages` state across
+    // open/close cycles, so reopening showed the prior chat. Now it must
+    // reset when `isOpen` goes false.
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <MemoryRouter>
+        <AskModal isOpen={true} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    // Post a message so state is non-empty.
+    const user = userEvent.setup();
+    const input = screen.getByPlaceholderText("Ask about skills...");
+    await user.type(input, "analyze data");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => {
+      expect(screen.getByText(/great skills/)).toBeInTheDocument();
+    });
+    expect(screen.getByText("analyze data")).toBeInTheDocument();
+
+    // Close the modal, then reopen it. The chat must be gone.
+    rerender(
+      <MemoryRouter>
+        <AskModal isOpen={false} onClose={onClose} />
+      </MemoryRouter>,
+    );
+    rerender(
+      <MemoryRouter>
+        <AskModal isOpen={true} onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("analyze data")).not.toBeInTheDocument();
+    expect(screen.queryByText(/great skills/)).not.toBeInTheDocument();
+    // Empty-state placeholder is back.
+    expect(screen.getByText("What are you looking for?")).toBeInTheDocument();
+  });
+
   it("supports multi-turn conversation", async () => {
     const user = userEvent.setup();
     renderModal();

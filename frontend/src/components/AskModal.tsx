@@ -41,6 +41,19 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
     }
   }, [isOpen]);
 
+  // Reset conversation state when the modal closes so the next open
+  // starts fresh. Doing it on close (rather than on open) avoids a
+  // one-frame flash where the previous conversation is briefly visible
+  // before the reset runs.
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery("");
+      setMessages([]);
+      setError(null);
+      setLoading(false);
+    }
+  }, [isOpen]);
+
   // Re-read recently viewed from localStorage each time the modal opens
   useEffect(() => {
     if (isOpen) refreshRecentlyViewed();

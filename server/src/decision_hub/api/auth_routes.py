@@ -1,13 +1,13 @@
 """Authentication routes - GitHub Device Flow login."""
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_engine, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dependency
 from decision_hub.domain.auth import create_jwt
 from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs
 from decision_hub.infra.database import upsert_user
@@ -26,16 +26,9 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _enforce_auth_rate_limit(request: Request) -> None:
-    """Rate-limit auth endpoints."""
-    state = request.app.state
-    if not hasattr(state, "_auth_rate_limiter"):
-        settings: Settings = state.settings
-        state._auth_rate_limiter = RateLimiter(
-            max_requests=settings.auth_rate_limit,
-            window_seconds=settings.auth_rate_window,
-        )
-    state._auth_rate_limiter(request)
+# Rate limiter is lazily attached to ``app.state._auth_rate_limiter`` on
+# first request; see ``rate_limit_dependency`` for the thread-safe init.
+_enforce_auth_rate_limit = rate_limit_dependency("auth")
 
 
 # ---------------------------------------------------------------------------
@@ -53,9 +46,14 @@ class DeviceCodeResponseSchema(BaseModel):
 
 
 class TokenRequest(BaseModel):
-    """Client submits the device_code to poll for a completed GitHub login."""
+    """Client submits the device_code to poll for a completed GitHub login.
 
-    device_code: str
+    GitHub device codes are short opaque strings; the cap prevents a
+    malicious client from posting megabyte-sized bodies to the auth
+    endpoint (which is un-authenticated by definition).
+    """
+
+    device_code: str = Field(min_length=1, max_length=256)
 
 
 class TokenResponse(BaseModel):

@@ -67,10 +67,17 @@ export default function SkillDetailPage() {
   const [copied, setCopied] = useState(false);
   const zipRetries = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic id bumped on every skill navigation. loadZip captures its
+  // current value at start and refuses to write back to state if the
+  // ref has since advanced (i.e. the user navigated to a different
+  // skill while the zip was still downloading). Prevents skill A's
+  // SKILL.md / files from being shown for skill B.
+  const zipFetchIdRef = useRef(0);
   const MAX_ZIP_ATTEMPTS = 3;
 
   // Reset state when navigating to a different skill
   useEffect(() => {
+    zipFetchIdRef.current += 1;
     setZipData(null);
     setZipError(null);
     setZipLoading(false);
@@ -174,42 +181,56 @@ export default function SkillDetailPage() {
   // Retries up to MAX_ZIP_ATTEMPTS total on transient failures with exponential backoff.
   const loadZip = useCallback(async () => {
     if (!orgSlug || !skillName || !skill || zipData || zipLoading) return;
+    // Capture the id at the start of the fetch; if it changes before we
+    // resolve, the user navigated to a different skill and we drop
+    // whatever we downloaded on the floor rather than showing it in the
+    // new skill's page.
+    const myFetchId = zipFetchIdRef.current;
+    const isStale = () => zipFetchIdRef.current !== myFetchId;
     setZipLoading(true);
     setZipError(null);
     try {
       const allowRisky = skill?.safety_rating === "C";
       const buf = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
+      if (isStale()) return;
       const zip = await JSZip.loadAsync(buf);
+      if (isStale()) return;
 
       const skillMdEntry = zip.file("SKILL.md");
+      let strippedSkillMd: string | null = null;
       if (skillMdEntry) {
         const raw = await skillMdEntry.async("string");
-        const stripped = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
-        setSkillMdContent(stripped);
+        if (isStale()) return;
+        strippedSkillMd = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
       }
 
       const fileList: SkillFile[] = [];
       for (const [path, entry] of Object.entries(zip.files)) {
         if (entry.dir) continue;
         const content = await entry.async("string");
+        if (isStale()) return;
         fileList.push({ path, content, size: content.length });
       }
+      if (isStale()) return;
+      if (strippedSkillMd !== null) setSkillMdContent(strippedSkillMd);
       setFiles(fileList);
       setZipData(buf);
       zipRetries.current = 0;
     } catch (err) {
+      if (isStale()) return;
       zipRetries.current += 1;
       if (zipRetries.current < MAX_ZIP_ATTEMPTS) {
         const delay = 2000 * zipRetries.current;
         retryTimer.current = setTimeout(() => {
           retryTimer.current = null;
+          if (isStale()) return;
           setZipLoading(false);
         }, delay);
         return;
       }
       setZipError(err instanceof Error ? err.message : "Failed to load package");
     } finally {
-      if (zipRetries.current === 0 || zipRetries.current >= MAX_ZIP_ATTEMPTS) {
+      if (!isStale() && (zipRetries.current === 0 || zipRetries.current >= MAX_ZIP_ATTEMPTS)) {
         setZipLoading(false);
       }
     }

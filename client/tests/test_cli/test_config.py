@@ -1,6 +1,8 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import stat
+import sys
 
 import click
 import pytest
@@ -90,6 +92,47 @@ class TestSaveConfig:
 
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits are a no-op on Windows")
+    def test_written_config_is_not_world_readable(self, tmp_path, monkeypatch):
+        """Token file must be 0600 so other users on the host can't read it."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="secret"))
+
+        path = tmp_path / "config.dev.json"
+        mode = path.stat().st_mode & 0o777
+        # Owner read/write only -- no bits for group or other.
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+        # Belt & braces: confirm no group/world access via stat bits.
+        assert not mode & stat.S_IRGRP
+        assert not mode & stat.S_IROTH
+
+    def test_save_is_atomic(self, tmp_path, monkeypatch):
+        """A save must not leave a partial file behind if it fails mid-write."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # Pre-existing valid config that a failed save must not corrupt.
+        good = CliConfig(api_url="https://good", token="good-tok")
+        save_config(good)
+
+        # Inject a failure between writing the temp file and renaming.
+        real_replace = __import__("os").replace
+
+        def boom(src, dst):
+            raise OSError("simulated rename failure")
+
+        monkeypatch.setattr("dhub.cli.config.os.replace", boom)
+        with pytest.raises(OSError):
+            save_config(CliConfig(api_url="https://bad", token="bad-tok"))
+
+        # Restore os.replace so load_config works normally.
+        monkeypatch.setattr("dhub.cli.config.os.replace", real_replace)
+        # Prior good config still intact.
+        loaded = load_config()
+        assert loaded.token == "good-tok"
 
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""

@@ -79,6 +79,7 @@ def search_settings() -> MagicMock:
     settings.search_rate_window = 60
     settings.search_candidate_limit = 20
     settings.embedding_model = "gemini-embedding-001"
+    settings.trusted_proxy_count = 0
     return settings
 
 
