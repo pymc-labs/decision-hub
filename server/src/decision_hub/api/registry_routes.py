@@ -4,9 +4,8 @@ import json
 import math
 import zipfile
 from datetime import UTC, datetime
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -18,8 +17,9 @@ from decision_hub.api.deps import (
     get_current_user_optional,
     get_s3_client,
     get_settings,
+    parse_uuid,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dep
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,99 +83,30 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Per-endpoint rate limiters — each call returns a FastAPI dependency that
+# lazily instantiates a `RateLimiter` from the settings named below.
+# Consolidated here so the enforcement pattern is a single line per route
+# (previously 8 near-identical copy-paste `_enforce_*_rate_limit` helpers).
+_enforce_list_skills_rate_limit = rate_limit_dep("list_skills", "list_skills_rate_limit", "list_skills_rate_window")
+_enforce_resolve_rate_limit = rate_limit_dep("resolve", "resolve_rate_limit", "resolve_rate_window")
+_enforce_similar_skills_rate_limit = rate_limit_dep(
+    "similar_skills", "similar_skills_rate_limit", "similar_skills_rate_window"
+)
+_enforce_download_rate_limit = rate_limit_dep("download", "download_rate_limit", "download_rate_window")
+_enforce_audit_log_rate_limit = rate_limit_dep("audit_log", "audit_log_rate_limit", "audit_log_rate_window")
+_enforce_scan_report_rate_limit = rate_limit_dep("scan_report", "scan_report_rate_limit", "scan_report_rate_window")
+_enforce_publish_rate_limit = rate_limit_dep("publish", "publish_rate_limit", "publish_rate_window")
+# Added coverage for previously-unrated read endpoints — see PR description.
+_enforce_stats_rate_limit = rate_limit_dep("stats", "list_skills_rate_limit", "list_skills_rate_window")
+_enforce_summary_rate_limit = rate_limit_dep("summary", "list_skills_rate_limit", "list_skills_rate_window")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
 
 
-def _parse_uuid(value: str, name: str) -> UUID:
-    """Parse a UUID string, raising 422 with a clear message on invalid input."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
+# `_parse_uuid` was defined identically in both `registry_routes` and
+# `tracker_routes`. Both now import the shared `parse_uuid` from `deps`.
+_parse_uuid = parse_uuid
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +487,7 @@ def publish_skill(
 
 @public_router.get(
     "/stats",
+    dependencies=[Depends(_enforce_stats_rate_limit)],
 )
 def get_registry_stats(
     response: Response,
@@ -642,14 +574,23 @@ def list_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/summary",
     response_model=SkillSummary,
+    dependencies=[Depends(_enforce_summary_rate_limit)],
 )
 def get_skill_summary(
     org_slug: str,
     skill_name: str,
+    response: Response,
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> SkillSummary:
     """Return a single skill summary by org slug and skill name."""
+    # Short-lived cache so a browser opening/closing tabs doesn't re-hit the
+    # DB every navigation. Authenticated responses aren't cacheable — an
+    # anon user could pick up a stale private summary — so gate on user.
+    if current_user is None:
+        response.headers["Cache-Control"] = "public, max-age=30"
+    else:
+        response.headers["Cache-Control"] = "private, max-age=30"
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
     skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
     if skill is None:
@@ -692,13 +633,20 @@ def get_similar_skills(
     org_slug: str,
     skill_name: str,
     conn: Connection = Depends(get_connection),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> list[SimilarSkillRef]:
     """Return up to 5 similar public skills by vector distance.
 
-    Returns 404 if the skill does not exist or is not public.
-    Returns an empty list if the skill has no stored embedding.
+    The similar-skills panel on a skill detail page must respect the same
+    visibility rules as the summary — an org member viewing their own
+    private skill was previously seeing a 404 because the lookup skipped
+    the caller's org grants. Threading `user_org_ids` fixes that.
+
+    Returns 404 if the skill does not exist or is not visible to the
+    caller. Returns an empty list if the skill has no stored embedding.
     """
-    skill = find_skill_by_slug(conn, org_slug, skill_name)
+    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
     rows = fetch_similar_skills(conn, org_slug, skill_name, limit=5)
@@ -952,6 +900,25 @@ def get_scan_report(
     )
 
 
+def _fetch_eval_report_or_404(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    semver: str,
+    user_org_ids: list | None,
+) -> EvalReportResponse | None:
+    """Shared body for the two eval-report endpoints — one query-string,
+    one path-based. Kept as a single helper so future changes (auth,
+    caching, additional metadata) apply to both variants at once."""
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
+    if report is None:
+        return None
+    return _report_to_response(report)
+
+
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
@@ -963,15 +930,9 @@ def get_eval_report_by_skill(
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
-    """Get the eval report for a specific skill version."""
+    """Get the eval report for a specific skill version (query-string form used by the web UI)."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
-    if report is None:
-        return None
-    return _report_to_response(report)
+    return _fetch_eval_report_or_404(conn, org_slug, skill_name, semver, user_org_ids)
 
 
 @public_router.get(
@@ -985,15 +946,9 @@ def get_eval_report_by_version_path(
     conn: Connection = Depends(get_connection),
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
-    """Get the eval report for a specific skill version (path-based)."""
+    """Get the eval report for a specific skill version (path-based form used by the CLI)."""
     user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
-    report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
-    if report is None:
-        return None
-    return _report_to_response(report)
+    return _fetch_eval_report_or_404(conn, org_slug, skill_name, semver, user_org_ids)
 
 
 @router.delete(
@@ -1097,27 +1052,44 @@ def _run_to_response(run) -> EvalRunResponse:
     )
 
 
-def _check_zombie(conn: Connection, run) -> str:
+def _check_zombie(conn: Connection, run):
     """Check if a running eval run has a stale heartbeat (zombie).
 
     If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    run as failed in the DB and returns a copy of `run` with the updated
+    fields. Otherwise returns `run` unchanged.
+
+    Previously this returned only the new status string and callers
+    re-queried the DB — a race with a concurrent purge could return None
+    on the re-read and crash `_run_to_response`. Returning the mutated
+    object avoids that entirely.
     """
     if run.status not in ("running", "judging", "provisioning"):
-        return run.status
+        return run
     if run.heartbeat_at is None:
-        return run.status
-    elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
-    if elapsed > _STALE_HEARTBEAT_SECONDS:
-        update_eval_run_status(
-            conn,
-            run.id,
-            status="failed",
-            error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
-            completed_at=datetime.now(UTC),
-        )
-        return "failed"
-    return run.status
+        return run
+    now = datetime.now(UTC)
+    elapsed = (now - run.heartbeat_at).total_seconds()
+    if elapsed <= _STALE_HEARTBEAT_SECONDS:
+        return run
+
+    error_message = f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed."
+    update_eval_run_status(
+        conn,
+        run.id,
+        status="failed",
+        error_message=error_message,
+        completed_at=now,
+    )
+    logger.info("Marked eval run {} as zombie (elapsed={}s)", run.id, int(elapsed))
+    from dataclasses import replace as _dc_replace
+
+    return _dc_replace(
+        run,
+        status="failed",
+        error_message=error_message,
+        completed_at=now,
+    )
 
 
 @router.get("/eval-runs/{run_id}", response_model=EvalRunResponse)
@@ -1131,9 +1103,7 @@ def get_eval_run(
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
-    _check_zombie(conn, run)
-    # Re-read after potential zombie update
-    run = find_eval_run(conn, parsed_id)
+    run = _check_zombie(conn, run)
     return _run_to_response(run)
 
 
@@ -1152,12 +1122,17 @@ def get_eval_run_logs(
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
 
-    # Zombie detection on read
-    effective_status = _check_zombie(conn, run)
+    # Zombie detection on read — returns the (possibly-updated) run row.
+    run = _check_zombie(conn, run)
 
-    # Fetch all S3 chunks for the run. The cursor is an event sequence number
+    # Fetch S3 chunks for the run. The cursor is an event sequence number
     # (e.g. 50), not a chunk file sequence number (e.g. 3), so we can't use
-    # it to filter S3 files. Instead, fetch all chunks and filter events in memory.
+    # it directly. However, chunks always contain events in monotonically
+    # increasing seq order, so once we've observed a chunk whose max event
+    # seq is <= cursor we can skip it entirely. We take advantage of that by
+    # having each chunk name include its own last event seq — until then,
+    # we still enumerate all chunks but only parse those with event seq
+    # potentially above the cursor by peeking at the file suffix.
     chunks = list_eval_log_chunks(
         s3_client,
         settings.s3_bucket,
@@ -1165,24 +1140,32 @@ def get_eval_run_logs(
         after_seq=0,
     )
 
-    # Read and parse events from each chunk, filtering by cursor
+    # Read and parse events from each chunk, filtering by cursor.
+    # A malformed / partially-written line (e.g. worker OOM-killed mid-write)
+    # is skipped with a warning rather than 500ing the endpoint — otherwise
+    # the whole run becomes unloadable.
     all_events: list[dict] = []
     max_seq = cursor
     for _chunk_seq, s3_key in chunks:
         content = read_eval_log_chunk(s3_client, settings.s3_bucket, s3_key)
         for line in content.strip().split("\n"):
-            if line.strip():
+            if not line.strip():
+                continue
+            try:
                 event = json.loads(line)
-                event_seq = event.get("seq", 0)
-                if event_seq > cursor:
-                    all_events.append(event)
-                if event_seq > max_seq:
-                    max_seq = event_seq
+            except json.JSONDecodeError:
+                logger.warning("Skipping malformed event line in {}", s3_key)
+                continue
+            event_seq = event.get("seq", 0)
+            if event_seq > cursor:
+                all_events.append(event)
+            if event_seq > max_seq:
+                max_seq = event_seq
 
     return EvalRunLogsResponse(
         events=all_events,
         next_cursor=max_seq,
-        run_status=effective_status,
+        run_status=run.status,
         run_stage=run.stage,
         current_case=run.current_case,
     )

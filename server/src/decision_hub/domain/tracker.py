@@ -91,18 +91,26 @@ def check_repo_accessible(
     owner: str,
     repo: str,
     github_token: str | None = None,
+    *,
+    timeout: float = 3.0,
 ) -> bool:
     """Check if a GitHub repo is accessible (returns True for public or auth'd private repos).
 
     Makes a lightweight HEAD-style request to the GitHub API.
     Returns False for 404 (private without auth) or 403 (rate-limited / forbidden).
+
+    The default timeout is intentionally short (3s): this call runs inline on
+    the ``POST /v1/trackers`` critical path only to derive a soft warning, so
+    trading a longer wait for perfect signal isn't a good tradeoff. If GitHub
+    is slow the tracker is still created and polling will surface a concrete
+    error on the first tick.
     """
     headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
     if github_token:
         headers["Authorization"] = f"token {github_token}"
 
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=timeout) as client:
             resp = client.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
                 headers=headers,

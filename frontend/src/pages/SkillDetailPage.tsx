@@ -65,6 +65,11 @@ export default function SkillDetailPage() {
   const [skillMdContent, setSkillMdContent] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Explicit consent to view/download C-grade (risky) skills. The CLI already
+  // requires `--allow-risky` for the same server endpoint; the browser used to
+  // auto-set this to true when it saw `safety_rating === "C"`, silently
+  // bypassing the risk gate on drive-by visits. Now the user has to click.
+  const [allowRiskyConsent, setAllowRiskyConsent] = useState(false);
   const zipRetries = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
@@ -76,12 +81,25 @@ export default function SkillDetailPage() {
     setZipLoading(false);
     setFiles([]);
     setSkillMdContent(null);
+    setAllowRiskyConsent(false);
     zipRetries.current = 0;
     if (retryTimer.current) {
       clearTimeout(retryTimer.current);
       retryTimer.current = null;
     }
   }, [orgSlug, skillName]);
+
+  // Also clear any in-flight retry timer on unmount so it can't call setState
+  // on an unmounted tree after the user navigates away.
+  useEffect(
+    () => () => {
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
+    },
+    [],
+  );
 
   // Fetch single skill
   const { data: skill, loading: skillLoading } = useApi<SkillSummary>(
@@ -170,14 +188,21 @@ export default function SkillDetailPage() {
     jsonLd,
   });
 
+  // A skill is "risky" (grade C) iff the user hasn't yet consented to view it.
+  // For A/B skills there's nothing to consent to and the zip loads freely.
+  const isRiskySkill = skill?.safety_rating === "C";
+  const canLoadZip = !isRiskySkill || allowRiskyConsent;
+
   // Download zip once, extract SKILL.md and file list from it.
   // Retries up to MAX_ZIP_ATTEMPTS total on transient failures with exponential backoff.
   const loadZip = useCallback(async () => {
     if (!orgSlug || !skillName || !skill || zipData || zipLoading) return;
+    // Never fetch a risky-grade skill without explicit user consent.
+    if (skill.safety_rating === "C" && !allowRiskyConsent) return;
     setZipLoading(true);
     setZipError(null);
     try {
-      const allowRisky = skill?.safety_rating === "C";
+      const allowRisky = skill.safety_rating === "C" && allowRiskyConsent;
       const buf = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const zip = await JSZip.loadAsync(buf);
 
@@ -191,8 +216,13 @@ export default function SkillDetailPage() {
       const fileList: SkillFile[] = [];
       for (const [path, entry] of Object.entries(zip.files)) {
         if (entry.dir) continue;
+        // Use byte length (uint8array) for size rather than the character
+        // count of the decoded string: JSZip decodes bytes as UTF-16 code
+        // units, so any non-ASCII or binary content reports the wrong size.
+        // Read the string form separately so text files still render.
+        const bytes = await entry.async("uint8array");
         const content = await entry.async("string");
-        fileList.push({ path, content, size: content.length });
+        fileList.push({ path, content, size: bytes.byteLength });
       }
       setFiles(fileList);
       setZipData(buf);
@@ -213,20 +243,29 @@ export default function SkillDetailPage() {
         setZipLoading(false);
       }
     }
-  }, [orgSlug, skillName, zipData, zipLoading, skill]);
+  }, [orgSlug, skillName, zipData, zipLoading, skill, allowRiskyConsent]);
 
-  // Trigger zip download when overview or files tab is first visited
+  // Trigger zip download when overview or files tab is first visited —
+  // only when we're allowed to load (see `canLoadZip`).
   useEffect(() => {
-    if ((activeTab === "overview" || activeTab === "files") && !zipData && !zipLoading && !zipError) {
+    if (
+      canLoadZip &&
+      (activeTab === "overview" || activeTab === "files") &&
+      !zipData &&
+      !zipLoading &&
+      !zipError
+    ) {
       loadZip();
     }
-  }, [activeTab, zipData, zipLoading, zipError, loadZip]);
+  }, [activeTab, zipData, zipLoading, zipError, loadZip, canLoadZip]);
 
   const handleDownload = async () => {
     if (!orgSlug || !skillName) return;
+    // Match the CLI: never download a risky skill without an explicit click.
+    if (isRiskySkill && !allowRiskyConsent) return;
     setDownloading(true);
     try {
-      const allowRisky = skill?.safety_rating === "C";
+      const allowRisky = isRiskySkill && allowRiskyConsent;
       const zipData = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const blob = new Blob([zipData], { type: "application/zip" });
       saveAs(blob, `${orgSlug}-${skillName}.zip`);
@@ -299,7 +338,11 @@ export default function SkillDetailPage() {
 
       {/* Files tab — full width, no sidebar */}
       {activeTab === "files" && (
-        <FilesTab files={files} loading={zipLoading} error={zipError} />
+        isRiskySkill && !allowRiskyConsent ? (
+          <RiskyConsentPrompt onConsent={() => setAllowRiskyConsent(true)} />
+        ) : (
+          <FilesTab files={files} loading={zipLoading} error={zipError} />
+        )
       )}
 
       {/* Other tabs — two-column body with sidebar */}
@@ -307,7 +350,13 @@ export default function SkillDetailPage() {
       <div className={styles.pageBody}>
         <div className={styles.main}>
           <div className={styles.content}>
-            {activeTab === "overview" && <OverviewTab content={skillMdContent} loading={zipLoading} error={zipError} sourceRepoUrl={skill.source_repo_url} manifestPath={skill.manifest_path} />}
+            {activeTab === "overview" && (
+              isRiskySkill && !allowRiskyConsent ? (
+                <RiskyConsentPrompt onConsent={() => setAllowRiskyConsent(true)} />
+              ) : (
+                <OverviewTab content={skillMdContent} loading={zipLoading} error={zipError} sourceRepoUrl={skill.source_repo_url} manifestPath={skill.manifest_path} />
+              )
+            )}
             {activeTab === "evals" && (
               <EvalsTab report={evalReport} loading={evalLoading} />
             )}
@@ -565,6 +614,42 @@ function resolveRelativeUrl(
     : `${sourceRepoUrl}/blob/main/`;
 
   return new URL(href, base).href;
+}
+
+function RiskyConsentPrompt({ onConsent }: { onConsent: () => void }) {
+  // Shown for grade-C skills before we fetch their zip. Mirrors the CLI's
+  // `--allow-risky` flag: no zip loads until the user opts in explicitly.
+  return (
+    <NeonCard glow="pink">
+      <div style={{ padding: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <AlertTriangle size={20} style={{ color: "var(--neon-pink)" }} />
+          <strong>Risky skill (grade C)</strong>
+        </div>
+        <p style={{ margin: 0 }}>
+          This skill has a low safety grade. Loading it will download the
+          package contents into your browser. Only proceed if you understand
+          the risks.
+        </p>
+        <div>
+          <button
+            type="button"
+            onClick={onConsent}
+            style={{
+              padding: "0.5rem 1rem",
+              border: "1px solid var(--neon-pink)",
+              background: "transparent",
+              color: "var(--neon-pink)",
+              cursor: "pointer",
+              borderRadius: "4px",
+            }}
+          >
+            Show contents anyway
+          </button>
+        </div>
+      </div>
+    </NeonCard>
+  );
 }
 
 function OverviewTab({

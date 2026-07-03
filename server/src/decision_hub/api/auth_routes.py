@@ -1,13 +1,13 @@
 """Authentication routes - GitHub Device Flow login."""
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_engine, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dep
 from decision_hub.domain.auth import create_jwt
 from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs
 from decision_hub.infra.database import upsert_user
@@ -26,16 +26,7 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _enforce_auth_rate_limit(request: Request) -> None:
-    """Rate-limit auth endpoints."""
-    state = request.app.state
-    if not hasattr(state, "_auth_rate_limiter"):
-        settings: Settings = state.settings
-        state._auth_rate_limiter = RateLimiter(
-            max_requests=settings.auth_rate_limit,
-            window_seconds=settings.auth_rate_window,
-        )
-    state._auth_rate_limiter(request)
+_enforce_auth_rate_limit = rate_limit_dep("auth", "auth_rate_limit", "auth_rate_window")
 
 
 # ---------------------------------------------------------------------------
@@ -106,9 +97,21 @@ async def start_device_flow(
     )
 
 
+async def _sync_org_metadata_bg(engine, gh_token: str, org_slugs: list[str], username: str) -> None:
+    """Wrap `sync_org_github_metadata` so a failure never surfaces to the client."""
+    try:
+        await sync_org_github_metadata(engine, gh_token, org_slugs, username)
+    except Exception:
+        logger.opt(exception=True).warning(
+            "Failed to sync GitHub metadata for {}; continuing",
+            username,
+        )
+
+
 @router.post("/github/token", response_model=TokenResponse, dependencies=[Depends(_enforce_auth_rate_limit)])
 async def exchange_token(
     body: TokenRequest,
+    background_tasks: BackgroundTasks,
     conn: Connection = Depends(get_connection),
     engine=Depends(get_engine),
     settings: Settings = Depends(get_settings),
@@ -136,7 +139,7 @@ async def exchange_token(
             detail="Failed to reach GitHub — please try again",
         ) from exc
     except RuntimeError as exc:
-        logger.warning("GitHub device flow error: {}", exc)
+        logger.opt(exception=True).warning("GitHub device flow error: {}", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     allowed_orgs = settings.required_github_orgs
@@ -176,17 +179,12 @@ async def exchange_token(
     # that sync_org_github_metadata opens via the engine.
     conn.commit()
 
-    # Best-effort: sync GitHub metadata inline so avatars/descriptions are
-    # available immediately. The 24-hour TTL cache in sync_org_github_metadata
-    # skips orgs already synced recently, so this only adds latency on the
-    # first login per day.
-    try:
-        await sync_org_github_metadata(engine, gh_token, org_slugs, username)
-    except Exception:
-        logger.opt(exception=True).warning(
-            "Failed to sync GitHub metadata for {}; continuing",
-            username,
-        )
+    # Sync GitHub org metadata (avatars/descriptions) AFTER we return the JWT.
+    # It used to run inline, which blocked login on 30+ GitHub REST calls the
+    # first time each day. `BackgroundTasks` fires after the response body is
+    # sent, so the browser gets its token immediately and the avatars fill in
+    # a few seconds later on the next fetch.
+    background_tasks.add_task(_sync_org_metadata_bg, engine, gh_token, org_slugs, username)
 
     jwt_token = create_jwt(
         str(user.id),

@@ -57,12 +57,18 @@ def clone_repo(
     if result.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         stderr = result.stderr.strip()
+        stdout = result.stdout
+        # git may print the resolved URL (including x-access-token:<token>)
+        # to stdout in some error paths; scrub both streams before wrapping
+        # them in CalledProcessError, otherwise the token leaks into logs
+        # and error-tracker payloads.
         if github_token:
             stderr = stderr.replace(github_token, "***")
+            stdout = stdout.replace(github_token, "***")
         raise subprocess.CalledProcessError(
             result.returncode,
             cmd[0],
-            output=result.stdout,
+            output=stdout,
             stderr=stderr,
         )
     return tmp_dir / "repo"

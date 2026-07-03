@@ -1,7 +1,6 @@
 """CRUD API routes for skill trackers."""
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -9,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
-from decision_hub.api.deps import get_connection, get_current_user, get_settings
+from decision_hub.api.deps import get_connection, get_current_user, get_settings, parse_uuid
 from decision_hub.domain.tracker import (
     build_canonical_repo_url,
     check_repo_accessible,
@@ -89,12 +88,8 @@ def _tracker_to_response(tracker) -> TrackerResponse:
     )
 
 
-def _parse_uuid(value: str, name: str) -> UUID:
-    """Parse a string as UUID, raising HTTP 422 on invalid input."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid {name}: {value}") from None
+# Alias so existing call sites in this module remain unchanged.
+_parse_uuid = parse_uuid
 
 
 def _resolve_org_slug(conn: Connection, user: User, org_slug: str | None) -> str:

@@ -1916,11 +1916,24 @@ def fetch_all_skills_for_index(
 
 
 def _normalize_repo_url(url: str) -> str:
-    """Strip trailing slashes and .git suffix for consistent matching."""
+    """Strip trailing slashes and .git suffix for consistent matching.
+
+    Order matters and must match the SQL normalization used by
+    `fetch_skills_by_repo`: rtrim '/' first, then strip a trailing '.git'.
+    Doing it in the other order would leave `https://x/y.git/` unnormalized
+    on one side but not the other, and a repo would silently fail to match.
+    """
     url = url.rstrip("/")
-    if url.endswith(".git"):
-        url = url[:-4]
-    return url
+    return url.removesuffix(".git")
+
+
+def _normalize_repo_url_sql(col: sa.ColumnElement) -> sa.ColumnElement:
+    """SQL equivalent of `_normalize_repo_url` for use in WHERE clauses.
+
+    Uses the same rtrim-then-strip-`.git` order as the Python helper so
+    both sides of a comparison canonicalise to the same value.
+    """
+    return sa.func.regexp_replace(sa.func.rtrim(col, "/"), r"\.git$", "")
 
 
 def fetch_skills_by_repo(
@@ -1960,11 +1973,7 @@ def fetch_skills_by_repo(
         .where(
             sa.and_(
                 skills_table.c.latest_semver.isnot(None),
-                sa.func.rtrim(
-                    sa.func.regexp_replace(skills_table.c.source_repo_url, r"\.git$", ""),
-                    "/",
-                )
-                == normalized,
+                _normalize_repo_url_sql(skills_table.c.source_repo_url) == normalized,
             )
         )
         .order_by(organizations_table.c.slug, skills_table.c.name)
@@ -2040,7 +2049,9 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Tiebreaker on skills.id keeps the ordering deterministic when
+        # multiple rows share the same ts_rank (very common for short queries).
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,10 +2063,15 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # Tiebreaker on skills.id keeps ordering deterministic when two
+        # embeddings tie on cosine distance.
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
+    # Cap the merged list at `limit` — each branch independently limits its
+    # own query, so without a final slice the union could return up to
+    # 2x limit rows and double the LLM token budget for the caller.
     seen: set[tuple[str, str]] = set()
     results: list[dict] = []
 
@@ -2064,12 +2080,16 @@ def search_skills_hybrid(
         if key not in seen:
             seen.add(key)
             results.append(_row_to_skill_summary(row))
+        if len(results) >= limit:
+            return results
 
     for row in fts_rows:
         key = (row.org_slug, row.skill_name)
         if key not in seen:
             seen.add(key)
             results.append(_row_to_skill_summary(row))
+        if len(results) >= limit:
+            break
 
     return results
 
@@ -3125,16 +3145,20 @@ def mark_skills_source_removed(conn: Connection, repo_urls: list[str]) -> int:
     """Set source_repo_removed=True for skills matching any repo URL.
 
     Matches both exact repo URLs and subdirectory URLs
-    (e.g. https://github.com/org/repo/tree/main/subdir).
+    (e.g. https://github.com/org/repo/tree/main/subdir), and accepts stored
+    URLs with a `.git` suffix or trailing `/` — those variants used to be
+    silently missed and left the corresponding skills incorrectly visible.
     """
     if not repo_urls:
         return 0
+    normalized_urls = [_normalize_repo_url(u) for u in repo_urls]
+    normalized_col = _normalize_repo_url_sql(skills_table.c.source_repo_url)
     conditions = [
         sa.or_(
-            skills_table.c.source_repo_url == url,
-            skills_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+            normalized_col == url,
+            normalized_col.like(f"{_escape_like(url)}/%", escape="\\"),
         )
-        for url in repo_urls
+        for url in normalized_urls
     ]
     stmt = sa.update(skills_table).where(sa.or_(*conditions)).values(source_repo_removed=True)
     return conn.execute(stmt).rowcount
@@ -3154,15 +3178,21 @@ def fetch_removed_source_repo_urls(conn: Connection) -> list[str]:
 
 
 def clear_source_removed_for_urls(conn: Connection, repo_urls: list[str]) -> int:
-    """Set source_repo_removed=False for skills matching any of the given repo URLs."""
+    """Set source_repo_removed=False for skills matching any of the given repo URLs.
+
+    Uses normalized URL comparison so `.git` and trailing-`/` variants are all
+    resurrected consistently with `mark_skills_source_removed`.
+    """
     if not repo_urls:
         return 0
+    normalized_urls = [_normalize_repo_url(u) for u in repo_urls]
+    normalized_col = _normalize_repo_url_sql(skills_table.c.source_repo_url)
     conditions = [
         sa.or_(
-            skills_table.c.source_repo_url == url,
-            skills_table.c.source_repo_url.like(f"{_escape_like(url)}/%", escape="\\"),
+            normalized_col == url,
+            normalized_col.like(f"{_escape_like(url)}/%", escape="\\"),
         )
-        for url in repo_urls
+        for url in normalized_urls
     ]
     stmt = sa.update(skills_table).where(sa.or_(*conditions)).values(source_repo_removed=False)
     return conn.execute(stmt).rowcount

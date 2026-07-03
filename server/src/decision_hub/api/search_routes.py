@@ -7,13 +7,13 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.api.deps import get_connection, get_current_user_optional, get_engine, get_s3_client, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dep
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
 from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
@@ -29,16 +29,7 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/v1", tags=["search"])
 
 
-def _enforce_search_rate_limit(request: Request) -> None:
-    """Rate-limit the search endpoint. Limiter is initialised lazily from settings."""
-    state = request.app.state
-    if not hasattr(state, "_search_rate_limiter"):
-        settings: Settings = state.settings
-        state._search_rate_limiter = RateLimiter(
-            max_requests=settings.search_rate_limit,
-            window_seconds=settings.search_rate_window,
-        )
-    state._search_rate_limiter(request)
+_enforce_search_rate_limit = rate_limit_dep("search", "search_rate_limit", "search_rate_window")
 
 
 # ---------------------------------------------------------------------------
@@ -456,29 +447,41 @@ def _ask_skills_inner(
         username=current_user.username if current_user else None,
     )
 
-    # Enrich LLM skill references with metadata from DB candidates
+    # Enrich LLM skill references with metadata from DB candidates.
+    # If Gemini hallucinates a skill (referenced_skills entry that never
+    # appeared in the retrieval candidates), we simply drop it from the
+    # structured output — the answer text may still mention it, but at
+    # least the CLI/frontend won't render a broken link. Log at INFO so
+    # regressions are caught in operational metrics rather than silently.
     skill_refs = []
     for ref in llm_result.get("referenced_skills", []):
         key = (ref["org_slug"], ref["skill_name"])
         row = candidate_map.get(key)
-        if row:
-            skill_refs.append(
-                AskSkillRef(
-                    org_slug=ref["org_slug"],
-                    skill_name=ref["skill_name"],
-                    description=row.get("description", ""),
-                    safety_rating=format_trust_score(row.get("eval_status", "")),
-                    reason=ref.get("reason", ""),
-                    author=resolve_author_display(row.get("published_by", "")),
-                    category=row.get("category", ""),
-                    download_count=row.get("download_count", 0),
-                    latest_version=row.get("latest_version", ""),
-                    source_repo_url=row.get("source_repo_url"),
-                    gauntlet_summary=row.get("gauntlet_summary"),
-                    github_stars=row.get("github_stars"),
-                    github_license=row.get("github_license"),
-                )
+        if row is None:
+            logger.info(
+                "Ask LLM referenced unknown skill {}/{} — dropped from response (q='{}')",
+                ref.get("org_slug"),
+                ref.get("skill_name"),
+                q[:80],
             )
+            continue
+        skill_refs.append(
+            AskSkillRef(
+                org_slug=ref["org_slug"],
+                skill_name=ref["skill_name"],
+                description=row.get("description", ""),
+                safety_rating=format_trust_score(row.get("eval_status", "")),
+                reason=ref.get("reason", ""),
+                author=resolve_author_display(row.get("published_by", "")),
+                category=row.get("category", ""),
+                download_count=row.get("download_count", 0),
+                latest_version=row.get("latest_version", ""),
+                source_repo_url=row.get("source_repo_url"),
+                gauntlet_summary=row.get("gauntlet_summary"),
+                github_stars=row.get("github_stars"),
+                github_license=row.get("github_license"),
+            )
+        )
 
     return AskResponse(
         query=q,

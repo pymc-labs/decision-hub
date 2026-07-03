@@ -1822,3 +1822,70 @@ class TestResolveAuthorDisplay:
         from decision_hub.domain.search import resolve_author_display
 
         assert resolve_author_display("tracker:") == "auto-sync"
+
+
+class TestGetSimilarSkills:
+    """GET /v1/skills/{org}/{skill}/similar -- similar skills panel.
+
+    Previously ignored the caller's authentication which caused private
+    skills to always 404 when viewed by their own org members. The route
+    now threads `user_org_ids` into `find_skill_by_slug`.
+    """
+
+    @patch("decision_hub.api.registry_routes.fetch_similar_skills")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_returns_similar_skills_for_public_skill(
+        self,
+        mock_find: MagicMock,
+        mock_fetch: MagicMock,
+        client: TestClient,
+    ) -> None:
+        mock_find.return_value = _make_skill(_make_org())
+        mock_fetch.return_value = [
+            {
+                "org_slug": "other",
+                "skill_name": "sibling",
+                "description": "A sibling skill",
+                "eval_status": "A",
+                "category": "analysis",
+                "download_count": 42,
+            }
+        ]
+        resp = client.get("/v1/skills/test-org/my-skill/similar")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload[0]["skill_name"] == "sibling"
+        assert payload[0]["safety_rating"] == "A"
+
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_returns_404_when_skill_not_visible(
+        self,
+        mock_find: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Anonymous caller on a private skill still gets 404."""
+        mock_find.return_value = None
+        resp = client.get("/v1/skills/test-org/private-skill/similar")
+        assert resp.status_code == 404
+
+    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.registry_routes.fetch_similar_skills")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    def test_authenticated_caller_passes_org_ids(
+        self,
+        mock_find: MagicMock,
+        mock_fetch: MagicMock,
+        mock_list_orgs: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """`find_skill_by_slug` must receive `user_org_ids` — otherwise
+        org members can't see their own private skills' Similar panel."""
+        mock_list_orgs.return_value = [uuid4()]
+        mock_find.return_value = _make_skill(_make_org())
+        mock_fetch.return_value = []
+        resp = client.get("/v1/skills/test-org/my-skill/similar", headers=auth_headers)
+        assert resp.status_code == 200
+        # The visibility filter got the caller's org ids, not None.
+        call_kwargs = mock_find.call_args.kwargs
+        assert call_kwargs.get("user_org_ids") is not None

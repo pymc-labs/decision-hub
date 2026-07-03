@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -63,3 +64,37 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def rate_limit_dep(name: str, max_attr: str, window_attr: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily initialises a `RateLimiter` from settings.
+
+    The limiter is stored on ``request.app.state`` under a name-scoped key so
+    each endpoint gets its own sliding window, and the limits are read from
+    the ``max_attr`` / ``window_attr`` settings fields (e.g.
+    ``search_rate_limit`` and ``search_rate_window``).
+
+    Replaces 8 near-identical ``_enforce_*_rate_limit`` copies that previously
+    lived in ``registry_routes``, ``search_routes``, and ``auth_routes``.
+    Route modules should call this at module import time:
+
+        _enforce_search = rate_limit_dep("search", "search_rate_limit", "search_rate_window")
+
+    and depend on the returned callable via ``dependencies=[Depends(_enforce_search)]``.
+    """
+    state_attr = f"_{name}_rate_limiter"
+
+    def dependency(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, max_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    dependency.__name__ = f"enforce_{name}_rate_limit"
+    return dependency

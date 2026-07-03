@@ -5,11 +5,17 @@ avoiding a heavy SDK dependency.
 """
 
 import json
+import time
 
 import httpx
 from loguru import logger
 
 _ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+# Retry transient errors — 429 (rate limit), 529 (overloaded), 5xx.
+# Bursty eval judgment loads regularly hit these and previously produced
+# spurious verdict="error" rows that required manual re-runs.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504, 529}
+_MAX_RETRIES = 3
 
 _JUDGE_SYSTEM_PROMPT = """You are an evaluation judge for AI agent skill tests.
 
@@ -61,20 +67,56 @@ def judge_eval_output(
     }
 
     logger.debug("Calling Anthropic judge API model={} case={}", model, eval_case_name)
-    response = httpx.post(
-        _ANTHROPIC_API_URL,
-        json=payload,
-        headers=headers,
-        timeout=60,
-    )
-    response.raise_for_status()
+    data = _post_with_retry(payload, headers)
 
-    data = response.json()
-    raw_text = data["content"][0]["text"]
+    # Filter to text blocks — responses may include non-text blocks like
+    # tool_use or thinking that would raise on ["text"] indexing.
+    raw_text = _first_text_block(data)
+    if raw_text is None:
+        logger.warning("Judge response has no text block for case={}", eval_case_name)
+        return {"verdict": "error", "reasoning": "Judge returned no text content"}
 
     result = _parse_judge_response(raw_text)
     logger.debug("Judge verdict for '{}': {}", eval_case_name, result["verdict"])
     return result
+
+
+def _post_with_retry(payload: dict, headers: dict) -> dict:
+    """POST to Anthropic with retry on transient errors and Retry-After support."""
+    for attempt in range(_MAX_RETRIES):
+        response = httpx.post(
+            _ANTHROPIC_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=60,
+        )
+        if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+            retry_after = response.headers.get("retry-after")
+            try:
+                delay = float(retry_after) if retry_after else min(2.0 * (2**attempt), 30.0)
+            except ValueError:
+                delay = min(2.0 * (2**attempt), 30.0)
+            logger.warning(
+                "Anthropic returned {} (attempt {}/{}), retrying in {}s",
+                response.status_code,
+                attempt + 1,
+                _MAX_RETRIES,
+                delay,
+            )
+            time.sleep(delay)
+            continue
+        response.raise_for_status()
+        return response.json()
+    # Unreachable — the loop either returns or raises before falling through.
+    raise RuntimeError("Anthropic retry loop exited without a response")
+
+
+def _first_text_block(data: dict) -> str | None:
+    """Return the text of the first `type=='text'` block, or None if absent."""
+    for block in data.get("content", []):
+        if block.get("type") == "text" and "text" in block:
+            return block["text"]
+    return None
 
 
 def _parse_judge_response(raw_text: str) -> dict:

@@ -1,12 +1,17 @@
 """Tests for infra/anthropic_client.py -- LLM judge for agent evals."""
 
 import json
+from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
 
-from decision_hub.infra.anthropic_client import _parse_judge_response, judge_eval_output
+from decision_hub.infra.anthropic_client import (
+    _first_text_block,
+    _parse_judge_response,
+    judge_eval_output,
+)
 
 
 class TestParseJudgeResponse:
@@ -38,6 +43,26 @@ class TestParseJudgeResponse:
         assert result["verdict"] == "error"
 
 
+class TestFirstTextBlock:
+    def test_returns_text_from_text_block(self):
+        assert _first_text_block({"content": [{"type": "text", "text": "hello"}]}) == "hello"
+
+    def test_skips_non_text_blocks(self):
+        # Response blocks may include tool_use / thinking — the judge only
+        # cares about the first genuine text block.
+        data = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_1"},
+                {"type": "text", "text": "verdict-here"},
+            ],
+        }
+        assert _first_text_block(data) == "verdict-here"
+
+    def test_returns_none_when_absent(self):
+        assert _first_text_block({"content": [{"type": "tool_use"}]}) is None
+        assert _first_text_block({"content": []}) is None
+
+
 class TestJudgeEvalOutput:
     @respx.mock
     def test_successful_judge_call(self) -> None:
@@ -45,7 +70,7 @@ class TestJudgeEvalOutput:
             return_value=httpx.Response(
                 200,
                 json={
-                    "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "Good output"})}],
+                    "content": [{"type": "text", "text": json.dumps({"verdict": "pass", "reasoning": "Good output"})}],
                 },
             )
         )
@@ -76,7 +101,7 @@ class TestJudgeEvalOutput:
             return_value=httpx.Response(
                 200,
                 json={
-                    "content": [{"text": json.dumps({"verdict": "pass", "reasoning": "ok"})}],
+                    "content": [{"type": "text", "text": json.dumps({"verdict": "pass", "reasoning": "ok"})}],
                 },
             )
         )
@@ -99,10 +124,11 @@ class TestJudgeEvalOutput:
 
     @respx.mock
     def test_api_error_propagates(self) -> None:
-        """httpx errors should propagate up."""
+        """5xx errors are retried, but eventually raise HTTPStatusError once the
+        retry budget is exhausted. Sleep is patched so the test stays fast."""
         respx.post("https://api.anthropic.com/v1/messages").mock(return_value=httpx.Response(500, text="Server Error"))
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with patch("decision_hub.infra.anthropic_client.time.sleep"), pytest.raises(httpx.HTTPStatusError):
             judge_eval_output(
                 api_key="test-key",
                 model="test-model",
@@ -110,3 +136,43 @@ class TestJudgeEvalOutput:
                 eval_criteria="criteria",
                 agent_output="output",
             )
+
+    @respx.mock
+    def test_retries_on_429_then_succeeds(self) -> None:
+        """Bursty judge loads hitting 429 should transparently retry rather
+        than surfacing verdict='error' rows the way the code used to."""
+        good = {"content": [{"type": "text", "text": json.dumps({"verdict": "pass", "reasoning": "ok"})}]}
+        responses = [
+            httpx.Response(429, headers={"retry-after": "0"}),
+            httpx.Response(200, json=good),
+        ]
+        respx.post("https://api.anthropic.com/v1/messages").mock(side_effect=responses)
+
+        with patch("decision_hub.infra.anthropic_client.time.sleep") as sleep_mock:
+            result = judge_eval_output(
+                api_key="test-key",
+                model="test-model",
+                eval_case_name="test",
+                eval_criteria="criteria",
+                agent_output="output",
+            )
+        assert result["verdict"] == "pass"
+        # Ensure we honored the Retry-After header (slept exactly once before
+        # the retry).
+        assert sleep_mock.call_count == 1
+
+    @respx.mock
+    def test_no_text_block_returns_error_verdict(self) -> None:
+        """A response with only tool_use / thinking blocks used to crash on
+        `content[0]['text']`; now it returns a graceful error verdict."""
+        respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(200, json={"content": [{"type": "tool_use"}]}),
+        )
+        result = judge_eval_output(
+            api_key="test-key",
+            model="test-model",
+            eval_case_name="test",
+            eval_criteria="criteria",
+            agent_output="output",
+        )
+        assert result["verdict"] == "error"

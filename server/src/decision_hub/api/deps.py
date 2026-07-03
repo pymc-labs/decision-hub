@@ -97,6 +97,19 @@ def get_current_user(
     )
 
 
+def parse_uuid(value: str, name: str) -> UUID:
+    """Parse a UUID string, raising 422 with a clear message on invalid input.
+
+    Route modules used to define this same helper as ``_parse_uuid`` in each
+    module — consolidated here so the error format stays consistent and
+    changes propagate to every caller.
+    """
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
+
+
 def get_current_user_optional(
     request: Request,
     settings: Settings = Depends(get_settings),

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
@@ -23,10 +23,18 @@ router = APIRouter(prefix="/v1/keys", tags=["keys"])
 
 
 class StoreKeyRequest(BaseModel):
-    """Payload to store a new encrypted API key."""
+    """Payload to store a new encrypted API key.
 
-    key_name: str
-    value: str
+    Length caps prevent oversized rows from ballooning the users' key table
+    and are large enough to accept every real-world API key (Anthropic,
+    Gemini, OpenAI, GitHub PATs all fit in a few hundred chars).
+    """
+
+    # Env-var-style name: uppercase letters, digits and underscores, starting
+    # with a letter. Keeps the name safe to inject into subprocess env at
+    # eval time and prevents shell metacharacters from leaking through.
+    key_name: str = Field(min_length=1, max_length=64, pattern=r"^[A-Z][A-Z0-9_]*$")
+    value: str = Field(min_length=1, max_length=8192)
 
 
 class StoreKeyResponse(BaseModel):

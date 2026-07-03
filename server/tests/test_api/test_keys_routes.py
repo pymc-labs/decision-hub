@@ -20,34 +20,65 @@ class TestStoreKey:
         auth_headers: dict[str, str],
         sample_user_id: UUID,
     ) -> None:
-        """Storing a key should return the key name and creation timestamp."""
+        """Storing a key should return the key name and creation timestamp.
+
+        Key names are stored as env-var identifiers (uppercase) because the
+        eval sandbox injects them directly into subprocess env; see the
+        `agent_config.key_env_var` names in modal_client.py.
+        """
         now = datetime.now(UTC)
         mock_insert.return_value = UserApiKey(
             id=UUID("cccccccc-0000-0000-0000-000000000001"),
             user_id=sample_user_id,
-            key_name="openai",
+            key_name="OPENAI_API_KEY",
             encrypted_value=b"encrypted-bytes",
             created_at=now,
         )
 
         resp = client.post(
             "/v1/keys",
-            json={"key_name": "openai", "value": "sk-12345"},
+            json={"key_name": "OPENAI_API_KEY", "value": "sk-12345"},
             headers=auth_headers,
         )
 
         assert resp.status_code == 201
         data = resp.json()
-        assert data["key_name"] == "openai"
+        assert data["key_name"] == "OPENAI_API_KEY"
         assert "created_at" in data
 
     def test_store_key_unauthenticated(self, client: TestClient) -> None:
         """Missing auth should return 401."""
         resp = client.post(
             "/v1/keys",
-            json={"key_name": "openai", "value": "sk-12345"},
+            json={"key_name": "OPENAI_API_KEY", "value": "sk-12345"},
         )
         assert resp.status_code == 401
+
+    def test_store_key_rejects_lowercase_name(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Key names must be env-var-style (uppercase); lowercase is 422."""
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "openai", "value": "sk-12345"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_store_key_rejects_oversized_value(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Values are capped at 8192 chars to prevent oversized rows."""
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "OPENAI_API_KEY", "value": "x" * 20000},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
 
 
 class TestListKeys:
