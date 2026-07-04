@@ -1,6 +1,5 @@
 """API key management commands."""
 
-import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -14,7 +13,8 @@ def add_key(
     key_name: str = typer.Argument(help="Name for the API key"),
 ) -> None:
     """Add an API key (prompts for the value securely)."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
+    from dhub.cli.config import get_token, raise_for_status
+    from dhub.cli.http import api_client
 
     key_value = typer.prompt("Enter API key value", hide_input=True)
 
@@ -22,10 +22,9 @@ def add_key(
         console.print("[red]Error: Key value cannot be empty.[/]")
         raise typer.Exit(1)
 
-    with httpx.Client(timeout=60) as client:
+    with api_client(token=get_token()) as client:
         resp = client.post(
-            f"{get_api_url()}/v1/keys",
-            headers=build_headers(get_token()),
+            "/v1/keys",
             json={"key_name": key_name, "value": key_value},
         )
         if resp.status_code == 409:
@@ -41,13 +40,11 @@ def add_key(
 @keys_app.command("list")
 def list_keys() -> None:
     """List stored API key names."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
+    from dhub.cli.config import get_token, raise_for_status
+    from dhub.cli.http import api_client
 
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{get_api_url()}/v1/keys",
-            headers=build_headers(get_token()),
-        )
+    with api_client(token=get_token()) as client:
+        resp = client.get("/v1/keys")
         raise_for_status(resp)
         keys = resp.json()
 
@@ -76,13 +73,11 @@ def remove_key(
     key_name: str = typer.Argument(help="Name of the API key to remove"),
 ) -> None:
     """Remove a stored API key."""
-    from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
+    from dhub.cli.config import get_token, raise_for_status
+    from dhub.cli.http import api_client
 
-    with httpx.Client(timeout=60) as client:
-        resp = client.delete(
-            f"{get_api_url()}/v1/keys/{key_name}",
-            headers=build_headers(get_token()),
-        )
+    with api_client(token=get_token()) as client:
+        resp = client.delete(f"/v1/keys/{key_name}")
         if resp.status_code == 404:
             console.print(f"[red]Error: Key '{key_name}' not found.[/]")
             raise typer.Exit(1)

@@ -22,13 +22,16 @@ def doctor_command() -> None:
     authenticated = token is not None
     org = config.default_org or (config.orgs[0] if len(config.orgs) == 1 else None)
 
-    # Check API connectivity
+    # Check API connectivity. Use a tighter timeout than the default so
+    # `dhub doctor` fails fast against a broken network.
+    from dhub.cli.http import api_client
+
     api_reachable = False
     latency_ms = 0
     try:
         start = time.monotonic()
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(f"{api_url}/health")
+        with api_client(token=token, timeout=10, base_url=api_url) as client:
+            resp = client.get("/health")
             api_reachable = resp.status_code == 200
         latency_ms = int((time.monotonic() - start) * 1000)
     except httpx.HTTPError:
