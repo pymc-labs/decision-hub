@@ -212,7 +212,7 @@ def run_assessment_background(
             logger.info("Assessment done — {}/{} passed in {}ms", passed, total, total_duration_ms)
 
     except Exception as e:
-        logger.error("Agent assessment failed for version {}: {}", version_id, e)
+        logger.opt(exception=True).error("Agent assessment failed for version {}", version_id)
 
         # Update run row if using streaming pipeline
         if run_id is not None:
@@ -232,8 +232,8 @@ def run_assessment_background(
                         completed_at=datetime.now(UTC),
                     )
                     err_conn.commit()
-            except Exception as inner:
-                logger.error("Failed to update run {}: {}", run_id, inner)
+            except Exception:
+                logger.opt(exception=True).error("Failed to update run {}", run_id)
 
         # INSERT an error report
         try:
@@ -255,9 +255,8 @@ def run_assessment_background(
                     error_message=str(e),
                 )
                 err_conn.commit()
-        except Exception as inner:
-            logger.error(
-                "Failed to store error report for version {}: {}",
+        except Exception:
+            logger.opt(exception=True).error(
+                "Failed to store error report for version {}",
                 version_id,
-                inner,
             )

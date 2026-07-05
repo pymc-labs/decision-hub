@@ -1,8 +1,14 @@
 """Application settings loaded from environment variables."""
 
 import os
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
+
+# The .env.{dev,prod} files live at the server package root (server/.env.dev).
+# Resolve absolutely so `create_settings()` works regardless of the process CWD.
+#   settings.py -> decision_hub/ -> src/ -> server/
+_SERVER_PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -168,7 +174,11 @@ def get_env() -> str:
 def create_settings(env: str | None = None) -> Settings:
     """Build Settings from the env-specific .env file (.env.dev, .env.prod).
 
-    Environment variables still override values from the file.
+    Environment variables still override values from the file. The file
+    path is resolved absolutely relative to the server package root, so
+    scripts run from anywhere (repo root, notebooks, ad-hoc REPL) load
+    the same file that the deployed server does.
     """
     env = env or get_env()
-    return Settings(_env_file=f".env.{env}")
+    env_file = _SERVER_PACKAGE_ROOT / f".env.{env}"
+    return Settings(_env_file=env_file)

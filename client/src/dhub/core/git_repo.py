@@ -4,6 +4,7 @@ A skill is any directory containing a valid SKILL.md file with
 proper YAML frontmatter (name + description fields).
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -12,6 +13,21 @@ from pathlib import Path
 
 _GIT_URL_PREFIXES = ("https://", "http://", "git@", "ssh://", "git://")
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
+
+# Cap for git clone / checkout — a hung credential prompt or DNS stall
+# must not block the CLI forever.
+_GIT_TIMEOUT_SECONDS = 120
+
+
+def _git_env() -> dict[str, str]:
+    """Return an env dict that disables interactive credential prompts.
+
+    Without this, a private URL causes ``git`` to open ``askpass`` (or
+    block on stdin), leaving the CLI hanging with no indication.
+    """
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
 
 
 def git_url_to_https(url: str) -> str | None:
@@ -66,32 +82,46 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
-    if ref and _looks_like_sha(ref):
-        # Commit SHAs don't work with --depth 1 --branch; do a full
-        # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
-        checkout = subprocess.run(
-            ["git", "checkout", ref],
-            cwd=str(repo_path),
-            capture_output=True,
-            text=True,
-        )
-        if checkout.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
-    else:
-        cmd = ["git", "clone", "--depth", "1"]
-        if ref:
-            cmd += ["--branch", ref]
-        cmd += [repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    # The `--` end-of-options separator is critical: without it a URL
+    # like `--upload-pack=…` or `--config=core.hooksPath=…` would be
+    # parsed as a git option and could execute arbitrary code. Always
+    # place `repo_url` and destination *after* the separator.
+    env = _git_env()
+
+    try:
+        if ref and _looks_like_sha(ref):
+            # Commit SHAs don't work with --depth 1 --branch; do a full
+            # clone then checkout the specific commit.
+            cmd = ["git", "clone", "--", repo_url, str(repo_path)]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS, env=env)
+            if result.returncode != 0:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+            checkout = subprocess.run(
+                ["git", "checkout", "--", ref],
+                cwd=str(repo_path),
+                capture_output=True,
+                text=True,
+                timeout=_GIT_TIMEOUT_SECONDS,
+                env=env,
+            )
+            if checkout.returncode != 0:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
+        else:
+            cmd = ["git", "clone", "--depth", "1"]
+            if ref:
+                cmd += ["--branch", ref]
+            cmd += ["--", repo_url, str(repo_path)]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS, env=env)
+            if result.returncode != 0:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise RuntimeError(
+            f"git operation timed out after {_GIT_TIMEOUT_SECONDS}s — check the URL and network."
+        ) from None
 
     return repo_path
 

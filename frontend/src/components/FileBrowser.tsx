@@ -150,7 +150,7 @@ const neonTheme = {
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
     background: "#0d0d1a",
-    fontSize: "0.85rem",
+    fontSize: "var(--text-sm)",
     lineHeight: "1.6",
   },
   'code[class*="language-"]': {

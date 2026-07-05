@@ -6,6 +6,31 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request
 
+# Refresh the stale-IP purge at most once every N seconds. Prevents the
+# hot path from computing sum(len(...)) under the lock on every request.
+_PURGE_INTERVAL_SECONDS = 60.0
+
+
+def _client_ip(request: Request) -> str:
+    """Extract the caller's IP, honoring proxy headers.
+
+    Modal (and most reverse proxies) terminate TLS at the ingress and put
+    the real client IP in ``X-Forwarded-For`` (comma-separated, left-most
+    is the original client). Falling back to ``request.client.host`` would
+    make every user share one bucket per container — effectively disabling
+    the limiter.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        # First entry is the original client; subsequent are proxy hops.
+        first = xff.split(",", 1)[0].strip()
+        if first:
+            return first
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
 
 class RateLimiter:
     """Per-IP sliding-window rate limiter.
@@ -31,9 +56,10 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._last_purge: float = 0.0
 
     def __call__(self, request: Request) -> None:
-        key = request.client.host if request.client else "unknown"
+        key = _client_ip(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
 
@@ -52,11 +78,13 @@ class RateLimiter:
 
             self._requests[key].append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Purge stale IPs on a wall-clock cadence. Cheaper and more
+            # predictable than the old modulo-of-total scheme, which
+            # both scanned every bucket under lock and skipped 100 under
+            # contention (so purges rarely ran).
+            if now - self._last_purge > _PURGE_INTERVAL_SECONDS:
                 self._purge_stale(cutoff)
+                self._last_purge = now
 
     def _purge_stale(self, cutoff: float) -> None:
         """Remove IPs with no recent activity. Caller must hold self._lock."""

@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -83,13 +84,26 @@ def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
     Creates the ~/.dhub directory if it does not already exist.
+
+    The config file contains the user's bearer token, so on POSIX we
+    tighten permissions to owner-only read/write (0600 on file, 0700 on
+    directory) — otherwise the token is readable by every local user.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        # Non-fatal: on some filesystems chmod can fail (e.g. NFS mounted
+        # with strict mode); the file-level chmod below is what actually
+        # protects the token.
+        with contextlib.suppress(OSError):
+            os.chmod(CONFIG_DIR, 0o700)
     path = config_file()
     path.write_text(
         json.dumps(asdict(config), indent=2) + "\n",
         encoding="utf-8",
     )
+    if os.name == "posix":
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
 
 
 def get_api_url() -> str:

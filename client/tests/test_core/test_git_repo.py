@@ -1,8 +1,13 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import contextlib
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import _GIT_TIMEOUT_SECONDS, clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +78,46 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepoHardening:
+    """Ensure clone_repo cannot be abused by a hostile URL and cannot hang."""
+
+    def test_clone_places_dashdash_before_repo_url(self) -> None:
+        """A URL like '--upload-pack=foo' must not be parsed as a git option."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            # Some code paths after subprocess may still raise (e.g. mkdir
+            # ordering in the fake); we only care about how subprocess.run
+            # was invoked.
+            with contextlib.suppress(RuntimeError):
+                clone_repo("--upload-pack=/bin/false")
+        cmd = mock_run.call_args.args[0]
+        assert "--" in cmd, "clone command must include -- end-of-options separator"
+        # -- must come before the (hostile) URL positional
+        assert cmd.index("--") < cmd.index("--upload-pack=/bin/false")
+
+    def test_clone_uses_timeout(self) -> None:
+        """subprocess.run must be called with a timeout so we never hang."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with contextlib.suppress(RuntimeError):
+                clone_repo("https://github.com/example/repo.git")
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs.get("timeout") == _GIT_TIMEOUT_SECONDS
+
+    def test_clone_disables_credential_prompt(self) -> None:
+        """GIT_TERMINAL_PROMPT=0 must be set so credential prompts fail fast."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with contextlib.suppress(RuntimeError):
+                clone_repo("https://github.com/example/repo.git")
+        env = mock_run.call_args.kwargs["env"]
+        assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
+    def test_clone_timeout_raises_runtime_error(self) -> None:
+        """TimeoutExpired is caught and surfaced as a friendly RuntimeError."""
+        with patch("dhub.core.git_repo.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd=["git"], timeout=1)
+            with pytest.raises(RuntimeError, match="timed out"):
+                clone_repo("https://github.com/example/repo.git")

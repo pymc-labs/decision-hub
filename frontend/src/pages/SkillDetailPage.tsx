@@ -69,7 +69,11 @@ export default function SkillDetailPage() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  // Reset state when navigating to a different skill AND on unmount.
+  // Without the cleanup return, the pending retry setTimeout fires after
+  // the component has unmounted → warns about setState on an unmounted
+  // component and, on rapid navigation back, races with the new mount's
+  // zip fetch.
   useEffect(() => {
     setZipData(null);
     setZipError(null);
@@ -81,6 +85,12 @@ export default function SkillDetailPage() {
       clearTimeout(retryTimer.current);
       retryTimer.current = null;
     }
+    return () => {
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
+    };
   }, [orgSlug, skillName]);
 
   // Fetch single skill
