@@ -158,6 +158,18 @@ def upload_eval_log_chunk(
     return s3_key
 
 
+def _iter_all_keys(client: BaseClient, bucket: str, s3_prefix: str):
+    """Yield every S3 object dict under ``s3_prefix``, following pagination.
+
+    ``list_objects_v2`` caps its response at 1000 keys and signals overflow via
+    ``IsTruncated`` + ``NextContinuationToken``. Callers that need "all keys"
+    (log tailing, log deletion) must follow the token or they silently truncate.
+    """
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        yield from page.get("Contents", []) or []
+
+
 def list_eval_log_chunks(
     client: BaseClient,
     bucket: str,
@@ -167,13 +179,12 @@ def list_eval_log_chunks(
     """List eval log chunk keys with sequence number > after_seq.
 
     Returns:
-        List of (seq, s3_key) tuples sorted by seq ascending.
+        List of (seq, s3_key) tuples sorted by seq ascending. Pages through
+        S3's 1000-key ``list_objects_v2`` limit so long-running evals with
+        thousands of chunks are still enumerated completely.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-
     chunks: list[tuple[int, str]] = []
-    for obj in contents:
+    for obj in _iter_all_keys(client, bucket, s3_prefix):
         key = obj["Key"]
         # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
         filename = key.rsplit("/", 1)[-1]
@@ -201,6 +212,9 @@ def read_eval_log_chunk(
     return resp["Body"].read().decode("utf-8")
 
 
+_DELETE_BATCH_SIZE = 1000  # S3 hard limit per delete_objects call.
+
+
 def delete_eval_logs(
     client: BaseClient,
     bucket: str,
@@ -208,20 +222,24 @@ def delete_eval_logs(
 ) -> int:
     """Delete all eval log chunks under a prefix.
 
+    Pages through ``list_objects_v2`` and batches ``delete_objects`` at
+    S3's 1000-key limit so long evals don't leave orphan chunks behind.
+
     Returns:
         Number of objects deleted.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-    if not contents:
-        return 0
-
-    objects = [{"Key": obj["Key"]} for obj in contents]
-    client.delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": objects},
-    )
-    return len(objects)
+    deleted = 0
+    batch: list[dict[str, str]] = []
+    for obj in _iter_all_keys(client, bucket, s3_prefix):
+        batch.append({"Key": obj["Key"]})
+        if len(batch) >= _DELETE_BATCH_SIZE:
+            client.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+            deleted += len(batch)
+            batch = []
+    if batch:
+        client.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+        deleted += len(batch)
+    return deleted
 
 
 # ---------------------------------------------------------------------------

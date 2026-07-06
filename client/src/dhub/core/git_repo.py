@@ -50,6 +50,19 @@ def _looks_like_sha(ref: str) -> bool:
     return bool(_SHA_PATTERN.match(ref))
 
 
+def _reject_option_like(value: str, kind: str) -> None:
+    """Refuse values that look like git options (leading ``-`` or ``--``).
+
+    ``looks_like_git_url`` accepts any string ending in ``.git``, and ``git``
+    itself treats leading dashes as options even before ``--``. Passing an
+    attacker-controlled ``--upload-pack=payload.git`` into ``git clone``
+    yields RCE. We reject those forms up-front and additionally place ``--``
+    before the positional arg below.
+    """
+    if value.startswith("-"):
+        raise RuntimeError(f"Invalid {kind}: refusing option-like value {value!r}")
+
+
 def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     """Clone a git repository into a temporary directory.
 
@@ -61,19 +74,29 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
         Path to the cloned repository root.
 
     Raises:
-        RuntimeError: If the clone or checkout fails.
+        RuntimeError: If the clone or checkout fails, or if inputs look like git options.
     """
+    _reject_option_like(repo_url, "repo URL")
+    if ref is not None:
+        _reject_option_like(ref, "git ref")
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
     if ref and _looks_like_sha(ref):
         # Commit SHAs don't work with --depth 1 --branch; do a full
-        # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
+        # clone then checkout the specific commit. ``--`` stops git from
+        # interpreting any subsequent argument as an option.
+        cmd = ["git", "clone", "--", repo_url, str(repo_path)]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+        # ``git checkout -- <arg>`` treats <arg> as a path, so we cannot use
+        # the ``--`` guard here. ``_looks_like_sha`` (7-40 hex chars) already
+        # rules out anything starting with '-' for this branch, but the
+        # explicit ``_reject_option_like`` at the top of clone_repo is the
+        # authoritative check regardless of ref form.
         checkout = subprocess.run(
             ["git", "checkout", ref],
             cwd=str(repo_path),
@@ -87,7 +110,7 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
         cmd = ["git", "clone", "--depth", "1"]
         if ref:
             cmd += ["--branch", ref]
-        cmd += [repo_url, str(repo_path)]
+        cmd += ["--", repo_url, str(repo_path)]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             shutil.rmtree(tmp_dir, ignore_errors=True)

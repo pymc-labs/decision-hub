@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -82,14 +83,34 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory if it does not already exist. The token
+    is written with owner-only permissions (0o600 on the file, 0o700 on
+    the parent) — the previous version relied on the process umask, which
+    on shared hosts and CI runners produces world-readable credentials.
     """
+    # ``mode=`` is intersected with the umask on directory creation, but
+    # explicit chmod below guarantees the desired mode regardless of umask.
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # On Windows / restricted filesystems the chmod is a no-op — the
+    # OS-level ACL model is what actually gates access there.
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_DIR, 0o700)
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+    # Create with restrictive perms *before* writing the payload so the
+    # bearer token never lands on disk with a permissive mode window.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+    except BaseException:
+        # Guard against leaving the fd open if fdopen raised.
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        raise
+    # In case the file already existed with wider perms, fix them now.
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)
 
 
 def get_api_url() -> str:

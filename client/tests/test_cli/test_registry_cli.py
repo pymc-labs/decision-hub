@@ -411,6 +411,38 @@ class TestCreateZip:
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             assert len(zf.namelist()) == _MAX_ZIP_ENTRIES
 
+    def test_skips_symlink_to_file_outside_root(self, tmp_path: Path) -> None:
+        """Regression: rglob() with ``is_file()`` returns True for a symlink
+        whose target is a regular file, so a hostile skill with e.g.
+        ``secrets -> ~/.ssh/id_rsa`` would previously exfiltrate the target's
+        contents into the uploaded zip. The fix must skip symlinks entirely.
+        """
+        # A real file inside the skill (should be included).
+        (tmp_path / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n")
+
+        # A file that lives OUTSIDE the skill directory.
+        outside_dir = tmp_path.parent / "outside"
+        outside_dir.mkdir(exist_ok=True)
+        secret = outside_dir / "secret.txt"
+        secret.write_text("PRIVATE_KEY_MATERIAL")
+
+        # A symlink inside the skill pointing at the outside file.
+        link = tmp_path / "leak.txt"
+        try:
+            link.symlink_to(secret)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks not supported on this platform")
+
+        zip_bytes = _create_zip(tmp_path)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            names = zf.namelist()
+            assert "leak.txt" not in names
+            for member in names:
+                content = zf.read(member)
+                assert b"PRIVATE_KEY_MATERIAL" not in content
+            # The legitimate file is still there.
+            assert "SKILL.md" in names
+
 
 # ---------------------------------------------------------------------------
 # install_command

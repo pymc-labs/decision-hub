@@ -1,6 +1,6 @@
 """Tests for decision_hub.infra.github_client."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -66,52 +66,71 @@ class TestGitHubClientContextManager:
         gh._client.close.assert_called_once()
 
 
+def _mock_graphql_response(json_body: dict, headers: dict | None = None) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.headers = headers or {}
+    resp.json.return_value = json_body
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
 class TestGitHubClientGraphQL:
-    """Verify GraphQL method."""
+    """Verify GraphQL method.
 
-    @patch("decision_hub.infra.github_client.httpx.post")
-    def test_graphql_success(self, mock_post):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "1700000000"}
-        resp.json.return_value = {"data": {"viewer": {"login": "test"}}}
-        resp.raise_for_status = MagicMock()
-        mock_post.return_value = resp
+    GraphQL calls go through the pooled ``self._client`` so we get keep-alive
+    across many hops in a tracker tick — a fresh TCP+TLS handshake per call
+    used to add ~1s to every tick. Tests patch the client instance's ``post``
+    rather than the module-level ``httpx.post`` to reflect this.
+    """
 
+    def test_graphql_success(self):
         with GitHubClient(token="ghp_test") as gh:
+            gh._client.post = MagicMock(
+                return_value=_mock_graphql_response(
+                    {"data": {"viewer": {"login": "test"}}},
+                    headers={"x-ratelimit-remaining": "100", "x-ratelimit-reset": "1700000000"},
+                )
+            )
             result = gh.graphql("{ viewer { login } }")
-
         assert result == {"viewer": {"login": "test"}}
 
-    @patch("decision_hub.infra.github_client.httpx.post")
-    def test_graphql_errors_without_data_raises(self, mock_post):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {}
-        resp.json.return_value = {"errors": [{"message": "bad query"}]}
-        resp.raise_for_status = MagicMock()
-        mock_post.return_value = resp
+    def test_graphql_errors_without_data_raises(self):
+        with GitHubClient() as gh:
+            gh._client.post = MagicMock(
+                return_value=_mock_graphql_response({"errors": [{"message": "bad query"}]}),
+            )
+            with pytest.raises(ValueError, match="GraphQL errors"):
+                gh.graphql("{ bad }")
 
-        with GitHubClient() as gh, pytest.raises(ValueError, match="GraphQL errors"):
-            gh.graphql("{ bad }")
-
-    @patch("decision_hub.infra.github_client.httpx.post")
-    def test_graphql_partial_errors_returns_data(self, mock_post):
+    def test_graphql_partial_errors_returns_data(self):
         """When both data and errors are present, return data instead of raising."""
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {}
-        resp.json.return_value = {
-            "data": {"r0": {"ref": {"target": {"oid": "abc123"}}}},
-            "errors": [{"message": "Could not resolve to a Repository"}],
-        }
-        resp.raise_for_status = MagicMock()
-        mock_post.return_value = resp
-
         with GitHubClient(token="ghp_test") as gh:
+            gh._client.post = MagicMock(
+                return_value=_mock_graphql_response(
+                    {
+                        "data": {"r0": {"ref": {"target": {"oid": "abc123"}}}},
+                        "errors": [{"message": "Could not resolve to a Repository"}],
+                    }
+                ),
+            )
             result = gh.graphql("query { ... }")
-
         assert result == {"r0": {"ref": {"target": {"oid": "abc123"}}}}
+
+    def test_graphql_reuses_pooled_client(self):
+        """Regression: graphql() used to call top-level ``httpx.post`` which
+        opens a fresh connection every hop. It must go through the pooled
+        instance client so keep-alive kicks in on the second and later calls."""
+        with GitHubClient(token="ghp_test") as gh:
+            gh._client.post = MagicMock(
+                return_value=_mock_graphql_response({"data": {}}),
+            )
+            gh.graphql("{}")
+            gh.graphql("{}")
+            assert gh._client.post.call_count == 2
+            # Absolute URL is passed so httpx's base_url does not double up.
+            for call in gh._client.post.call_args_list:
+                assert call.args[0] == "https://api.github.com/graphql"
 
 
 class TestBatchFetchCommitShas:

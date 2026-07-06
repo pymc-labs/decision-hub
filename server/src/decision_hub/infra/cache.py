@@ -15,6 +15,7 @@ Usage:
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,10 +37,16 @@ class TTLCache:
         max_size: Maximum number of entries. When exceeded, expired entries
                   are purged first; if still over limit, the oldest entry
                   is evicted.
+        now: Optional clock function returning a monotonic seconds value.
+             Defaults to :func:`time.monotonic`; tests can inject a fake
+             clock (``lambda: fake_now``) to exercise expiration without
+             relying on real ``time.sleep`` calls, which are flaky on
+             loaded CI runners.
     """
 
     default_ttl: float = 30.0
     max_size: int = 256
+    now: Callable[[], float] = field(default=time.monotonic, repr=False)
     _store: dict[str, _CacheEntry] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -49,7 +56,7 @@ class TTLCache:
             entry = self._store.get(key)
             if entry is None:
                 return None
-            if time.monotonic() > entry.expires_at:
+            if self.now() > entry.expires_at:
                 del self._store[key]
                 return None
             return entry.value
@@ -62,7 +69,7 @@ class TTLCache:
                 self._evict_one()
             self._store[key] = _CacheEntry(
                 value=value,
-                expires_at=time.monotonic() + ttl,
+                expires_at=self.now() + ttl,
             )
 
     def invalidate(self, key: str) -> None:
@@ -77,7 +84,7 @@ class TTLCache:
 
     def _evict_one(self) -> None:
         """Evict one entry: prefer expired, then oldest. Caller holds lock."""
-        now = time.monotonic()
+        now = self.now()
         # Try to find and remove an expired entry first
         for k, entry in self._store.items():
             if now > entry.expires_at:

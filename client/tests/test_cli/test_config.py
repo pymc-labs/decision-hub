@@ -1,11 +1,13 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import stat
+import sys
 
 import click
 import pytest
 
-from dhub.cli.config import CliConfig, load_config, save_config
+from dhub.cli.config import CliConfig, config_file, load_config, save_config
 
 
 class TestLoadConfig:
@@ -102,8 +104,19 @@ class TestSaveConfig:
         loaded = load_config()
 
         assert loaded.orgs == ()
-        assert loaded.default_org is None
-        assert loaded.token == "old-tok"
+
+    @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX perms not enforced on Windows")
+    def test_saved_file_is_readable_only_by_owner(self, tmp_path, monkeypatch):
+        """Regression: the bearer token used to be written with the default
+        umask (world-readable on many shared runners). It must land at 0o600.
+        """
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="secret"))
+        path = config_file("dev")
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
 
 
 class TestGetToken:

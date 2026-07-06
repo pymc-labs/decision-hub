@@ -258,3 +258,84 @@ describe("error handling", () => {
     );
   });
 });
+
+describe("path segment encoding", () => {
+  // Regression: dynamic slug/name/semver values used to be spliced into the
+  // URL path with plain template literals. Any value containing '#', '?', '%',
+  // or whitespace produced a malformed URL that routed wrong or 404'd. Every
+  // endpoint that takes ``orgSlug`` / ``skillName`` / ``semver`` in the PATH
+  // must percent-encode those segments.
+
+  it("encodes org and skill in getSkill", async () => {
+    server.use(
+      http.get("/v1/skills/:org/:skill/summary", ({ params }) => {
+        // MSW decodes path params before handing them to the handler, so
+        // successful capture with '#' proves we sent %23 on the wire.
+        expect(params.org).toBe("weird#org");
+        expect(params.skill).toBe("with space");
+        return HttpResponse.json({
+          org_slug: "weird#org",
+          skill_name: "with space",
+          description: "",
+          latest_version: "1.0.0",
+          updated_at: "",
+          safety_rating: "A",
+          author: "",
+          download_count: 0,
+          is_personal_org: false,
+          category: "",
+          visibility: "public",
+        });
+      }),
+    );
+
+    const s = await getSkill("weird#org", "with space");
+    expect(s.org_slug).toBe("weird#org");
+  });
+
+  it("encodes org and skill in resolveSkill", async () => {
+    server.use(
+      http.get("/v1/resolve/:org/:skill", ({ params, request }) => {
+        expect(params.org).toBe("a/b");
+        expect(params.skill).toBe("c?d");
+        // Query string is unaffected (URLSearchParams / encodeURIComponent
+        // handle it) — but the path segments matter here.
+        const url = new URL(request.url);
+        expect(url.searchParams.get("spec")).toBe("latest");
+        return HttpResponse.json({
+          version: "1.0.0",
+          download_url: "http://x/y",
+          checksum: "sha256:xxx",
+        });
+      }),
+    );
+
+    await resolveSkill("a/b", "c?d");
+  });
+
+  it("encodes semver in getEvalReport path/query", async () => {
+    server.use(
+      http.get("/v1/skills/:org/:skill/eval-report", ({ request }) => {
+        // getEvalReport passes semver as a query param — the fact we hit
+        // the handler at all proves the path segments didn't corrupt.
+        const url = new URL(request.url);
+        expect(url.searchParams.get("semver")).toBe("1.0.0+meta");
+        return HttpResponse.json(null);
+      }),
+    );
+
+    await getEvalReport("org#a", "skill%b", "1.0.0+meta");
+  });
+
+  it("encodes org and skill in downloadSkillZip", async () => {
+    server.use(
+      http.get("/v1/skills/:org/:skill/download", ({ params }) => {
+        expect(params.org).toBe("hash#org");
+        expect(params.skill).toBe("q?name");
+        return new HttpResponse(new ArrayBuffer(4), { status: 200 });
+      }),
+    );
+
+    await downloadSkillZip("hash#org", "q?name");
+  });
+});

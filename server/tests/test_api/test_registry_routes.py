@@ -1822,3 +1822,107 @@ class TestResolveAuthorDisplay:
         from decision_hub.domain.search import resolve_author_display
 
         assert resolve_author_display("tracker:") == "auto-sync"
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/skills/{org}/{skill}/scan-report — no cross-version substitution
+# ---------------------------------------------------------------------------
+
+
+class TestGetScanReport:
+    """Regression: when the caller pins ``?semver=X.Y.Z``, the endpoint used
+    to silently substitute the LATEST scan report for the skill (from a
+    different version) if the requested version had no scan of its own.
+    Users read that as "this version was scanned and cleared" when it
+    wasn't — a safety-critical wrong signal.
+    """
+
+    @staticmethod
+    def _make_scan_report_mock() -> MagicMock:
+        """Return a scan report mock with all attributes the response reads."""
+        report = MagicMock()
+        report.id = uuid4()
+        report.version_id = uuid4()
+        report.is_safe = True
+        report.max_severity = "LOW"
+        report.findings_count = 0
+        report.analyzers_used = []
+        report.analyzers_failed = []
+        report.analyzability_score = 1.0
+        report.meta_verdict = None
+        report.meta_risk_level = None
+        report.meta_summary = None
+        report.meta_top_priority = None
+        report.meta_verdict_reasoning = None
+        report.meta_correlations = None
+        report.meta_recommendations = None
+        report.meta_false_positive_count = 0
+        report.llm_overall_assessment = None
+        report.llm_primary_threats = None
+        report.scanner_version = None
+        report.scanner_model = None
+        report.policy_name = None
+        report.scan_duration_ms = None
+        report.full_report = None
+        report.created_at = None
+        report.semver = "1.0.0"
+        return report
+
+    @patch("decision_hub.api.registry_routes.find_scan_findings_for_report", return_value=[])
+    @patch("decision_hub.api.registry_routes.find_latest_scan_report_for_skill")
+    @patch("decision_hub.api.registry_routes.find_scan_report_for_version", return_value=None)
+    @patch("decision_hub.api.registry_routes.resolve_version")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    @patch("decision_hub.api.registry_routes.list_user_org_ids", return_value=[])
+    def test_returns_null_when_pinned_version_has_no_scan(
+        self,
+        _mock_org_ids,
+        mock_find_skill,
+        mock_resolve,
+        _mock_find_scan_for_version,
+        mock_find_latest,
+        _mock_findings,
+        client: TestClient,
+    ) -> None:
+        """?semver=1.2.3 with no scan for 1.2.3 → 200 null (was: wrong scan)."""
+        skill = _make_skill(_make_org())
+        version = _make_version(skill, semver="1.2.3")
+        mock_find_skill.return_value = skill
+        mock_resolve.return_value = version
+
+        resp = client.get("/v1/skills/test-org/my-skill/scan-report?semver=1.2.3")
+
+        assert resp.status_code == 200
+        assert resp.json() is None
+        # Critical: the cross-version fallback lookup must NOT have run.
+        mock_find_latest.assert_not_called()
+
+    @patch("decision_hub.api.registry_routes.find_scan_findings_for_report", return_value=[])
+    @patch("decision_hub.api.registry_routes.find_latest_scan_report_for_skill")
+    @patch("decision_hub.api.registry_routes.find_scan_report_for_version", return_value=None)
+    @patch("decision_hub.api.registry_routes.resolve_latest_version")
+    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
+    @patch("decision_hub.api.registry_routes.list_user_org_ids", return_value=[])
+    def test_still_falls_back_when_no_semver_pinned(
+        self,
+        _mock_org_ids,
+        mock_find_skill,
+        mock_resolve_latest,
+        _mock_find_scan_for_version,
+        mock_find_latest,
+        _mock_findings,
+        client: TestClient,
+    ) -> None:
+        """Without ?semver the generic skill page can still show a scan from
+        any version (no version was CLAIMED to have been cleared)."""
+        skill = _make_skill(_make_org())
+        version = _make_version(skill, semver="1.2.3")
+        mock_find_skill.return_value = skill
+        mock_resolve_latest.return_value = version
+        mock_find_latest.return_value = self._make_scan_report_mock()
+
+        resp = client.get("/v1/skills/test-org/my-skill/scan-report")
+
+        assert resp.status_code == 200
+        assert resp.json() is not None
+        assert mock_find_latest.call_count == 1

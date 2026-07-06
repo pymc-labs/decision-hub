@@ -47,6 +47,13 @@ export function useInfiniteScroll<T>(
     errorRef.current = false;
     setError(null);
     setHasMore(false);
+    // Clear stale items so pages using `items.length === 0` as a "first
+    // load" signal render the spinner instead of the previous filter's
+    // cards under the new filter labels. Without this, changing e.g. org
+    // or category leaves the old cards on screen until the new fetch
+    // resolves — visibly wrong for 200–800ms.
+    setItems([]);
+    setTotal(0);
 
     fetchPage(1)
       .then((result) => {

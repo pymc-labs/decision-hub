@@ -620,9 +620,27 @@ def _create_zip(path: Path) -> bytes:
     """
     buf = io.BytesIO()
     entry_count = 0
+    # Resolve the skill root once so we can verify every candidate stays inside it.
+    # Without this, a symlink like ``secrets -> ~/.ssh/id_rsa`` in the skill
+    # directory would be embedded and shipped to the registry — a real-world
+    # data-exfil path. See the review notes in the accompanying PR.
+    root_resolved = path.resolve()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(path.rglob("*")):
+            # ``rglob`` returns symlinks with ``is_file()`` == True when the
+            # target is a file, so we must reject them explicitly BEFORE the
+            # target check — following into the target might succeed even
+            # when the target lives outside the skill.
+            if file.is_symlink():
+                continue
             if not file.is_file():
+                continue
+            # Belt-and-braces: even without symlinks, refuse anything whose
+            # resolved location escapes the skill root.
+            try:
+                resolved = file.resolve()
+                resolved.relative_to(root_resolved)
+            except (ValueError, OSError):
                 continue
             # Skip hidden files and __pycache__
             relative = file.relative_to(path)
@@ -1736,6 +1754,11 @@ def info_command(
         raise_for_status(resp)
         summary = resp.json()
 
+        # Best-effort diagnostics go to STDERR so `dhub info --output json`
+        # can be piped into another tool without a flaky sub-request corrupting
+        # the JSON on stdout.
+        err_console = Console(stderr=True)
+
         # Fetch latest audit log entry (best-effort)
         audit_entry = None
         try:
@@ -1749,7 +1772,7 @@ def info_command(
                 if audit_data.get("items"):
                     audit_entry = audit_data["items"][0]
         except httpx.HTTPError:
-            console.print("[dim]  (could not fetch audit log)[/]")
+            err_console.print("[dim]  (could not fetch audit log)[/]")
 
         # Fetch eval report for latest version (best-effort)
         eval_report = None
@@ -1764,7 +1787,7 @@ def info_command(
                 if resp.status_code == 200:
                     eval_report = resp.json()
             except httpx.HTTPError:
-                console.print("[dim]  (could not fetch eval report)[/]")
+                err_console.print("[dim]  (could not fetch eval report)[/]")
 
     from dhub.cli.output import is_json, print_json
 

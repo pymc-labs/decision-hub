@@ -33,6 +33,18 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/**
+ * Percent-encode a value that will land in an URL path segment. We use this
+ * instead of plain string interpolation everywhere a dynamic slug / name /
+ * semver is spliced in — otherwise a value containing '#', '?', '%', or
+ * whitespace produces a malformed URL that routes wrong or 404s. Query-string
+ * builders can rely on URLSearchParams, but path components have to be
+ * encoded manually.
+ */
+function encPath(value: string): string {
+  return encodeURIComponent(value);
+}
+
 export type SkillSortField = "updated" | "name" | "downloads" | "github_stars" | "safety_rating";
 
 export interface SkillsFilterParams {
@@ -66,7 +78,7 @@ export async function getSkill(
   skillName: string
 ): Promise<SkillSummary> {
   return fetchJSON<SkillSummary>(
-    `/v1/skills/${orgSlug}/${skillName}/summary`
+    `/v1/skills/${encPath(orgSlug)}/${encPath(skillName)}/summary`
   );
 }
 
@@ -91,7 +103,7 @@ export async function listOrgStats(params: {
 }
 
 export async function getOrgProfile(slug: string): Promise<OrgProfile> {
-  return fetchJSON<OrgProfile>(`/v1/orgs/${slug}/profile`);
+  return fetchJSON<OrgProfile>(`/v1/orgs/${encPath(slug)}/profile`);
 }
 
 export async function listOrgProfiles(): Promise<OrgProfile[]> {
@@ -109,7 +121,7 @@ export async function resolveSkill(
   allowRisky = false
 ): Promise<ResolveResponse> {
   return fetchJSON<ResolveResponse>(
-    `/v1/resolve/${orgSlug}/${skillName}?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
+    `/v1/resolve/${encPath(orgSlug)}/${encPath(skillName)}?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
   );
 }
 
@@ -119,7 +131,7 @@ export async function getEvalReport(
   semver: string
 ): Promise<EvalReport | null> {
   return fetchJSON<EvalReport | null>(
-    `/v1/skills/${orgSlug}/${skillName}/eval-report?semver=${encodeURIComponent(semver)}`
+    `/v1/skills/${encPath(orgSlug)}/${encPath(skillName)}/eval-report?semver=${encodeURIComponent(semver)}`
   );
 }
 
@@ -130,7 +142,7 @@ export async function getAuditLog(
 ): Promise<PaginatedAuditLogResponse> {
   const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
   return fetchJSON<PaginatedAuditLogResponse>(
-    `/v1/skills/${orgSlug}/${skillName}/audit-log${qs}`
+    `/v1/skills/${encPath(orgSlug)}/${encPath(skillName)}/audit-log${qs}`
   );
 }
 
@@ -141,7 +153,7 @@ export async function getScanReport(
 ): Promise<ScanReport | null> {
   const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
   return fetchJSON<ScanReport | null>(
-    `/v1/skills/${orgSlug}/${skillName}/scan-report${qs}`
+    `/v1/skills/${encPath(orgSlug)}/${encPath(skillName)}/scan-report${qs}`
   );
 }
 
@@ -160,7 +172,7 @@ export async function getSimilarSkills(
   skillName: string
 ): Promise<SimilarSkillRef[]> {
   return fetchJSON<SimilarSkillRef[]>(
-    `/v1/skills/${orgSlug}/${skillName}/similar`
+    `/v1/skills/${encPath(orgSlug)}/${encPath(skillName)}/similar`
   );
 }
 
@@ -171,7 +183,7 @@ export async function downloadSkillZip(
   allowRisky = false
 ): Promise<ArrayBuffer> {
   const res = await fetch(
-    `${API_BASE}/v1/skills/${orgSlug}/${skillName}/download?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
+    `${API_BASE}/v1/skills/${encPath(orgSlug)}/${encPath(skillName)}/download?spec=${encodeURIComponent(spec)}&allow_risky=${allowRisky}`
   );
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   return res.arrayBuffer();

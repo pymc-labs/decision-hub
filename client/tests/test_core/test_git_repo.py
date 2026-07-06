@@ -2,7 +2,25 @@
 
 from pathlib import Path
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import clone_repo, discover_skills
+
+
+class TestCloneRepoRejectsOptionLikeInputs:
+    """Regression: ``git clone`` treats leading-dash args as options even
+    before ``--``. A ``.git``-suffixed but option-shaped repo URL such as
+    ``--upload-pack=payload.git`` is a real-world RCE vector — we must
+    refuse it before it hits subprocess.
+    """
+
+    def test_repo_url_starting_with_dash_is_rejected(self) -> None:
+        with pytest.raises(RuntimeError, match="refusing option-like"):
+            clone_repo("--upload-pack=payload.git")
+
+    def test_ref_starting_with_dash_is_rejected(self) -> None:
+        with pytest.raises(RuntimeError, match="refusing option-like"):
+            clone_repo("https://example.com/repo.git", ref="--exec=whoami")
 
 
 class TestDiscoverSkills:

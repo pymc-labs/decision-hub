@@ -87,10 +87,15 @@ class GitHubClient:
         payload: dict = {"query": query}
         if variables:
             payload["variables"] = variables
-        headers = {"Accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        resp = httpx.post(GITHUB_GRAPHQL, json=payload, headers=headers, timeout=30)
+        # Reuse the pooled client so we get keep-alive across the many GraphQL
+        # calls a tracker tick makes (previously each hop paid a fresh TCP+TLS
+        # handshake). Auth/accept headers are already set on the client; we
+        # only override Accept for JSON here.
+        resp = self._client.post(
+            GITHUB_GRAPHQL,
+            json=payload,
+            headers={"Accept": "application/json"},
+        )
         self._update_rate_limit(resp)
         resp.raise_for_status()
         body = resp.json()
