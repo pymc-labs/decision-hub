@@ -5,11 +5,12 @@ version tracking, and symlink management for linking skills
 to agent directories.
 """
 
-import hashlib
 import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+
+from dhub_core.hashing import sha256_hex, verify_sha256
 
 # Filename used to track the installed version inside each skill directory.
 _VERSION_FILE = ".dhub-version"
@@ -85,23 +86,22 @@ def validate_agent(agent: str) -> None:
 
 
 def compute_checksum(data: bytes) -> str:
-    """Compute SHA-256 hex digest of data."""
-    return hashlib.sha256(data).hexdigest()
+    """Compute SHA-256 hex digest of data.
+
+    Thin wrapper over :func:`dhub_core.hashing.sha256_hex` — kept as the
+    named entry point used across the CLI so callers don't reach into
+    the shared package directly.
+    """
+    return sha256_hex(data)
 
 
 def verify_checksum(data: bytes, expected: str) -> None:
-    """Verify that the SHA-256 checksum of data matches the expected value.
-
-    Args:
-        data: The raw bytes to hash.
-        expected: The expected hex-encoded SHA-256 digest.
+    """Verify that the SHA-256 checksum of ``data`` matches ``expected``.
 
     Raises:
         ValueError: If the computed checksum does not match.
     """
-    actual = hashlib.sha256(data).hexdigest()
-    if actual != expected:
-        raise ValueError(f"Checksum mismatch: expected {expected}, got {actual}.")
+    verify_sha256(data, expected)
 
 
 def get_skills_root() -> Path:

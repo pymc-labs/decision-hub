@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -82,14 +83,40 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ``~/.dhub`` directory if it does not already exist.
+    The config file stores a bearer token that grants access to the user's
+    GitHub-linked account, so this function:
+
+    * writes to a temporary sibling file and ``os.replace``s it into place
+      so a killed process (Ctrl-C, OOM) can't leave the file half-written
+      (which would surface as "Config file is corrupted" on the next call);
+    * ``chmod``s the parent directory to ``0o700`` and the file to ``0o600``
+      so other users on a shared host can't read the token.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Some filesystems (network mounts, Windows-mounted paths) reject chmod
+    # on directories; the atomic write below still guarantees integrity.
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_DIR, 0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+
+    # Write with 0o600 from the start so there is no window in which the
+    # file is world-readable, even briefly.
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+    except Exception:
+        # Ensure we never leave a stale tmp file behind on failure.
+        with contextlib.suppress(FileNotFoundError):
+            tmp_path.unlink()
+        raise
+    os.replace(tmp_path, path)
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)
 
 
 def get_api_url() -> str:

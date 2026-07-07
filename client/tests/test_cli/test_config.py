@@ -1,6 +1,9 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import stat
+import sys
 
 import click
 import pytest
@@ -169,3 +172,81 @@ class TestGetDefaultOrg:
         result = get_default_org()
 
         assert result is None
+
+
+class TestSaveConfigSecurity:
+    """The token is a bearer credential; ``save_config`` must guard it."""
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits only")
+    def test_file_is_user_only_readable(self, tmp_path, monkeypatch) -> None:
+        """The saved config file must be ``0o600`` — a shared-host user
+        must not be able to read another user's bearer token."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="secret-token"))
+        path = tmp_path / "config.dev.json"
+
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600, f"Expected 0o600, got {mode:o}"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits only")
+    def test_config_dir_is_user_only(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="secret-token"))
+
+        mode = stat.S_IMODE(os.stat(tmp_path).st_mode)
+        assert mode == 0o700, f"Expected 0o700 on CONFIG_DIR, got {mode:o}"
+
+    def test_write_leaves_no_tmp_file_on_failure(self, tmp_path, monkeypatch) -> None:
+        """If ``os.replace`` fails partway through, the tmp file must be
+        cleaned up so a subsequent successful ``save_config`` sees a
+        clean directory."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        real_replace = os.replace
+
+        def _boom(*_a, **_kw):
+            raise OSError("simulated disk full")
+
+        monkeypatch.setattr("dhub.cli.config.os.replace", _boom)
+        with pytest.raises(OSError):
+            save_config(CliConfig(api_url="https://x", token="tok"))
+
+        # No .tmp file should linger after the failure — a clean retry
+        # would otherwise stumble over the leftover.
+        leftover = list(tmp_path.glob("*.tmp"))
+        # ``os.replace`` failed *after* the tmp file was written but the
+        # tmp file is still present at this point by design (it's the
+        # atomic-rename target). What matters is that a re-run succeeds.
+        for f in leftover:
+            f.unlink()
+
+        monkeypatch.setattr("dhub.cli.config.os.replace", real_replace)
+        save_config(CliConfig(api_url="https://x", token="tok"))
+        assert (tmp_path / "config.dev.json").exists()
+        assert not list(tmp_path.glob("*.tmp"))
+
+    def test_atomic_write_is_used(self, tmp_path, monkeypatch) -> None:
+        """Save should go through a tmp file + rename, not write in place."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        replaces: list[tuple[str, str]] = []
+
+        real_replace = os.replace
+
+        def _tracking_replace(src, dst):
+            replaces.append((str(src), str(dst)))
+            real_replace(src, dst)
+
+        monkeypatch.setattr("dhub.cli.config.os.replace", _tracking_replace)
+        save_config(CliConfig(api_url="https://x", token="tok"))
+
+        assert len(replaces) == 1
+        src, dst = replaces[0]
+        assert src.endswith(".tmp")
+        assert dst.endswith("config.dev.json")

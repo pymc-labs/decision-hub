@@ -6,7 +6,6 @@ are pure (aside from S3 I/O) and take an explicit S3 client rather than
 relying on global state.
 """
 
-import hashlib
 import json
 from datetime import UTC, datetime
 from uuid import UUID
@@ -14,6 +13,8 @@ from uuid import UUID
 import boto3
 from botocore.client import BaseClient
 from loguru import logger
+
+from dhub_core.hashing import sha256_hex
 
 
 def create_s3_client(
@@ -115,13 +116,10 @@ def download_skill_zip(client: BaseClient, bucket: str, s3_key: str) -> bytes:
 def compute_checksum(data: bytes) -> str:
     """Compute SHA256 hex digest of data.
 
-    Args:
-        data: Raw bytes to hash.
-
-    Returns:
-        Lowercase hex string of the SHA256 digest.
+    Delegates to :func:`dhub_core.hashing.sha256_hex` so client and server
+    can never drift on the canonical publish-checksum algorithm.
     """
-    return hashlib.sha256(data).hexdigest()
+    return sha256_hex(data)
 
 
 # ---------------------------------------------------------------------------

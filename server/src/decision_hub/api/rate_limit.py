@@ -3,8 +3,11 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
+
+from decision_hub.settings import Settings
 
 
 class RateLimiter:
@@ -63,3 +66,46 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+# Lock guarding lazy-init of shared limiters on ``app.state``.  FastAPI runs
+# sync dependencies in a threadpool, so two first-time hits from different
+# threads could otherwise construct two separate limiter objects and lose
+# request counts.
+_STATE_INIT_LOCK = threading.Lock()
+
+
+def rate_limit_dependency(
+    attr_name: str,
+    settings_getter: Callable[[Settings], tuple[int, int]],
+) -> Callable[[Request], None]:
+    """Return a FastAPI dependency that enforces a per-IP rate limit.
+
+    Args:
+        attr_name: Attribute name to memoize the limiter under on
+            ``request.app.state`` — must be unique per limiter.
+        settings_getter: Callable that pulls the ``(max_requests,
+            window_seconds)`` pair out of the app's ``Settings`` instance.
+
+    The dependency lazily instantiates the underlying :class:`RateLimiter`
+    on first use. Instantiation is guarded by a module-level lock so the
+    same limiter can't be created twice under concurrent first-time hits.
+
+    This factory replaces ~60 lines of copy-pasted lazy-init blocks that
+    previously lived in each route module (one per endpoint).
+    """
+
+    def _dep(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, attr_name, None)
+        if limiter is None:
+            with _STATE_INIT_LOCK:
+                # Re-check inside the lock in case another thread just built it.
+                limiter = getattr(state, attr_name, None)
+                if limiter is None:
+                    max_requests, window_seconds = settings_getter(state.settings)
+                    limiter = RateLimiter(max_requests=max_requests, window_seconds=window_seconds)
+                    setattr(state, attr_name, limiter)
+        limiter(request)
+
+    return _dep

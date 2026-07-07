@@ -4,6 +4,7 @@ This package is the single source of truth for SKILL.md parsing,
 validation, and the data models shared between client and server.
 """
 
+from dhub_core.hashing import sha256_hex, verify_sha256
 from dhub_core.manifest import parse_skill_md, validate_manifest
 from dhub_core.models import (
     AgentTestTarget,
@@ -49,10 +50,12 @@ __all__ = [
     "bump_version",
     "parse_semver",
     "parse_skill_md",
+    "sha256_hex",
     "validate_manifest",
     "validate_org_slug",
     "validate_semver",
     "validate_skill_name",
     "validate_slug",
     "validate_zip_entries",
+    "verify_sha256",
 ]

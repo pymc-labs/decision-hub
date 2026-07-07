@@ -697,7 +697,10 @@ _SKILL_SUMMARY_COLUMNS = [
 ]
 
 # Keys present in every skill summary dict (used by _row_to_skill_summary).
-_SKILL_SUMMARY_KEYS = frozenset(col.key if hasattr(col, "key") else col.name for col in _SKILL_SUMMARY_COLUMNS)
+# Every element of `_SKILL_SUMMARY_COLUMNS` is either a Column or a Label —
+# both expose ``.key`` — so we can rely on it directly. The previous
+# ``hasattr(col, "key") else col.name`` fallback was dead code.
+_SKILL_SUMMARY_KEYS = frozenset(col.key for col in _SKILL_SUMMARY_COLUMNS)
 
 
 def _row_to_skill_summary(row: sa.Row) -> dict:
@@ -2720,11 +2723,17 @@ def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalR
 
 
 def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int = 10) -> list[EvalRun]:
-    """Find recent eval runs for a user, newest first."""
+    """Find recent eval runs for a user, newest first.
+
+    The ``id DESC`` tiebreaker after ``created_at`` guarantees deterministic
+    ordering when two runs happen to be persisted with identical
+    ``created_at`` timestamps (project rule: every ``LIMIT`` must have a
+    unique ``ORDER BY`` tiebreaker).
+    """
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()

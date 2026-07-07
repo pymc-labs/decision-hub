@@ -656,7 +656,10 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     for s in skills:
         rating = s.get("safety_rating", "")
         rating_style = grade_styles.get(rating, "white")
-        updated = s.get("updated_at", "")[:10]
+        # `.get(k, "")` still returns ``None`` when the API sends
+        # ``"updated_at": null``; use ``or ""`` so slicing can't crash the
+        # whole table render on one missing-timestamp row.
+        updated = (s.get("updated_at") or "")[:10]
         table.add_row(
             s["org_slug"],
             s["skill_name"],
@@ -1072,8 +1075,22 @@ def _install_from_repo(
     headers = build_headers(get_optional_token())
     base_url = get_api_url()
 
-    # Normalize repo_ref to full URL if it's owner/repo format
-    repo_url = f"https://github.com/{repo_ref}" if not repo_ref.startswith("http") else repo_ref
+    # Normalize repo_ref to full URL if it's owner/repo format.  The previous
+    # implementation only checked ``startswith("http")`` — an SSH ref like
+    # ``git@github.com:acme/skills`` fell into the "prepend" branch and got
+    # mangled into ``https://github.com/git@github.com:acme/skills``.
+    # Reject anything that isn't already an HTTPS URL or a bare owner/repo.
+    if repo_ref.startswith(("https://", "http://")):
+        repo_url = repo_ref
+    elif repo_ref.startswith(("git@", "ssh://", "git://")):
+        console.print("[red]Error: Only HTTPS repo URLs or 'owner/repo' shorthand are supported (got SSH/git URL).[/]")
+        raise typer.Exit(1)
+    elif "/" in repo_ref and not repo_ref.startswith("/"):
+        # Treat as owner/repo shorthand — one slash only.
+        repo_url = f"https://github.com/{repo_ref}"
+    else:
+        console.print(f"[red]Error: '{repo_ref}' is not a recognized repo reference.[/]")
+        raise typer.Exit(1)
 
     if len(repo_url) > 500:
         console.print("[red]Error: Repository URL is too long (max 500 characters).[/]")

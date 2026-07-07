@@ -97,9 +97,12 @@ def backfill(batch_size: int = 100) -> None:
                 update_skill_embedding(conn, row.id, embedding)
 
             conn.commit()
-            total_processed += len(rows)
+            batch_size_actual = len(rows)
+            total_processed += batch_size_actual
             consecutive_errors = 0  # reset circuit breaker on success
-            logger.info("Backfilled {}/{} skills", total_processed, total_processed)
+            # Log the batch-just-processed and the running total. The previous
+            # message printed `total_processed` twice, hiding actual progress.
+            logger.info("Backfilled batch of {} (total processed: {})", batch_size_actual, total_processed)
 
     logger.info(
         "Backfill complete: {} skills processed, {} errors",

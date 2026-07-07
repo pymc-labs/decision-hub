@@ -212,18 +212,23 @@ def run_assessment_background(
             logger.info("Assessment done — {}/{} passed in {}ms", passed, total, total_duration_ms)
 
     except Exception as e:
-        logger.error("Agent assessment failed for version {}: {}", version_id, e)
+        # Attach the traceback via `.opt(exception=True)` — a bare
+        # `logger.error("...{}", e)` prints only the exception message and
+        # drops the stack, which is exactly the wrong loss on the failure
+        # path we care about most.
+        logger.opt(exception=True).error("Agent assessment failed for version {}", version_id)
 
         # Update run row if using streaming pipeline
         if run_id is not None:
             try:
                 from datetime import datetime
 
-                from decision_hub.infra.database import create_engine as _ce
                 from decision_hub.infra.database import update_eval_run_status
 
-                err_engine = _ce(settings.database_url)
-                with err_engine.connect() as err_conn:
+                # Reuse the engine we already created above rather than
+                # spinning up a fresh Engine + dialect + event listeners
+                # for the error path.
+                with engine.connect() as err_conn:
                     update_eval_run_status(
                         err_conn,
                         run_id,
@@ -232,16 +237,14 @@ def run_assessment_background(
                         completed_at=datetime.now(UTC),
                     )
                     err_conn.commit()
-            except Exception as inner:
-                logger.error("Failed to update run {}: {}", run_id, inner)
+            except Exception:
+                logger.opt(exception=True).error("Failed to update run {}", run_id)
 
         # INSERT an error report
         try:
-            from decision_hub.infra.database import create_engine as _create_engine
             from decision_hub.infra.database import insert_eval_report
 
-            err_engine = _create_engine(settings.database_url)
-            with err_engine.connect() as err_conn:
+            with engine.connect() as err_conn:
                 insert_eval_report(
                     err_conn,
                     version_id=version_id,
@@ -255,9 +258,5 @@ def run_assessment_background(
                     error_message=str(e),
                 )
                 err_conn.commit()
-        except Exception as inner:
-            logger.error(
-                "Failed to store error report for version {}: {}",
-                version_id,
-                inner,
-            )
+        except Exception:
+            logger.opt(exception=True).error("Failed to store error report for version {}", version_id)

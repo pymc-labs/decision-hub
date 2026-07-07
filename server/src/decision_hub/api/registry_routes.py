@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit_dependency
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,42 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# All seven rate-limit dependencies for this router go through the shared
+# ``rate_limit_dependency`` factory.  Previously each of these was an
+# eight-line lazy-init block copy-pasted verbatim — the difference between
+# blocks was solely the settings pair and the ``app.state`` attribute name,
+# so the risk of a missed rename was high and every edit had to be applied
+# in seven places.  The factory keeps behaviour identical (per-container
+# lazy init, shared limiter across requests, one lock) while collapsing
+# ~60 lines into declarative pairs.
+_enforce_list_skills_rate_limit = rate_limit_dependency(
+    "_list_skills_rate_limiter",
+    lambda s: (s.list_skills_rate_limit, s.list_skills_rate_window),
+)
+_enforce_resolve_rate_limit = rate_limit_dependency(
+    "_resolve_rate_limiter",
+    lambda s: (s.resolve_rate_limit, s.resolve_rate_window),
+)
+_enforce_similar_skills_rate_limit = rate_limit_dependency(
+    "_similar_skills_rate_limiter",
+    lambda s: (s.similar_skills_rate_limit, s.similar_skills_rate_window),
+)
+_enforce_download_rate_limit = rate_limit_dependency(
+    "_download_rate_limiter",
+    lambda s: (s.download_rate_limit, s.download_rate_window),
+)
+_enforce_audit_log_rate_limit = rate_limit_dependency(
+    "_audit_log_rate_limiter",
+    lambda s: (s.audit_log_rate_limit, s.audit_log_rate_window),
+)
+_enforce_scan_report_rate_limit = rate_limit_dependency(
+    "_scan_report_rate_limiter",
+    lambda s: (s.scan_report_rate_limit, s.scan_report_rate_window),
+)
+_enforce_publish_rate_limit = rate_limit_dependency(
+    "_publish_rate_limiter",
+    lambda s: (s.publish_rate_limit, s.publish_rate_window),
+)
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -768,13 +722,17 @@ def resolve_skill(
             detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
         )
 
-    increment_skill_downloads(conn, version.skill_id)
-
+    # Generate the presigned URL first, then increment the counter.
+    # If S3 is unavailable and the URL generation raises, we do NOT want
+    # the download counter to advance: the caller never actually got a
+    # working URL (project rule: don't advance state on failure).
     download_url = generate_presigned_url(
         s3_client,
         settings.s3_bucket,
         version.s3_key,
     )
+
+    increment_skill_downloads(conn, version.skill_id)
 
     return ResolveResponse(
         version=version.semver,
@@ -806,9 +764,11 @@ def download_skill(
             detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
         )
 
+    # Fetch the S3 object first so a failed download can't advance the
+    # download counter (project rule: don't advance state on failure).
+    data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
     increment_skill_downloads(conn, version.skill_id)
 
-    data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
     filename = f"{org_slug}_{skill_name}_{version.semver}.zip"
     return Response(
         content=data,

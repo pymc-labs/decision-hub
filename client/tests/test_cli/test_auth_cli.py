@@ -91,3 +91,45 @@ class TestLoginCommand:
         saved_config = mock_save.call_args[0][0]
         assert saved_config.api_url == "http://localhost:8000"
         assert saved_config.token == "jwt-token-custom"
+
+    @respx.mock
+    @patch("dhub.cli.config.save_config")
+    @patch("dhub.cli.auth._poll_for_token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_login_with_null_orgs_does_not_crash(
+        self,
+        _mock_url,
+        mock_poll,
+        mock_save,
+    ) -> None:
+        """Regression: a server response with ``"orgs": null`` used to crash the
+        CLI with ``TypeError: 'NoneType' is not iterable`` when we did
+        ``tuple(token_data.get("orgs", ()))``. The login must succeed and
+        persist the token with an empty ``orgs`` tuple."""
+        respx.post("http://test:8000/auth/github/code").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "device_code": "dev-nul",
+                    "user_code": "AAAA-BBBB",
+                    "verification_uri": "https://github.com/login/device",
+                    "interval": 5,
+                },
+            )
+        )
+        mock_poll.return_value = {
+            "access_token": "jwt-null-orgs",
+            "username": "someone",
+            "orgs": None,
+        }
+
+        from typer.testing import CliRunner
+
+        from dhub.cli.app import app
+
+        result = CliRunner().invoke(app, ["login"])
+        assert result.exit_code == 0
+
+        saved_config = mock_save.call_args[0][0]
+        assert saved_config.token == "jwt-null-orgs"
+        assert saved_config.orgs == ()

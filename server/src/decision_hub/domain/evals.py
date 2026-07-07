@@ -126,7 +126,10 @@ def run_eval_pipeline(
                 sandbox_cpu=sandbox_cpu,
             )
         except Exception as e:
-            logger.error("Sandbox error for case '{}': {}", case.name, e)
+            # Log with traceback attached — a bare `logger.error("...{}", e)`
+            # would drop the sandbox stack, which is the failure mode we
+            # most need to debug.
+            logger.opt(exception=True).error("Sandbox error for case '{}'", case.name)
             case_results.append(
                 {
                     "name": case.name,
@@ -178,7 +181,7 @@ def run_eval_pipeline(
             reasoning = judgment["reasoning"]
             stage = "judge"
         except Exception as e:
-            logger.error("Judge error for case '{}': {}", case.name, e)
+            logger.opt(exception=True).error("Judge error for case '{}'", case.name)
             verdict = "error"
             reasoning = f"Judge error: {e}"
             stage = "judge"
@@ -540,7 +543,7 @@ def run_streaming_eval(
                 conn.commit()
 
     except Exception as e:
-        logger.error("Streaming eval failed for run_id={}: {}", run_id, e)
+        logger.opt(exception=True).error("Streaming eval failed for run_id={}", run_id)
         # Flush any remaining events
         _flush_buffer()
 

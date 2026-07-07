@@ -120,8 +120,13 @@ class TestInstallRepo:
         assert "Provide a skill reference" in result.output
 
     def test_install_repo_url_too_long(self) -> None:
-        """--repo with a URL exceeding 500 chars is rejected client-side."""
-        long_repo = "a" * 501
+        """--repo with a URL exceeding 500 chars is rejected client-side.
+
+        Uses a well-formed HTTPS URL padded past the length cap so that the
+        stricter ref-parser (which now rejects garbage inputs before the
+        length check) still lets us exercise the length branch.
+        """
+        long_repo = "https://github.com/acme/" + ("a" * 500)
         result = runner.invoke(app, ["install", "--repo", long_repo])
 
         assert result.exit_code == 1

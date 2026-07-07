@@ -808,6 +808,40 @@ class TestResolveSkill:
         call_kwargs = mock_resolve.call_args
         assert call_kwargs.kwargs.get("allow_risky") is True
 
+    @patch("decision_hub.api.registry_routes.increment_skill_downloads")
+    @patch("decision_hub.api.registry_routes.generate_presigned_url")
+    @patch("decision_hub.api.registry_routes.resolve_version")
+    def test_download_counter_does_not_advance_on_s3_failure(
+        self,
+        mock_resolve: MagicMock,
+        mock_presign: MagicMock,
+        mock_increment: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Regression: if S3 presign-URL generation raises, the download
+        counter must NOT tick up — the caller never got a working URL.
+        Enforces the project rule 'don't advance state on failure'.
+
+        Before this fix, ``increment_skill_downloads`` ran *before*
+        ``generate_presigned_url``, so an S3 outage double-inflated
+        the counter for every failed request that got retried.
+        """
+        import pytest
+
+        org = _make_org()
+        skill = _make_skill(org)
+        version = _make_version(skill)
+
+        mock_resolve.return_value = version
+        mock_presign.side_effect = RuntimeError("S3 unavailable")
+
+        # By default the TestClient re-raises unhandled exceptions.  We assert
+        # against the outer error to prove the request truly failed AND
+        # confirm the counter never advanced.
+        with pytest.raises(RuntimeError, match="S3 unavailable"):
+            client.get("/v1/resolve/test-org/my-skill?spec=latest")
+        mock_increment.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/skills/{org_slug}/{skill_name}/audit-log

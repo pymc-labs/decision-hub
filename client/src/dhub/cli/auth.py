@@ -1,5 +1,6 @@
 """Login via GitHub Device Flow."""
 
+import sys
 import time
 
 import httpx
@@ -43,8 +44,11 @@ def login_command(
     with console.status("Waiting for authorization..."):
         token_data = _poll_for_token(base_url, device_code, poll_interval)
 
-    # Step 4: Persist the token and synced orgs
-    orgs = tuple(token_data.get("orgs", ()))
+    # Step 4: Persist the token and synced orgs.  `.get("orgs", ())` returns
+    # ``None`` when the server sends ``"orgs": null`` (as opposed to omitting
+    # the key), so guard with ``or ()`` before wrapping in ``tuple`` or the
+    # whole flow crashes with ``TypeError: 'NoneType' is not iterable``.
+    orgs = tuple(token_data.get("orgs") or ())
     default_org = _prompt_default_org(orgs)
 
     new_config = CliConfig(
@@ -78,19 +82,35 @@ def logout_command() -> None:
 def _prompt_default_org(orgs: tuple[str, ...]) -> str | None:
     """Prompt the user to set a default namespace if they have multiple.
 
-    Returns the chosen org slug, or None if only one org or user declines.
+    Returns the chosen org slug, or None if only one org, user declines,
+    or the login is running without a TTY (e.g. in CI). In non-interactive
+    contexts the previous implementation would block on ``console.input`` and
+    silently default to the first org on empty input.
     """
     if len(orgs) <= 1:
         return orgs[0] if orgs else None
 
+    # In non-TTY contexts (piped stdin, CI, containers with no controlling
+    # terminal) prompt reads block forever and successful logins are lost.
+    # Skip the prompt so the token still gets saved.
+    if not sys.stdin.isatty():
+        return None
+
     console.print("\nYou belong to multiple namespaces.")
-    choice = console.input(f"Set a default namespace for publishing? [{'/'.join(orgs)}/(none)]: ").strip().lower()
+    try:
+        raw = console.input(f"Set a default namespace for publishing? [{'/'.join(orgs)}/(none)]: ")
+    except (EOFError, KeyboardInterrupt):
+        return None
+    choice = raw.strip().lower()
 
     if choice in orgs:
         return choice
-    if not choice:
-        # Default to first org
-        return orgs[0]
+    # Blank input or the literal 'none' → don't pick a default. Previous
+    # behaviour silently returned the first org, which surprised users who
+    # accepted the "(none)" suggestion by hitting Enter.
+    if choice in {"", "none"}:
+        return None
+    console.print(f"[yellow]'{choice}' is not one of your namespaces — skipping default.[/]")
     return None
 
 
