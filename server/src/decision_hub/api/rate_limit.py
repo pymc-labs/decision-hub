@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -26,11 +27,18 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # Purge stale IPs every N successful admissions.  Amortises the O(n)
+    # scan across many requests while keeping memory growth bounded.
+    _PURGE_INTERVAL = 100
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        # Count of admissions since the last purge.  Cheap O(1) counter
+        # instead of the previous O(n) sum() over every tracked IP.
+        self._admissions_since_purge = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -53,13 +61,53 @@ class RateLimiter:
             self._requests[key].append(now)
 
             # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            self._admissions_since_purge += 1
+            if self._admissions_since_purge >= self._PURGE_INTERVAL:
                 self._purge_stale(cutoff)
+                self._admissions_since_purge = 0
 
     def _purge_stale(self, cutoff: float) -> None:
         """Remove IPs with no recent activity. Caller must hold self._lock."""
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def make_rate_limit_dep(name: str, limit_attr: str, window_attr: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily initialises a per-route rate limiter.
+
+    The pattern of "check ``app.state`` for a cached limiter, otherwise
+    construct one from a pair of settings" was previously duplicated in
+    nine ``_enforce_*_rate_limit`` helpers across the routers.  This
+    factory captures the pattern in one place.
+
+    Args:
+        name: Distinguishing suffix for the ``app.state`` cache attribute
+            (e.g. ``"search"``, ``"publish"``, ``"list_skills"``).  Two
+            dependencies with the same *name* share the same limiter
+            instance, so pick a unique value per route family.
+        limit_attr: Name of the ``Settings`` field holding the max-request
+            count for the window (e.g. ``"search_rate_limit"``).
+        window_attr: Name of the ``Settings`` field holding the window in
+            seconds (e.g. ``"search_rate_window"``).
+
+    Returns:
+        A callable suitable for use with ``fastapi.Depends``.
+    """
+    cache_attr = f"_{name}_rate_limiter"
+
+    def dependency(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, cache_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, cache_attr, limiter)
+        limiter(request)
+
+    dependency.__name__ = f"enforce_{name}_rate_limit"
+    dependency.__qualname__ = dependency.__name__
+    return dependency

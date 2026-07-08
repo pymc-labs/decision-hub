@@ -95,19 +95,15 @@ class TestGetEvalRun:
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
 
-        # find_eval_run is called twice: once before zombie check, once after
-        failed_run = _make_eval_run(
-            id=run.id,
-            status="failed",
-            error_message="Stale heartbeat",
-            heartbeat_at=stale_heartbeat,
-        )
-        mock_find_run.side_effect = [run, failed_run]
+        # ``_check_zombie`` synthesizes an updated EvalRun from the DB row
+        # after issuing the UPDATE, so ``find_eval_run`` is only called once.
+        mock_find_run.return_value = run
 
         resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+        assert mock_find_run.call_count == 1
         mock_update_status.assert_called_once()
         call_kwargs = mock_update_status.call_args
         assert call_kwargs.kwargs.get("status") == "failed"
