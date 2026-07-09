@@ -25,10 +25,15 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []): UseA
 
   // Auto-fetch on dep changes with staleness guard to prevent
   // old responses from overwriting newer ones when deps change rapidly.
+  //
+  // Also reset `data` to null so callers rendering `data` unconditionally
+  // don't flash the previous route's payload while the new fetch is in
+  // flight (per the project's "reset state on context changes" rule).
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setData(null);
     fetcher()
       .then((result) => {
         if (!cancelled) setData(result);

@@ -105,6 +105,69 @@ class TestSaveConfig:
         assert loaded.default_org is None
         assert loaded.token == "old-tok"
 
+    def test_config_file_is_written_with_0600(self, tmp_path, monkeypatch):
+        """The config file holds a bearer token -- must not be world-readable."""
+        import os
+        import stat
+        import sys
+
+        if sys.platform.startswith("win"):
+            pytest.skip("POSIX permission bits are not enforced on Windows.")
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        config_path = tmp_path / "config.dev.json"
+        mode = stat.S_IMODE(os.stat(config_path).st_mode)
+        assert mode == 0o600, f"expected 0600, got {oct(mode)}"
+
+    def test_write_is_atomic_no_temp_leftover_on_success(self, tmp_path, monkeypatch):
+        """After save_config, only the final file should be present -- no .tmp cruft."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="tok"))
+
+        # Only the final config file should remain.
+        names = sorted(p.name for p in tmp_path.iterdir())
+        assert names == ["config.dev.json"]
+
+    def test_write_failure_leaves_existing_file_intact(self, tmp_path, monkeypatch):
+        """A failed write during save must not corrupt an existing config.
+
+        The whole point of the atomic-write refactor: two concurrent CLI
+        invocations, or a mid-write crash, can no longer leave a partial
+        file that forces the user to `rm ~/.dhub/config.dev.json` and log
+        in again.
+        """
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # Seed a good config on disk.
+        save_config(CliConfig(api_url="https://good.example", token="good-tok"))
+        good_bytes = (tmp_path / "config.dev.json").read_bytes()
+
+        # Force os.replace to fail after the temp file is written.
+        real_replace = __import__("os").replace
+
+        def failing_replace(src, dst):
+            raise OSError("simulated crash")
+
+        monkeypatch.setattr("os.replace", failing_replace)
+        with pytest.raises(OSError, match="simulated crash"):
+            save_config(CliConfig(api_url="https://new.example", token="new-tok"))
+
+        # Restore for cleanup.
+        monkeypatch.setattr("os.replace", real_replace)
+
+        # The good file must still be exactly what it was, and no orphaned
+        # temp files should remain (the atomic writer cleans up on error).
+        assert (tmp_path / "config.dev.json").read_bytes() == good_bytes
+        stragglers = [p.name for p in tmp_path.iterdir() if p.name != "config.dev.json"]
+        assert stragglers == [], f"unexpected leftover files: {stragglers}"
+
 
 class TestGetToken:
     """get_token should check DHUB_TOKEN env var first."""

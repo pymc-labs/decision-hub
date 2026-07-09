@@ -13,6 +13,12 @@ from pathlib import Path
 _GIT_URL_PREFIXES = ("https://", "http://", "git@", "ssh://", "git://")
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 
+# Bound each ``git`` subprocess call. A slow or hostile remote can
+# otherwise hang ``dhub publish <git-url>`` indefinitely with no
+# feedback to the user (the surrounding console.status spinner just
+# keeps spinning).
+_GIT_TIMEOUT_SECONDS = 180
+
 
 def git_url_to_https(url: str) -> str | None:
     """Convert a git-cloneable URL to an HTTPS browse URL.
@@ -66,34 +72,41 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
-    if ref and _looks_like_sha(ref):
-        # Commit SHAs don't work with --depth 1 --branch; do a full
-        # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
-        checkout = subprocess.run(
-            ["git", "checkout", ref],
-            cwd=str(repo_path),
-            capture_output=True,
-            text=True,
-        )
-        if checkout.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
-    else:
-        cmd = ["git", "clone", "--depth", "1"]
-        if ref:
-            cmd += ["--branch", ref]
-        cmd += [repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    try:
+        if ref and _looks_like_sha(ref):
+            # Commit SHAs don't work with --depth 1 --branch; do a full
+            # clone then checkout the specific commit.
+            _run_git(["git", "clone", repo_url, str(repo_path)])
+            _run_git(["git", "checkout", ref], cwd=str(repo_path), fail_msg=f"git checkout {ref} failed")
+        else:
+            cmd = ["git", "clone", "--depth", "1"]
+            if ref:
+                cmd += ["--branch", ref]
+            cmd += [repo_url, str(repo_path)]
+            _run_git(cmd)
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     return repo_path
+
+
+def _run_git(cmd: list[str], *, cwd: str | None = None, fail_msg: str = "git clone failed") -> None:
+    """Run a git subprocess with a bounded timeout and clean error messages."""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+            cwd=cwd,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"{fail_msg}: timed out after {_GIT_TIMEOUT_SECONDS}s. The remote may be slow or unreachable."
+        ) from exc
+    if result.returncode != 0:
+        raise RuntimeError(f"{fail_msg} (exit {result.returncode}):\n{result.stderr.strip()}")
 
 
 def discover_skills(root: Path) -> list[Path]:
@@ -102,19 +115,35 @@ def discover_skills(root: Path) -> list[Path]:
     A skill directory is any directory that contains a SKILL.md file
     with valid YAML frontmatter (parseable name and description).
 
+    Symlinks are not followed -- a directory symlink pointing back into
+    the tree (``a/link -> ..``) would otherwise cause ``rglob`` to loop
+    until Python's own recursion protection kicks in, and a symlink
+    pointing *out* of the tree would double-publish skills under
+    misleading paths.
+
     Args:
         root: Root directory to search.
 
     Returns:
         Sorted list of paths to directories containing valid SKILL.md files.
     """
+    import os
+
     from dhub.core.manifest import parse_skill_md
 
     skill_dirs: list[Path] = []
-    for skill_md in sorted(root.rglob("SKILL.md")):
-        # Skip hidden directories and common non-skill locations
-        parts = skill_md.relative_to(root).parts
-        if any(p.startswith(".") or p == "node_modules" or p == "__pycache__" for p in parts):
+    # os.walk with followlinks=False respects both file and directory
+    # symlinks; pathlib.Path.rglob does not expose that switch.
+    for current_dir, subdirs, files in os.walk(root, followlinks=False):
+        # Prune hidden / build directories in-place so os.walk skips them.
+        subdirs[:] = [d for d in subdirs if not (d.startswith(".") or d == "node_modules" or d == "__pycache__")]
+
+        if "SKILL.md" not in files:
+            continue
+
+        skill_md = Path(current_dir) / "SKILL.md"
+        # Skip if the SKILL.md itself is a symlink (avoid target confusion).
+        if skill_md.is_symlink():
             continue
 
         try:
@@ -124,4 +153,4 @@ def discover_skills(root: Path) -> list[Path]:
             # Not a valid skill — skip silently
             continue
 
-    return skill_dirs
+    return sorted(skill_dirs)

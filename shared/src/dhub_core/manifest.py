@@ -33,7 +33,20 @@ def parse_skill_md(path: Path) -> SkillManifest:
         ValueError: If the file format is invalid or required fields are missing.
         FileNotFoundError: If the path does not exist.
     """
-    content = path.read_text()
+    # Explicit encoding: Windows defaults to cp1252 which fails on skills
+    # with any non-ASCII character in the description or body.
+    return parse_skill_md_content(path.read_text(encoding="utf-8"))
+
+
+def parse_skill_md_content(content: str) -> SkillManifest:
+    """Parse SKILL.md text (already-loaded content) into a SkillManifest.
+
+    Split out from ``parse_skill_md`` so callers that already hold the
+    file bytes (server publish path, tests) can skip the temp-file
+    round-trip that used to happen on every publish.
+
+    Raises ValueError on invalid format or missing required fields.
+    """
     frontmatter_str, body = split_frontmatter(content)
     data = parse_frontmatter_yaml(frontmatter_str)
 

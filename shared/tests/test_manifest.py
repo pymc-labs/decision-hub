@@ -342,3 +342,61 @@ class TestAllowedToolsCoercion:
         path = self._write_skill_md(tmp_path, content)
         with pytest.raises(ValueError, match="allowed_tools must be a string or list"):
             parse_skill_md(path)
+
+
+# ---------------------------------------------------------------------------
+# parse_skill_md_content and encoding
+# ---------------------------------------------------------------------------
+
+
+class TestParseSkillMdContent:
+    """parse_skill_md_content parses in-memory strings without any tempfile round-trip.
+
+    This is what the server publish path uses on every request, so it must
+    accept exactly the same inputs as ``parse_skill_md`` and return the
+    same SkillManifest.
+    """
+
+    def test_parses_content_directly(self) -> None:
+        from dhub_core.manifest import parse_skill_md_content
+
+        content = "---\nname: sample\ndescription: A tool.\n---\nBody text.\n"
+        manifest = parse_skill_md_content(content)
+        assert manifest.name == "sample"
+        assert manifest.description == "A tool."
+        assert manifest.body == "Body text."
+
+    def test_matches_file_variant(self, tmp_path) -> None:
+        """The file-based helper must delegate to the content helper cleanly."""
+        from dhub_core.manifest import parse_skill_md_content
+
+        content = "---\nname: same\ndescription: Same content.\n---\nBody.\n"
+        path = tmp_path / "SKILL.md"
+        path.write_text(content, encoding="utf-8")
+
+        file_manifest = parse_skill_md(path)
+        content_manifest = parse_skill_md_content(content)
+
+        assert file_manifest == content_manifest
+
+    def test_rejects_malformed_content(self) -> None:
+        from dhub_core.manifest import parse_skill_md_content
+
+        with pytest.raises(ValueError):
+            parse_skill_md_content("not a manifest")
+
+
+class TestParseSkillMdEncoding:
+    """parse_skill_md must open files as utf-8 -- default cp1252 on Windows fails on é/ü/…"""
+
+    def test_reads_non_ascii_description(self, tmp_path) -> None:
+        # Slug is ASCII-only (per _SKILL_NAME_PATTERN); the unicode payload
+        # lives in the description and body, which is where authors of
+        # data-science skills routinely put mathematical / accented text.
+        content = "---\nname: cafe-skill\ndescription: Café ☕ statistics — with unicode.\n---\nBody ✨.\n"
+        path = tmp_path / "SKILL.md"
+        path.write_text(content, encoding="utf-8")
+
+        manifest = parse_skill_md(path)
+        assert manifest.description.startswith("Café")
+        assert "✨" in manifest.body

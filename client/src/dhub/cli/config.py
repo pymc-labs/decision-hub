@@ -83,13 +83,45 @@ def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
     Creates the ~/.dhub directory if it does not already exist.
+    The write is atomic (temp file + ``os.replace``) so two concurrent
+    ``dhub`` processes (e.g. ``dhub login`` + ``dhub config default-org``)
+    cannot leave the file half-written and force the user to delete it
+    and log in again. The file is created with mode 0600 because it
+    holds a bearer token.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    _atomic_write_json(path, asdict(config), mode=0o600)
+
+
+def _atomic_write_json(path: Path, payload: dict, *, mode: int = 0o644) -> None:
+    """Write ``payload`` as JSON to ``path`` atomically.
+
+    Uses a same-directory temporary file (``os.replace`` is atomic on
+    both POSIX and Windows only when source and destination live on the
+    same filesystem). Applies ``mode`` before the rename so the
+    permission is set as soon as the file is visible under its final name.
+    """
+    import contextlib
+    import tempfile
+
+    directory = path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(directory))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+            fh.write("\n")
+        # chmod is best-effort (e.g. some Windows filesystems); the
+        # atomic swap is the important part.
+        with contextlib.suppress(OSError):
+            os.chmod(tmp_name, mode)
+        os.replace(tmp_name, path)
+    except Exception:
+        # Only clean up the temp file if replace() never ran; after a
+        # successful replace it no longer exists under tmp_name.
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 def get_api_url() -> str:

@@ -15,9 +15,7 @@ the old location.
 
 from __future__ import annotations
 
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -28,7 +26,7 @@ from sqlalchemy.exc import IntegrityError
 
 from decision_hub.domain.gauntlet import run_static_checks
 from decision_hub.domain.publish import build_quarantine_s3_key, build_s3_key, extract_for_evaluation
-from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md
+from decision_hub.domain.skill_manifest import extract_body, extract_description, parse_skill_md_content
 from decision_hub.infra.database import (
     delete_audit_logs_by_version_id,
     delete_version,
@@ -141,29 +139,26 @@ def parse_manifest_from_content(
 ) -> tuple[dict | None, object | None, tuple, str | None]:
     """Parse SKILL.md and extract runtime config, eval config, eval cases, and allowed_tools.
 
-    Uses a temp file because parse_skill_md expects a file path.
+    Parses the manifest directly from the in-memory content string --
+    no temp file, no disk write/read/unlink round-trip on every publish.
+
     Returns (runtime_config_dict, eval_config, eval_cases, allowed_tools).
 
     Raises ValueError if the manifest is malformed — fail-closed
     to prevent publishing skills with unparseable manifests.
     """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as tmp:
-        tmp.write(skill_md_content)
-        tmp_path = Path(tmp.name)
-
     try:
-        manifest = parse_skill_md(tmp_path)
-        return (
-            extract_runtime_config_dict(manifest),
-            extract_assessment_config(manifest),
-            try_parse_assessment_cases(file_bytes),
-            manifest.allowed_tools,
-        )
+        manifest = parse_skill_md_content(skill_md_content)
     except ValueError as exc:
         logger.warning("Manifest parse failed (rejecting publish): {}", exc)
         raise ValueError(f"SKILL.md manifest is malformed: {exc}") from exc
-    finally:
-        tmp_path.unlink()
+
+    return (
+        extract_runtime_config_dict(manifest),
+        extract_assessment_config(manifest),
+        try_parse_assessment_cases(file_bytes),
+        manifest.allowed_tools,
+    )
 
 
 # ---------------------------------------------------------------------------

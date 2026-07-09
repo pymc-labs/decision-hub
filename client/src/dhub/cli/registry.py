@@ -607,10 +607,16 @@ _MAX_ZIP_ENTRIES = 500  # must match server limit in publish.py
 def _create_zip(path: Path) -> bytes:
     """Create an in-memory zip archive of a directory.
 
-    Skips hidden files (names starting with '.') and __pycache__
-    directories.  Raises ValueError if the entry count exceeds
-    ``_MAX_ZIP_ENTRIES`` so oversized skills fail immediately without
-    uploading to the server.
+    Skips hidden files (names starting with '.') and ``__pycache__``
+    directories.  Symlinks are refused: a symlinked file (or a file
+    inside a symlinked directory) would let a malicious publisher
+    package the target's contents into ``skill.zip`` -- if the target
+    is outside the skill root (e.g. ``~/.ssh/id_rsa``) that ships as
+    the skill payload.  The check catches both file symlinks and any
+    entry whose relative path traverses a symlinked directory.
+
+    Raises ValueError if the entry count exceeds ``_MAX_ZIP_ENTRIES``
+    or if a symlink is encountered.
 
     Args:
         path: Root directory to archive.
@@ -618,12 +624,32 @@ def _create_zip(path: Path) -> bytes:
     Returns:
         Raw bytes of the zip file.
     """
+    root_resolved = path.resolve(strict=True)
     buf = io.BytesIO()
     entry_count = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(path.rglob("*")):
+            # Refuse anything whose path -- or any ancestor between root
+            # and the entry -- is a symlink. lstat() avoids following the
+            # link; rglob() itself may descend symlinked directories, so
+            # the ancestor check is what actually blocks that path.
+            if file.is_symlink() or _has_symlink_ancestor(file, path):
+                raise ValueError(
+                    f"Refusing to publish: '{file.relative_to(path)}' is a symlink or lies inside "
+                    "a symlinked directory. Symlinks are not allowed in a skill directory."
+                )
             if not file.is_file():
                 continue
+            # Belt-and-suspenders: confirm the file's real path is still
+            # inside the skill root even after resolving. Catches exotic
+            # cases (bind mounts, hardlinks pointing outward).
+            try:
+                file.resolve(strict=True).relative_to(root_resolved)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Refusing to publish: '{file.relative_to(path)}' resolves outside the skill root."
+                ) from exc
+
             # Skip hidden files and __pycache__
             relative = file.relative_to(path)
             parts = relative.parts
@@ -637,6 +663,25 @@ def _create_zip(path: Path) -> bytes:
                 )
             zf.write(file, relative)
     return buf.getvalue()
+
+
+def _has_symlink_ancestor(entry: Path, root: Path) -> bool:
+    """Return True if any path segment between root (exclusive) and entry (inclusive) is a symlink.
+
+    ``pathlib.Path.rglob`` follows directory symlinks, so ``entry.is_symlink()``
+    alone is insufficient to catch a file whose *ancestor* directory is the
+    link.  Walking from the entry up to root and checking ``is_symlink()``
+    on each step catches that case.
+    """
+    current = entry
+    while current != root:
+        if current.is_symlink():
+            return True
+        parent = current.parent
+        if parent == current:  # reached filesystem root without hitting the skill root
+            return False
+        current = parent
+    return False
 
 
 def _render_skills_table(skills: list[dict], title: str = "Published Skills") -> Table:

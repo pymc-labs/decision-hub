@@ -4,7 +4,7 @@ This package is the single source of truth for SKILL.md parsing,
 validation, and the data models shared between client and server.
 """
 
-from dhub_core.manifest import parse_skill_md, validate_manifest
+from dhub_core.manifest import parse_skill_md, parse_skill_md_content, validate_manifest
 from dhub_core.models import (
     AgentTestTarget,
     DependencySpec,
@@ -49,6 +49,7 @@ __all__ = [
     "bump_version",
     "parse_semver",
     "parse_skill_md",
+    "parse_skill_md_content",
     "validate_manifest",
     "validate_org_slug",
     "validate_semver",

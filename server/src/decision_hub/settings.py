@@ -73,7 +73,12 @@ class Settings(BaseSettings):
     github_app_private_key: str = ""
     github_app_installation_id: str = ""
 
-    # Rate limiting (per IP, sliding window)
+    # Rate limiting (per IP, sliding window).
+    # When the app runs behind a trusted proxy (Modal LB, etc.) that adds
+    # X-Forwarded-For, set trust_forwarded_for=True so per-IP buckets are
+    # keyed by the real client instead of the LB's shared IP. Turn OFF
+    # for local dev or any deployment where the header is user-controllable.
+    trust_forwarded_for: bool = True
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds
 

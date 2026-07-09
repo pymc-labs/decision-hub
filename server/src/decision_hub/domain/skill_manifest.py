@@ -12,6 +12,7 @@ import yaml
 from decision_hub.models import EvalCase
 from dhub_core.manifest import (  # noqa: F401
     parse_skill_md,
+    parse_skill_md_content,
     split_frontmatter,
     validate_manifest,
 )

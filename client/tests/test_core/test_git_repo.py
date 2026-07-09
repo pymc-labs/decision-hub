@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,60 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+    def test_does_not_follow_directory_symlink_cycle(self, tmp_path: Path) -> None:
+        """A cyclic directory symlink used to trip Python's recursion limit."""
+        real = tmp_path / "real"
+        self._write_skill_md(real / "skill-a", name="skill-a")
+
+        # Introduce a cycle: real/loop -> real (points back at itself).
+        (real / "loop").symlink_to(real, target_is_directory=True)
+
+        result = discover_skills(tmp_path)
+        # We must terminate and only surface the real skill once.
+        assert len(result) == 1
+        assert result[0].name == "skill-a"
+
+    def test_does_not_follow_symlink_to_outside_tree(self, tmp_path: Path) -> None:
+        """A symlink to a directory outside the tree must NOT double-publish its skills."""
+        outside = tmp_path / "outside"
+        self._write_skill_md(outside / "external-skill", name="external-skill")
+
+        tree = tmp_path / "tree"
+        self._write_skill_md(tree / "own-skill", name="own-skill")
+        (tree / "link_to_outside").symlink_to(outside, target_is_directory=True)
+
+        result = discover_skills(tree)
+        # Only the skills that physically live in `tree` should surface.
+        assert {p.name for p in result} == {"own-skill"}
+
+
+class TestCloneRepoTimeout:
+    """clone_repo must bound git subprocess calls so a slow/hostile remote can't hang the CLI."""
+
+    def test_timeout_raises_runtime_error(self, tmp_path: Path) -> None:
+        # Simulate a git subprocess that never returns.
+        def slow_run(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 1))
+
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=slow_run),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            clone_repo("https://example.invalid/repo.git")
+
+    def test_passes_timeout_to_subprocess(self) -> None:
+        """The subprocess call must actually receive timeout= so it can't hang."""
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            import types
+
+            return types.SimpleNamespace(returncode=0, stderr="", stdout="")
+
+        with patch("dhub.core.git_repo.subprocess.run", side_effect=fake_run):
+            clone_repo("https://example.invalid/repo.git")
+
+        assert captured.get("timeout") is not None
+        assert captured["timeout"] > 0

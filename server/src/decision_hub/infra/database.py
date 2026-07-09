@@ -2708,13 +2708,25 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     return _row_to_eval_run(row)
 
 
-def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
-    """List all eval runs for a version, newest first."""
+def find_eval_runs_for_version(
+    conn: Connection,
+    version_id: UUID,
+    *,
+    user_id: UUID | None = None,
+) -> list[EvalRun]:
+    """List eval runs for a version, newest first.
+
+    Pass ``user_id`` to restrict the result set to a single user -- avoids
+    fetching every other user's runs across the network only to discard
+    them Python-side. ``user_id=None`` returns all users' runs (admin use).
+    """
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.version_id == version_id)
         .order_by(eval_runs_table.c.created_at.desc())
     )
+    if user_id is not None:
+        stmt = stmt.where(eval_runs_table.c.user_id == user_id)
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
 

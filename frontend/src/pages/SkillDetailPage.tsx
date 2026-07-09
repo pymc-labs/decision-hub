@@ -69,7 +69,9 @@ export default function SkillDetailPage() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  // Reset state when navigating to a different skill, and also on unmount
+  // so the pending retry setTimeout (up to ~6s tail on attempt 3) doesn't
+  // fire setState against a dead component.
   useEffect(() => {
     setZipData(null);
     setZipError(null);
@@ -81,6 +83,12 @@ export default function SkillDetailPage() {
       clearTimeout(retryTimer.current);
       retryTimer.current = null;
     }
+    return () => {
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
+    };
   }, [orgSlug, skillName]);
 
   // Fetch single skill
@@ -184,7 +192,11 @@ export default function SkillDetailPage() {
       const skillMdEntry = zip.file("SKILL.md");
       if (skillMdEntry) {
         const raw = await skillMdEntry.async("string");
-        const stripped = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+        // Accept both LF and CRLF frontmatter delimiters: a SKILL.md
+        // authored on Windows (or delivered with CRLF line endings) would
+        // otherwise fall through and render the raw YAML block in the
+        // Overview tab.
+        const stripped = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
         setSkillMdContent(stripped);
       }
 

@@ -411,6 +411,32 @@ class TestCreateZip:
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             assert len(zf.namelist()) == _MAX_ZIP_ENTRIES
 
+    def test_refuses_symlinked_file(self, tmp_path: Path) -> None:
+        """A file symlink in a skill dir would let publish exfiltrate arbitrary bytes.
+
+        Concretely: someone hostile drops ``id_rsa -> ~/.ssh/id_rsa`` into a
+        skill dir, publishes it, and the server ships the key as ``skill.zip``.
+        The publish path must refuse rather than silently zip the target.
+        """
+        (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\nbody\n")
+        secret = tmp_path / "outside.txt"
+        secret.write_text("SUPER SECRET")
+        (tmp_path / "leak").symlink_to(secret)
+
+        with pytest.raises(ValueError, match="symlink"):
+            _create_zip(tmp_path)
+
+    def test_refuses_symlinked_directory(self, tmp_path: Path) -> None:
+        """Symlinked directories are equally dangerous -- also refuse."""
+        (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\nbody\n")
+        target = tmp_path.parent / "outside_dir"
+        target.mkdir()
+        (target / "hijacked.txt").write_text("nope")
+        (tmp_path / "linkdir").symlink_to(target, target_is_directory=True)
+
+        with pytest.raises(ValueError, match="symlink"):
+            _create_zip(tmp_path)
+
 
 # ---------------------------------------------------------------------------
 # install_command

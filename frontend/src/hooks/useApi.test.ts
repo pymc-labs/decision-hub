@@ -46,4 +46,40 @@ describe("useApi", () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
+
+  it("resets data to null when deps change so callers don't flash stale content", async () => {
+    // Simulate a route change (dep changing) between two skills. Without
+    // the data-reset the previous skill's payload would render for one
+    // frame while the new fetch is in flight -- exactly the class of bug
+    // the "reset state on context changes" project rule targets.
+    let neverResolve!: () => void;
+    let currentSlug = "alpha";
+    const fetcher = vi.fn(() => {
+      if (currentSlug === "alpha") {
+        return Promise.resolve("first-payload");
+      }
+      // Second call: never resolve so we can observe the intermediate
+      // state after the dep flip.
+      return new Promise<string>((resolve) => {
+        neverResolve = () => resolve("second-payload");
+      });
+    });
+
+    const { result, rerender } = renderHook(({ slug }) => useApi(fetcher, [slug]), {
+      initialProps: { slug: "alpha" },
+    });
+
+    await waitFor(() => expect(result.current.data).toBe("first-payload"));
+
+    currentSlug = "beta";
+    rerender({ slug: "beta" });
+
+    // After the dep flip, before the new fetch resolves, `data` must be
+    // null -- not "first-payload".
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+
+    neverResolve();
+    await waitFor(() => expect(result.current.data).toBe("second-payload"));
+  });
 });

@@ -476,11 +476,17 @@ class TestListEvalRuns:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """When filtering by version_id, the DB query must scope to the current user.
+
+        Previously this test verified a Python-side filter on the route.
+        The filter now lives in the SQL query (find_eval_runs_for_version's
+        ``user_id`` kwarg) so we no longer transfer every other user's
+        runs across the network just to discard them. This test locks in
+        that contract: the route must forward ``user_id=current_user.id``.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +497,12 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+
+        # The route MUST push the user_id filter into the query.
+        # Without this, a popular public skill's list-runs endpoint
+        # would load every other user's runs into the app process.
+        _, kwargs = mock_find_runs.call_args
+        assert kwargs.get("user_id") == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------
