@@ -13,8 +13,9 @@ def run_command(
     extra_args: list[str] = typer.Argument(None, help="Extra arguments to pass to the skill"),
 ) -> None:
     """Run a locally installed skill using its configured runtime."""
+    from dhub_core.manifest import parse_skill_md
+
     from dhub.core.install import get_dhub_skill_path
-    from dhub.core.manifest import parse_skill_md
     from dhub.core.runtime import (
         build_env_vars,
         build_uv_run_command,

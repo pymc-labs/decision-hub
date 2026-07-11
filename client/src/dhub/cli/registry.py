@@ -241,8 +241,9 @@ def _publish_discovered_skills(
     dry_run: bool = False,
 ) -> None:
     """Publish a list of discovered skill directories."""
+    from dhub_core.manifest import parse_skill_md
+
     from dhub.cli.output import is_json
-    from dhub.core.manifest import parse_skill_md
 
     json_mode = is_json()
 

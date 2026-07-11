@@ -108,7 +108,7 @@ def discover_skills(root: Path) -> list[Path]:
     Returns:
         Sorted list of paths to directories containing valid SKILL.md files.
     """
-    from dhub.core.manifest import parse_skill_md
+    from dhub_core.manifest import parse_skill_md
 
     skill_dirs: list[Path] = []
     for skill_md in sorted(root.rglob("SKILL.md")):

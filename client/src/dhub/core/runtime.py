@@ -8,7 +8,7 @@ import os
 import shutil
 from pathlib import Path
 
-from dhub.models import RuntimeConfig
+from dhub_core.models import RuntimeConfig
 
 
 def validate_local_runtime_prerequisites(skill_dir: Path, config: RuntimeConfig) -> list[str]:

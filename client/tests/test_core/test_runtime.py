@@ -12,7 +12,7 @@ from dhub.core.runtime import (
     build_uv_sync_command,
     validate_local_runtime_prerequisites,
 )
-from dhub.models import DependencySpec, RuntimeConfig
+from dhub_core.models import DependencySpec, RuntimeConfig
 
 
 @pytest.fixture

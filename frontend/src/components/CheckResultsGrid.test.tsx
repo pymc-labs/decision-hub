@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { CheckResult } from "../types/api";
-import { CheckResultsGrid } from "./SkillDetailPage";
-import { formatCheckName } from "./auditUtils";
+import { CheckResultsGrid } from "./CheckResultsGrid";
+import { formatCheckName } from "./formatCheckName";
 
 const CHECKS: CheckResult[] = [
   { severity: "pass", check_name: "manifest_schema", message: "Schema is valid" },

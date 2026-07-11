@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from dhub.core.manifest import (
+from dhub_core.manifest import (
     parse_skill_md,
     validate_manifest,
 )
-from dhub.models import DependencySpec, RuntimeConfig, SkillManifest
+from dhub_core.models import DependencySpec, RuntimeConfig, SkillManifest
 
 VALID_SKILL_MD = """\
 ---

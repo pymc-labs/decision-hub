@@ -18,8 +18,8 @@ from dhub.core.install import (
     get_dhub_skill_path,
     verify_checksum,
 )
-from dhub.core.manifest import _SKILL_NAME_PATTERN, parse_skill_md, validate_manifest
-from dhub.core.validation import validate_skill_name
+from dhub_core.manifest import parse_skill_md, validate_manifest
+from dhub_core.validation import _SKILL_NAME_PATTERN, validate_skill_name
 
 DOCX_SKILL_PATH = Path.home() / ".claude" / "skills" / "docx"
 
