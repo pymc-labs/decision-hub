@@ -167,10 +167,14 @@ def get_org_stats(
     if ttl:
         response.headers["Cache-Control"] = f"public, max-age={ttl}"
 
-    cache_key = f"org_stats:{search}:{type_filter}:{sort}:{sort_dir}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    # Only cache the fixed filter matrix. Embedding an arbitrary user
+    # `search` string in the cache key lets an attacker sending random
+    # queries evict genuine hot entries from the bounded TTLCache.
+    cache_key = f"org_stats::{type_filter}:{sort}:{sort_dir}" if not search else None
+    if cache_key is not None:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
 
     rows = fetch_org_stats(conn, search=search, type_filter=type_filter, sort=sort, sort_dir=sort_dir)
     items = [
@@ -185,7 +189,7 @@ def get_org_stats(
         for row in rows
     ]
     result = OrgStatsResponse(items=items)
-    if ttl:
+    if cache_key is not None and ttl:
         cache.set(cache_key, result, ttl=ttl)
     return result
 

@@ -492,6 +492,43 @@ class TestListEvalRuns:
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
 
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_active_eval_runs_for_user")
+    def test_list_runs_applies_zombie_detection(
+        self,
+        mock_find_runs: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A stale-heartbeat run must be marked failed in the list response.
+
+        Regression: sibling GET /eval-runs/{id} endpoints ran zombie detection
+        but the collection endpoint didn't, so a crashed worker's run
+        appeared "running" indefinitely in the "My Runs" list.
+        """
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
+        stale_run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
+        healthy_run = _make_eval_run(status="running", heartbeat_at=datetime.now(UTC))
+        failed_run = _make_eval_run(
+            id=stale_run.id,
+            status="failed",
+            error_message="Stale heartbeat",
+            heartbeat_at=stale_heartbeat,
+        )
+        # First call: pre-zombie-check. Second: re-read after zombie update.
+        mock_find_runs.side_effect = [[stale_run, healthy_run], [failed_run, healthy_run]]
+
+        resp = client.get("/v1/eval-runs", headers=auth_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert {d["id"] for d in data} == {str(stale_run.id), str(healthy_run.id)}
+        statuses = {d["id"]: d["status"] for d in data}
+        assert statuses[str(stale_run.id)] == "failed"
+        assert statuses[str(healthy_run.id)] == "running"
+        mock_update_status.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # UUID validation tests

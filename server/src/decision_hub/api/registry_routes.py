@@ -1194,13 +1194,34 @@ def list_eval_runs(
     conn: Connection = Depends(get_connection),
     current_user: User = Depends(get_current_user),
 ) -> list[EvalRunResponse]:
-    """List eval runs, optionally filtered by version ID."""
+    """List eval runs, optionally filtered by version ID.
+
+    Applies the same zombie-heartbeat detection as the single-run endpoints
+    so a crashed worker's run does not appear "running" indefinitely in the
+    "My Runs" list. Runs whose heartbeat has gone stale are updated in-DB
+    and returned with status="failed".
+    """
     if version_id is not None:
         parsed_vid = _parse_uuid(version_id, "version_id")
         runs = find_eval_runs_for_version(conn, parsed_vid)
         runs = [r for r in runs if r.user_id == current_user.id]
     else:
         runs = find_active_eval_runs_for_user(conn, current_user.id)
+
+    updated_any = False
+    for r in runs:
+        new_status = _check_zombie(conn, r)
+        if new_status != r.status:
+            updated_any = True
+    if updated_any:
+        # Re-read so response reflects the failed status without threading
+        # mutations back through the frozen model.
+        if version_id is not None:
+            runs = find_eval_runs_for_version(conn, parsed_vid)
+            runs = [r for r in runs if r.user_id == current_user.id]
+        else:
+            runs = find_active_eval_runs_for_user(conn, current_user.id)
+
     return [_run_to_response(r) for r in runs]
 
 

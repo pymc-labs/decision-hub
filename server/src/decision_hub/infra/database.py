@@ -2040,7 +2040,9 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # `id` tiebreaker so LIMIT is deterministic across ties in ts_rank_cd
+        # (zero-rank keyword misses, identical documents).
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id.desc()).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2054,9 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # `id` tiebreaker so LIMIT is deterministic across identical embeddings
+        # (forks, duplicate content).
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id.desc()).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2091,22 +2095,24 @@ def fetch_similar_skills(
 
     Returns an empty list if the skill has no stored embedding.
     Excludes the queried skill itself from results.
+
+    Runs as a single CTE so the source-embedding lookup and the neighbour
+    search happen in one round-trip.
     """
-    emb_stmt = (
-        sa.select(skills_table.c.embedding)
+    source_cte = (
+        sa.select(skills_table.c.embedding.label("embedding"))
         .select_from(skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id))
         .where(
             organizations_table.c.slug == org_slug,
             skills_table.c.name == skill_name,
             skills_table.c.latest_semver.isnot(None),
             skills_table.c.visibility == "public",
+            skills_table.c.embedding.isnot(None),
         )
+        .limit(1)
+        .cte("source_embedding")
     )
-    row = conn.execute(emb_stmt).first()
-    if row is None or row.embedding is None:
-        return []
-
-    source_embedding = row.embedding
+    source_embedding = sa.select(source_cte.c.embedding).scalar_subquery()
 
     vec_stmt = (
         sa.select(
@@ -2115,6 +2121,7 @@ def fetch_similar_skills(
         )
         .select_from(skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id))
         .where(
+            source_cte.c.embedding.isnot(None),
             skills_table.c.latest_semver.isnot(None),
             skills_table.c.embedding.isnot(None),
             skills_table.c.visibility == "public",
@@ -2125,7 +2132,9 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        # `id` tiebreaker keeps LIMIT deterministic when multiple skills share
+        # the same cosine distance (forks, near-duplicates).
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -2723,8 +2732,10 @@ def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int =
     """Find recent eval runs for a user, newest first."""
     stmt = (
         sa.select(eval_runs_table)
+        # `id` tiebreaker so parallel `dhub publish` invocations that create
+        # runs in the same millisecond order deterministically across polls.
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()
@@ -3067,18 +3078,21 @@ def batch_increment_permanent_failures(
     """Increment consecutive_permanent_failures and return IDs that reached the threshold.
 
     Trackers already at or above the threshold are included in the returned list
-    but their counter is not incremented further.
+    but their counter is not incremented further — the WHERE clause on the
+    UPDATE enforces this so the counter cannot climb unbounded when a disabled
+    tracker is repeatedly retried.
     """
     if not tracker_ids:
         return []
-    # Increment counter
     stmt = (
         sa.update(skill_trackers_table)
-        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .where(
+            skill_trackers_table.c.id.in_(tracker_ids),
+            skill_trackers_table.c.consecutive_permanent_failures < threshold,
+        )
         .values(consecutive_permanent_failures=skill_trackers_table.c.consecutive_permanent_failures + 1)
     )
     conn.execute(stmt)
-    # Return IDs that have now crossed the threshold
     stmt = sa.select(skill_trackers_table.c.id).where(
         skill_trackers_table.c.id.in_(tracker_ids),
         skill_trackers_table.c.consecutive_permanent_failures >= threshold,
@@ -3249,7 +3263,13 @@ def insert_tracker_metrics(
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
     """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    stmt = (
+        sa.select(tracker_metrics_table)
+        # `id` tiebreaker so pagination stays stable when multiple metrics
+        # rows share `recorded_at` (possible under high fan-out).
+        .order_by(tracker_metrics_table.c.recorded_at.desc(), tracker_metrics_table.c.id.desc())
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 

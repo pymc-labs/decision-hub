@@ -5,11 +5,19 @@ avoiding a heavy SDK dependency.
 """
 
 import json
+import random
+import time
 
 import httpx
 from loguru import logger
 
 _ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+
+# Retriable server / rate-limit statuses. A single flaky 429/502 on a
+# gauntlet case used to fail the whole judgement.
+_RETRIABLE_STATUS_CODES = {429, 500, 502, 503, 529}
+_JUDGE_MAX_RETRIES = 3
+_JUDGE_TIMEOUT_SECONDS = 60
 
 _JUDGE_SYSTEM_PROMPT = """You are an evaluation judge for AI agent skill tests.
 
@@ -61,12 +69,7 @@ def judge_eval_output(
     }
 
     logger.debug("Calling Anthropic judge API model={} case={}", model, eval_case_name)
-    response = httpx.post(
-        _ANTHROPIC_API_URL,
-        json=payload,
-        headers=headers,
-        timeout=60,
-    )
+    response = _post_with_retry(payload, headers, eval_case_name)
     response.raise_for_status()
 
     data = response.json()
@@ -75,6 +78,59 @@ def judge_eval_output(
     result = _parse_judge_response(raw_text)
     logger.debug("Judge verdict for '{}': {}", eval_case_name, result["verdict"])
     return result
+
+
+def _post_with_retry(payload: dict, headers: dict, eval_case_name: str) -> httpx.Response:
+    """POST to the Anthropic API with exponential backoff on transient errors.
+
+    Mirrors the behaviour of ``gemini_request_with_retry``: retry on 429/5xx
+    and on ``httpx.TimeoutException`` up to ``_JUDGE_MAX_RETRIES`` times with
+    jittered exponential backoff. Non-retriable errors (4xx auth/validation)
+    return the response immediately so the caller can raise_for_status.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1 + _JUDGE_MAX_RETRIES):
+        try:
+            resp = httpx.post(
+                _ANTHROPIC_API_URL,
+                json=payload,
+                headers=headers,
+                timeout=_JUDGE_TIMEOUT_SECONDS,
+            )
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt >= _JUDGE_MAX_RETRIES:
+                raise
+            delay = 2**attempt + random.uniform(0, 0.5)
+            logger.warning(
+                "Anthropic judge timeout for '{}', retrying in {:.1f}s (attempt {}/{})",
+                eval_case_name,
+                delay,
+                attempt + 1,
+                _JUDGE_MAX_RETRIES,
+            )
+            time.sleep(delay)
+            continue
+
+        if resp.status_code < 400 or resp.status_code not in _RETRIABLE_STATUS_CODES:
+            return resp
+
+        if attempt >= _JUDGE_MAX_RETRIES:
+            return resp
+        delay = 2**attempt + random.uniform(0, 0.5)
+        logger.warning(
+            "Anthropic judge returned {} for '{}', retrying in {:.1f}s (attempt {}/{})",
+            resp.status_code,
+            eval_case_name,
+            delay,
+            attempt + 1,
+            _JUDGE_MAX_RETRIES,
+        )
+        time.sleep(delay)
+
+    # The loop always returns or raises before reaching here; this line
+    # exists to satisfy the type checker on unreachable paths.
+    raise last_exc if last_exc else RuntimeError("Anthropic judge retry loop exited unexpectedly")
 
 
 def _parse_judge_response(raw_text: str) -> dict:

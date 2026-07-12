@@ -62,7 +62,27 @@ def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = Non
     }
 
 
-_RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
+# 403 is intentionally *not* in this set. Gemini returns 403 for both
+# quota-exceeded and invalid-API-key errors; retrying an auth failure wastes
+# ~7 seconds per gauntlet stage on a misconfigured or rotated key. When 403
+# does mean quota, ``_is_retriable_403`` below adds it back based on the
+# response body.
+_RETRIABLE_STATUS_CODES = {429, 500, 502, 503}
+
+
+def _is_retriable_403(resp: httpx.Response) -> bool:
+    """Return True if a 403 response looks like a quota/rate-limit failure.
+
+    Gemini surfaces quota errors as 403 with the error message mentioning
+    "quota", "rate", or "resource has been exhausted". Authentication and
+    permission failures use the same status code but a different message,
+    and retrying those just wastes wall-clock time.
+    """
+    try:
+        text = resp.text.lower()
+    except Exception:
+        return False
+    return any(marker in text for marker in ("quota", "rate", "resource has been exhausted"))
 
 
 def gemini_request_with_retry(
@@ -123,7 +143,12 @@ def gemini_request_with_retry(
         if resp.status_code < 400:
             return resp.json()
 
-        if resp.status_code not in _RETRIABLE_STATUS_CODES:
+        # 403 is retriable only when the body indicates quota/rate exhaustion;
+        # auth failures should fail fast instead of eating retry budget.
+        is_retriable = resp.status_code in _RETRIABLE_STATUS_CODES or (
+            resp.status_code == 403 and _is_retriable_403(resp)
+        )
+        if not is_retriable:
             resp.raise_for_status()
 
         last_exc = httpx.HTTPStatusError(

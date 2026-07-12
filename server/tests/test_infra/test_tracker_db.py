@@ -411,3 +411,41 @@ class TestListTrackerMetrics:
 
         result = list_tracker_metrics(conn)
         assert result == []
+
+    def test_order_by_includes_id_tiebreaker(self):
+        """LIMIT queries must have a unique tiebreaker (project convention)."""
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+        list_tracker_metrics(conn, limit=10)
+        stmt = conn.execute.call_args.args[0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        # Both `recorded_at DESC` and `id DESC` must appear in the ORDER BY.
+        assert "recorded_at desc" in compiled
+        assert "id desc" in compiled
+
+
+class TestBatchIncrementPermanentFailures:
+    """The counter must not climb above the threshold."""
+
+    def test_update_where_clause_bounds_counter_at_threshold(self):
+        from decision_hub.infra.database import batch_increment_permanent_failures
+
+        conn = MagicMock()
+        conn.execute.return_value = MagicMock()
+        conn.execute.return_value.__iter__ = lambda self: iter([])
+        tracker_ids = [uuid4(), uuid4()]
+
+        batch_increment_permanent_failures(conn, tracker_ids, threshold=3)
+
+        # First call is the UPDATE; inspect its compiled SQL to verify the
+        # counter is only bumped for rows still below the threshold.
+        update_stmt = conn.execute.call_args_list[0].args[0]
+        compiled = str(update_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        assert "consecutive_permanent_failures < 3" in compiled
+
+    def test_empty_input_returns_empty_list_without_execute(self):
+        from decision_hub.infra.database import batch_increment_permanent_failures
+
+        conn = MagicMock()
+        assert batch_increment_permanent_failures(conn, [], threshold=3) == []
+        conn.execute.assert_not_called()

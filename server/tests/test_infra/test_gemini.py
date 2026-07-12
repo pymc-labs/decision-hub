@@ -32,10 +32,12 @@ class TestGeminiPostRetry:
     """Tests for _gemini_post retry with exponential backoff on transient errors."""
 
     @respx.mock
-    def test_retries_on_403_then_succeeds(self, gemini_client: dict) -> None:
+    def test_retries_on_403_quota_then_succeeds(self, gemini_client: dict) -> None:
+        # 403 is only retried when the body indicates quota / rate-limit
+        # exhaustion. See `_is_retriable_403` in gemini.py.
         route = respx.post(_GEMINI_URL).mock(
             side_effect=[
-                httpx.Response(403, text="Forbidden"),
+                httpx.Response(403, text="Quota exceeded for the day"),
                 httpx.Response(200, json={"candidates": []}),
             ]
         )
@@ -47,6 +49,22 @@ class TestGeminiPostRetry:
         assert result == {"candidates": []}
         assert route.call_count == 2
         mock_sleep.assert_called_once_with(1.25)
+
+    @respx.mock
+    def test_403_auth_error_does_not_retry(self, gemini_client: dict) -> None:
+        # An invalid API key surfaces as 403 with a permission/auth message
+        # rather than a quota marker; retrying just wastes wall-clock time.
+        route = respx.post(_GEMINI_URL).mock(
+            return_value=httpx.Response(403, text="The caller does not have permission")
+        )
+        with (
+            patch("decision_hub.infra.gemini.time.sleep") as mock_sleep,
+            pytest.raises(httpx.HTTPStatusError) as exc_info,
+        ):
+            _gemini_post(gemini_client, _DEFAULT_MODEL, {}, max_retries=3)
+        assert exc_info.value.response.status_code == 403
+        assert route.call_count == 1
+        mock_sleep.assert_not_called()
 
     @respx.mock
     def test_retries_on_429_with_backoff(self, gemini_client: dict) -> None:

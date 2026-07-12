@@ -13,7 +13,17 @@ from uuid import UUID
 
 import boto3
 from botocore.client import BaseClient
+from botocore.config import Config as BotoConfig
 from loguru import logger
+
+# Bounded S3 timeouts + adaptive retry so a slow bucket cannot stall a publish
+# for minutes at a time. boto3's defaults are 60s per attempt with up to 5
+# retries — plenty of time for the whole request pool to run out.
+_S3_CLIENT_CONFIG = BotoConfig(
+    connect_timeout=5,
+    read_timeout=30,
+    retries={"max_attempts": 3, "mode": "adaptive"},
+)
 
 
 def create_s3_client(
@@ -22,7 +32,7 @@ def create_s3_client(
     secret_access_key: str,
     endpoint_url: str = "",
 ) -> BaseClient:
-    """Create an S3 client with explicit credentials.
+    """Create an S3 client with explicit credentials and bounded timeouts.
 
     Args:
         region: AWS region name (e.g. 'us-east-1').
@@ -37,6 +47,7 @@ def create_s3_client(
         "region_name": region,
         "aws_access_key_id": access_key_id,
         "aws_secret_access_key": secret_access_key,
+        "config": _S3_CLIENT_CONFIG,
     }
     if endpoint_url:
         kwargs["endpoint_url"] = endpoint_url

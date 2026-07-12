@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 if TYPE_CHECKING:
     from decision_hub.infra.github_client import GitHubClient
 
@@ -52,6 +54,10 @@ def _verify_repos_removed(
     GraphQL returning null for a repo does NOT reliably mean the repo is
     deleted — it can also mean renamed, transient outage, or permission gap.
     A REST GET returning 404 is a much stronger signal.
+
+    Transient httpx errors (timeouts, connection resets) fail *safe*: we
+    treat them as "still exists" so a network blip does not silently mark
+    live skills as removed.
     """
     if not candidate_urls:
         return []
@@ -62,7 +68,15 @@ def _verify_repos_removed(
         except ValueError:
             logger.warning("Skipping invalid URL during removal verification: {}", url)
             continue
-        resp = gh.get(f"/repos/{owner}/{repo}")
+        try:
+            resp = gh.get(f"/repos/{owner}/{repo}")
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "REST check for {} failed transiently ({}); treating as still-exists",
+                url,
+                exc.__class__.__name__,
+            )
+            continue
         if resp.status_code == 404:
             verified.append(url)
         else:
