@@ -96,18 +96,21 @@ class CLIVersionMiddleware:
 
         # Only enforce version check for CLI requests (those sending the header).
         # Browser / frontend requests don't send the header and should pass through.
+        if not client_ver:
+            await self.app(scope, receive, send)
+            return
+
         # Malformed version headers are treated as outdated — return 426 so the
         # client upgrades to a version that sends a valid semver header.
-        if client_ver:
-            try:
-                client_parsed = _parse_semver(client_ver)
-            except ValueError:
-                client_parsed = (0, 0, 0)
-        if client_ver and client_parsed < self._min_parsed:
+        try:
+            client_parsed = _parse_semver(client_ver)
+        except ValueError:
+            client_parsed = (0, 0, 0)
+        if client_parsed < self._min_parsed:
             body = _json.dumps(
                 {
                     "detail": (
-                        f"Your CLI version ({client_ver or 'unknown'}) is below the "
+                        f"Your CLI version ({client_ver}) is below the "
                         f"minimum required ({self.min_version}). "
                         "Run 'uv tool install --upgrade dhub-cli' or "
                         "'pip install --upgrade dhub-cli' to update."
