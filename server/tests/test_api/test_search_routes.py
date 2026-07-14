@@ -224,6 +224,38 @@ class TestAskSkills:
         assert data["skills"][0]["org_slug"] == "acme"
         assert data["skills"][0]["skill_name"] == "weather"
 
+    @patch("decision_hub.api.search_routes._log_ask_analytics")
+    @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
+    @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
+    @patch("decision_hub.api.search_routes.search_skills_hybrid")
+    @patch("decision_hub.api.search_routes.ask_conversational", side_effect=Exception("Gemini down"))
+    def test_ask_fallback_analytics_records_actual_answer(
+        self,
+        _mock_llm: MagicMock,
+        mock_hybrid: MagicMock,
+        _mock_embed: MagicMock,
+        _mock_guard: MagicMock,
+        mock_log_analytics: MagicMock,
+        search_client: TestClient,
+    ) -> None:
+        """Regression: the LLM-failure fallback path must record the same
+        ``answer`` text in analytics that it returns to the user. Previously
+        it recorded ``answer=""`` while the response body contained the
+        real fallback message — so search-log dashboards silently reported
+        every fallback conversation as empty."""
+        mock_hybrid.return_value = _SAMPLE_CANDIDATES
+
+        resp = search_client.get("/v1/ask", params={"q": "weather forecast"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert mock_log_analytics.call_count == 1
+        logged_answer = mock_log_analytics.call_args.kwargs["answer"]
+        # Response body and analytics record must agree — and neither may be empty.
+        assert logged_answer != ""
+        assert logged_answer == data["answer"]
+        assert mock_log_analytics.call_args.kwargs["fallback"] is True
+
     @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)
     @patch("decision_hub.api.search_routes.search_skills_hybrid")

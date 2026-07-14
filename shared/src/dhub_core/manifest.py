@@ -33,7 +33,12 @@ def parse_skill_md(path: Path) -> SkillManifest:
         ValueError: If the file format is invalid or required fields are missing.
         FileNotFoundError: If the path does not exist.
     """
-    content = path.read_text()
+    # Pin UTF-8 explicitly: without it Python falls back to the platform
+    # locale (cp1252 on Windows), so SKILL.md files containing em-dashes,
+    # curly quotes, or accented characters — extremely common in the
+    # ``description`` field — fail with ``UnicodeDecodeError`` before we
+    # even reach validation.
+    content = path.read_text(encoding="utf-8")
     frontmatter_str, body = split_frontmatter(content)
     data = parse_frontmatter_yaml(frontmatter_str)
 

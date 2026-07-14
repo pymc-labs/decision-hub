@@ -38,6 +38,10 @@ def init_command(
         console.print(f"[red]Error: {skill_md} already exists.[/]")
         raise typer.Exit(1)
 
+    # Pin UTF-8 explicitly so a Windows user typing a curly quote or
+    # em-dash in the description does not write cp1252-encoded bytes that
+    # later fail to parse (SKILL.md is read as UTF-8 by both the CLI and
+    # the server).
     skill_md.write_text(
         f"---\n"
         f"name: {name}\n"
@@ -46,7 +50,8 @@ def init_command(
         f"\n"
         f"# {name}\n"
         f"\n"
-        f"Describe what this skill does and how the agent should use it.\n"
+        f"Describe what this skill does and how the agent should use it.\n",
+        encoding="utf-8",
     )
 
     console.print(f"[green]Created skill project at {skill_dir.resolve()}[/]")

@@ -52,6 +52,11 @@ def test_settings() -> MagicMock:
     settings.publish_rate_window = 60
     settings.auth_rate_limit = 10
     settings.auth_rate_window = 60
+    # Public org endpoints — high default keeps unrelated tests unaffected
+    settings.org_stats_rate_limit = 1000
+    settings.org_stats_rate_window = 60
+    settings.org_profiles_rate_limit = 1000
+    settings.org_profiles_rate_window = 60
     # Cache TTLs
     settings.cache_ttl_taxonomy = 300
     settings.cache_ttl_org_profiles = 60

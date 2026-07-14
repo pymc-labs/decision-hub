@@ -36,9 +36,22 @@ def backfill(batch_size: int = 100) -> None:
     total_errors = 0  # cumulative errors for final summary
     consecutive_errors = 0  # circuit breaker: abort if too many in a row
 
+    # Snapshot the total pending count so progress logs are meaningful
+    # ("500/12000") instead of the old "500/500" nonsense — and so an
+    # operator can tell "we're almost done" from "we've barely started".
+    with engine.connect() as conn:
+        total_pending = conn.execute(
+            sa.select(sa.func.count()).select_from(skills_table).where(skills_table.c.embedding.is_(None))
+        ).scalar_one()
+    logger.info("Backfill starting: {} skills pending embeddings", total_pending)
+
     while True:
         with engine.connect() as conn:
-            # Fetch a batch of skills without embeddings
+            # Fetch a batch of skills without embeddings.
+            # ORDER BY id gives a stable ordering so that a persistently
+            # failing batch does not silently starve later batches — required
+            # by the project's SQL correctness rule (LIMIT needs ORDER BY
+            # with a unique tiebreaker; skills.id is the PK).
             stmt = (
                 sa.select(
                     skills_table.c.id,
@@ -54,6 +67,7 @@ def backfill(batch_size: int = 100) -> None:
                     )
                 )
                 .where(skills_table.c.embedding.is_(None))
+                .order_by(skills_table.c.id)
                 .limit(batch_size)
             )
             rows = conn.execute(stmt).all()
@@ -99,7 +113,9 @@ def backfill(batch_size: int = 100) -> None:
             conn.commit()
             total_processed += len(rows)
             consecutive_errors = 0  # reset circuit breaker on success
-            logger.info("Backfilled {}/{} skills", total_processed, total_processed)
+            # Report against the snapshot total so the log reads as real
+            # progress instead of "N/N" every tick.
+            logger.info("Backfilled {}/{} skills", total_processed, total_pending)
 
     logger.info(
         "Backfill complete: {} skills processed, {} errors",

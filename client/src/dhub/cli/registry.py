@@ -155,7 +155,7 @@ def _publish_skill_directory(
 
             _tail_eval_logs(api_url, _bh(token), eval_run_id)
         except KeyboardInterrupt:
-            console.print("\n[dim]Detached. Resume with: dhub logs {eval_run_id} --follow[/]")
+            console.print(f"\n[dim]Detached. Resume with: dhub logs {eval_run_id} --follow[/]")
     elif eval_report_status == "pending":
         console.print("[dim]Agent assessment running in background...[/]")
 
@@ -656,7 +656,11 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     for s in skills:
         rating = s.get("safety_rating", "")
         rating_style = grade_styles.get(rating, "white")
-        updated = s.get("updated_at", "")[:10]
+        # ``dict.get(..., "")`` still returns ``None`` when the key is
+        # present with a null value (e.g. a row backfilled before the
+        # updated_at trigger fired); coerce with ``or ""`` so the slice
+        # cannot crash the entire table render.
+        updated = (s.get("updated_at") or "")[:10]
         table.add_row(
             s["org_slug"],
             s["skill_name"],

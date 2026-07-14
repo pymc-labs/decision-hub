@@ -417,7 +417,10 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
             errored=errored,
             processed=0,
             failed=0,
-            trackers_disabled=0,
+            # Preserve the count of trackers disabled in the pre-guardrail phase
+            # so ops metrics still reflect circuit-breaker activity when we
+            # short-circuit on GitHub rate limits.
+            trackers_disabled=disabled_count,
             skipped_rate_limit=len(changed_trackers),
             deadline_deferred=0,
             github_rate_remaining=rate_remaining,
@@ -449,7 +452,10 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
                 errored=errored,
                 processed=0,
                 failed=0,
-                trackers_disabled=0,
+                # Same rationale as the rate-limit-low branch above: keep the
+                # count of trackers disabled by the circuit breaker so it is
+                # not lost when we defer the dispatch phase for lack of time.
+                trackers_disabled=disabled_count,
                 skipped_rate_limit=0,
                 deadline_deferred=len(changed_trackers),
                 github_rate_remaining=rate_remaining,

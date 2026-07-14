@@ -727,6 +727,47 @@ class TestListCommand:
     @respx.mock
     @patch("dhub.cli.config.get_optional_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_list_handles_null_updated_at(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """Regression: rows with ``updated_at: null`` used to crash the
+        table renderer with ``TypeError: 'NoneType' object is not
+        subscriptable`` because ``dict.get(key, "")`` returns ``None`` when
+        the key is present but null."""
+        skills = [
+            {
+                "org_slug": "acme",
+                "skill_name": "fresh-skill",
+                "description": "Just published",
+                "latest_version": "0.1.0",
+                # Explicit JSON null — the failure mode we're guarding against.
+                "updated_at": None,
+                "safety_rating": "A",
+                "author": "bob",
+                "download_count": 0,
+            },
+        ]
+        respx.get("http://test:8000/v1/skills").mock(return_value=httpx.Response(200, json=_paginated_response(skills)))
+        respx.get("http://test:8000/cli/latest-version").mock(
+            return_value=httpx.Response(200, json={"latest_version": ""})
+        )
+
+        result = runner.invoke(app, ["list"])
+
+        # The critical assertion is that the render did NOT crash on the
+        # null value — before the fix, ``None[:10]`` raised TypeError and
+        # exit_code was 1. Rich truncates long column values with an ellipsis,
+        # so we look for a short prefix of the skill name rather than the
+        # full string.
+        assert result.exit_code == 0
+        assert "fresh" in result.output
+        assert "acme" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
     def test_list_filter_by_org(
         self,
         _mock_url,

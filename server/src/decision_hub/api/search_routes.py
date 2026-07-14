@@ -387,6 +387,11 @@ def _ask_skills_inner(
     except Exception:
         logger.opt(exception=True).warning("Conversational ask failed, using fallback")
         fallback_latency_ms = int((time.monotonic() - start_time) * 1000)
+        # Keep the fallback answer text as a single constant so the response
+        # body and the analytics record cannot drift out of sync — prior to
+        # this change, analytics silently recorded answer="" whenever the LLM
+        # call failed, hiding the fact that users still saw a valid response.
+        fallback_answer = "Here are the most relevant skills I found:"
         skill_refs = [
             AskSkillRef(
                 org_slug=e.org_slug,
@@ -414,7 +419,7 @@ def _ask_skills_inner(
             s3_bucket=settings.s3_bucket,
             log_id=uuid4(),
             query=q,
-            answer="",
+            answer=fallback_answer,
             results_count=len(result.entries),
             model=settings.gemini_model,
             latency_ms=fallback_latency_ms,
@@ -424,7 +429,7 @@ def _ask_skills_inner(
         )
         return AskResponse(
             query=q,
-            answer="Here are the most relevant skills I found:",
+            answer=fallback_answer,
             skills=skill_refs,
             category=category,
         )

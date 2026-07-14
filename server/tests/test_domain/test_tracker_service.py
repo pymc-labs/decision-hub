@@ -2171,3 +2171,100 @@ class TestCircuitBreaker:
         # The permanent error call should have 1 tracker ID
         perm_ids = mock_increment.call_args[0][1]
         assert len(perm_ids) == 1
+
+
+class TestDisabledCountPreservedOnEarlyReturn:
+    """Regression tests for GH audit finding: ``trackers_disabled`` in the
+    ``TrackerBatchResult`` must reflect trackers actually disabled by the
+    circuit breaker, even when we short-circuit on the rate-limit-low or
+    deadline-deferred guardrails.
+
+    Previously both early-return paths hardcoded ``trackers_disabled=0``,
+    which silently under-reported the metric on any tick where GitHub was
+    also throttling.
+    """
+
+    def _make_tracker(self, idx: int) -> SkillTracker:
+        return SkillTracker(
+            id=uuid4(),
+            user_id=uuid4(),
+            org_slug="myorg",
+            repo_url=f"https://github.com/myorg/deleted-repo-{idx}",
+            branch="main",
+            enabled=True,
+            poll_interval_minutes=60,
+            last_commit_sha="old_sha",
+            last_checked_at=None,
+            last_published_at=None,
+            last_error=None,
+            created_at=datetime.now(UTC),
+        )
+
+    @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
+    @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers")
+    @patch("decision_hub.infra.database.batch_defer_trackers")
+    @patch("decision_hub.infra.database.batch_clear_tracker_errors")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    @patch("decision_hub.infra.database.batch_disable_trackers")
+    @patch("decision_hub.infra.database.batch_increment_permanent_failures")
+    @patch("decision_hub.infra.database.mark_skills_source_removed")
+    @patch("decision_hub.infra.github_client.batch_fetch_commit_shas")
+    @patch("decision_hub.infra.github_client.GitHubClient")
+    @patch("decision_hub.infra.database.claim_due_trackers")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_disabled_count_survives_rate_limit_early_return(
+        self,
+        mock_create_engine,
+        mock_claim,
+        mock_gh_class,
+        mock_batch_fetch,
+        mock_mark_removed,
+        mock_increment,
+        mock_batch_disable,
+        mock_batch_set_errors,
+        mock_batch_clear_errors,
+        mock_batch_defer,
+        mock_dispatch,
+        _mock_token,
+    ):
+        """When two trackers cross the permanent-failure threshold AND the
+        GitHub rate limit is below the floor, the result must report
+        ``trackers_disabled=2`` — not 0."""
+        trackers = [self._make_tracker(0), self._make_tracker(1)]
+
+        mock_conn = MagicMock()
+        mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_claim.return_value = trackers
+        # No shas resolved — both trackers get permanent errors
+        mock_batch_fetch.return_value = ({}, set(), {}, {})
+        # Both cross the threshold
+        mock_increment.return_value = [t.id for t in trackers]
+        # Rate limit is BELOW floor → the code takes the short-circuit branch
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.rate_limit_remaining = 100
+        mock_rest_resp = MagicMock()
+        mock_rest_resp.status_code = 404
+        mock_gh_instance.get.return_value = mock_rest_resp
+        mock_gh_class.return_value.__enter__ = MagicMock(return_value=mock_gh_instance)
+        mock_gh_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_settings = MagicMock()
+        mock_settings.tracker_batch_size = 100
+        mock_settings.tracker_jitter_seconds = 0
+        mock_settings.tracker_rate_limit_floor = 500  # 100 < 500 → guardrail trips
+        mock_settings.tracker_permanent_failure_threshold = 10
+        mock_settings.tracker_circuit_breaker_ratio = 1.0  # disable circuit-breaker downgrade
+
+        result = check_all_due_trackers(mock_settings)
+
+        # The regression: previously this was 0. The disabled work happens
+        # *before* the rate-limit check, and the metric must reflect it.
+        assert result.trackers_disabled == 2
+        # Both trackers surfaced permanent errors, so none went to the
+        # "changed" bucket — dispatch was skipped by having nothing to do,
+        # and the errored count is what surfaces the failed trackers.
+        assert result.errored == 2
+        assert result.github_rate_remaining == 100
+        mock_dispatch.assert_not_called()
+        mock_batch_disable.assert_called_once()

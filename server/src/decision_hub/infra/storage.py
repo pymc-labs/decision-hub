@@ -166,26 +166,29 @@ def list_eval_log_chunks(
 ) -> list[tuple[int, str]]:
     """List eval log chunk keys with sequence number > after_seq.
 
+    Uses the ``list_objects_v2`` paginator so long-running evals with more
+    than 1000 chunks are not silently truncated to their first page — the
+    tail of the log used to disappear once ``chunk_seq`` crossed 1000.
+
     Returns:
         List of (seq, s3_key) tuples sorted by seq ascending.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-
+    paginator = client.get_paginator("list_objects_v2")
     chunks: list[tuple[int, str]] = []
-    for obj in contents:
-        key = obj["Key"]
-        # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
-        filename = key.rsplit("/", 1)[-1]
-        if not filename.endswith(".jsonl"):
-            continue
-        seq_str = filename.replace(".jsonl", "")
-        try:
-            seq = int(seq_str)
-        except ValueError:
-            continue
-        if seq > after_seq:
-            chunks.append((seq, key))
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        for obj in page.get("Contents", []) or []:
+            key = obj["Key"]
+            # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
+            filename = key.rsplit("/", 1)[-1]
+            if not filename.endswith(".jsonl"):
+                continue
+            seq_str = filename.replace(".jsonl", "")
+            try:
+                seq = int(seq_str)
+            except ValueError:
+                continue
+            if seq > after_seq:
+                chunks.append((seq, key))
 
     chunks.sort(key=lambda x: x[0])
     return chunks
@@ -208,20 +211,27 @@ def delete_eval_logs(
 ) -> int:
     """Delete all eval log chunks under a prefix.
 
+    Paginates over ``list_objects_v2`` so evals with more than 1000 chunks
+    have all their objects removed (previously the tail leaked).  S3's
+    ``delete_objects`` accepts at most 1000 keys per call, so delete in the
+    same page-sized batches as we list.
+
     Returns:
         Number of objects deleted.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-    if not contents:
-        return 0
-
-    objects = [{"Key": obj["Key"]} for obj in contents]
-    client.delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": objects},
-    )
-    return len(objects)
+    paginator = client.get_paginator("list_objects_v2")
+    total = 0
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        contents = page.get("Contents", []) or []
+        if not contents:
+            continue
+        objects = [{"Key": obj["Key"]} for obj in contents]
+        client.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": objects},
+        )
+        total += len(objects)
+    return total
 
 
 # ---------------------------------------------------------------------------

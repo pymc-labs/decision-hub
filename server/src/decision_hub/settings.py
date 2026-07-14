@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
+    # Public, unauthenticated org endpoints — same shape as list_skills
+    # since they front expensive aggregate queries that would otherwise
+    # accept unbounded traffic.
+    org_stats_rate_limit: int = 120
+    org_stats_rate_window: int = 60
+    org_profiles_rate_limit: int = 120
+    org_profiles_rate_window: int = 60
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096

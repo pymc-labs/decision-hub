@@ -342,3 +342,23 @@ class TestAllowedToolsCoercion:
         path = self._write_skill_md(tmp_path, content)
         with pytest.raises(ValueError, match="allowed_tools must be a string or list"):
             parse_skill_md(path)
+
+
+class TestParseSkillMdEncoding:
+    """Regression: parse_skill_md must pin UTF-8 explicitly so common
+    non-ASCII descriptions (em-dash, curly quote, accented characters) do
+    not blow up on platforms whose locale defaults to cp1252 (Windows)."""
+
+    def test_utf8_content_parses_when_file_is_utf8(self, tmp_path) -> None:
+        """A SKILL.md whose bytes are UTF-8 must parse regardless of the
+        current process locale."""
+        # ``—`` (em-dash, U+2014) is not representable in cp1252/latin-1
+        # roundtrips via read_text() with the wrong encoding — but under
+        # UTF-8 it must round-trip cleanly.
+        content = "---\nname: unicode-skill\ndescription: A skill — with an em-dash and “curly quotes”.\n---\nBody\n"
+        path = tmp_path / "SKILL.md"
+        path.write_bytes(content.encode("utf-8"))
+
+        manifest = parse_skill_md(path)
+        assert "em-dash" in manifest.description
+        assert "curly quotes" in manifest.description

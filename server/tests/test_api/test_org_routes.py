@@ -297,3 +297,58 @@ class TestGetOrg:
         """Should return 401 without auth headers."""
         resp = client.get("/v1/orgs/some-org")
         assert resp.status_code == 401
+
+
+class TestPublicOrgEndpointsAreRateLimited:
+    """Regression: /v1/orgs/stats and /v1/orgs/profiles used to be
+    unauthenticated with no rate limiter, so a single attacker could pin
+    the DB with cheap-to-issue but expensive-to-serve aggregate queries.
+
+    These tests lock in the presence of the limiter dependency."""
+
+    @patch("decision_hub.api.org_routes.fetch_org_stats", return_value=[])
+    def test_org_stats_returns_429_after_limit(
+        self,
+        _mock_fetch: MagicMock,
+        client: TestClient,
+        test_app,
+    ) -> None:
+        """Once the per-IP window fills, further /v1/orgs/stats requests get 429."""
+        # Tighten the limiter for this test and drop the cached instance so
+        # the new settings take effect on the next request.
+        test_app.state.settings.org_stats_rate_limit = 2
+        test_app.state.settings.org_stats_rate_window = 60
+        if hasattr(test_app.state, "_org_stats_rate_limiter"):
+            del test_app.state._org_stats_rate_limiter
+
+        # First two requests succeed
+        for _ in range(2):
+            resp = client.get("/v1/orgs/stats")
+            assert resp.status_code == 200
+        # Third is rejected
+        resp = client.get("/v1/orgs/stats")
+        assert resp.status_code == 429
+        assert "Rate limit exceeded" in resp.json()["detail"]
+
+    @patch("decision_hub.api.org_routes.list_all_org_profiles", return_value=[])
+    def test_org_profiles_returns_429_after_limit(
+        self,
+        _mock_list: MagicMock,
+        client: TestClient,
+        test_app,
+    ) -> None:
+        """Once the per-IP window fills, further /v1/orgs/profiles requests get 429."""
+        test_app.state.settings.org_profiles_rate_limit = 2
+        test_app.state.settings.org_profiles_rate_window = 60
+        if hasattr(test_app.state, "_org_profiles_rate_limiter"):
+            del test_app.state._org_profiles_rate_limiter
+
+        # Also purge the cache so requests hit the endpoint (and the limiter)
+        # rather than returning cached responses that would bypass it.
+        test_app.state.cache.clear()
+
+        for _ in range(2):
+            resp = client.get("/v1/orgs/profiles")
+            assert resp.status_code == 200
+        resp = client.get("/v1/orgs/profiles")
+        assert resp.status_code == 429
