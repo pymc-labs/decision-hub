@@ -1,5 +1,7 @@
 """Authentication routes - GitHub Device Flow login."""
 
+import asyncio
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
@@ -7,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_connection, get_engine, get_settings
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import get_or_create_limiter
 from decision_hub.domain.auth import create_jwt
 from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs
 from decision_hub.infra.database import upsert_user
@@ -28,14 +30,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def _enforce_auth_rate_limit(request: Request) -> None:
     """Rate-limit auth endpoints."""
-    state = request.app.state
-    if not hasattr(state, "_auth_rate_limiter"):
-        settings: Settings = state.settings
-        state._auth_rate_limiter = RateLimiter(
-            max_requests=settings.auth_rate_limit,
-            window_seconds=settings.auth_rate_window,
-        )
-    state._auth_rate_limiter(request)
+    settings: Settings = request.app.state.settings
+    limiter = get_or_create_limiter(
+        request.app.state,
+        "_auth_rate_limiter",
+        settings.auth_rate_limit,
+        settings.auth_rate_window,
+    )
+    limiter(request)
 
 
 # ---------------------------------------------------------------------------
@@ -142,11 +144,14 @@ async def exchange_token(
     allowed_orgs = settings.required_github_orgs
     if allowed_orgs:
         username = gh_user["login"]
-        is_member = False
-        for org in allowed_orgs:
-            if await check_org_membership(gh_token, org, username):
-                is_member = True
-                break
+        # Membership checks are independent GitHub REST calls; run them
+        # concurrently. Previously we awaited them sequentially, so a user in
+        # the Nth allowed org paid N * round-trip latency on every login.
+        membership_results = await asyncio.gather(
+            *(check_org_membership(gh_token, org, username) for org in allowed_orgs),
+            return_exceptions=True,
+        )
+        is_member = any(r is True for r in membership_results)
         if not is_member:
             logger.warning("User {} denied access — not in required orgs {}", username, allowed_orgs)
             raise HTTPException(

@@ -181,6 +181,28 @@ class TestStreamEvalPipeline:
         assert report["status"] == "completed"
         assert report["total_duration_ms"] == 5000
 
+    def test_zero_cases_marks_report_failed_not_completed(self) -> None:
+        """A skill shipping zero eval cases must NOT be reported as ``completed``.
+
+        Regression: ``all([])`` is ``True``, which previously let a
+        run with no cases silently mark itself green. Guarded by an
+        explicit ``bool(case_results)`` check.
+        """
+        events = list(
+            stream_eval_pipeline(
+                skill_zip=b"fake-zip",
+                eval_config=_make_config(),
+                eval_cases=(),  # no cases
+                agent_env_vars={"ANTHROPIC_API_KEY": "test-key"},
+                org_slug="test-org",
+                skill_name="test-skill",
+            )
+        )
+        report = next(e for e in events if e["type"] == "report")
+        assert report["total"] == 0
+        assert report["passed"] == 0
+        assert report["status"] == "failed"
+
     @patch("decision_hub.domain.evals.judge_eval_output")
     @patch("decision_hub.domain.evals.stream_eval_case_in_sandbox")
     @patch("decision_hub.domain.evals.get_agent_config")

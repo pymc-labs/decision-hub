@@ -156,7 +156,13 @@ class TestSensitiveUrlParamRedaction:
 
 class TestExtractUsernameFromJwt:
     def test_extracts_username_from_valid_jwt(self):
-        """Should decode the payload and extract the username claim."""
+        """Should decode the payload and extract the username claim.
+
+        The returned value is prefixed with ``unverified:`` because the
+        JWT signature is not checked here — the prefix keeps forged log
+        entries distinguishable from verified identities established
+        downstream.
+        """
         import base64
 
         header = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
@@ -164,7 +170,7 @@ class TestExtractUsernameFromJwt:
         sig = "fakesig"
         token = f"{header}.{payload}.{sig}"
         result = _extract_username_from_jwt(f"Bearer {token}")
-        assert result == "alice"
+        assert result == "unverified:alice"
 
     def test_returns_empty_on_missing_bearer(self):
         assert _extract_username_from_jwt("Basic abc") == ""
@@ -181,3 +187,16 @@ class TestExtractUsernameFromJwt:
         token = f"{header}.{payload}.{sig}"
         result = _extract_username_from_jwt(f"Bearer {token}")
         assert result == ""
+
+    def test_forged_admin_username_is_marked_unverified(self):
+        """A caller-crafted 'admin' token must not appear as verified 'admin' in logs."""
+        import base64
+
+        header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(b'{"username":"admin"}').rstrip(b"=").decode()
+        token = f"{header}.{payload}.aaaa"
+        result = _extract_username_from_jwt(f"Bearer {token}")
+        # Prefix is what makes log-search dishonest attempts detectable.
+        assert result.startswith("unverified:")
+        assert "admin" in result
+        assert result != "admin"

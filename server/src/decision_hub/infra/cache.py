@@ -5,6 +5,17 @@ Each entry expires independently after its TTL elapses. Designed for
 slowly-changing data like taxonomy, org profiles, and skill listings
 where a few seconds of staleness is acceptable.
 
+``get`` returns ``None`` on miss for backwards compatibility. Callers
+that need to cache a legitimate ``None`` value should pass the
+``MISS`` sentinel as the ``default`` and check for identity::
+
+    from decision_hub.infra.cache import MISS
+
+    entry = cache.get("my-key", default=MISS)
+    if entry is MISS:
+        entry = expensive_query()  # may legitimately be None
+        cache.set("my-key", entry)
+
 Usage:
     cache = TTLCache(default_ttl=30)
     value = cache.get("my-key")
@@ -16,7 +27,18 @@ Usage:
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
+
+
+class _Missing:
+    """Sentinel type for ``MISS``; distinct from ``None`` so ``None``
+    is a legitimate cached value."""
+
+    def __repr__(self) -> str:  # pragma: no cover - trivial
+        return "<TTLCache.MISS>"
+
+
+MISS: Final = _Missing()
 
 
 @dataclass
@@ -34,8 +56,8 @@ class TTLCache:
     Args:
         default_ttl: Default time-to-live in seconds for cached entries.
         max_size: Maximum number of entries. When exceeded, expired entries
-                  are purged first; if still over limit, the oldest entry
-                  is evicted.
+                  are purged first; if still over limit, the entry expiring
+                  soonest is evicted.
     """
 
     default_ttl: float = 30.0
@@ -43,15 +65,21 @@ class TTLCache:
     _store: dict[str, _CacheEntry] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def get(self, key: str) -> Any | None:
-        """Return the cached value if present and not expired, else None."""
+    def get(self, key: str, default: Any = None) -> Any:
+        """Return the cached value if present and not expired, else ``default``.
+
+        Returns ``None`` on miss by default (backwards compatible). To
+        cache values that may legitimately be ``None``, pass
+        ``default=MISS`` and compare the result against ``MISS`` with
+        ``is`` — see the module docstring.
+        """
         with self._lock:
             entry = self._store.get(key)
             if entry is None:
-                return None
+                return default
             if time.monotonic() > entry.expires_at:
                 del self._store[key]
-                return None
+                return default
             return entry.value
 
     def set(self, key: str, value: Any, ttl: float | None = None) -> None:

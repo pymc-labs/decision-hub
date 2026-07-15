@@ -249,6 +249,13 @@ def _extract_username_from_jwt(auth_header: str) -> str:
     happens in the dependency layer. We decode the payload segment
     (base64url) to read the ``username`` claim. Returns empty string
     on any failure.
+
+    The returned value is prefixed with ``unverified:`` because the
+    signature is not checked here. Anyone can craft a JWT with an
+    arbitrary ``username`` claim; without the prefix, an attacker
+    could poison logs with e.g. ``admin`` and make log-search results
+    dishonest. Verified identity is available downstream once
+    ``get_current_user`` runs.
     """
     import base64
 
@@ -263,6 +270,9 @@ def _extract_username_from_jwt(auth_header: str) -> str:
         payload_b64 = parts[1]
         payload_b64 += "=" * (-len(payload_b64) % 4)
         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        return payload.get("username", "")
+        username = payload.get("username", "")
+        if not username:
+            return ""
+        return f"unverified:{username}"
     except Exception:
         return ""

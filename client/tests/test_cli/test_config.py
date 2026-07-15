@@ -1,6 +1,9 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import stat
+import sys
 
 import click
 import pytest
@@ -90,6 +93,64 @@ class TestSaveConfig:
 
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX perms not applicable on Windows")
+    def test_saved_file_has_owner_only_perms(self, tmp_path, monkeypatch):
+        """The token is a long-lived bearer; the file must not be world-readable."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret-token"))
+
+        path = tmp_path / "config.dev.json"
+        mode = stat.S_IMODE(path.stat().st_mode)
+        # Owner-only (0o600). Group and other must not have read bits.
+        assert mode & 0o077 == 0, f"config file must be 0o600, got {oct(mode)}"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX perms not applicable on Windows")
+    def test_save_tightens_existing_loose_directory_perms(self, tmp_path, monkeypatch):
+        """A pre-existing ~/.dhub with loose perms is tightened on next save."""
+        # Create the dir up front with the default umask (typically 0o755).
+        tmp_path.chmod(0o755)
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        mode = stat.S_IMODE(tmp_path.stat().st_mode)
+        assert mode & 0o077 == 0, f"config dir must be 0o700, got {oct(mode)}"
+
+    def test_save_is_atomic_leaves_no_partial_file_on_error(self, tmp_path, monkeypatch):
+        """A crash mid-write must not overwrite the real config with a truncated one.
+
+        Regression: prior implementation used ``path.write_text`` directly,
+        so Ctrl-C mid-write could leave the config half-written; the loader
+        treated that as corruption and prompted the user to delete their
+        config — losing their token.
+        """
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # Seed with a valid config first.
+        save_config(CliConfig(api_url="https://a.example.com", token="old-tok"))
+        good_content = (tmp_path / "config.dev.json").read_text()
+
+        # Now simulate a crash during os.replace by patching it to raise.
+        real_replace = os.replace
+
+        def failing_replace(src, dst):
+            # The temp file should have been created and written already.
+            assert os.path.exists(src), "atomic write must create a .tmp file first"
+            raise KeyboardInterrupt("simulated Ctrl-C")
+
+        monkeypatch.setattr("dhub.cli.config.os.replace", failing_replace)
+        with pytest.raises(KeyboardInterrupt):
+            save_config(CliConfig(api_url="https://b.example.com", token="new-tok"))
+
+        # The real config must be untouched (still parseable, still holds old-tok).
+        monkeypatch.setattr("dhub.cli.config.os.replace", real_replace)
+        assert (tmp_path / "config.dev.json").read_text() == good_content
+        assert load_config().token == "old-tok"
 
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""

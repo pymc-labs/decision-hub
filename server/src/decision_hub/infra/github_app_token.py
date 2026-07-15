@@ -24,9 +24,14 @@ def mint_installation_token(
     Raises ``httpx.HTTPStatusError`` on API failure.
     """
     now = int(time.time())
+    # GitHub enforces exp <= github_now + 600. Our clock can be ahead of
+    # GitHub's; if it is, ``now + 600`` fails GitHub's check with 401 and
+    # every mint attempt fails until the local clock catches up. Give
+    # ourselves 60s of margin: exp = now + 540 (well inside the cap even
+    # when we're a minute ahead).
     payload = {
         "iat": now - 60,  # issued-at: 60s in the past to account for clock drift
-        "exp": now + (10 * 60),  # expires in 10 minutes (GitHub max)
+        "exp": now + (9 * 60),  # expires in 9 minutes — 60s under GitHub's 10-min max
         "iss": app_id,
     }
     encoded_jwt = jwt.encode(payload, private_key, algorithm="RS256")

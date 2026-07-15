@@ -34,6 +34,21 @@ class TestSecurityHeadersMiddleware:
         resp = client.get("/test")
         assert resp.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
 
+    def test_referrer_policy_present(self) -> None:
+        """Skill/eval URLs must not leak into third-party analytics via Referer."""
+        client = TestClient(_make_app())
+        resp = client.get("/test")
+        assert resp.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+
+    def test_permissions_policy_denies_privileged_features(self) -> None:
+        """High-privilege browser features the SPA never needs are disabled."""
+        client = TestClient(_make_app())
+        resp = client.get("/test")
+        policy = resp.headers["permissions-policy"]
+        for feature in ("camera", "microphone", "geolocation", "payment", "usb"):
+            # Each entry looks like ``feature=()`` — an empty allowlist.
+            assert f"{feature}=()" in policy
+
     def test_headers_on_error_responses(self) -> None:
         """Security headers should appear even on 404 responses."""
         client = TestClient(_make_app())
@@ -42,3 +57,5 @@ class TestSecurityHeadersMiddleware:
         assert resp.headers["x-frame-options"] == "DENY"
         assert resp.headers["x-content-type-options"] == "nosniff"
         assert resp.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+        assert resp.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+        assert "camera=()" in resp.headers["permissions-policy"]

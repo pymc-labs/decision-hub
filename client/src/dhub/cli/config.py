@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -82,14 +83,37 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory if it does not already exist. The
+    config file contains a long-lived bearer token, so:
+
+    - The directory is created with mode 0700 (owner-only) so a
+      brand-new install is not readable by other local users.
+    - The file is written atomically via a temp-then-``os.replace``
+      dance: Ctrl-C mid-write no longer leaves the config half-written
+      (which the loader treats as corrupted and asks the user to delete,
+      losing their token).
+    - The file itself is chmod'd to 0600 so an existing ~/.dhub with
+      loose permissions is tightened on next save. On Windows this is a
+      no-op because chmod semantics don't apply — POSIX users benefit,
+      Windows behaviour is unchanged.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Tighten directory perms best-effort; ignore errors on Windows where
+    # POSIX mode semantics don't apply.
+    with contextlib.suppress(OSError, NotImplementedError):
+        CONFIG_DIR.chmod(0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+
+    # Write to a sibling temp file first so a mid-write interrupt cannot
+    # leave the real config truncated. ``os.replace`` is atomic on POSIX
+    # and Windows (Python 3.3+).
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    with contextlib.suppress(OSError, NotImplementedError):
+        tmp.chmod(0o600)
+    os.replace(tmp, path)
 
 
 def get_api_url() -> str:

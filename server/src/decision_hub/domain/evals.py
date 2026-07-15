@@ -386,8 +386,11 @@ def stream_eval_pipeline(
             duration_ms=duration_ms,
         )
 
-    # Final summary event
-    all_passed = all(r["verdict"] == "pass" for r in case_results)
+    # Final summary event. ``all([])`` is ``True``, so a run with zero
+    # cases would silently be marked ``completed`` — that would let a
+    # skill ship with no eval cases and appear as if it passed evaluation.
+    # Explicitly require at least one case and require every case to pass.
+    all_passed = bool(case_results) and all(r["verdict"] == "pass" for r in case_results)
     status = "completed" if all_passed else "failed"
 
     seq += 1
@@ -509,13 +512,16 @@ def run_streaming_eval(
         # Final flush
         _flush_buffer()
 
-        # Write eval_reports row (same as original pipeline)
+        # Write eval_reports row (same as original pipeline).
+        # Guard against zero-case reports: ``all([])`` is ``True`` and would
+        # mark a zero-case run as ``completed``, which is the same failure
+        # mode as the non-streaming pipeline above.
         if final_report_event:
             case_results = final_report_event["case_results"]
             passed = final_report_event["passed"]
             total = final_report_event["total"]
             total_duration_ms = final_report_event["total_duration_ms"]
-            all_passed = all(r["verdict"] == "pass" for r in case_results)
+            all_passed = bool(case_results) and all(r["verdict"] == "pass" for r in case_results)
             status = "completed" if all_passed else "failed"
 
             with engine.connect() as conn:

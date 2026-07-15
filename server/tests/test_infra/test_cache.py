@@ -2,7 +2,28 @@
 
 import time
 
-from decision_hub.infra.cache import TTLCache
+from decision_hub.infra.cache import MISS, TTLCache
+
+
+class TestMissSentinel:
+    """Regression tests for None-vs-miss disambiguation via the MISS sentinel."""
+
+    def test_default_get_returns_none_for_miss(self) -> None:
+        """Backwards-compatible default: missing keys return None."""
+        cache = TTLCache(default_ttl=10)
+        assert cache.get("nope") is None
+
+    def test_miss_sentinel_distinguishes_none_from_absent(self) -> None:
+        """Callers can cache legitimate None values using default=MISS."""
+        cache = TTLCache(default_ttl=10)
+        # Before set: MISS
+        assert cache.get("key", default=MISS) is MISS
+        # After set to None: cached hit, not MISS
+        cache.set("key", None)
+        assert cache.get("key", default=MISS) is None
+        # After invalidation: MISS again
+        cache.invalidate("key")
+        assert cache.get("key", default=MISS) is MISS
 
 
 class TestTTLCacheBasics:

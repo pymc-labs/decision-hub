@@ -65,8 +65,12 @@ class TestMintInstallationToken:
         assert decoded["iss"] == TEST_APP_ID
         # iat should be ~60s before call time
         assert before - 120 <= decoded["iat"] <= after
-        # exp should be ~10 min after iat
-        assert decoded["exp"] - decoded["iat"] == 11 * 60  # 60s back + 10 min forward
+        # exp - iat now spans 10 minutes total (60s back + 9 min forward).
+        # GitHub enforces exp <= github_now + 600; we pull exp back by 60s
+        # so a locally-fast clock (up to 60s ahead of GitHub) still passes.
+        assert decoded["exp"] - decoded["iat"] == 10 * 60
+        # And exp itself must never exceed now+600 (GitHub's hard cap).
+        assert decoded["exp"] <= after + 9 * 60
 
     @patch("decision_hub.infra.github_app_token.httpx.post")
     def test_calls_correct_url(self, mock_post: MagicMock):

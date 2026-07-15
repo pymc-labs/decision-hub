@@ -30,6 +30,10 @@ class SecurityHeadersMiddleware:
     - X-Frame-Options: DENY — prevents clickjacking by disallowing iframe embedding
     - X-Content-Type-Options: nosniff — prevents MIME-type sniffing attacks
     - Strict-Transport-Security — enforces HTTPS for 1 year (with subdomains)
+    - Referrer-Policy — strip full URLs from cross-origin referrers so
+      skill / eval URLs don't leak into third-party analytics
+    - Permissions-Policy — deny high-privilege browser features the SPA
+      never needs (camera, mic, geo, payment, USB, MIDI, XR)
 
     Implemented as raw ASGI to avoid the receive-wrapping deadlock with UploadFile.
     """
@@ -38,6 +42,11 @@ class SecurityHeadersMiddleware:
         [b"x-frame-options", b"DENY"],
         [b"x-content-type-options", b"nosniff"],
         [b"strict-transport-security", b"max-age=31536000; includeSubDomains"],
+        [b"referrer-policy", b"strict-origin-when-cross-origin"],
+        [
+            b"permissions-policy",
+            b"camera=(), microphone=(), geolocation=(), payment=(), usb=(), midi=(), xr-spatial-tracking=()",
+        ],
     ]
 
     def __init__(self, app: ASGIApp) -> None:

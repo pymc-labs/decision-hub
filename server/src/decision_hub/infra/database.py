@@ -2788,7 +2788,13 @@ def insert_search_log(
 
 
 def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
-    """Map a database row to a SkillTracker model."""
+    """Map a database row to a SkillTracker model.
+
+    NB: ``consecutive_permanent_failures`` must be read from the row —
+    the dataclass has a default of 0, so an omitted field silently
+    zeroes the counter on every read, defeating the disable-after-N
+    permanent-failures logic and any downstream backoff.
+    """
     return SkillTracker(
         id=row.id,
         user_id=row.user_id,
@@ -2802,6 +2808,7 @@ def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
         last_published_at=row.last_published_at,
         last_error=row.last_error,
         next_check_at=row.next_check_at,
+        consecutive_permanent_failures=row.consecutive_permanent_failures,
         created_at=row.created_at,
     )
 
