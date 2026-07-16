@@ -65,7 +65,7 @@ export default function SkillDetailPage() {
   const [skillMdContent, setSkillMdContent] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const zipRetries = useRef(0);
+  const [zipAttempt, setZipAttempt] = useState(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
@@ -76,7 +76,7 @@ export default function SkillDetailPage() {
     setZipLoading(false);
     setFiles([]);
     setSkillMdContent(null);
-    zipRetries.current = 0;
+    setZipAttempt(0);
     if (retryTimer.current) {
       clearTimeout(retryTimer.current);
       retryTimer.current = null;
@@ -171,7 +171,9 @@ export default function SkillDetailPage() {
   });
 
   // Download zip once, extract SKILL.md and file list from it.
-  // Retries up to MAX_ZIP_ATTEMPTS total on transient failures with exponential backoff.
+  // On failure we bump `zipAttempt` after a backoff delay; the useEffect below
+  // observes the counter change and calls `loadZip` again, so retries are
+  // explicit state transitions rather than a side effect of clearing loading.
   const loadZip = useCallback(async () => {
     if (!orgSlug || !skillName || !skill || zipData || zipLoading) return;
     setZipLoading(true);
@@ -196,31 +198,30 @@ export default function SkillDetailPage() {
       }
       setFiles(fileList);
       setZipData(buf);
-      zipRetries.current = 0;
+      setZipLoading(false);
     } catch (err) {
-      zipRetries.current += 1;
-      if (zipRetries.current < MAX_ZIP_ATTEMPTS) {
-        const delay = 2000 * zipRetries.current;
+      const nextAttempt = zipAttempt + 1;
+      if (nextAttempt < MAX_ZIP_ATTEMPTS) {
+        const delay = 2000 * nextAttempt;
         retryTimer.current = setTimeout(() => {
           retryTimer.current = null;
           setZipLoading(false);
+          setZipAttempt(nextAttempt);
         }, delay);
         return;
       }
       setZipError(err instanceof Error ? err.message : "Failed to load package");
-    } finally {
-      if (zipRetries.current === 0 || zipRetries.current >= MAX_ZIP_ATTEMPTS) {
-        setZipLoading(false);
-      }
+      setZipLoading(false);
     }
-  }, [orgSlug, skillName, zipData, zipLoading, skill]);
+  }, [orgSlug, skillName, zipData, zipLoading, skill, zipAttempt]);
 
-  // Trigger zip download when overview or files tab is first visited
+  // Trigger zip download when overview or files tab is first visited, and
+  // whenever a scheduled retry bumps `zipAttempt`.
   useEffect(() => {
     if ((activeTab === "overview" || activeTab === "files") && !zipData && !zipLoading && !zipError) {
       loadZip();
     }
-  }, [activeTab, zipData, zipLoading, zipError, loadZip]);
+  }, [activeTab, zipData, zipLoading, zipError, zipAttempt, loadZip]);
 
   const handleDownload = async () => {
     if (!orgSlug || !skillName) return;

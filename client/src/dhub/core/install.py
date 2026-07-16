@@ -262,6 +262,11 @@ def list_linked_agents(org: str, skill_name: str) -> list[str]:
 
     Returns:
         List of agent names that have a symlink pointing to this skill.
+        Multiple agents that share the same on-disk skills directory
+        (e.g. ``amp``, ``kimi-cli``, ``replit``, ``universal`` all resolve
+        to ``~/.config/agents/skills``) will all be reported — the caller
+        is expected to dedupe by physical path when performing side-effects
+        like uninstall (see ``uninstall_skill``).
     """
     canonical = get_dhub_skill_path(org, skill_name)
     linked: list[str] = []

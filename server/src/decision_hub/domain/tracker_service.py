@@ -310,9 +310,13 @@ def check_all_due_trackers(settings: Settings, *, deadline: float | None = None)
         with engine.connect() as conn:
             batch_clear_tracker_errors(conn, unchanged_ids)
             batch_set_tracker_errors(conn, errored_ids_permanent, "GraphQL: repo not found or inaccessible")
-            batch_set_tracker_errors(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
+            # Transient / circuit-breaker failures must clear next_check_at, not just
+            # record the error — otherwise claim_due_trackers' bump has already pushed
+            # the retry a full poll interval into the future, making the "will retry"
+            # message misleading. Mirrors the rate-limit / deadline defer paths below.
+            batch_defer_trackers(conn, errored_ids_transient, "transient: GraphQL chunk failed, will retry")
             if circuit_breaker_ids:
-                batch_set_tracker_errors(
+                batch_defer_trackers(
                     conn,
                     circuit_breaker_ids,
                     "transient: circuit breaker tripped, mass permanent errors downgraded",

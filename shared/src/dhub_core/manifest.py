@@ -93,29 +93,38 @@ def parse_skill_md(path: Path) -> SkillManifest:
 def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
     """Parse YAML frontmatter with a fallback for unquoted special characters.
 
-    When yaml.safe_load fails, falls back to quoting values that contain
-    markdown links [text](url) or unquoted colons, then retries parsing.
+    When yaml.safe_load fails, falls back to quoting scalar values that
+    contain markdown links ``[text](url)`` or unquoted colons, then retries
+    parsing. Values that already look structured — flow mappings (``{...}``),
+    flow sequences (``[...]``), block scalars (``|``, ``>``), or explicit
+    quotes — are left alone so that e.g. ``metadata: {a: b}`` is not
+    mangled into the literal string ``"{a: b}"``.
     """
     try:
         return yaml.safe_load(frontmatter_str)
     except yaml.YAMLError:
         pass
 
-    # Fallback: quote values containing markdown links [text](url) which
-    # YAML misinterprets as flow sequences, then retry parsing.
+    # Fallback: quote scalar values containing markdown links [text](url) or
+    # unquoted colons — both of which YAML misinterprets. The rules:
+    #   * a value with "](" is always a markdown link (looks like [x] to YAML
+    #     but isn't a real flow sequence) — quote it.
+    #   * otherwise, skip anything that already opens a flow container, block
+    #     scalar, or quoted/anchor/alias so we don't corrupt real structured
+    #     values (e.g. `metadata: {a: b}` or `allowed_tools: [a, b]`).
+    #   * finally, quote anything with an unquoted colon in the value.
     lines = frontmatter_str.split("\n")
     patched: list[str] = []
     for line in lines:
         m = re.match(r"^(\s*[\w][\w-]*:\s*)(.+)$", line)
         if m:
             value = m.group(2)
-            needs_quoting = (
-                not value.startswith('"')
-                and not value.startswith("'")
-                and not value.startswith(">")
-                and not value.startswith("|")
-                and ("](" in value or (":" in value and not value.startswith("[")))
-            )
+            first_char = value[:1]
+            if "](" in value:
+                needs_quoting = True
+            else:
+                already_structured = first_char in ('"', "'", ">", "|", "[", "{", "&", "*", "!")
+                needs_quoting = (not already_structured) and (":" in value)
             if needs_quoting:
                 escaped = value.replace('"', '\\"')
                 patched.append(f'{m.group(1)}"{escaped}"')

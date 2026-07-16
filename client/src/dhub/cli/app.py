@@ -96,26 +96,50 @@ from dhub.cli.doctor import doctor_command  # noqa: E402
 app.command("doctor")(doctor_command)
 
 
+_DHUB_CLI = "dhub-cli"
+# Any subprocess we spawn to talk to uv / pipx / pip could hang forever on a
+# broken network or stalled tool — the CLI should fall back rather than block.
+_INSTALLER_TIMEOUT = 30
+
+
+def _first_token_is_dhub_cli(line: str) -> bool:
+    """Return True when the first whitespace token of `line` is exactly `dhub-cli`.
+
+    `str.startswith("dhub-cli")` also matches sibling packages like
+    `dhub-cli-extras`, so match the first token exactly instead.
+    """
+    parts = line.split()
+    return bool(parts) and parts[0] == _DHUB_CLI
+
+
+def _run_installer(cmd: list[str]) -> subprocess.CompletedProcess | None:
+    """Run an installer command with a bounded timeout; return None on failure."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=_INSTALLER_TIMEOUT)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+
+
 def _detect_installer() -> str:
     """Detect how dhub-cli was installed: 'uv', 'pipx', or 'pip'."""
     uv_bin = shutil.which("uv")
     if uv_bin:
-        result = subprocess.run(
-            [uv_bin, "tool", "list"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
+        result = _run_installer([uv_bin, "tool", "list"])
+        if (
+            result
+            and result.returncode == 0
+            and any(_first_token_is_dhub_cli(line) for line in result.stdout.splitlines())
+        ):
             return "uv"
 
     pipx_bin = shutil.which("pipx")
     if pipx_bin:
-        result = subprocess.run(
-            [pipx_bin, "list", "--short"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 and any(line.startswith("dhub-cli") for line in result.stdout.splitlines()):
+        result = _run_installer([pipx_bin, "list", "--short"])
+        if (
+            result
+            and result.returncode == 0
+            and any(_first_token_is_dhub_cli(line) for line in result.stdout.splitlines())
+        ):
             return "pipx"
 
     return "pip"
@@ -139,46 +163,40 @@ def _upgrade(installer: str, console: Console) -> int:
     else:
         cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "dhub-cli"]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Upgrades can genuinely take a while (PyPI resolution + wheel install),
+    # so allow a much longer window than the light detect/query probes.
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        console.print("[red]Upgrade failed:[/] installer did not finish within 10 minutes.")
+        return 124
     if result.returncode != 0:
         console.print(f"[red]Upgrade failed:[/]\n{result.stderr.strip()}")
     return result.returncode
 
 
 def _query_version(installer: str) -> str | None:
-    """Query the installed dhub-cli version using the same tool that installed it."""
-    if installer == "uv":
-        result = subprocess.run(
-            [_require_bin("uv"), "tool", "list"],
-            capture_output=True,
-            text=True,
-        )
-        for line in result.stdout.splitlines():
-            if line.startswith("dhub-cli"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    return parts[1].lstrip("v")
-        return None
+    """Query the installed dhub-cli version using the same tool that installed it.
 
-    if installer == "pipx":
-        result = subprocess.run(
-            [_require_bin("pipx"), "list", "--short"],
-            capture_output=True,
-            text=True,
-        )
+    Matches the first whitespace token exactly so sibling packages like
+    `dhub-cli-extras` cannot masquerade as `dhub-cli`.
+    """
+    if installer in ("uv", "pipx"):
+        cmd = [_require_bin("uv"), "tool", "list"] if installer == "uv" else [_require_bin("pipx"), "list", "--short"]
+        result = _run_installer(cmd)
+        if result is None:
+            return None
         for line in result.stdout.splitlines():
-            if line.startswith("dhub-cli"):
+            if _first_token_is_dhub_cli(line):
                 parts = line.split()
                 if len(parts) >= 2:
                     return parts[1].lstrip("v")
         return None
 
     # pip — use the same Python that's running this process
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "show", "dhub-cli"],
-        capture_output=True,
-        text=True,
-    )
+    result = _run_installer([sys.executable, "-m", "pip", "show", "dhub-cli"])
+    if result is None:
+        return None
     for line in result.stdout.splitlines():
         if line.startswith("Version:"):
             return line.split(":", 1)[1].strip()

@@ -52,6 +52,8 @@ def test_settings() -> MagicMock:
     settings.publish_rate_window = 60
     settings.auth_rate_limit = 10
     settings.auth_rate_window = 60
+    settings.keys_rate_limit = 30
+    settings.keys_rate_window = 60
     # Cache TTLs
     settings.cache_ttl_taxonomy = 300
     settings.cache_ttl_org_profiles = 60
@@ -71,6 +73,9 @@ def test_app(test_settings: MagicMock) -> FastAPI:
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
     app.state.cache = TTLCache(default_ttl=60)
+    # Rate limiter reads this to decide whether to trust the XFF header;
+    # keep it off in tests so limiters key off request.client.host as before.
+    app.state._rate_limit_trust_proxy = False
 
     @app.middleware("http")
     async def check_cli_version(request: Request, call_next):

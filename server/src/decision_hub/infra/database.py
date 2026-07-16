@@ -1969,6 +1969,11 @@ def fetch_skills_by_repo(
         )
         .order_by(organizations_table.c.slug, skills_table.c.name)
     )
+    # Match the removed/archived filter applied by every other list-shape
+    # query (fetch_all_skills_for_index, search_skills_hybrid). Without this,
+    # /repo lookups leak deleted-source and GitHub-archived skills that the
+    # UI has already hidden elsewhere.
+    base = _exclude_removed_or_archived(base)
 
     # Visibility filter
     granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
@@ -2040,7 +2045,10 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # skills.id tiebreaker keeps ordering deterministic when ts_rank_cd
+        # ties (common on short queries against many similar skills), so
+        # pagination and dedup below stay stable across requests.
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2060,8 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # skills.id tiebreaker — cosine distances can tie on rounding.
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,7 +2134,7 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id)
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -2724,7 +2733,9 @@ def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int =
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        # id tiebreaker so equal created_at values pick a deterministic
+        # "latest" instead of flipping between the LIMIT and the caller.
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()

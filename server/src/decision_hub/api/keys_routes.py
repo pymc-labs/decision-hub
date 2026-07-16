@@ -9,12 +9,17 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_connection, get_current_user, get_settings
+from decision_hub.api.rate_limit import rate_limit_dependency
 from decision_hub.domain.crypto import encrypt_value
 from decision_hub.infra.database import delete_api_key, insert_api_key, list_api_keys
 from decision_hub.models import User
 from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1/keys", tags=["keys"])
+
+# Throttle key-mgmt endpoints — POST performs Fernet encryption (CPU-bound)
+# and a stolen token should not be able to enumerate encrypted keys rapidly.
+_enforce_keys_rate_limit = rate_limit_dependency("keys")
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +53,7 @@ class KeySummary(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("", response_model=StoreKeyResponse, status_code=201)
+@router.post("", response_model=StoreKeyResponse, status_code=201, dependencies=[Depends(_enforce_keys_rate_limit)])
 def store_key(
     body: StoreKeyRequest,
     conn: Connection = Depends(get_connection),
@@ -76,7 +81,7 @@ def store_key(
     )
 
 
-@router.get("", response_model=list[KeySummary])
+@router.get("", response_model=list[KeySummary], dependencies=[Depends(_enforce_keys_rate_limit)])
 def get_keys(
     conn: Connection = Depends(get_connection),
     current_user: User = Depends(get_current_user),
@@ -89,7 +94,7 @@ def get_keys(
     return [KeySummary(key_name=r.key_name, created_at=r.created_at) for r in records]
 
 
-@router.delete("/{key_name}", status_code=204)
+@router.delete("/{key_name}", status_code=204, dependencies=[Depends(_enforce_keys_rate_limit)])
 def remove_key(
     key_name: str,
     conn: Connection = Depends(get_connection),

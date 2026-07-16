@@ -86,6 +86,29 @@ class TestParseFrontmatterYaml:
         with pytest.raises(yaml.YAMLError):
             parse_frontmatter_yaml(":\n  :\n    - [invalid")
 
+    def test_fallback_preserves_flow_mapping(self) -> None:
+        """A flow-mapping value (metadata: {a: b}) must stay a mapping through fallback.
+
+        The fallback path used to blanket-quote every line whose value contained
+        a colon, which turned real structured values into strings — regressed by
+        finding #6 in the deep review.
+        """
+        yaml_str = (
+            "name: my-skill\n"
+            "description: Great: it works\n"  # triggers the fallback
+            "metadata: {author: Alice, version: 1.0}\n"
+        )
+        result = parse_frontmatter_yaml(yaml_str)
+        assert result["name"] == "my-skill"
+        assert isinstance(result["metadata"], dict)
+        assert result["metadata"]["author"] == "Alice"
+
+    def test_fallback_preserves_flow_sequence(self) -> None:
+        """A flow-sequence value (allowed_tools: [a, b]) must stay a list through fallback."""
+        yaml_str = "name: my-skill\ndescription: Great: it works\nallowed_tools: [read, write]\n"
+        result = parse_frontmatter_yaml(yaml_str)
+        assert result["allowed_tools"] == ["read", "write"]
+
 
 # ---------------------------------------------------------------------------
 # parse_runtime

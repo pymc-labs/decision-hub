@@ -824,12 +824,13 @@ class TestRateLimitGuardrail:
         assert result.github_rate_remaining == 100
         mock_dispatch.assert_not_called()
 
-        # Rate-limited trackers should be deferred via batch function
-        mock_batch_defer.assert_called_once_with(
-            mock_conn,
-            [tracker.id],
-            "rate_limit: deferred to next tick",
-        )
+        # Rate-limited trackers should be deferred via batch function.
+        # Transient/circuit-breaker branches also fire batch_defer_trackers
+        # (with empty lists in this scenario), so match by message instead of
+        # asserting a single call.
+        rate_limit_calls = [c for c in mock_batch_defer.call_args_list if "rate_limit" in str(c)]
+        assert len(rate_limit_calls) == 1
+        assert rate_limit_calls[0].args == (mock_conn, [tracker.id], "rate_limit: deferred to next tick")
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service._dispatch_changed_trackers", return_value=(1, 0))
@@ -996,14 +997,16 @@ class TestTransientFailureClassification:
         assert result.errored == 2  # transient + permanent both counted
         assert result.changed == 0
 
-        # Verify batch_set_tracker_errors called with both error types
-        calls = mock_batch_set_errors.call_args_list
-        # Find the permanent error call
-        permanent_call = [c for c in calls if "GraphQL: repo not found" in str(c)]
+        # Verify permanent errors go through batch_set_tracker_errors (retry on
+        # next poll interval), transient errors go through batch_defer_trackers
+        # (clears next_check_at so the next tick picks them up promptly).
+        set_error_calls = mock_batch_set_errors.call_args_list
+        permanent_call = [c for c in set_error_calls if "GraphQL: repo not found" in str(c)]
         assert len(permanent_call) == 1
         assert tracker_permanent.id in permanent_call[0][0][1]
-        # Find the transient error call
-        transient_call = [c for c in calls if "transient:" in str(c)]
+
+        defer_calls = mock_batch_defer.call_args_list
+        transient_call = [c for c in defer_calls if "transient:" in str(c) and "circuit breaker" not in str(c)]
         assert len(transient_call) == 1
         assert tracker_transient.id in transient_call[0][0][1]
 
@@ -2087,10 +2090,11 @@ class TestCircuitBreaker:
         mock_batch_disable.assert_not_called()
         mock_mark_removed.assert_not_called()
 
-        # The 3 permanent errors were downgraded to transient, verify via batch_set_tracker_errors calls
-        # There should be a call with the "circuit breaker" message for 3 trackers
-        all_set_error_calls = mock_batch_set_errors.call_args_list
-        circuit_breaker_calls = [c for c in all_set_error_calls if "circuit breaker" in str(c).lower()]
+        # The 3 permanent errors were downgraded to transient — routed through
+        # batch_defer_trackers so next_check_at is cleared and the next tick
+        # picks them up promptly rather than waiting a full poll interval.
+        all_defer_calls = mock_batch_defer.call_args_list
+        circuit_breaker_calls = [c for c in all_defer_calls if "circuit breaker" in str(c).lower()]
         assert len(circuit_breaker_calls) == 1
         # Should contain the 3 tracker IDs that were downgraded
         downgraded_ids = circuit_breaker_calls[0][0][1]

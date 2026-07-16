@@ -3,8 +3,35 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
+from typing import Any
 
 from fastapi import HTTPException, Request
+
+# Attribute name on `app.state` for the container-wide "trust the first hop of
+# X-Forwarded-For" toggle. Set once at settings load — see `_client_key`.
+_TRUST_PROXY_ATTR = "_rate_limit_trust_proxy"
+
+
+def _client_key(request: Request) -> str:
+    """Return the per-client key used to bucket rate-limit counters.
+
+    Behind Modal / any TLS-terminating proxy, ``request.client.host`` is the
+    proxy IP, so every request would share a single bucket — one attacker
+    could exhaust the limit for the whole world. When ``rate_limit_trust_proxy``
+    is set on ``app.state`` we honour the left-most entry of
+    ``X-Forwarded-For``, which is the closest thing to a real client IP the
+    proxy exposes. The setting is off by default so misconfigured deployments
+    fail closed (spoofable header ignored) rather than open.
+    """
+    app = request.app
+    if getattr(app.state, _TRUST_PROXY_ATTR, False):
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff:
+            first = xff.split(",", 1)[0].strip()
+            if first:
+                return first
+    return request.client.host if request.client else "unknown"
 
 
 class RateLimiter:
@@ -33,7 +60,7 @@ class RateLimiter:
         self._lock = threading.Lock()
 
     def __call__(self, request: Request) -> None:
-        key = request.client.host if request.client else "unknown"
+        key = _client_key(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
 
@@ -63,3 +90,35 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def rate_limit_dependency(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that lazily initialises a per-endpoint limiter.
+
+    The returned callable expects the app to carry a ``settings`` attribute on
+    ``app.state`` with ``<name>_rate_limit`` and ``<name>_rate_window`` fields.
+    The limiter is created on first use and cached at ``app.state._<name>_rate_limiter``
+    so all requests to that endpoint share the same sliding window.
+
+    This replaces ~9 near-identical `_enforce_*_rate_limit` helpers that only
+    differed by the settings field they read.
+    """
+    state_attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def _enforce(request: Request) -> None:
+        state = request.app.state
+        limiter: Any = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    _enforce.__name__ = f"_enforce_{name}_rate_limit"
+    _enforce.__doc__ = f"Rate-limit dependency for the '{name}' endpoint group."
+    return _enforce

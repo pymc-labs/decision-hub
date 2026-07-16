@@ -158,6 +158,10 @@ def create_app() -> FastAPI:
     app.state.engine = engine
     app.state.settings = settings
     app.state.s3_client = s3_client
+    # Toggle read by the rate limiter's _client_key helper. Kept on state
+    # (not just settings) so tests can flip it per-request without mutating
+    # a shared Settings singleton.
+    app.state._rate_limit_trust_proxy = settings.rate_limit_trust_proxy
 
     # In-memory TTL cache for hot read paths (per-container, not shared
     # across Modal replicas).

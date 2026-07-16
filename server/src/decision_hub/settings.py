@@ -92,6 +92,15 @@ class Settings(BaseSettings):
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
+    keys_rate_limit: int = 30  # max requests per window
+    keys_rate_window: int = 60  # window in seconds
+
+    # When True, the rate limiter honors the left-most entry of the
+    # X-Forwarded-For header for bucketing counters. Only enable when a
+    # trusted reverse proxy (e.g. Modal) terminates TLS in front of the
+    # container — the header is spoofable when it isn't. Off by default so
+    # deployments without a proxy fail closed.
+    rate_limit_trust_proxy: bool = False
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096
