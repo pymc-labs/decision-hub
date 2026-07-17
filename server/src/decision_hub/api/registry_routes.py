@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -19,7 +19,7 @@ from decision_hub.api.deps import (
     get_s3_client,
     get_settings,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limit
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,88 +83,19 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Rate-limit dependencies. Each factory captures its own settings +
+# app.state attribute; a shared lock inside `rate_limit` serializes the
+# lazy build so concurrent cold-start requests can't create competing
+# limiters. See decision_hub.api.rate_limit for the implementation.
+_list_skills_rate_limit = rate_limit("_list_skills_rate_limiter", "list_skills_rate_limit", "list_skills_rate_window")
+_resolve_rate_limit = rate_limit("_resolve_rate_limiter", "resolve_rate_limit", "resolve_rate_window")
+_similar_skills_rate_limit = rate_limit(
+    "_similar_skills_rate_limiter", "similar_skills_rate_limit", "similar_skills_rate_window"
+)
+_download_rate_limit = rate_limit("_download_rate_limiter", "download_rate_limit", "download_rate_window")
+_audit_log_rate_limit = rate_limit("_audit_log_rate_limiter", "audit_log_rate_limit", "audit_log_rate_window")
+_scan_report_rate_limit = rate_limit("_scan_report_rate_limiter", "scan_report_rate_limit", "scan_report_rate_window")
+_publish_rate_limit = rate_limit("_publish_rate_limiter", "publish_rate_limit", "publish_rate_window")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -438,8 +369,18 @@ class AccessGrantListEntry(BaseModel):
     created_at: str | None
 
 
-# Stale heartbeat threshold for zombie detection (5 minutes)
-_STALE_HEARTBEAT_SECONDS = 300
+# Stale heartbeat threshold. Runs whose heartbeat is older than this
+# from the read path are marked failed and persisted; anything below
+# stays in its live status even if a beat is briefly late.
+#
+# Previously this was 5 minutes and any lag past it flipped the row
+# permanently to failed on the next CLI poll — killing valid slow runs
+# whose worker just took a while between heartbeats. Doubled to 10
+# minutes here so only genuinely-dead runs get reaped from the read
+# path; a dedicated background sweep can still use a shorter threshold.
+_STALE_HEARTBEAT_FAIL_SECONDS = 600
+# Legacy alias, kept for existing imports; do not use for new logic.
+_STALE_HEARTBEAT_SECONDS = _STALE_HEARTBEAT_FAIL_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -451,9 +392,7 @@ _STALE_HEARTBEAT_SECONDS = 300
 # would block the event loop during synchronous DB/S3/gauntlet calls and
 # also requires ``await zip_file.read()`` which deadlocks under
 # BaseHTTPMiddleware (see CLIVersionMiddleware docstring in app.py).
-@router.post(
-    "/publish", response_model=PublishResponse, status_code=201, dependencies=[Depends(_enforce_publish_rate_limit)]
-)
+@router.post("/publish", response_model=PublishResponse, status_code=201, dependencies=[_publish_rate_limit])
 def publish_skill(
     metadata: str = Form(...),
     zip_file: UploadFile = File(...),
@@ -569,7 +508,7 @@ def get_registry_stats(
 @public_router.get(
     "/skills",
     response_model=PaginatedSkillsResponse,
-    dependencies=[Depends(_enforce_list_skills_rate_limit)],
+    dependencies=[_list_skills_rate_limit],
 )
 def list_skills(
     page: int = Query(1, ge=1),
@@ -686,7 +625,7 @@ def get_skill_summary(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/similar",
     response_model=list[SimilarSkillRef],
-    dependencies=[Depends(_enforce_similar_skills_rate_limit)],
+    dependencies=[_similar_skills_rate_limit],
 )
 def get_similar_skills(
     org_slug: str,
@@ -739,7 +678,7 @@ def get_latest_version(
 @public_router.get(
     "/resolve/{org_slug}/{skill_name}",
     response_model=ResolveResponse,
-    dependencies=[Depends(_enforce_resolve_rate_limit)],
+    dependencies=[_resolve_rate_limit],
 )
 def resolve_skill(
     org_slug: str,
@@ -785,7 +724,7 @@ def resolve_skill(
 
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/download",
-    dependencies=[Depends(_enforce_download_rate_limit)],
+    dependencies=[_download_rate_limit],
 )
 def download_skill(
     org_slug: str,
@@ -820,7 +759,7 @@ def download_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/audit-log",
     response_model=PaginatedAuditLogResponse,
-    dependencies=[Depends(_enforce_audit_log_rate_limit)],
+    dependencies=[_audit_log_rate_limit],
 )
 def get_audit_log(
     org_slug: str,
@@ -867,7 +806,7 @@ def get_audit_log(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/scan-report",
     response_model=ScanReportResponse | None,
-    dependencies=[Depends(_enforce_scan_report_rate_limit)],
+    dependencies=[_scan_report_rate_limit],
 )
 def get_scan_report(
     org_slug: str,
@@ -1098,17 +1037,32 @@ def _run_to_response(run) -> EvalRunResponse:
 
 
 def _check_zombie(conn: Connection, run) -> str:
-    """Check if a running eval run has a stale heartbeat (zombie).
+    """Report — and, only when clearly dead, persist — a stale-heartbeat run.
 
-    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    This function runs on GET endpoints (``get_eval_run`` and
+    ``get_eval_run_logs``). Those endpoints commit their transaction on
+    success, so any status flip here is durable. Previously we persisted
+    ``failed`` as soon as the heartbeat exceeded 5 minutes, which
+    permanently killed valid slow runs whose heartbeat had temporarily
+    lagged (e.g. a judge that took >5 min on a single case).
+
+    Behaviour now:
+      * status not in {provisioning, running, judging} → return unchanged.
+      * no heartbeat yet → return unchanged.
+      * heartbeat older than the *fail* threshold → persist ``failed`` and
+        return "failed". Two stale windows have elapsed at this point,
+        so the run is almost certainly dead.
+      * otherwise → return the live status unchanged. A late heartbeat
+        from a slow-but-alive worker is not evidence of death; only the
+        much longer fail threshold is treated as terminal so that transient
+        heartbeat gaps don't kill a healthy run.
     """
     if run.status not in ("running", "judging", "provisioning"):
         return run.status
     if run.heartbeat_at is None:
         return run.status
     elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
-    if elapsed > _STALE_HEARTBEAT_SECONDS:
+    if elapsed > _STALE_HEARTBEAT_FAIL_SECONDS:
         update_eval_run_status(
             conn,
             run.id,
@@ -1197,8 +1151,12 @@ def list_eval_runs(
     """List eval runs, optionally filtered by version ID."""
     if version_id is not None:
         parsed_vid = _parse_uuid(version_id, "version_id")
-        runs = find_eval_runs_for_version(conn, parsed_vid)
-        runs = [r for r in runs if r.user_id == current_user.id]
+        # Push the per-user filter into SQL. Before, the query returned
+        # every row for the version and Python discarded the ones that
+        # belonged to other users — a side-channel that leaked row count
+        # and query latency across users, plus unbounded data over the
+        # wire when a version has many runs.
+        runs = find_eval_runs_for_version(conn, parsed_vid, user_id=current_user.id)
     else:
         runs = find_active_eval_runs_for_user(conn, current_user.id)
     return [_run_to_response(r) for r in runs]

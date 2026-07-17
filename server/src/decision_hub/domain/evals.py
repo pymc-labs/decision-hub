@@ -538,6 +538,28 @@ def run_streaming_eval(
                     completed_at=datetime.now(UTC),
                 )
                 conn.commit()
+        else:
+            # The pipeline exited cleanly without yielding a "report"
+            # event -- e.g. an empty eval_cases tuple, or a case that
+            # aborted the generator without raising. Previously we left
+            # the row stuck in "provisioning"/"running" and only the
+            # 5-minute zombie sweep would eventually reap it; users
+            # polling from the CLI saw the run hang. Mark it failed
+            # explicitly so the CLI + UI move on immediately.
+            logger.warning(
+                "Streaming eval for run_id={} ended without a report event; marking failed",
+                run_id,
+            )
+            with engine.connect() as conn:
+                update_eval_run_status(
+                    conn,
+                    run_id,
+                    status="failed",
+                    error_message="Pipeline ended without emitting a report event",
+                    log_seq=chunk_seq,
+                    completed_at=datetime.now(UTC),
+                )
+                conn.commit()
 
     except Exception as e:
         logger.error("Streaming eval failed for run_id={}: {}", run_id, e)

@@ -212,7 +212,20 @@ def run_assessment_background(
             logger.info("Assessment done — {}/{} passed in {}ms", passed, total, total_duration_ms)
 
     except Exception as e:
-        logger.error("Agent assessment failed for version {}: {}", version_id, e)
+        # Attach the traceback via loguru's `opt(exception=True)` rather
+        # than formatting `e` into the message string — otherwise the
+        # on-call reads only `str(e)`, without context, and has to
+        # reproduce the failure to see the stack.
+        logger.opt(exception=True).error("Agent assessment failed for version {}", version_id)
+
+        # Redact secrets before the error message lands in the DB and is
+        # surfaced through the /eval-runs/{id} endpoint. An exception
+        # message may embed an API key (e.g. a failing Anthropic call
+        # that echoes the auth header) which would otherwise be
+        # visible to any authenticated client.
+        from decision_hub.domain.evals import _redact_secrets
+
+        redacted_error = _redact_secrets(str(e))
 
         # Update run row if using streaming pipeline
         if run_id is not None:
@@ -228,12 +241,12 @@ def run_assessment_background(
                         err_conn,
                         run_id,
                         status="failed",
-                        error_message=str(e),
+                        error_message=redacted_error,
                         completed_at=datetime.now(UTC),
                     )
                     err_conn.commit()
-            except Exception as inner:
-                logger.error("Failed to update run {}: {}", run_id, inner)
+            except Exception:
+                logger.opt(exception=True).error("Failed to update run {}", run_id)
 
         # INSERT an error report
         try:
@@ -252,12 +265,11 @@ def run_assessment_background(
                     total=len(assessment_cases),
                     total_duration_ms=0,
                     status="failed",
-                    error_message=str(e),
+                    error_message=redacted_error,
                 )
                 err_conn.commit()
-        except Exception as inner:
-            logger.error(
-                "Failed to store error report for version {}: {}",
+        except Exception:
+            logger.opt(exception=True).error(
+                "Failed to store error report for version {}",
                 version_id,
-                inner,
             )

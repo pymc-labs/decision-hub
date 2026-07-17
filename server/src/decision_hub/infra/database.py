@@ -959,18 +959,25 @@ def update_org_github_metadata(
     description: str | None = None,
     blog: str | None = None,
 ) -> None:
-    """Update GitHub-sourced metadata and set github_synced_at = now()."""
-    stmt = (
-        sa.update(organizations_table)
-        .where(organizations_table.c.id == org_id)
-        .values(
-            avatar_url=avatar_url,
-            email=email,
-            description=description,
-            blog=blog,
-            github_synced_at=sa.func.now(),
-        )
-    )
+    """Update GitHub-sourced metadata and set github_synced_at = now().
+
+    Only fields with a non-None value are written. GitHub returns null
+    for orgs that have not filled in optional fields (blog, email,
+    description, avatar_url) — passing those nulls straight through
+    silently wiped existing values, which was especially bad for orgs
+    that had set the field once and then removed it upstream. Callers
+    that genuinely want to clear a field should pass an empty string.
+    """
+    values: dict[str, Any] = {"github_synced_at": sa.func.now()}
+    if avatar_url is not None:
+        values["avatar_url"] = avatar_url
+    if email is not None:
+        values["email"] = email
+    if description is not None:
+        values["description"] = description
+    if blog is not None:
+        values["blog"] = blog
+    stmt = sa.update(organizations_table).where(organizations_table.c.id == org_id).values(**values)
     conn.execute(stmt)
 
 
@@ -2040,7 +2047,9 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Tiebreak on skills.id so ties in fts_rank produce a deterministic
+        # top-N across page reloads and across Postgres query plans.
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id.asc()).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2061,7 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc()).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,7 +2134,7 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc())
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -2708,23 +2717,39 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     return _row_to_eval_run(row)
 
 
-def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
-    """List all eval runs for a version, newest first."""
-    stmt = (
-        sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
-    )
+def find_eval_runs_for_version(
+    conn: Connection,
+    version_id: UUID,
+    *,
+    user_id: UUID | None = None,
+) -> list[EvalRun]:
+    """List eval runs for a version, newest first.
+
+    When ``user_id`` is provided the filter is pushed into SQL so only
+    that user's rows are returned by Postgres — never fetched and then
+    dropped in Python. Passing ``user_id=None`` returns all runs and is
+    reserved for privileged callers (e.g. background sweeps).
+    """
+    stmt = sa.select(eval_runs_table).where(eval_runs_table.c.version_id == version_id)
+    if user_id is not None:
+        stmt = stmt.where(eval_runs_table.c.user_id == user_id)
+    # Add id as a tiebreaker so callers with LIMIT get deterministic ordering.
+    stmt = stmt.order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
 
 
 def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int = 10) -> list[EvalRun]:
-    """Find recent eval runs for a user, newest first."""
+    """Find recent eval runs for a user, newest first.
+
+    Includes ``id`` as an ORDER BY tiebreaker so the ``LIMIT`` is stable
+    when two rows share ``created_at`` (CLAUDE.md: "Every query with
+    LIMIT must have an explicit ORDER BY with a unique tiebreaker").
+    """
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()
@@ -3248,8 +3273,16 @@ def insert_tracker_metrics(
 
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
-    """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    """Return recent tracker metrics rows, newest first.
+
+    Includes ``id`` as an ORDER BY tiebreaker so ``LIMIT`` is stable when
+    two runs land in the same millisecond (CLAUDE.md rule).
+    """
+    stmt = (
+        sa.select(tracker_metrics_table)
+        .order_by(tracker_metrics_table.c.recorded_at.desc(), tracker_metrics_table.c.id.desc())
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 

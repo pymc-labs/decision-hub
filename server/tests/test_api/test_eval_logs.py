@@ -84,15 +84,16 @@ class TestGetEvalRun:
 
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.find_eval_run")
-    def test_zombie_detection_marks_stale_run_as_failed(
+    def test_zombie_persisted_only_after_double_stale_window(
         self,
         mock_find_run: MagicMock,
         mock_update_status: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """A running eval with a heartbeat >5 min stale is marked failed."""
-        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
+        """A running eval with a heartbeat past the *fail* threshold is persisted."""
+        # >_STALE_HEARTBEAT_FAIL_SECONDS (600s) — well and truly dead.
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=900)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
 
         # find_eval_run is called twice: once before zombie check, once after
@@ -111,6 +112,35 @@ class TestGetEvalRun:
         mock_update_status.assert_called_once()
         call_kwargs = mock_update_status.call_args
         assert call_kwargs.kwargs.get("status") == "failed"
+
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_briefly_late_heartbeat_stays_alive(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A heartbeat under the fail threshold must not be persisted as failed.
+
+        Regression fix: previously any heartbeat >5 min old permanently
+        flipped the row to failed, killing valid slow runs whose worker
+        just took a while between beats. The read path now only marks a
+        run failed once the heartbeat is past _STALE_HEARTBEAT_FAIL_SECONDS
+        (~10 min); anything under that stays alive so the worker's next
+        heartbeat can resume normal reporting.
+        """
+        # 480s: well past the old 300s threshold but under the new fail one.
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=480)
+        run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
+        mock_find_run.side_effect = [run, run]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+        mock_update_status.assert_not_called()
 
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.find_eval_run")
@@ -393,8 +423,9 @@ class TestGetEvalRunLogs:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Stale heartbeat during log fetch triggers zombie detection."""
-        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
+        """A heartbeat past the fail threshold during log fetch triggers zombie detection."""
+        # Past _STALE_HEARTBEAT_FAIL_SECONDS (600s) — clearly dead.
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=900)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
         mock_find_run.return_value = run
         mock_list_chunks.return_value = []
@@ -470,17 +501,23 @@ class TestListEvalRuns:
         assert resp.json() == []
 
     @patch("decision_hub.api.registry_routes.find_eval_runs_for_version")
-    def test_list_by_version_filters_to_current_user(
+    def test_list_by_version_pushes_auth_filter_into_sql(
         self,
         mock_find_runs: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """The current user's id must be passed to the DB query, not filtered in Python.
+
+        Before the fix, ``find_eval_runs_for_version`` returned every row
+        for the version and the endpoint dropped foreign rows in a list
+        comprehension. That leaked row count / latency across users and
+        transferred unbounded data over the wire. This test locks in the
+        SQL-side filter by asserting the ``user_id`` kwarg is forwarded.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +528,11 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+
+        # The critical assertion: the current user's id was forwarded to
+        # find_eval_runs_for_version so Postgres does the filtering.
+        mock_find_runs.assert_called_once()
+        assert mock_find_runs.call_args.kwargs.get("user_id") == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------
