@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from dhub.core.install import get_dhub_skill_path, uninstall_skill, verify_checksum
+from dhub.core.install import get_dhub_skill_path, list_installed_skills, uninstall_skill, verify_checksum
 
 
 class TestVerifyChecksum:
@@ -121,3 +121,45 @@ class TestUninstallSkill:
 
         assert not skill_dir.exists()
         assert org_dir.exists()
+
+
+class TestListInstalledSkills:
+    """`list_installed_skills` must gate on SKILL.md, not on 'has any files'."""
+
+    @patch("dhub.core.install.get_skills_root")
+    def test_lists_only_dirs_with_skill_md(self, mock_root, tmp_path: Path) -> None:
+        """A directory only counts as installed when SKILL.md is at its root.
+
+        Regression fix: the previous heuristic accepted any non-empty
+        directory. That let leftovers from partial uninstalls, aborted
+        downloads, or unrelated user files under ~/.dhub/skills/ show up
+        in ``dhub list`` and later blow up ``dhub update`` with confusing
+        "not found (skipped)" rows.
+        """
+        mock_root.return_value = tmp_path
+
+        # Legit installed skill.
+        (tmp_path / "acme" / "good").mkdir(parents=True)
+        (tmp_path / "acme" / "good" / "SKILL.md").write_text("---\nname: good\ndescription: x\n---\n")
+
+        # Non-empty leftover with no SKILL.md — the old code returned this.
+        (tmp_path / "acme" / "junk").mkdir(parents=True)
+        (tmp_path / "acme" / "junk" / "README.md").write_text("stale")
+
+        # Empty leftover from a partial uninstall.
+        (tmp_path / "acme" / "empty").mkdir(parents=True)
+
+        # Second legit install under a different org.
+        (tmp_path / "widgets" / "shiny").mkdir(parents=True)
+        (tmp_path / "widgets" / "shiny" / "SKILL.md").write_text("---\nname: shiny\ndescription: y\n---\n")
+
+        installed = list_installed_skills()
+
+        # Ordering is by org dir then skill dir (both sorted alphabetically).
+        assert installed == [("acme", "good"), ("widgets", "shiny")]
+
+    @patch("dhub.core.install.get_skills_root")
+    def test_returns_empty_when_root_missing(self, mock_root, tmp_path: Path) -> None:
+        """If ~/.dhub/skills/ doesn't exist yet, return an empty list — no crash."""
+        mock_root.return_value = tmp_path / "does-not-exist"
+        assert list_installed_skills() == []

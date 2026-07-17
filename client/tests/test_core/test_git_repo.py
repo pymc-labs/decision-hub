@@ -1,8 +1,17 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import (
+    _redact_url_in_text,
+    _strip_credentials,
+    clone_repo,
+    discover_skills,
+)
 
 
 class TestDiscoverSkills:
@@ -73,3 +82,55 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCredentialScrubbing:
+    """The clone helpers must not leak PAT-in-URL either in argv or errors."""
+
+    def test_strip_credentials_removes_userinfo(self) -> None:
+        assert _strip_credentials("https://ghp_abc@github.com/o/r") == "https://github.com/o/r"
+        assert _strip_credentials("https://user:pass@github.com/o/r") == "https://github.com/o/r"
+
+    def test_strip_credentials_passes_through_bare_urls(self) -> None:
+        assert _strip_credentials("https://github.com/o/r") == "https://github.com/o/r"
+
+    def test_redact_scrubs_url_in_error_body(self) -> None:
+        credentialed = "https://ghp_abc123@github.com/o/r"
+        stderr = f"fatal: could not read from {credentialed}\nauthentication failed"
+        redacted = _redact_url_in_text(stderr, credentialed)
+        assert "ghp_abc123" not in redacted
+        assert "authentication failed" in redacted
+
+    def test_clone_repo_error_message_does_not_leak_pat(self, tmp_path: Path, monkeypatch) -> None:
+        """A failing clone must not embed the PAT in the raised RuntimeError."""
+        credentialed = "https://ghp_verysecret@github.com/does/not-exist"
+
+        def fake_run(cmd, **kwargs):
+            # Simulate git echoing the credentialed URL into stderr.
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=128,
+                stdout="",
+                stderr=f"fatal: repository '{credentialed}' not found\n",
+            )
+
+        with patch("dhub.core.git_repo.subprocess.run", side_effect=fake_run):
+            with pytest.raises(RuntimeError) as excinfo:
+                clone_repo(credentialed)
+            # PAT must be gone from the surfaced error.
+            assert "ghp_verysecret" not in str(excinfo.value)
+            assert "git clone failed" in str(excinfo.value)
+
+    def test_clone_repo_translates_timeout(self, monkeypatch) -> None:
+        """A subprocess timeout is surfaced as a clean RuntimeError with no argv leak."""
+
+        def raise_timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=["git", "clone", "https://secret@github.com/o/r"], timeout=1)
+
+        with patch("dhub.core.git_repo.subprocess.run", side_effect=raise_timeout):
+            with pytest.raises(RuntimeError) as excinfo:
+                clone_repo("https://secret@github.com/o/r")
+            # The TimeoutExpired string form embeds the argv (including
+            # the credentialed URL); our wrapper must not surface it.
+            assert "secret" not in str(excinfo.value)
+            assert "timed out" in str(excinfo.value)

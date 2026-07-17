@@ -318,8 +318,11 @@ def get_installed_version(org: str, skill_name: str) -> InstalledVersion | None:
 def list_installed_skills() -> list[tuple[str, str]]:
     """Scan ~/.dhub/skills/ and return all installed (org, skill) pairs.
 
-    Only directories that look like valid skill installs (contain at
-    least one file) are included.
+    A directory only counts as "installed" if it contains a ``SKILL.md``
+    at its root. The previous heuristic ("has at least one file") let
+    partial uninstalls and unrelated leftover directories through, and
+    ``dhub update`` would then hit the API for those pseudo-skills and
+    pollute the report with confusing "not found (skipped)" rows.
     """
     skills_root = get_skills_root()
     if not skills_root.exists():
@@ -331,8 +334,7 @@ def list_installed_skills() -> list[tuple[str, str]]:
         for skill_dir in sorted(org_dir.iterdir()):
             if not skill_dir.is_dir():
                 continue
-            # Skip empty directories left over from partial uninstalls
-            if not any(skill_dir.iterdir()):
+            if not (skill_dir / "SKILL.md").is_file():
                 continue
             installed.append((org_dir.name, skill_dir.name))
     return installed

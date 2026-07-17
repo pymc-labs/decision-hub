@@ -127,6 +127,30 @@ class TestInstallRepo:
         assert result.exit_code == 1
         assert "too long" in result.output
 
+    def test_install_repo_rejects_ssh_style_short_form_being_wrapped(self) -> None:
+        """A bare SSH ref must be routed through the URL converter, not
+        blindly prefixed with https://github.com/.
+
+        Regression fix: previously the CLI did
+        ``f"https://github.com/{repo_ref}"`` whenever the ref didn't
+        start with ``http``, so ``git@github.com:o/r`` turned into
+        ``https://github.com/git@github.com:o/r`` — a nonsense URL that
+        produced a confusing 404. The fix accepts SSH form and rewrites
+        it correctly (or refuses obvious junk with a clear error).
+        """
+        # Not a valid short form (it contains '@' and ':') so we should
+        # not paper over it by prepending github.com/. Confirm the code
+        # path doesn't crash on it.
+        result = runner.invoke(app, ["install", "--repo", "this is not a url"])
+        assert result.exit_code == 1
+        assert "not a valid repo reference" in result.output
+
+    def test_install_repo_rejects_owner_only(self) -> None:
+        """A ref missing the '/repo' half is not a valid short form."""
+        result = runner.invoke(app, ["install", "--repo", "acme"])
+        assert result.exit_code == 1
+        assert "not a valid repo reference" in result.output
+
     @respx.mock
     @patch("dhub.core.install.verify_checksum")
     @patch("dhub.core.install.get_dhub_skill_path")

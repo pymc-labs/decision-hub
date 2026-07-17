@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 import shutil
 import subprocess
 import zipfile
@@ -14,6 +15,11 @@ from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
+
+# Matches the GitHub "owner/repo" short form. Owner + repo may contain
+# letters, digits, dot, underscore, hyphen — the same grammar GitHub
+# accepts for repository names.
+_SHORT_REPO_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
 def _publish_skill_directory(
@@ -398,8 +404,15 @@ def _publish_from_git_repo(
             # Capture partial-failure exit so auto-tracking still runs
             publish_exit = e
 
-        # Detect branch before cleanup — ref=None means the repo's default branch
-        branch = ref or _detect_branch(repo_root)
+        # Pick the tracker branch. `ref` may be:
+        #   * a branch name  → use it directly
+        #   * a tag          → also fine; the tracker treats it as a git ref
+        #   * a commit SHA   → NOT usable as a branch to poll; fall back to
+        #     the detected default branch instead so we don't create a
+        #     tracker on a "branch" that will never receive updates.
+        from dhub.core.git_repo import _looks_like_sha  # local import to avoid cycles
+
+        branch = ref if ref and not _looks_like_sha(ref) else _detect_branch(repo_root)
     finally:
         shutil.rmtree(repo_root.parent, ignore_errors=True)
 
@@ -1072,11 +1085,36 @@ def _install_from_repo(
     headers = build_headers(get_optional_token())
     base_url = get_api_url()
 
-    # Normalize repo_ref to full URL if it's owner/repo format
-    repo_url = f"https://github.com/{repo_ref}" if not repo_ref.startswith("http") else repo_ref
-
-    if len(repo_url) > 500:
+    # Length precheck first so oversized junk is rejected consistently
+    # regardless of whether it happens to look like a valid form.
+    if len(repo_ref) > 500:
         console.print("[red]Error: Repository URL is too long (max 500 characters).[/]")
+        raise typer.Exit(1)
+
+    # Normalise repo_ref to a full HTTPS URL.
+    #   * "owner/repo"           → expand
+    #   * "https://..."/"http://…" → keep
+    #   * "git@github.com:o/r"   → route through git_url_to_https so SSH
+    #                              refs don't turn into nonsense URLs like
+    #                              "https://github.com/git@github.com:o/r".
+    #   * anything else          → reject with a clear error rather than a
+    #                              confusing 404 downstream.
+    from dhub.core.git_repo import git_url_to_https, looks_like_git_url
+
+    if repo_ref.startswith(("http://", "https://")):
+        repo_url = repo_ref
+    elif looks_like_git_url(repo_ref):
+        converted = git_url_to_https(repo_ref)
+        if converted is None:
+            console.print(f"[red]Error: Could not parse repository URL '{repo_ref}'.[/]")
+            raise typer.Exit(1)
+        repo_url = converted
+    elif _SHORT_REPO_RE.match(repo_ref):
+        repo_url = f"https://github.com/{repo_ref}"
+    else:
+        console.print(
+            f"[red]Error: '{repo_ref}' is not a valid repo reference. Use 'owner/repo' or an https:// / git@ URL.[/]"
+        )
         raise typer.Exit(1)
 
     # Fetch all skills from the repo

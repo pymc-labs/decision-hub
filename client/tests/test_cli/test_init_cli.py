@@ -88,3 +88,31 @@ class TestInitCommand:
         assert result.exit_code == 0
         content = (tmp_path / "cool-tool" / "SKILL.md").read_text()
         assert "# cool-tool" in content
+
+    def test_init_description_with_quotes_produces_valid_yaml(self, tmp_path: Path) -> None:
+        """Descriptions containing double quotes must survive yaml frontmatter.
+
+        Regression: the previous implementation wrapped the description
+        in raw ``"..."`` inside an f-string, so any embedded double
+        quote produced malformed YAML that ``parse_skill_md`` would
+        later reject — leaving the user to hand-fix a file they'd just
+        scaffolded.
+        """
+        from dhub.core.manifest import parse_skill_md
+
+        # Description with quotes, backslash, and a colon — all yaml-hostile.
+        tricky_desc = 'A "smart" tool for path C:\\Users\\dev — handles quirks'
+        result = runner.invoke(
+            app,
+            ["init", str(tmp_path)],
+            input=f"tricky-skill\n{tricky_desc}\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        skill_md = tmp_path / "tricky-skill" / "SKILL.md"
+        assert skill_md.exists()
+
+        # The manifest parser must accept it (the whole point of the fix).
+        manifest = parse_skill_md(skill_md)
+        assert manifest.name == "tricky-skill"
+        assert manifest.description == tricky_desc

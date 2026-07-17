@@ -327,3 +327,82 @@ class TestPublishFromGitRepo:
         assert result.exit_code == 0
         assert "Using namespace: custom-org" in result.output
         assert "1 published" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.registry._ensure_tracker")
+    @patch("dhub.cli.registry._detect_branch", return_value="main")
+    @patch("dhub.core.git_repo.clone_repo")
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_git_with_sha_ref_uses_detected_branch_for_tracker(
+        self,
+        _mock_url,
+        _mock_token,
+        _mock_org,
+        mock_clone,
+        mock_detect_branch,
+        mock_ensure_tracker,
+        tmp_path: Path,
+    ) -> None:
+        """A commit SHA passed via --ref must NOT become the tracker's branch.
+
+        Regression: previously ``branch = ref or _detect_branch(...)`` so
+        ``dhub publish <url> --ref abc1234`` created a tracker with
+        ``branch="abc1234"``. The tracker service then polled that
+        "branch" and could never receive updates because SHAs don't
+        move. The fix falls back to the detected default branch
+        whenever ``ref`` looks like a SHA.
+        """
+        repo_root = tmp_path / "repo"
+        _write_skill_md(repo_root, name="my-skill")
+        mock_clone.return_value = repo_root
+
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
+
+        result = runner.invoke(
+            app,
+            ["publish", "https://github.com/example/repo", "--ref", "abc1234def5678"],
+        )
+
+        assert result.exit_code == 0
+        # The tracker was created — with the detected branch, NOT the SHA.
+        mock_ensure_tracker.assert_called_once()
+        called_branch = mock_ensure_tracker.call_args.args[3]
+        assert called_branch == "main"
+
+    @respx.mock
+    @patch("dhub.cli.registry._ensure_tracker")
+    @patch("dhub.cli.registry._detect_branch", return_value="main")
+    @patch("dhub.core.git_repo.clone_repo")
+    @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_publish_git_with_branch_ref_uses_ref_as_tracker_branch(
+        self,
+        _mock_url,
+        _mock_token,
+        _mock_org,
+        mock_clone,
+        _mock_detect_branch,
+        mock_ensure_tracker,
+        tmp_path: Path,
+    ) -> None:
+        """A named branch/tag passed via --ref is still used as the tracker branch."""
+        repo_root = tmp_path / "repo"
+        _write_skill_md(repo_root, name="my-skill")
+        mock_clone.return_value = repo_root
+
+        respx.get("http://test:8000/v1/skills/myorg/my-skill/latest-version").mock(return_value=httpx.Response(404))
+        respx.post("http://test:8000/v1/publish").mock(return_value=httpx.Response(200, json={"eval_status": "A"}))
+
+        result = runner.invoke(
+            app,
+            ["publish", "https://github.com/example/repo", "--ref", "release"],
+        )
+
+        assert result.exit_code == 0
+        mock_ensure_tracker.assert_called_once()
+        called_branch = mock_ensure_tracker.call_args.args[3]
+        assert called_branch == "release"

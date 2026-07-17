@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import typer
+import yaml
 from rich.console import Console
 
 console = Console()
@@ -38,15 +39,18 @@ def init_command(
         console.print(f"[red]Error: {skill_md} already exists.[/]")
         raise typer.Exit(1)
 
+    # Emit the frontmatter through yaml.dump so descriptions containing
+    # quotes, backslashes, or newlines don't produce a broken SKILL.md
+    # that parse_skill_md would later reject. `default_flow_style=False`
+    # keeps the block-style layout the rest of the tooling expects.
+    frontmatter = yaml.dump(
+        {"name": name, "description": description},
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=True,
+    ).strip()
     skill_md.write_text(
-        f"---\n"
-        f"name: {name}\n"
-        f'description: "{description}"\n'
-        f"---\n"
-        f"\n"
-        f"# {name}\n"
-        f"\n"
-        f"Describe what this skill does and how the agent should use it.\n"
+        f"---\n{frontmatter}\n---\n\n# {name}\n\nDescribe what this skill does and how the agent should use it.\n"
     )
 
     console.print(f"[green]Created skill project at {skill_dir.resolve()}[/]")
