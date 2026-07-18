@@ -1,11 +1,14 @@
 """Tests for decision_hub.api.rate_limit -- per-IP sliding-window rate limiter."""
 
+from collections import deque
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api import rate_limit as rate_limit_module
+from decision_hub.api.rate_limit import RateLimiter, make_rate_limit_dependency
 
 
 def _make_request(host: str = "127.0.0.1") -> MagicMock:
@@ -84,3 +87,92 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+    def test_uses_deque_not_list(self) -> None:
+        """Per-IP timestamps are stored in a deque (no per-request reallocation)."""
+        limiter = RateLimiter(max_requests=5, window_seconds=60)
+        request = _make_request()
+
+        limiter(request)
+        assert isinstance(limiter._requests["127.0.0.1"], deque)
+
+    def test_deque_reused_across_calls(self) -> None:
+        """The per-IP deque is mutated in place, not replaced each call."""
+        limiter = RateLimiter(max_requests=5, window_seconds=60)
+        request = _make_request()
+
+        limiter(request)
+        first_deque = limiter._requests["127.0.0.1"]
+        limiter(request)
+        assert limiter._requests["127.0.0.1"] is first_deque
+
+    def test_periodic_purge_drops_stale_ips(self, monkeypatch) -> None:
+        """After enough requests, stale IPs are dropped from the internal table."""
+        monkeypatch.setattr(rate_limit_module, "_PURGE_EVERY_N_REQUESTS", 3)
+        limiter = RateLimiter(max_requests=1, window_seconds=1)
+
+        with patch.object(rate_limit_module, "time") as mock_time:
+            # Stale entries at t=1000
+            mock_time.monotonic.return_value = 1000.0
+            limiter(_make_request("10.0.0.1"))
+            limiter(_make_request("10.0.0.2"))
+
+            # A well past their window — enough requests to trigger purge
+            mock_time.monotonic.return_value = 1500.0
+            limiter(_make_request("10.0.0.3"))
+
+            # Two of the first three requests were counted, third triggers purge.
+            # Stale keys (10.0.0.1, 10.0.0.2) should be gone; only 10.0.0.3 remains.
+            assert set(limiter._requests) == {"10.0.0.3"}
+            assert limiter._request_counter == 0
+
+
+class TestMakeRateLimitDependency:
+    """Unit tests for the ``make_rate_limit_dependency`` factory."""
+
+    def _make_state_and_request(self, host: str = "127.0.0.1") -> tuple[SimpleNamespace, MagicMock]:
+        settings = SimpleNamespace(
+            search_rate_limit=2,
+            search_rate_window=60,
+        )
+        state = SimpleNamespace(settings=settings)
+        request = MagicMock()
+        request.client.host = host
+        request.app.state = state
+        return state, request
+
+    def test_lazy_init_on_first_call(self) -> None:
+        state, request = self._make_state_and_request()
+        assert not hasattr(state, "_search_rate_limiter")
+
+        dep = make_rate_limit_dependency("search")
+        dep(request)
+
+        assert isinstance(state._search_rate_limiter, RateLimiter)
+        assert state._search_rate_limiter.max_requests == 2
+        assert state._search_rate_limiter.window_seconds == 60
+
+    def test_limiter_shared_across_calls(self) -> None:
+        state, request = self._make_state_and_request()
+        dep = make_rate_limit_dependency("search")
+
+        dep(request)
+        limiter_after_first = state._search_rate_limiter
+        dep(request)
+
+        assert state._search_rate_limiter is limiter_after_first
+
+    def test_enforces_limit(self) -> None:
+        _state, request = self._make_state_and_request()
+        dep = make_rate_limit_dependency("search")
+
+        dep(request)
+        dep(request)
+        with pytest.raises(HTTPException) as exc_info:
+            dep(request)
+        assert exc_info.value.status_code == 429
+
+    def test_dependency_name_reflects_endpoint(self) -> None:
+        """The returned callable's __name__ is set for readable stack traces."""
+        dep = make_rate_limit_dependency("publish")
+        assert dep.__name__ == "_enforce_publish_rate_limit"

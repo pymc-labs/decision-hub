@@ -91,23 +91,24 @@ class TestGetEvalRun:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """A running eval with a heartbeat >5 min stale is marked failed."""
+        """A running eval with a heartbeat >5 min stale is marked failed.
+
+        Only ONE call to find_eval_run is expected — the zombie helper
+        returns the updated run in memory so the route avoids a redundant
+        re-read after writing the failure.
+        """
         stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
         run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
-
-        # find_eval_run is called twice: once before zombie check, once after
-        failed_run = _make_eval_run(
-            id=run.id,
-            status="failed",
-            error_message="Stale heartbeat",
-            heartbeat_at=stale_heartbeat,
-        )
-        mock_find_run.side_effect = [run, failed_run]
+        mock_find_run.return_value = run
 
         resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
 
         assert resp.status_code == 200
-        assert resp.json()["status"] == "failed"
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert "Stale heartbeat" in body["error_message"]
+        assert body["completed_at"] is not None
+        assert mock_find_run.call_count == 1
         mock_update_status.assert_called_once()
         call_kwargs = mock_update_status.call_args
         assert call_kwargs.kwargs.get("status") == "failed"
