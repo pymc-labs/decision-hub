@@ -26,11 +26,17 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # Purge every N-th request (cheap counter). Chosen small enough to
+    # bound memory even under bursty traffic, large enough that the O(N)
+    # dict scan doesn't dominate the hot path.
+    _PURGE_EVERY = 128
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._request_count = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -52,10 +58,13 @@ class RateLimiter:
 
             self._requests[key].append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Periodically purge stale IPs to bound memory growth. The
+            # previous "sum(len(v) ...) % 100 == 0" trigger was O(N) on
+            # every request (defeating the purpose) and skipped whenever
+            # the running total happened to miss a multiple of 100.
+            self._request_count += 1
+            if self._request_count >= self._PURGE_EVERY:
+                self._request_count = 0
                 self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:

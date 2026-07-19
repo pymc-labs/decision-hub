@@ -84,3 +84,29 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+    def test_periodic_purge_removes_stale_ip_entries(self) -> None:
+        """Regression: the previous purge trigger was
+        ``sum(len(v) for v in ...) % 100 == 0`` — O(N) on every request
+        and skipped whenever the running total happened to miss a multiple
+        of 100. Replace with a request-count-based trigger and verify a
+        stale IP is actually reclaimed once the window elapses.
+        """
+        # Small purge cadence for the test — one request past the cap
+        # should be enough to trigger a purge.
+        limiter = RateLimiter(max_requests=10, window_seconds=1)
+        limiter._PURGE_EVERY = 3
+
+        with patch("decision_hub.api.rate_limit.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            # IP A makes a single request, then never comes back.
+            limiter(_make_request("10.0.0.1"))
+            # Advance beyond the window so A's timestamps become stale.
+            mock_time.monotonic.return_value = 1002.0
+            # Two requests from B to reach _PURGE_EVERY == 3.
+            limiter(_make_request("10.0.0.2"))
+            limiter(_make_request("10.0.0.2"))
+
+            # A's entry must have been purged; B's must remain.
+            assert "10.0.0.1" not in limiter._requests
+            assert "10.0.0.2" in limiter._requests

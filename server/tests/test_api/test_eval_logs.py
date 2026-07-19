@@ -155,6 +155,66 @@ class TestGetEvalRun:
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
 
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_zombie_detects_null_heartbeat_via_created_at(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A `status=running` run whose worker died before ever writing a
+        heartbeat has `heartbeat_at IS NULL`. Zombie detection must fall
+        back to `created_at`; otherwise the run stays "running" forever
+        in the UI.
+        """
+        old_created = datetime.now(UTC) - timedelta(seconds=400)
+        run = _make_eval_run(
+            status="running",
+            heartbeat_at=None,
+            created_at=old_created,
+        )
+        failed_run = _make_eval_run(
+            id=run.id,
+            status="failed",
+            heartbeat_at=None,
+            created_at=old_created,
+        )
+        mock_find_run.side_effect = [run, failed_run]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+        mock_update_status.assert_called_once()
+
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_fresh_run_with_null_heartbeat_not_marked_zombie(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A just-created run without a heartbeat yet is legitimately young
+        and must NOT be zombified; the created_at fallback must respect the
+        stale-heartbeat window.
+        """
+        run = _make_eval_run(
+            status="running",
+            heartbeat_at=None,
+            created_at=datetime.now(UTC) - timedelta(seconds=5),
+        )
+        mock_find_run.return_value = run
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+        mock_update_status.assert_not_called()
+
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_returns_404_for_other_users_run(
         self,

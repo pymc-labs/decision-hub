@@ -1102,12 +1102,20 @@ def _check_zombie(conn: Connection, run) -> str:
 
     If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
     run as failed and returns "failed". Otherwise returns run.status.
+
+    A run whose worker died before it ever wrote a heartbeat still has
+    `heartbeat_at IS NULL`. Falling back to `created_at` guarantees such
+    runs are eventually zombified instead of staying "running" forever
+    in the UI.
     """
     if run.status not in ("running", "judging", "provisioning"):
         return run.status
-    if run.heartbeat_at is None:
+    reference = run.heartbeat_at or run.created_at
+    if reference is None:
+        # Neither heartbeat nor created_at set (should not happen — created_at
+        # has a NOT NULL server default). Nothing safe to compare against.
         return run.status
-    elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
+    elapsed = (datetime.now(UTC) - reference).total_seconds()
     if elapsed > _STALE_HEARTBEAT_SECONDS:
         update_eval_run_status(
             conn,

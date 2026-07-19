@@ -15,6 +15,41 @@ from rich.table import Table
 
 console = Console()
 
+# Hard cap on downloaded skill zip size. A misconfigured registry (or a hostile
+# mirror serving an oversized redirect) could otherwise stream gigabytes into
+# `resp.content` before `zipfile` refuses to parse it, OOMing the client.
+# 200 MB is well above any realistic published skill (largest today are <10 MB)
+# but small enough that clients on constrained hardware fail cleanly.
+_MAX_SKILL_ZIP_BYTES = 200 * 1024 * 1024
+
+
+def _download_capped(client: httpx.Client, url: str, max_bytes: int) -> bytes:
+    """GET `url` and return the body, aborting if it exceeds `max_bytes`.
+
+    Streams so we never allocate more than one chunk beyond the running
+    total, and checks Content-Length up front when present so we can fail
+    before spending bandwidth on an obviously oversized response.
+    """
+    with client.stream("GET", url) as resp:
+        resp.raise_for_status()
+        content_length = resp.headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                # Bogus header — ignore and let the streaming guard below
+                # (authoritative) decide.
+                declared = None
+            if declared is not None and declared > max_bytes:
+                raise ValueError(f"Response too large: server reported {declared} bytes (limit {max_bytes}).")
+
+        buf = bytearray()
+        for chunk in resp.iter_bytes():
+            buf.extend(chunk)
+            if len(buf) > max_bytes:
+                raise ValueError(f"Response too large: exceeded {max_bytes} bytes while downloading.")
+        return bytes(buf)
+
 
 def _publish_skill_directory(
     path: Path,
@@ -656,7 +691,9 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     for s in skills:
         rating = s.get("safety_rating", "")
         rating_style = grade_styles.get(rating, "white")
-        updated = s.get("updated_at", "")[:10]
+        # `updated_at` may be explicitly `null` in the JSON payload (not just absent),
+        # in which case `.get("updated_at", "")` still returns None. Coalesce to "".
+        updated = (s.get("updated_at") or "")[:10]
         table.add_row(
             s["org_slug"],
             s["skill_name"],
@@ -1007,14 +1044,13 @@ def _install_single_skill(
         download_url = data["download_url"]
         expected_checksum = data["checksum"]
 
-    # Download and verify
+    # Download and verify. Stream with a byte cap so a runaway response
+    # can't OOM the client before zipfile even sees it.
     with (
         console.status(f"Downloading {org_slug}/{skill_name}@{resolved_version}..."),
         httpx.Client(timeout=60) as client,
     ):
-        resp = client.get(download_url)
-        raise_for_status(resp)
-        zip_data = resp.content
+        zip_data = _download_capped(client, download_url, _MAX_SKILL_ZIP_BYTES)
     verify_checksum(zip_data, expected_checksum)
 
     # Extract to the canonical skill path
@@ -1038,25 +1074,46 @@ def _install_single_skill(
 
     from dhub.cli.output import is_json, print_json
 
-    if is_json():
-        print_json({"org": org_slug, "skill": skill_name, "version": resolved_version, "path": str(skill_path)})
+    json_mode = is_json()
+
+    # Create agent symlinks. Both JSON and text output need to observe the
+    # same behavior — an earlier code path returned before linking in JSON
+    # mode, silently ignoring --agent for scripted install.
+    linked_agents: list[str] = []
+    linked_path: str | None = None
+    skipped_agents: list[str] = []
+    if agent:
+        if agent == "all":
+            linked_agents, skipped_agents = link_skill_to_all_agents(org_slug, skill_name)
+        else:
+            linked_path = str(link_skill_to_agent(org_slug, skill_name, agent))
+            linked_agents = [agent]
+
+    if json_mode:
+        payload = {
+            "org": org_slug,
+            "skill": skill_name,
+            "version": resolved_version,
+            "path": str(skill_path),
+            "linked_agents": linked_agents,
+        }
+        if skipped_agents:
+            payload["skipped_agents"] = skipped_agents
+        print_json(payload)
         return
 
     console.print(f"[green]Installed {org_slug}/{skill_name}@{resolved_version} to {skill_path}[/]")
 
-    # Create agent symlinks
     if agent:
         if agent == "all":
-            linked, skipped = link_skill_to_all_agents(org_slug, skill_name)
-            if linked:
-                console.print(f"[green]Linked to agents: {', '.join(linked)}[/]")
+            if linked_agents:
+                console.print(f"[green]Linked to agents: {', '.join(linked_agents)}[/]")
             else:
                 console.print("[yellow]No agents detected on this machine.[/]")
-            if skipped:
-                console.print(f"[dim]Skipped (not installed): {', '.join(skipped)}[/]")
+            if skipped_agents:
+                console.print(f"[dim]Skipped (not installed): {', '.join(skipped_agents)}[/]")
         else:
-            link_path = link_skill_to_agent(org_slug, skill_name, agent)
-            console.print(f"[green]Linked to {agent} at {link_path}[/]")
+            console.print(f"[green]Linked to {agent} at {linked_path}[/]")
 
 
 def _install_from_repo(
@@ -1245,20 +1302,11 @@ def _try_resolve_run_id(skill_ref: str, api_url: str, headers: dict) -> str | No
                 runs = resp.json()
                 if runs:
                     return runs[0]["id"]
-            return None
 
-    # Fallback: no eval report for this version, list user's recent runs
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(
-            f"{api_url}/v1/eval-runs",
-            headers=headers,
-        )
-        if resp.status_code != 200:
-            return None
-        runs = resp.json()
-
-    if runs:
-        return runs[0]["id"]
+    # No eval report for this specific version → return None so the caller
+    # can report "no runs found for {skill_ref}". Previously this fell back
+    # to listing the user's most recent run across ALL skills, which meant
+    # `dhub logs alice/a --follow` could silently tail a run for bob/b.
     return None
 
 

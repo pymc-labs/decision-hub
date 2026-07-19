@@ -147,12 +147,16 @@ def tracker_to_dict(tracker: SkillTracker) -> dict[str, Any]:
 
     UUID and datetime fields are converted to strings so the dict is JSON-safe.
     """
+    from uuid import UUID
+
     d = dataclasses.asdict(tracker)
     for key, value in d.items():
         if isinstance(value, datetime):
             d[key] = value.isoformat()
-        elif hasattr(value, "hex"):
-            # UUID → string
+        elif isinstance(value, UUID):
+            # Explicit UUID check — `hasattr(value, "hex")` also matches
+            # `bytes` and would silently corrupt any future byte-valued
+            # field (e.g. a checksum) as `str(b"...")` on the wire.
             d[key] = str(value)
     return d
 
@@ -802,6 +806,18 @@ def process_tracker(
                     )
 
             all_failed = published_count == 0 and len(errors) > 0
+            # Surface partial failures too. Previously `last_error` was set
+            # only when *every* skill failed, so a repo where 1 of 6 skills
+            # publishes and 5 error out (rejected/malformed) cleared the
+            # error field, advanced the SHA, and never retried the broken
+            # skills. Prefix with "partial: " so operators can distinguish
+            # partial from total failure at a glance.
+            if all_failed:
+                combined_error: str | None = "; ".join(errors)[:500]
+            elif errors:
+                combined_error = f"partial: {'; '.join(errors)}"[:500]
+            else:
+                combined_error = None
             with engine.connect() as conn:
                 update_skill_tracker(
                     conn,
@@ -811,7 +827,7 @@ def process_tracker(
                     last_commit_sha=current_sha if not all_failed else None,
                     last_checked_at=now,
                     last_published_at=now if published_count > 0 else None,
-                    last_error="; ".join(errors)[:500] if all_failed else None,
+                    last_error=combined_error,
                 )
                 conn.commit()
 
@@ -868,21 +884,25 @@ def _detect_removed_skills(
     from decision_hub.infra.database import fetch_skill_names_by_source_repo, mark_skills_removed_by_name
 
     discovered_names: set[str] = set()
+    parse_failures = 0
     for skill_dir in skill_dirs:
         try:
             manifest = parse_skill_md(skill_dir / "SKILL.md")
             discovered_names.add(manifest.name)
         except (ValueError, FileNotFoundError):
-            continue
+            parse_failures += 1
 
-    # Guard: if skill_dirs were provided but every parse failed,
-    # discovered_names is empty and the subtraction would incorrectly
-    # mark all DB skills as removed.  Bail out instead.
-    if skill_dirs and not discovered_names:
+    # A single transient parse failure (e.g. a broken YAML on this commit)
+    # would otherwise land the still-present skill in the `removed_names`
+    # set and mark it `source_repo_removed=true`. Removal detection needs
+    # a *complete* view of what's in the repo; if any per-dir parse failed,
+    # skip removal detection for this cycle.
+    if parse_failures:
         logger.warning(
-            "tracker_id={} repo={} all {} SKILL.md parses failed, skipping removal detection",
+            "tracker_id={} repo={} skipping removal detection: {} of {} SKILL.md parses failed",
             tracker.id,
             tracker.repo_url,
+            parse_failures,
             len(skill_dirs),
         )
         return
