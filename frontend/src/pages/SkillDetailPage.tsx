@@ -222,13 +222,31 @@ export default function SkillDetailPage() {
     }
   }, [activeTab, zipData, zipLoading, zipError, loadZip]);
 
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      // Clear any pending "Copied!" reset when the component unmounts so
+      // we don't setState on an unmounted tree.
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    },
+    [],
+  );
+
   const handleDownload = async () => {
     if (!orgSlug || !skillName) return;
     setDownloading(true);
     try {
-      const allowRisky = skill?.safety_rating === "C";
-      const zipData = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
-      const blob = new Blob([zipData], { type: "application/zip" });
+      // Reuse the zip we already fetched for the Overview/Files tabs
+      // instead of hitting /download a second time — the bytes are
+      // identical (we downloaded the same "latest" version) so paying
+      // the round-trip again just wastes bandwidth.
+      let buf = zipData;
+      if (!buf) {
+        const allowRisky = skill?.safety_rating === "C";
+        buf = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
+      }
+      const blob = new Blob([buf], { type: "application/zip" });
       saveAs(blob, `${orgSlug}-${skillName}.zip`);
     } catch (err) {
       console.error("Download failed:", err);
@@ -240,7 +258,11 @@ export default function SkillDetailPage() {
   const handleCopyInstall = () => {
     navigator.clipboard.writeText(`dhub install ${orgSlug}/${skillName} --agent all`);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = setTimeout(() => {
+      copyResetTimer.current = null;
+      setCopied(false);
+    }, 2000);
   };
 
   if (skillLoading) {

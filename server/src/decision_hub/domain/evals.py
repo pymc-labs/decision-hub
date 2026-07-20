@@ -48,6 +48,29 @@ def _truncate(text: str, max_len: int = _MAX_CONTENT_LEN) -> str:
     return text[:max_len] + "...[truncated]"
 
 
+def _upload_next_chunk(
+    *,
+    upload_fn,
+    s3_client,
+    s3_bucket: str,
+    log_s3_prefix: str,
+    current_seq: int,
+    events: list[dict],
+) -> int:
+    """Upload the buffered events as the next chunk and return the new seq.
+
+    Raises whatever the underlying upload raises. On failure ``current_seq``
+    is *not* advanced — the caller keeps the buffer and retries on the
+    next flush. This guarantees the frontend never sees a gap in the
+    chunk-seq numbering (previously the seq was bumped before the upload,
+    so a transient S3 error left a permanent hole).
+    """
+    events_jsonl = "\n".join(json.dumps(e) for e in events) + "\n"
+    next_seq = current_seq + 1
+    upload_fn(s3_client, s3_bucket, log_s3_prefix, next_seq, events_jsonl)
+    return next_seq
+
+
 def _make_event(seq: int, event_type: str, **kwargs) -> dict:
     """Create a structured event dict with seq, type, and timestamp."""
     event = {
@@ -452,9 +475,15 @@ def run_streaming_eval(
         nonlocal chunk_seq, last_flush_time
         if not event_buffer:
             return
-        chunk_seq += 1
-        events_jsonl = "\n".join(json.dumps(e) for e in event_buffer) + "\n"
-        upload_eval_log_chunk(s3_client, s3_bucket, log_s3_prefix, chunk_seq, events_jsonl)
+        new_seq = _upload_next_chunk(
+            upload_fn=upload_eval_log_chunk,
+            s3_client=s3_client,
+            s3_bucket=s3_bucket,
+            log_s3_prefix=log_s3_prefix,
+            current_seq=chunk_seq,
+            events=event_buffer,
+        )
+        chunk_seq = new_seq
         event_buffer.clear()
         last_flush_time = time.monotonic()
 

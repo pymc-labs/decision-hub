@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import shutil
 import subprocess
 import zipfile
@@ -1017,21 +1018,46 @@ def _install_single_skill(
         zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
 
-    # Extract to the canonical skill path
+    # Extract to a sibling staging directory, then atomically replace
+    # the canonical path. This guarantees that files removed upstream
+    # (renamed scripts, deleted assets) are not left behind — a plain
+    # extract-in-place would merge new-and-old side by side forever.
     skill_path = get_dhub_skill_path(org_slug, skill_name)
-    skill_path.mkdir(parents=True, exist_ok=True)
+    skill_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-        # Validate entries before extracting to prevent zip-slip attacks
-        # where entries like "../../.bashrc" could write outside skill_path.
-        from dhub_core.ziputil import validate_zip_entries
+    import tempfile
 
-        try:
-            validate_zip_entries(zf, str(skill_path))
-        except ValueError as exc:
-            console.print(f"[red]Error: Refusing to install — {exc}[/]")
-            raise typer.Exit(1) from None
-        zf.extractall(skill_path)
+    staging_root = Path(
+        tempfile.mkdtemp(
+            prefix=f".{skill_name}-install-",
+            dir=str(skill_path.parent),
+        )
+    )
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            # Validate entries before extracting to prevent zip-slip attacks
+            # where entries like "../../.bashrc" could write outside skill_path.
+            from dhub_core.ziputil import validate_zip_entries
+
+            try:
+                validate_zip_entries(zf, str(staging_root))
+            except ValueError as exc:
+                console.print(f"[red]Error: Refusing to install — {exc}[/]")
+                raise typer.Exit(1) from None
+            zf.extractall(staging_root)
+
+        # Atomic-ish swap: rmtree the old path, then rename staging into
+        # place. os.replace on a directory works iff the target does not
+        # exist, so we remove first. There is a brief window where the
+        # skill directory is missing, but that is strictly better than
+        # a permanent partial state on failure.
+        if skill_path.exists():
+            shutil.rmtree(skill_path)
+        os.replace(staging_root, skill_path)
+    except BaseException:
+        # Clean up staging on any failure (including validation exit).
+        shutil.rmtree(staging_root, ignore_errors=True)
+        raise
 
     # Record the installed version for `dhub update` comparisons
     save_installed_version(org_slug, skill_name, resolved_version, allow_risky=allow_risky)

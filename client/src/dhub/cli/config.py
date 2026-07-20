@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -80,16 +81,30 @@ def load_config() -> CliConfig:
 
 
 def save_config(config: CliConfig) -> None:
-    """Save CLI config to ~/.dhub/config.{env}.json.
+    """Save CLI config to ~/.dhub/config.{env}.json with 0o600 permissions.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory (mode 0o700) if it does not already
+    exist. The config file may contain the user's GitHub OAuth token,
+    so it must never be world- or group-readable on a shared machine.
     """
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Tighten permissions on ~/.dhub even if it already existed with a
+    # looser mode (previous CLI versions relied on the default umask).
+    # Best-effort: chmod may fail on some filesystems (e.g. certain network
+    # mounts). Don't block config writes over it.
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_DIR, 0o700)
+
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+    # Open with O_CREAT | O_TRUNC and mode 0o600 so a freshly-created
+    # file is never briefly world-readable between write and chmod.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(payload)
+    # Ensure existing files that predate this behavior get tightened too.
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)
 
 
 def get_api_url() -> str:

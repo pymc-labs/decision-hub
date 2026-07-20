@@ -1197,8 +1197,9 @@ def list_eval_runs(
     """List eval runs, optionally filtered by version ID."""
     if version_id is not None:
         parsed_vid = _parse_uuid(version_id, "version_id")
-        runs = find_eval_runs_for_version(conn, parsed_vid)
-        runs = [r for r in runs if r.user_id == current_user.id]
+        # Filter user_id in the DB so we never fetch other users' rows
+        # into Python — protects both privacy and memory on hot versions.
+        runs = find_eval_runs_for_version(conn, parsed_vid, user_id=current_user.id)
     else:
         runs = find_active_eval_runs_for_user(conn, current_user.id)
     return [_run_to_response(r) for r in runs]

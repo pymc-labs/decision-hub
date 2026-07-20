@@ -1269,8 +1269,12 @@ def run_static_checks(
         analyze_credential_fn: Optional LLM callback for entropy credential review.
         unscanned_files: Filenames in the zip that could not be security-scanned.
     """
-    # Normalize: non-string allowed_tools (e.g. from malformed manifests) → None
-    if not isinstance(allowed_tools, str):
+    # Normalize: YAML list form (e.g. ``allowed_tools: [Bash, WebFetch]``)
+    # is perfectly valid in a manifest — coerce to a space-joined string
+    # so downstream text checks work. Anything else non-string → None.
+    if isinstance(allowed_tools, list):
+        allowed_tools = " ".join(str(item) for item in allowed_tools if item is not None)
+    elif not isinstance(allowed_tools, str):
         allowed_tools = None
 
     results = [check_manifest_schema(skill_md_content)]

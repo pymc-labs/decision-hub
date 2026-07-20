@@ -50,6 +50,17 @@ def _looks_like_sha(ref: str) -> bool:
     return bool(_SHA_PATTERN.match(ref))
 
 
+def _validate_ref(ref: str) -> None:
+    """Reject refs that could be interpreted as git command-line options.
+
+    Even with ``--`` separators on `git checkout`, an attacker-supplied ref
+    that starts with ``-`` is almost certainly hostile and never a real
+    branch/tag/SHA. Reject early with a clear error.
+    """
+    if ref.startswith("-"):
+        raise RuntimeError(f"Invalid ref (must not start with '-'): {ref!r}")
+
+
 def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     """Clone a git repository into a temporary directory.
 
@@ -63,19 +74,31 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     Raises:
         RuntimeError: If the clone or checkout fails.
     """
+    # Refuse repo URLs / refs that could be parsed by git as options
+    # (e.g. ``--upload-pack=malicious.sh``). ``looks_like_git_url`` only
+    # matches strings with recognised prefixes or a ``.git`` suffix, but a
+    # value like ``--upload-pack=foo.git`` still slips through — the ``--``
+    # separator below combined with these checks closes that door.
+    if repo_url.startswith("-"):
+        raise RuntimeError(f"Invalid repository URL (must not start with '-'): {repo_url!r}")
+    if ref is not None:
+        _validate_ref(ref)
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
     if ref and _looks_like_sha(ref):
         # Commit SHAs don't work with --depth 1 --branch; do a full
-        # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
+        # clone then checkout the specific commit. The ``--`` guards
+        # against `repo_url` being interpreted as an option even if a
+        # future refactor drops the startswith check above.
+        cmd = ["git", "clone", "--", repo_url, str(repo_path)]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
         checkout = subprocess.run(
-            ["git", "checkout", ref],
+            ["git", "checkout", "--", ref],
             cwd=str(repo_path),
             capture_output=True,
             text=True,
@@ -87,7 +110,7 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
         cmd = ["git", "clone", "--depth", "1"]
         if ref:
             cmd += ["--branch", ref]
-        cmd += [repo_url, str(repo_path)]
+        cmd += ["--", repo_url, str(repo_path)]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -1254,19 +1254,36 @@ class TestToolDeclarationConsistency:
 class TestAllowedToolsTypeValidation:
     """Tests for allowed_tools type normalization in run_static_checks."""
 
-    def test_non_string_allowed_tools_normalized_to_none(self):
-        """run_static_checks normalizes non-string allowed_tools to None."""
-        # Non-string (list) should be normalized to None, not crash
+    def test_list_allowed_tools_is_coerced_to_string(self):
+        """YAML-list-form allowed_tools is a real manifest shape — normalize it.
+
+        Regression: previously any non-string ``allowed_tools`` was
+        silently dropped to ``None``, so ``allowed_tools: [Bash, Shell]``
+        (perfectly valid YAML) got treated as *no declared tools* and
+        the tool-consistency check flagged the skill as inconsistent
+        with its elevated permissions.
+        """
         report = run_static_checks(
             "---\nname: test\ndescription: test\n---\nbody",
             None,
             [("main.py", "import subprocess\n")],
-            allowed_tools=["bash", "shell"],  # type: ignore[arg-type]
+            allowed_tools=["Bash", "Shell"],  # type: ignore[arg-type]
         )
-        # Should complete without error; tool_consistency should pass
-        # because allowed_tools is normalized to None
+        # The list must be coerced to a space-joined string so the "shell"
+        # tool detected in the code matches the declaration.
         tool_result = next(r for r in report.results if r.check_name == "tool_consistency")
         assert tool_result.passed is True
+
+    def test_non_string_non_list_allowed_tools_normalized_to_none(self):
+        """Anything that's not a string or list still degrades gracefully."""
+        report = run_static_checks(
+            "---\nname: test\ndescription: test\n---\nbody",
+            None,
+            [("main.py", "print('ok')\n")],
+            allowed_tools=42,  # type: ignore[arg-type]
+        )
+        # Should complete without error — 42 → None → no elevated tools.
+        assert any(r.check_name == "tool_consistency" for r in report.results)
 
     def test_detect_elevated_with_none_allowed_tools(self):
         """detect_elevated_permissions works with None allowed_tools."""

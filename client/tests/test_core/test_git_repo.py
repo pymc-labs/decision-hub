@@ -2,7 +2,35 @@
 
 from pathlib import Path
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import _validate_ref, clone_repo, discover_skills
+
+
+class TestValidateRef:
+    """clone_repo must refuse refs / URLs that could be parsed as git options.
+
+    Regression coverage for the argument-injection surface: a value like
+    ``--upload-pack=foo.git`` would otherwise be passed to git as an
+    option and let a malicious repo URL execute arbitrary commands.
+    """
+
+    def test_rejects_dash_prefixed_ref(self) -> None:
+        with pytest.raises(RuntimeError, match="must not start with '-'"):
+            _validate_ref("--upload-pack=malicious.sh")
+
+    def test_accepts_normal_ref(self) -> None:
+        _validate_ref("main")
+        _validate_ref("v1.2.3")
+        _validate_ref("abc1234")
+
+    def test_clone_repo_rejects_dash_prefixed_url(self) -> None:
+        with pytest.raises(RuntimeError, match="must not start with '-'"):
+            clone_repo("--upload-pack=malicious.sh")
+
+    def test_clone_repo_rejects_dash_prefixed_ref(self) -> None:
+        with pytest.raises(RuntimeError, match="must not start with '-'"):
+            clone_repo("https://example.com/repo.git", ref="--exec=id")
 
 
 class TestDiscoverSkills:

@@ -7,6 +7,29 @@ from collections import defaultdict
 from fastapi import HTTPException, Request
 
 
+def _client_ip(request: Request) -> str:
+    """Return the best-effort originating client IP.
+
+    Modal (and any real reverse proxy) terminates the TCP connection, so
+    ``request.client.host`` becomes the proxy's IP — meaning every real
+    client shares one bucket without this. We read ``X-Forwarded-For``
+    when present and take the *leftmost* entry, which is the original
+    client IP as populated by the proxy. Note this trusts the header;
+    that's acceptable here because per-IP rate limits are advisory —
+    the worst a spoofer can do is affect their own bucket.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        # Header format: "client, proxy1, proxy2". Take the first entry.
+        first = forwarded.split(",", 1)[0].strip()
+        if first:
+            return first
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
 class RateLimiter:
     """Per-IP sliding-window rate limiter.
 
@@ -33,7 +56,7 @@ class RateLimiter:
         self._lock = threading.Lock()
 
     def __call__(self, request: Request) -> None:
-        key = request.client.host if request.client else "unknown"
+        key = _client_ip(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
 

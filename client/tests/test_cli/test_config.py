@@ -91,6 +91,32 @@ class TestSaveConfig:
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
 
+    def test_config_file_is_not_world_readable(self, tmp_path, monkeypatch):
+        """The token-bearing config file must be 0o600 on POSIX.
+
+        Regression coverage: a broad default umask on shared machines
+        was leaving ``config.prod.json`` world-readable, exposing the
+        user's GitHub OAuth token to any other UID on the same host.
+        """
+        import os
+        import stat
+        import sys
+
+        if sys.platform.startswith("win"):
+            pytest.skip("POSIX permission bits don't apply on Windows")
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://example.com", token="secret"))
+
+        path = tmp_path / "config.dev.json"
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+        dir_mode = stat.S_IMODE(os.stat(tmp_path).st_mode)
+        assert dir_mode == 0o700, f"expected dir 0o700, got {oct(dir_mode)}"
+
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""
         monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)

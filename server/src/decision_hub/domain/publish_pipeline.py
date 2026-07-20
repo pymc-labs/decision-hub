@@ -731,6 +731,12 @@ def execute_publish(
             gauntlet_summary=report.gauntlet_summary,
         )
     except IntegrityError:
+        # PostgreSQL aborts the whole transaction on IntegrityError; any
+        # subsequent statement on this connection would raise
+        # "current transaction is aborted". Explicitly roll back so the
+        # caller (and any shared-connection code paths) can reuse the
+        # connection cleanly.
+        conn.rollback()
         raise VersionConflictError(org_slug, skill_name, version) from None
 
     # 10. Audit log

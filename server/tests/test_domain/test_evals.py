@@ -4,8 +4,70 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from decision_hub.domain.evals import _redact_secrets, run_eval_pipeline
+from decision_hub.domain.evals import _redact_secrets, _upload_next_chunk, run_eval_pipeline
 from decision_hub.models import EvalCase, EvalConfig
+
+
+class TestUploadNextChunk:
+    """chunk_seq must only advance on a successful S3 upload.
+
+    Regression: the previous implementation incremented ``chunk_seq``
+    *before* the S3 upload, so a transient S3 error left a permanent
+    gap in the stream — the frontend and tailer then saw a "missing"
+    chunk that in fact was never written.
+    """
+
+    def test_returns_incremented_seq_on_success(self) -> None:
+        calls: list[tuple] = []
+
+        def fake_upload(client, bucket, prefix, seq, body):
+            calls.append((bucket, prefix, seq, body))
+
+        new_seq = _upload_next_chunk(
+            upload_fn=fake_upload,
+            s3_client=object(),
+            s3_bucket="b",
+            log_s3_prefix="p",
+            current_seq=4,
+            events=[{"seq": 0, "type": "info"}],
+        )
+        assert new_seq == 5
+        # The uploaded seq matches the returned seq — no gap.
+        assert calls[0][2] == 5
+
+    def test_does_not_advance_seq_on_failure(self) -> None:
+        def fake_upload(*_a, **_kw):
+            raise RuntimeError("s3 down")
+
+        with pytest.raises(RuntimeError):
+            _upload_next_chunk(
+                upload_fn=fake_upload,
+                s3_client=object(),
+                s3_bucket="b",
+                log_s3_prefix="p",
+                current_seq=4,
+                events=[{"seq": 0}],
+            )
+        # The caller reads ``current_seq`` via the returned value — the
+        # exception bypasses the assignment, so from the caller's POV
+        # chunk_seq stays at 4 and the next attempt retries as seq=5.
+
+    def test_serializes_events_as_jsonl(self) -> None:
+        captured: dict = {}
+
+        def fake_upload(_c, _b, _p, _seq, body):
+            captured["body"] = body
+
+        _upload_next_chunk(
+            upload_fn=fake_upload,
+            s3_client=object(),
+            s3_bucket="b",
+            log_s3_prefix="p",
+            current_seq=0,
+            events=[{"a": 1}, {"a": 2}],
+        )
+        # Each event on its own line, trailing newline.
+        assert captured["body"] == '{"a": 1}\n{"a": 2}\n'
 
 
 def _make_eval_config() -> EvalConfig:

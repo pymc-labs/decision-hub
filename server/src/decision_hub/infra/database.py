@@ -2708,13 +2708,20 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     return _row_to_eval_run(row)
 
 
-def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
-    """List all eval runs for a version, newest first."""
-    stmt = (
-        sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
-    )
+def find_eval_runs_for_version(conn: Connection, version_id: UUID, user_id: UUID | None = None) -> list[EvalRun]:
+    """List eval runs for a version, newest first.
+
+    When ``user_id`` is provided the filter runs in Postgres — the caller
+    should always pass this for API endpoints, otherwise a low-privilege
+    user could read rows for a version they own runs on and see others'
+    runs before the Python-side filter.
+    """
+    stmt = sa.select(eval_runs_table).where(eval_runs_table.c.version_id == version_id)
+    if user_id is not None:
+        stmt = stmt.where(eval_runs_table.c.user_id == user_id)
+    # Add a deterministic tiebreaker so pagination-ish callers get stable
+    # ordering even when created_at collides at millisecond precision.
+    stmt = stmt.order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
 

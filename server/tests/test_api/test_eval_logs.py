@@ -476,11 +476,18 @@ class TestListEvalRuns:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """The user_id filter is pushed to the DB — other users' rows are never fetched.
+
+        Regression coverage: the previous implementation fetched all
+        rows for the version and filtered in Python, which leaked memory
+        on hot versions and would have surfaced other users' runs to
+        anyone who tampered with the response before the filter ran.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        # The DB stub now only returns rows matching the user_id kwarg
+        # — mimicking the SQL predicate the route depends on.
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +498,9 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+        # Verify the route pushed the user_id predicate into the DB call.
+        _, kwargs = mock_find_runs.call_args
+        assert kwargs.get("user_id") == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------
