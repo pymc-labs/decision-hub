@@ -1189,12 +1189,14 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     subdirectories of the same repo).
     """
     for repo_url, stars in repo_stars.items():
+        # Escape LIKE wildcards so repo names containing % or _ don't match
+        # unrelated skills (e.g. `my_repo` would otherwise match `myXrepo/*`).
         stmt = (
             sa.update(skills_table)
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(f"{_escape_like(repo_url)}/%", escape="\\"),
                 )
             )
             .values(github_stars=stars)
@@ -1212,12 +1214,13 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
     subdirectories of the same repo).
     """
     for repo_url, meta in repo_metadata.items():
+        # Escape LIKE wildcards; see batch_update_github_stars for rationale.
         stmt = (
             sa.update(skills_table)
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(f"{_escape_like(repo_url)}/%", escape="\\"),
                 )
             )
             .values(
@@ -2040,7 +2043,8 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # id ASC is a stable tiebreaker so ranked ties don't reorder between calls.
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id.asc()).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2056,7 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc()).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,7 +2129,7 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc())
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -2724,7 +2728,7 @@ def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int =
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.asc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()
@@ -3249,7 +3253,11 @@ def insert_tracker_metrics(
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
     """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    stmt = (
+        sa.select(tracker_metrics_table)
+        .order_by(tracker_metrics_table.c.recorded_at.desc(), tracker_metrics_table.c.id.asc())
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 

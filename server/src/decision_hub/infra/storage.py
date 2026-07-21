@@ -166,26 +166,30 @@ def list_eval_log_chunks(
 ) -> list[tuple[int, str]]:
     """List eval log chunk keys with sequence number > after_seq.
 
+    Uses a paginator so runs with more than 1000 chunks (the S3 ListObjectsV2
+    default page size) still return their full tail — including the "run
+    complete" chunk that tells the UI to stop polling.
+
     Returns:
         List of (seq, s3_key) tuples sorted by seq ascending.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
+    paginator = client.get_paginator("list_objects_v2")
 
     chunks: list[tuple[int, str]] = []
-    for obj in contents:
-        key = obj["Key"]
-        # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
-        filename = key.rsplit("/", 1)[-1]
-        if not filename.endswith(".jsonl"):
-            continue
-        seq_str = filename.replace(".jsonl", "")
-        try:
-            seq = int(seq_str)
-        except ValueError:
-            continue
-        if seq > after_seq:
-            chunks.append((seq, key))
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
+            filename = key.rsplit("/", 1)[-1]
+            if not filename.endswith(".jsonl"):
+                continue
+            seq_str = filename.replace(".jsonl", "")
+            try:
+                seq = int(seq_str)
+            except ValueError:
+                continue
+            if seq > after_seq:
+                chunks.append((seq, key))
 
     chunks.sort(key=lambda x: x[0])
     return chunks
@@ -208,20 +212,39 @@ def delete_eval_logs(
 ) -> int:
     """Delete all eval log chunks under a prefix.
 
+    Paginates the listing and batches deletes in groups of 1000 (the S3
+    DeleteObjects max). Inspects the Errors[] in each response so partial
+    failures are surfaced instead of counted as success.
+
     Returns:
-        Number of objects deleted.
+        Number of objects successfully deleted.
+
+    Raises:
+        RuntimeError: If S3 reports errors while deleting any batch.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-    if not contents:
+    paginator = client.get_paginator("list_objects_v2")
+    keys: list[str] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        keys.extend(obj["Key"] for obj in page.get("Contents", []))
+    if not keys:
         return 0
 
-    objects = [{"Key": obj["Key"]} for obj in contents]
-    client.delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": objects},
-    )
-    return len(objects)
+    total_deleted = 0
+    for i in range(0, len(keys), 1000):
+        batch = keys[i : i + 1000]
+        resp = client.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": [{"Key": k} for k in batch]},
+        )
+        errors = resp.get("Errors") or []
+        if errors:
+            first = errors[0]
+            raise RuntimeError(
+                f"delete_objects reported {len(errors)} errors under {s3_prefix}; "
+                f"first: key={first.get('Key')} code={first.get('Code')} message={first.get('Message')}"
+            )
+        total_deleted += len(resp.get("Deleted") or [])
+    return total_deleted
 
 
 # ---------------------------------------------------------------------------

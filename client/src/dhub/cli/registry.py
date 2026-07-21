@@ -155,7 +155,7 @@ def _publish_skill_directory(
 
             _tail_eval_logs(api_url, _bh(token), eval_run_id)
         except KeyboardInterrupt:
-            console.print("\n[dim]Detached. Resume with: dhub logs {eval_run_id} --follow[/]")
+            console.print(f"\n[dim]Detached. Resume with: dhub logs {eval_run_id} --follow[/]")
     elif eval_report_status == "pending":
         console.print("[dim]Agent assessment running in background...[/]")
 

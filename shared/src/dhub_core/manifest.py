@@ -33,7 +33,7 @@ def parse_skill_md(path: Path) -> SkillManifest:
         ValueError: If the file format is invalid or required fields are missing.
         FileNotFoundError: If the path does not exist.
     """
-    content = path.read_text()
+    content = path.read_text(encoding="utf-8")
     frontmatter_str, body = split_frontmatter(content)
     data = parse_frontmatter_yaml(frontmatter_str)
 
@@ -123,7 +123,12 @@ def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
         patched.append(line)
 
     patched_str = "\n".join(patched)
-    return yaml.safe_load(patched_str)
+    try:
+        return yaml.safe_load(patched_str)
+    except yaml.YAMLError as exc:
+        # Fallback still couldn't parse — surface as ValueError so callers
+        # that catch ValueError see a consistent error type.
+        raise ValueError(f"Frontmatter YAML is invalid: {exc}") from exc
 
 
 def split_frontmatter(content: str) -> tuple[str, str]:

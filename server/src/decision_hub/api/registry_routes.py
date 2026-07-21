@@ -768,13 +768,14 @@ def resolve_skill(
             detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
         )
 
-    increment_skill_downloads(conn, version.skill_id)
-
+    # Generate the presigned URL first; only bump the download counter after
+    # the S3 op succeeds so a failed presign doesn't corrupt the ranking.
     download_url = generate_presigned_url(
         s3_client,
         settings.s3_bucket,
         version.s3_key,
     )
+    increment_skill_downloads(conn, version.skill_id)
 
     return ResolveResponse(
         version=version.semver,
@@ -806,9 +807,9 @@ def download_skill(
             detail=f"Version '{spec}' not found for {org_slug}/{skill_name}",
         )
 
-    increment_skill_downloads(conn, version.skill_id)
-
+    # Fetch the zip first so a failed S3 download doesn't inflate the count.
     data = download_zip_from_s3(s3_client, settings.s3_bucket, version.s3_key)
+    increment_skill_downloads(conn, version.skill_id)
     filename = f"{org_slug}_{skill_name}_{version.semver}.zip"
     return Response(
         content=data,
@@ -1165,19 +1166,27 @@ def get_eval_run_logs(
         after_seq=0,
     )
 
-    # Read and parse events from each chunk, filtering by cursor
+    # Read and parse events from each chunk, filtering by cursor. A single
+    # malformed line (e.g. from a worker crash mid-write) previously raised
+    # JSONDecodeError and the /logs endpoint would 500 forever for that run
+    # until S3 was hand-patched. Log and skip the bad line instead.
     all_events: list[dict] = []
     max_seq = cursor
     for _chunk_seq, s3_key in chunks:
         content = read_eval_log_chunk(s3_client, settings.s3_bucket, s3_key)
         for line in content.strip().split("\n"):
-            if line.strip():
+            if not line.strip():
+                continue
+            try:
                 event = json.loads(line)
-                event_seq = event.get("seq", 0)
-                if event_seq > cursor:
-                    all_events.append(event)
-                if event_seq > max_seq:
-                    max_seq = event_seq
+            except json.JSONDecodeError as exc:
+                logger.warning("Skipping malformed eval-log line in {}: {}", s3_key, exc)
+                continue
+            event_seq = event.get("seq", 0)
+            if event_seq > cursor:
+                all_events.append(event)
+            if event_seq > max_seq:
+                max_seq = event_seq
 
     return EvalRunLogsResponse(
         events=all_events,

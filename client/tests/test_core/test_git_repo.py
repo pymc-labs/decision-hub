@@ -1,8 +1,13 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import contextlib
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +78,53 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepo:
+    """Ensure clone_repo builds subprocess args that resist injection and hangs."""
+
+    def _fake_run(self, *args, **kwargs) -> MagicMock:
+        return MagicMock(returncode=0, stderr="")
+
+    def test_uses_double_dash_separator_for_default_clone(self) -> None:
+        # A repo URL that starts with `-` would previously be interpreted by
+        # git as an option (e.g. `--upload-pack=<attacker binary>`) and let
+        # a hostile publish invocation execute arbitrary code. The `--`
+        # separator forces git to treat the remainder as positional args.
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=self._fake_run) as run,
+            contextlib.suppress(Exception),
+        ):
+            clone_repo("--upload-pack=pwn https://x")
+        cmd = run.call_args_list[0].args[0]
+        assert "--" in cmd
+        assert cmd.index("--") < cmd.index("--upload-pack=pwn https://x")
+
+    def test_uses_double_dash_separator_for_sha_clone(self) -> None:
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=self._fake_run) as run,
+            contextlib.suppress(Exception),
+        ):
+            clone_repo("https://github.com/o/r.git", ref="deadbeef1234567")
+        # First call is `git clone`, second is `git checkout`. Both must
+        # include `--` before user-controlled arguments.
+        assert "--" in run.call_args_list[0].args[0]
+        assert "--" in run.call_args_list[1].args[0]
+
+    def test_passes_timeout(self) -> None:
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=self._fake_run) as run,
+            contextlib.suppress(Exception),
+        ):
+            clone_repo("https://github.com/o/r.git")
+        assert run.call_args_list[0].kwargs.get("timeout")
+
+    def test_timeout_expired_becomes_runtime_error(self) -> None:
+        def raise_timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd="git", timeout=1)
+
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=raise_timeout),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            clone_repo("https://github.com/o/r.git")

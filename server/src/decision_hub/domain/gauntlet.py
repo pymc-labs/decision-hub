@@ -517,7 +517,9 @@ def check_manifest_schema(content: str) -> EvalResult:
     frontmatter_str = "\n".join(lines[start + 1 : end])
     try:
         data = parse_frontmatter_yaml(frontmatter_str)
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, ValueError) as exc:
+        # parse_frontmatter_yaml surfaces its fallback-parse failure as a
+        # ValueError; earlier failures still raise yaml.YAMLError directly.
         return EvalResult(
             check_name="manifest_schema",
             severity="fail",

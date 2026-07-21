@@ -81,9 +81,10 @@ class TestParseFrontmatterYaml:
         assert result["metadata"]["version"] == "1.0"
 
     def test_unparseable_yaml(self) -> None:
-        import yaml
-
-        with pytest.raises(yaml.YAMLError):
+        # When even the quoting-fallback can't parse the frontmatter, the
+        # function surfaces a ValueError so callers that already catch
+        # ValueError for other manifest errors get consistent behaviour.
+        with pytest.raises(ValueError, match="Frontmatter YAML is invalid"):
             parse_frontmatter_yaml(":\n  :\n    - [invalid")
 
 
