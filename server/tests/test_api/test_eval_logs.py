@@ -476,11 +476,16 @@ class TestListEvalRuns:
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """When filtering by version_id, only the current user's runs are returned.
+
+        The filter is now pushed into SQL (``find_eval_runs_for_version(user_id=…)``)
+        instead of a post-query Python comprehension, so the test asserts on the
+        kwargs passed to the DB helper and that the response reflects what the
+        helper returned.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +496,9 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+        # user_id must be scoped in the DB call, not filtered after the fact.
+        _args, kwargs = mock_find_runs.call_args
+        assert kwargs.get("user_id") == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------

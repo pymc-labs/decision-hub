@@ -10,8 +10,22 @@ from decision_hub.infra.storage import (
 )
 
 
-def _make_s3_client() -> MagicMock:
-    return MagicMock()
+def _make_s3_client(pages: list[dict] | None = None) -> MagicMock:
+    """Build a MagicMock S3 client. If *pages* is given, ``get_paginator`` returns those pages;
+    otherwise ``list_objects_v2`` returns a single-page (empty) result by default.
+    """
+    client = MagicMock()
+    if pages is not None:
+        paginator = MagicMock()
+        paginator.paginate.return_value = iter(pages)
+        client.get_paginator.return_value = paginator
+    else:
+        # Sensible default so tests that only set list_objects_v2 still work
+        # via the paginator abstraction.
+        paginator = MagicMock()
+        paginator.paginate.return_value = iter([{"Contents": []}])
+        client.get_paginator.return_value = paginator
+    return client
 
 
 class TestUploadEvalLogChunk:
@@ -34,48 +48,69 @@ class TestUploadEvalLogChunk:
 
 class TestListEvalLogChunks:
     def test_returns_chunks_after_cursor(self):
-        client = _make_s3_client()
-        client.list_objects_v2.return_value = {
-            "Contents": [
-                {"Key": "eval-logs/run/0001.jsonl"},
-                {"Key": "eval-logs/run/0002.jsonl"},
-                {"Key": "eval-logs/run/0003.jsonl"},
+        client = _make_s3_client(
+            pages=[
+                {
+                    "Contents": [
+                        {"Key": "eval-logs/run/0001.jsonl"},
+                        {"Key": "eval-logs/run/0002.jsonl"},
+                        {"Key": "eval-logs/run/0003.jsonl"},
+                    ]
+                }
             ]
-        }
+        )
         result = list_eval_log_chunks(client, "bucket", "eval-logs/run/", after_seq=1)
         assert len(result) == 2
         assert result[0] == (2, "eval-logs/run/0002.jsonl")
         assert result[1] == (3, "eval-logs/run/0003.jsonl")
 
     def test_returns_empty_for_no_contents(self):
-        client = _make_s3_client()
-        client.list_objects_v2.return_value = {}
+        client = _make_s3_client(pages=[{}])
         result = list_eval_log_chunks(client, "bucket", "prefix/")
         assert result == []
 
     def test_skips_non_jsonl_files(self):
-        client = _make_s3_client()
-        client.list_objects_v2.return_value = {
-            "Contents": [
-                {"Key": "prefix/0001.jsonl"},
-                {"Key": "prefix/readme.txt"},
+        client = _make_s3_client(
+            pages=[
+                {
+                    "Contents": [
+                        {"Key": "prefix/0001.jsonl"},
+                        {"Key": "prefix/readme.txt"},
+                    ]
+                }
             ]
-        }
+        )
         result = list_eval_log_chunks(client, "bucket", "prefix/")
         assert len(result) == 1
 
     def test_returns_sorted_by_seq(self):
-        client = _make_s3_client()
-        client.list_objects_v2.return_value = {
-            "Contents": [
-                {"Key": "p/0003.jsonl"},
-                {"Key": "p/0001.jsonl"},
-                {"Key": "p/0002.jsonl"},
+        client = _make_s3_client(
+            pages=[
+                {
+                    "Contents": [
+                        {"Key": "p/0003.jsonl"},
+                        {"Key": "p/0001.jsonl"},
+                        {"Key": "p/0002.jsonl"},
+                    ]
+                }
             ]
-        }
+        )
         result = list_eval_log_chunks(client, "bucket", "p/")
         seqs = [s for s, _ in result]
         assert seqs == [1, 2, 3]
+
+    def test_follows_pagination_beyond_1000_keys(self):
+        """Regression: S3's list_objects_v2 truncates at 1000 keys per page.
+        A long eval run flushing every 2s can produce >1000 chunks; the paginator
+        must follow NextContinuationToken so the tail isn't silently dropped.
+        """
+        page_1 = {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in range(1, 1001)]}
+        page_2 = {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in range(1001, 1200)]}
+        client = _make_s3_client(pages=[page_1, page_2])
+        result = list_eval_log_chunks(client, "bucket", "p/")
+        assert len(result) == 1199
+        assert result[0] == (1, "p/0001.jsonl")
+        assert result[-1] == (1199, "p/1199.jsonl")
 
 
 class TestReadEvalLogChunk:
@@ -89,20 +124,37 @@ class TestReadEvalLogChunk:
 
 class TestDeleteEvalLogs:
     def test_deletes_all_objects_under_prefix(self):
-        client = _make_s3_client()
-        client.list_objects_v2.return_value = {
-            "Contents": [
-                {"Key": "p/0001.jsonl"},
-                {"Key": "p/0002.jsonl"},
+        client = _make_s3_client(
+            pages=[
+                {
+                    "Contents": [
+                        {"Key": "p/0001.jsonl"},
+                        {"Key": "p/0002.jsonl"},
+                    ]
+                }
             ]
-        }
+        )
         count = delete_eval_logs(client, "bucket", "p/")
         assert count == 2
         client.delete_objects.assert_called_once()
 
     def test_returns_zero_for_empty_prefix(self):
-        client = _make_s3_client()
-        client.list_objects_v2.return_value = {}
+        client = _make_s3_client(pages=[{}])
         count = delete_eval_logs(client, "bucket", "p/")
         assert count == 0
         client.delete_objects.assert_not_called()
+
+    def test_batches_deletes_at_1000_key_limit(self):
+        """S3's delete_objects accepts at most 1000 keys per call. A prefix with
+        2200 objects should trigger 3 delete_objects calls, not one 2200-key call.
+        """
+        page_1 = {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in range(2200)]}
+        client = _make_s3_client(pages=[page_1])
+        count = delete_eval_logs(client, "bucket", "p/")
+        assert count == 2200
+        assert client.delete_objects.call_count == 3
+        # First two batches are exactly 1000 keys each
+        for call in client.delete_objects.call_args_list[:2]:
+            assert len(call.kwargs["Delete"]["Objects"]) == 1000
+        # Final batch is the remainder
+        assert len(client.delete_objects.call_args_list[2].kwargs["Delete"]["Objects"]) == 200

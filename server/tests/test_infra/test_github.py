@@ -6,6 +6,7 @@ import respx
 
 from decision_hub.infra.github import (
     _parse_next_link,
+    check_org_membership,
     fetch_org_metadata,
     fetch_user_metadata,
     list_user_orgs,
@@ -141,6 +142,71 @@ class TestFetchOrgMetadata:
 
         with pytest.raises(httpx.HTTPStatusError):
             await fetch_org_metadata("gh-token", "bad-org")
+
+
+class TestCheckOrgMembership:
+    """check_org_membership treats transient GitHub errors as retryable, not as denial."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_204_means_member(self) -> None:
+        respx.get("https://api.github.com/orgs/pymc-labs/members/alice").mock(return_value=httpx.Response(204))
+        assert await check_org_membership("gh-token", "pymc-labs", "alice") is True
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_404_means_not_a_member(self) -> None:
+        respx.get("https://api.github.com/orgs/pymc-labs/members/bob").mock(
+            return_value=httpx.Response(404, json={"message": "Not Found"})
+        )
+        assert await check_org_membership("gh-token", "pymc-labs", "bob") is False
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_302_means_requester_cannot_see(self) -> None:
+        respx.get("https://api.github.com/orgs/pymc-labs/members/carol").mock(
+            return_value=httpx.Response(302, headers={"Location": "https://api.github.com/whatever"})
+        )
+        assert await check_org_membership("gh-token", "pymc-labs", "carol") is False
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_403_returns_false_without_raising(self) -> None:
+        # Private membership visible only to org members: definitively cannot see -> False.
+        respx.get("https://api.github.com/orgs/pymc-labs/members/dave").mock(
+            return_value=httpx.Response(403, json={"message": "Forbidden"})
+        )
+        assert await check_org_membership("gh-token", "pymc-labs", "dave") is False
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_429_raises_instead_of_denying(self) -> None:
+        # Regression: previously we silently returned False on 429, which
+        # locked legitimate members out of login during a GitHub rate-limit
+        # incident. Must now raise so the caller can return a 502.
+        respx.get("https://api.github.com/orgs/pymc-labs/members/erin").mock(
+            return_value=httpx.Response(429, json={"message": "rate limited"})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await check_org_membership("gh-token", "pymc-labs", "erin")
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_500_raises_instead_of_denying(self) -> None:
+        respx.get("https://api.github.com/orgs/pymc-labs/members/frank").mock(
+            return_value=httpx.Response(500, json={"message": "server error"})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await check_org_membership("gh-token", "pymc-labs", "frank")
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_502_raises_instead_of_denying(self) -> None:
+        respx.get("https://api.github.com/orgs/pymc-labs/members/gina").mock(
+            return_value=httpx.Response(502, text="Bad Gateway")
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await check_org_membership("gh-token", "pymc-labs", "gina")
 
 
 class TestFetchUserMetadata:

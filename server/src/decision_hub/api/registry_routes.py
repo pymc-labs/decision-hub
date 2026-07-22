@@ -1,10 +1,10 @@
 """Skill registry routes -- publish, resolve, and delete."""
 
+import dataclasses
 import json
 import math
 import zipfile
 from datetime import UTC, datetime
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from loguru import logger
@@ -18,6 +18,7 @@ from decision_hub.api.deps import (
     get_current_user_optional,
     get_s3_client,
     get_settings,
+    parse_uuid,
 )
 from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.api.registry_service import (
@@ -76,7 +77,7 @@ from decision_hub.infra.storage import (
 from decision_hub.infra.storage import (
     download_skill_zip as download_zip_from_s3,
 )
-from decision_hub.models import User
+from decision_hub.models import EvalRunStatus, User
 from decision_hub.settings import Settings
 
 router = APIRouter(prefix="/v1", tags=["registry"])
@@ -168,14 +169,6 @@ def _enforce_publish_rate_limit(request: Request) -> None:
 
 
 _VALID_VISIBILITIES = {"public", "org"}
-
-
-def _parse_uuid(value: str, name: str) -> UUID:
-    """Parse a UUID string, raising 422 with a clear message on invalid input."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
 
 
 # ---------------------------------------------------------------------------
@@ -1097,7 +1090,7 @@ def _run_to_response(run) -> EvalRunResponse:
     )
 
 
-def _check_zombie(conn: Connection, run) -> str:
+def _check_zombie(conn: Connection, run) -> EvalRunStatus:
     """Check if a running eval run has a stale heartbeat (zombie).
 
     If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
@@ -1127,13 +1120,16 @@ def get_eval_run(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunResponse:
     """Get eval run metadata by run ID."""
-    parsed_id = _parse_uuid(run_id, "run_id")
+    parsed_id = parse_uuid(run_id, "run_id")
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
-    _check_zombie(conn, run)
-    # Re-read after potential zombie update
-    run = find_eval_run(conn, parsed_id)
+    # Use the effective status returned by _check_zombie directly instead of
+    # re-reading the row. Saves one SELECT and avoids a rare NoneType crash
+    # if the row was deleted between the two reads.
+    effective_status = _check_zombie(conn, run)
+    if effective_status != run.status:
+        run = dataclasses.replace(run, status=effective_status)
     return _run_to_response(run)
 
 
@@ -1147,7 +1143,7 @@ def get_eval_run_logs(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunLogsResponse:
     """Get eval run log events with cursor-based pagination."""
-    parsed_id = _parse_uuid(run_id, "run_id")
+    parsed_id = parse_uuid(run_id, "run_id")
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
@@ -1196,9 +1192,8 @@ def list_eval_runs(
 ) -> list[EvalRunResponse]:
     """List eval runs, optionally filtered by version ID."""
     if version_id is not None:
-        parsed_vid = _parse_uuid(version_id, "version_id")
-        runs = find_eval_runs_for_version(conn, parsed_vid)
-        runs = [r for r in runs if r.user_id == current_user.id]
+        parsed_vid = parse_uuid(version_id, "version_id")
+        runs = find_eval_runs_for_version(conn, parsed_vid, user_id=current_user.id)
     else:
         runs = find_active_eval_runs_for_user(conn, current_user.id)
     return [_run_to_response(r) for r in runs]

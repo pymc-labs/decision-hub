@@ -223,15 +223,25 @@ class RequestLoggingMiddleware:
 
         with logger.contextualize(**ctx):
             logger.info("{} {} {}", method, path, user)
+            unhandled_exc: BaseException | None = None
             try:
                 await self.app(scope, receive, send_wrapper)
-            except Exception:
+            except Exception as exc:
                 status_code = 500
+                unhandled_exc = exc
                 raise
             finally:
                 duration_ms = (time.perf_counter() - start) * 1000
                 lvl = "WARNING" if status_code >= 400 else "INFO"
-                logger.bind(response_size=response_size).log(
+                bound = logger.bind(response_size=response_size)
+                # Attach the traceback on the 500 path so we don't rely on
+                # Starlette's default handler to surface it — otherwise
+                # unhandled exceptions produce a plain "500" line with no
+                # stacktrace and correlation is lost.
+                if unhandled_exc is not None:
+                    bound = bound.opt(exception=unhandled_exc)
+                    lvl = "ERROR"
+                bound.log(
                     lvl,
                     "{} {} → {} ({:.0f}ms, {}B)",
                     method,

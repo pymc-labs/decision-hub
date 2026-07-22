@@ -46,6 +46,16 @@ export default function AskModal({ isOpen, onClose }: AskModalProps) {
     if (isOpen) refreshRecentlyViewed();
   }, [isOpen, refreshRecentlyViewed]);
 
+  // Reset conversation state when the modal closes so a subsequent open
+  // starts fresh instead of resurfacing the previous session's messages/error.
+  useEffect(() => {
+    if (!isOpen) {
+      setMessages([]);
+      setQuery("");
+      setError(null);
+    }
+  }, [isOpen]);
+
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

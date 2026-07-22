@@ -158,6 +158,18 @@ def upload_eval_log_chunk(
     return s3_key
 
 
+def _iter_bucket_keys(client: BaseClient, bucket: str, prefix: str):
+    """Yield every object under *prefix* in *bucket*, following pagination.
+
+    S3's ``list_objects_v2`` returns at most 1000 keys per page; long-running
+    evals easily blow past that (a 35-min run flushing every 2s produces
+    >1000 chunks) so we must follow ``NextContinuationToken``.
+    """
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        yield from page.get("Contents", [])
+
+
 def list_eval_log_chunks(
     client: BaseClient,
     bucket: str,
@@ -169,11 +181,8 @@ def list_eval_log_chunks(
     Returns:
         List of (seq, s3_key) tuples sorted by seq ascending.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-
     chunks: list[tuple[int, str]] = []
-    for obj in contents:
+    for obj in _iter_bucket_keys(client, bucket, s3_prefix):
         key = obj["Key"]
         # Extract seq from filename like 'eval-logs/{run_id}/0001.jsonl'
         filename = key.rsplit("/", 1)[-1]
@@ -211,17 +220,21 @@ def delete_eval_logs(
     Returns:
         Number of objects deleted.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
-    if not contents:
-        return 0
-
-    objects = [{"Key": obj["Key"]} for obj in contents]
-    client.delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": objects},
-    )
-    return len(objects)
+    # S3's delete_objects accepts at most 1000 keys per call. Batch to that
+    # limit so a prefix with more than 1000 objects still gets fully cleaned.
+    _DELETE_BATCH = 1000
+    batch: list[dict] = []
+    deleted = 0
+    for obj in _iter_bucket_keys(client, bucket, s3_prefix):
+        batch.append({"Key": obj["Key"]})
+        if len(batch) == _DELETE_BATCH:
+            client.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+            deleted += len(batch)
+            batch = []
+    if batch:
+        client.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+        deleted += len(batch)
+    return deleted
 
 
 # ---------------------------------------------------------------------------

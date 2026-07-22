@@ -143,10 +143,30 @@ async def exchange_token(
     if allowed_orgs:
         username = gh_user["login"]
         is_member = False
-        for org in allowed_orgs:
-            if await check_org_membership(gh_token, org, username):
-                is_member = True
-                break
+        # Transient GitHub errors (429/5xx) inside check_org_membership raise
+        # HTTPStatusError so we can return a 502 (retryable) instead of denying
+        # the user with a 403 during a GitHub incident.
+        try:
+            for org in allowed_orgs:
+                if await check_org_membership(gh_token, org, username):
+                    is_member = True
+                    break
+        except httpx.HTTPStatusError as exc:
+            logger.opt(exception=True).warning(
+                "GitHub returned {} while checking org membership for {}",
+                exc.response.status_code,
+                username,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="GitHub is unavailable — please try again",
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.opt(exception=True).warning("Failed to reach GitHub while checking org membership: {}", exc)
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to reach GitHub — please try again",
+            ) from exc
         if not is_member:
             logger.warning("User {} denied access — not in required orgs {}", username, allowed_orgs)
             raise HTTPException(

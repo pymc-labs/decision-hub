@@ -269,3 +269,36 @@ class TestExtractForEvaluation:
         )
         _, _, _, unscanned = extract_for_evaluation(zip_bytes)
         assert unscanned == []
+
+    def test_survives_non_utf8_scannable_file(self) -> None:
+        """Regression: a Latin-1 / CP1252 file in the zip previously raised
+        UnicodeDecodeError and aborted the whole publish. It should now decode
+        with a replacement character and let the gauntlet inspect the file.
+        """
+        # 0xE9 is 'é' in Latin-1, invalid as a stand-alone UTF-8 byte.
+        latin1_bytes = "def greet():\n    return 'café'\n".encode("latin-1")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", "---\nname: s\ndescription: d\n---\n")
+            zf.writestr("app.py", latin1_bytes)
+        zip_bytes = buf.getvalue()
+
+        _skill_md, sources, _lockfile, _unscanned = extract_for_evaluation(zip_bytes)
+        source_names = [name for name, _ in sources]
+        assert "app.py" in source_names
+        # Content is still present; the offending byte was replaced.
+        app_content = next(c for n, c in sources if n == "app.py")
+        assert "greet" in app_content
+
+    def test_skill_md_still_strict_on_bad_utf8(self) -> None:
+        """SKILL.md is the manifest and must be valid UTF-8; a broken one still
+        surfaces a decode error so bad manifests fail loudly.
+        """
+        bad_bytes = b"---\nname: s\ndescription: caf\xe9\n---\n"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("SKILL.md", bad_bytes)
+        zip_bytes = buf.getvalue()
+
+        with pytest.raises(UnicodeDecodeError):
+            extract_for_evaluation(zip_bytes)

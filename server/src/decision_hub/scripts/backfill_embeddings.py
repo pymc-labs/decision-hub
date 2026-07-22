@@ -54,6 +54,9 @@ def backfill(batch_size: int = 100) -> None:
                     )
                 )
                 .where(skills_table.c.embedding.is_(None))
+                # Deterministic order for reproducible logs / resumability
+                # (CLAUDE.md: every LIMIT query must have an ORDER BY).
+                .order_by(skills_table.c.id)
                 .limit(batch_size)
             )
             rows = conn.execute(stmt).all()

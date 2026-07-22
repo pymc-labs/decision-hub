@@ -121,11 +121,17 @@ def extract_for_evaluation(
             basename = name.rsplit("/", 1)[-1] if "/" in name else name
 
             if basename == "SKILL.md":
+                # SKILL.md is the manifest — must be valid UTF-8. Strict decode
+                # so we surface a clear error rather than silently mangling.
                 skill_md = zf.read(name).decode()
             elif basename in ("requirements.txt", "uv.lock", "poetry.lock"):
-                lockfile_content = zf.read(name).decode()
+                lockfile_content = zf.read(name).decode(errors="replace")
             elif _is_scannable_file(basename):
-                source_files.append((name, zf.read(name).decode()))
+                # Scannable source files may be Latin-1 / CP1252 / mixed encodings
+                # in the wild. Use ``errors="replace"`` so one weird byte in a
+                # third-party file can't abort the whole publish; the gauntlet
+                # cares about the text content, not the exact bytes.
+                source_files.append((name, zf.read(name).decode(errors="replace")))
             else:
                 unscanned_files.append(name)
 

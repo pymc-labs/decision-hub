@@ -199,7 +199,15 @@ async def check_org_membership(access_token: str, org: str, username: str) -> bo
         username: GitHub username to check.
 
     Returns:
-        True if the user is a member of the organization.
+        True if the user is a member of the organization, False if a
+        definitive negative signal was received (404 not-a-member, 302
+        requester-cannot-see, 403 privacy-restricted).
+
+    Raises:
+        httpx.HTTPStatusError: For any transient GitHub error (429 rate limit,
+            5xx server errors). Silently swallowing these would incorrectly
+            deny access to legitimate members during a GitHub incident;
+            callers should surface a 502 so the client retries login.
     """
     async with httpx.AsyncClient() as client:
         response = await client.get(
@@ -209,16 +217,33 @@ async def check_org_membership(access_token: str, org: str, username: str) -> bo
                 "Accept": _ACCEPT_JSON,
             },
         )
+    # 204 No Content: confirmed member
     if response.status_code == 204:
         return True
+    # 404 Not Found: not a member (or org doesn't exist)
     if response.status_code == 404:
         return False
-
-    # 302 means requester is not an org member — can't see membership list
+    # 302 Found: requester is not an org member and can't see membership
     if response.status_code == 302:
         return False
+    # 403 Forbidden: membership is private and caller lacks permission
+    if response.status_code == 403:
+        logger.info("Org membership check hidden by privacy (403) for org={} user={}", org, username)
+        return False
 
-    return False
+    # 429 rate limit or 5xx: transient error. Do NOT silently map to False —
+    # that would lock legitimate members out of login during a GitHub outage.
+    # Raise so the caller can return a 502 and the client retries.
+    logger.warning(
+        "check_org_membership got unexpected status={} for org={} user={}",
+        response.status_code,
+        org,
+        username,
+    )
+    response.raise_for_status()
+    # raise_for_status only raises on 4xx/5xx; anything else that reaches here
+    # (informational/redirect not handled above) is a protocol-level surprise.
+    raise RuntimeError(f"Unexpected status {response.status_code} from GitHub org membership check")
 
 
 async def fetch_org_metadata(access_token: str, org_login: str) -> dict:

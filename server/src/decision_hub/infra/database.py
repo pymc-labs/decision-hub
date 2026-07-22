@@ -1187,14 +1187,19 @@ def batch_update_github_stars(conn: Connection, repo_stars: dict[str, int]) -> N
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
     subdirectories of the same repo).
+
+    Underscores in repo URLs (e.g. ``pymc_labs``) are common; they must be
+    escaped in the LIKE pattern or they'd be treated as single-char wildcards
+    and clobber unrelated repos' star counts.
     """
     for repo_url, stars in repo_stars.items():
+        prefix = f"{_escape_like(repo_url)}/%"
         stmt = (
             sa.update(skills_table)
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(prefix, escape="\\"),
                 )
             )
             .values(github_stars=stars)
@@ -1209,15 +1214,17 @@ def batch_update_github_repo_metadata(conn: Connection, repo_metadata: dict[str,
     ``forks``, ``watchers``, ``is_archived``, ``license``.
     Updates all skills whose ``source_repo_url`` is either an exact match for
     the repo URL or starts with the repo URL followed by ``/`` (for skills in
-    subdirectories of the same repo).
+    subdirectories of the same repo). See ``batch_update_github_stars`` for the
+    reasoning behind the LIKE-escape.
     """
     for repo_url, meta in repo_metadata.items():
+        prefix = f"{_escape_like(repo_url)}/%"
         stmt = (
             sa.update(skills_table)
             .where(
                 sa.or_(
                     skills_table.c.source_repo_url == repo_url,
-                    skills_table.c.source_repo_url.like(f"{repo_url}/%"),
+                    skills_table.c.source_repo_url.like(prefix, escape="\\"),
                 )
             )
             .values(
@@ -2708,13 +2715,21 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
     return _row_to_eval_run(row)
 
 
-def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
-    """List all eval runs for a version, newest first."""
-    stmt = (
-        sa.select(eval_runs_table)
-        .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
-    )
+def find_eval_runs_for_version(
+    conn: Connection,
+    version_id: UUID,
+    user_id: UUID | None = None,
+) -> list[EvalRun]:
+    """List all eval runs for a version, newest first.
+
+    If *user_id* is provided, only returns runs owned by that user — this
+    scopes the filter into the database instead of pulling every row across
+    users and filtering in Python.
+    """
+    stmt = sa.select(eval_runs_table).where(eval_runs_table.c.version_id == version_id)
+    if user_id is not None:
+        stmt = stmt.where(eval_runs_table.c.user_id == user_id)
+    stmt = stmt.order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
 

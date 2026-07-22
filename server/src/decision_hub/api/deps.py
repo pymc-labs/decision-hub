@@ -18,6 +18,19 @@ from decision_hub.models import User
 from decision_hub.settings import Settings
 
 
+def parse_uuid(value: str, name: str) -> UUID:
+    """Parse a string as a UUID, raising HTTP 422 with a clear message on invalid input.
+
+    Shared by route handlers that accept UUIDs as path/query parameters and want a
+    422 response instead of the default 500 that a bare ``UUID(value)`` would raise
+    from the ValueError bubbling up.
+    """
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
+
+
 def get_settings(request: Request) -> Settings:
     """Retrieve application settings from app state."""
     return request.app.state.settings
