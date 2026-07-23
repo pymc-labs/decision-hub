@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
@@ -26,11 +27,16 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # Purge stale IPs every N calls. Bounds memory without doing an O(N)
+    # sweep on every request.
+    _PURGE_EVERY = 100
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._call_count = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -52,10 +58,10 @@ class RateLimiter:
 
             self._requests[key].append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            # Periodic global purge to bound memory. A monotonic counter
+            # avoids the O(N) sum previously used to decide when to sweep.
+            self._call_count += 1
+            if self._call_count % self._PURGE_EVERY == 0:
                 self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:
@@ -63,3 +69,40 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def rate_limit_dependency(name: str) -> Callable[[Request], None]:
+    """Build a FastAPI dependency that enforces a named per-IP rate limit.
+
+    Reads ``{name}_rate_limit`` and ``{name}_rate_window`` from
+    ``request.app.state.settings`` on first invocation, lazily building a
+    :class:`RateLimiter` and caching it as ``app.state._{name}_rate_limiter``.
+    Subsequent requests reuse the cached limiter.
+
+    Usage::
+
+        _enforce_search_rate_limit = rate_limit_dependency("search")
+
+        @router.get("/search", dependencies=[Depends(_enforce_search_rate_limit)])
+        def search(...): ...
+    """
+    state_attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def _enforce(request: Request) -> None:
+        state = request.app.state
+        limiter: RateLimiter | None = getattr(state, state_attr, None)
+        if limiter is None:
+            settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    _enforce.__name__ = f"_enforce_{name}_rate_limit"
+    _enforce.__qualname__ = _enforce.__name__
+    _enforce.__doc__ = f"FastAPI dependency: enforce per-IP rate limit '{name}' from settings."
+    return _enforce
