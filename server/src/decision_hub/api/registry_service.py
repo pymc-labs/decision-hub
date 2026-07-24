@@ -88,8 +88,7 @@ def run_assessment_background(
     log chunks and updates the eval_runs table. Otherwise falls back to
     the original batch pipeline for backward compat.
     """
-    from cryptography.fernet import Fernet
-
+    from decision_hub.domain.crypto import decrypt_value
     from decision_hub.infra.database import create_engine, get_api_keys_for_eval
     from decision_hub.infra.modal_client import get_agent_config, validate_api_key
 
@@ -113,8 +112,7 @@ def run_assessment_background(
 
         logger.info("Got {} API keys: {}", len(encrypted_keys), list(encrypted_keys.keys()))
 
-        fernet = Fernet(settings.fernet_key.encode())
-        agent_env_vars = {name: fernet.decrypt(value).decode() for name, value in encrypted_keys.items()}
+        agent_env_vars = {name: decrypt_value(value, settings.fernet_key) for name, value in encrypted_keys.items()}
 
         for key_name, key_value in agent_env_vars.items():
             validate_api_key(key_name, key_value)

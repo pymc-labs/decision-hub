@@ -2040,7 +2040,15 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Add a unique tiebreaker (org_slug, skill_name) after the rank so the
+        # LIMIT cut is deterministic — ts_rank_cd ties are common on short
+        # queries, and without a tiebreaker Postgres returns an arbitrary
+        # subset that varies across runs and replicas.
+        fts_stmt = fts_stmt.order_by(
+            sa.text("fts_rank DESC"),
+            organizations_table.c.slug.asc(),
+            skills_table.c.name.asc(),
+        ).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2060,12 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # Tiebreaker: identical embeddings yield equal cosine distances.
+        vec_stmt = vec_stmt.order_by(
+            sa.text("vec_dist ASC"),
+            organizations_table.c.slug.asc(),
+            skills_table.c.name.asc(),
+        ).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,9 +2138,16 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
-        .limit(limit)
     )
+    # Same exclusion used by the main listing so the sidebar doesn't surface
+    # skills whose source repo was removed or archived on GitHub (broken links).
+    vec_stmt = _exclude_removed_or_archived(vec_stmt)
+    # Tiebreaker: identical embeddings yield equal distances.
+    vec_stmt = vec_stmt.order_by(
+        sa.text("vec_dist ASC"),
+        organizations_table.c.slug.asc(),
+        skills_table.c.name.asc(),
+    ).limit(limit)
     rows = conn.execute(vec_stmt).all()
     return [_row_to_skill_summary(r) for r in rows]
 

@@ -1132,8 +1132,12 @@ def get_eval_run(
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
     _check_zombie(conn, run)
-    # Re-read after potential zombie update
+    # Re-read after potential zombie update. A concurrent delete cascade from
+    # ``versions`` can wipe the row between the two reads, so guard against
+    # None here rather than crashing with an AttributeError in _run_to_response.
     run = find_eval_run(conn, parsed_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Eval run not found")
     return _run_to_response(run)
 
 

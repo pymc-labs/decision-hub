@@ -342,3 +342,35 @@ class TestAllowedToolsCoercion:
         path = self._write_skill_md(tmp_path, content)
         with pytest.raises(ValueError, match="allowed_tools must be a string or list"):
             parse_skill_md(path)
+
+
+# ---------------------------------------------------------------------------
+# parse_skill_md — file I/O concerns
+# ---------------------------------------------------------------------------
+
+
+class TestParseSkillMdEncoding:
+    """parse_skill_md must always read SKILL.md as UTF-8, regardless of the
+    platform's default locale encoding. On Windows (cp1252) an implicit
+    read_text() will mojibake non-ASCII characters or raise UnicodeDecodeError."""
+
+    def test_utf8_body_preserved(self, tmp_path) -> None:
+        content = (
+            "---\n"
+            "name: emoji-skill\n"
+            "description: Uses non-ASCII: café → résumé 日本語 🚀\n"
+            "---\n"
+            "Body with emoji 🎉 and math ∑ and CJK 中文。\n"
+        )
+        path = tmp_path / "SKILL.md"
+        # write_bytes so the on-disk encoding is unambiguously UTF-8 and does
+        # not depend on the platform's default text-write encoding.
+        path.write_bytes(content.encode("utf-8"))
+
+        manifest = parse_skill_md(path)
+
+        assert "café" in manifest.description
+        assert "→" in manifest.description
+        assert "🚀" in manifest.description
+        assert "🎉" in manifest.body
+        assert "中文" in manifest.body

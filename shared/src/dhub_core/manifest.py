@@ -33,7 +33,9 @@ def parse_skill_md(path: Path) -> SkillManifest:
         ValueError: If the file format is invalid or required fields are missing.
         FileNotFoundError: If the path does not exist.
     """
-    content = path.read_text()
+    # Explicit UTF-8: without it Python uses the platform's locale encoding
+    # (cp1252 on Windows), which mangles any non-ASCII character in SKILL.md.
+    content = path.read_text(encoding="utf-8")
     frontmatter_str, body = split_frontmatter(content)
     data = parse_frontmatter_yaml(frontmatter_str)
 

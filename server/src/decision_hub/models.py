@@ -109,12 +109,6 @@ class DeviceCodeResponse:
 
 
 @dataclass(frozen=True)
-class AuthToken:
-    access_token: str
-    token_type: str = "bearer"
-
-
-@dataclass(frozen=True)
 class UserApiKey:
     id: UUID
     user_id: UUID

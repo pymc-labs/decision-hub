@@ -134,6 +134,30 @@ class TestGetEvalRun:
         assert resp.json()["status"] == "running"
         mock_update_status.assert_not_called()
 
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_returns_404_if_run_vanishes_between_reads(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A concurrent version-delete cascade can wipe the row between the two
+        find_eval_run calls; we should return 404 instead of crashing with
+        AttributeError inside _run_to_response(None)."""
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
+        run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
+
+        # First read returns the run, zombie check writes an update, second read
+        # returns None (row cascade-deleted concurrently).
+        mock_find_run.side_effect = [run, None]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Eval run not found"
+
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_completed_run_not_checked_for_zombie(
         self,

@@ -158,6 +158,20 @@ def upload_eval_log_chunk(
     return s3_key
 
 
+def _paginate_list_objects(client: BaseClient, bucket: str, s3_prefix: str) -> list[dict]:
+    """Return every object under ``s3_prefix``, following pagination.
+
+    ``list_objects_v2`` truncates at 1000 keys per response — long-running eval
+    runs can produce many more log chunks, so we must follow ``IsTruncated``
+    via the paginator instead of assuming one page is all there is.
+    """
+    paginator = client.get_paginator("list_objects_v2")
+    contents: list[dict] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        contents.extend(page.get("Contents", []))
+    return contents
+
+
 def list_eval_log_chunks(
     client: BaseClient,
     bucket: str,
@@ -169,8 +183,7 @@ def list_eval_log_chunks(
     Returns:
         List of (seq, s3_key) tuples sorted by seq ascending.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
+    contents = _paginate_list_objects(client, bucket, s3_prefix)
 
     chunks: list[tuple[int, str]] = []
     for obj in contents:
@@ -211,17 +224,20 @@ def delete_eval_logs(
     Returns:
         Number of objects deleted.
     """
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=s3_prefix)
-    contents = resp.get("Contents", [])
+    contents = _paginate_list_objects(client, bucket, s3_prefix)
     if not contents:
         return 0
 
-    objects = [{"Key": obj["Key"]} for obj in contents]
-    client.delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": objects},
-    )
-    return len(objects)
+    # ``delete_objects`` accepts a maximum of 1000 keys per call, so batch.
+    total = 0
+    for start in range(0, len(contents), 1000):
+        batch = contents[start : start + 1000]
+        client.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": [{"Key": obj["Key"]} for obj in batch]},
+        )
+        total += len(batch)
+    return total
 
 
 # ---------------------------------------------------------------------------
