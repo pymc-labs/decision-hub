@@ -22,6 +22,12 @@ GITHUB_USER_ORGS_URL = "https://api.github.com/user/orgs"
 
 _ACCEPT_JSON = "application/json"
 
+# Cap every GitHub call so a stuck TCP connection or unresponsive endpoint
+# can't pin a FastAPI async worker forever. Without this the default is no
+# timeout, and a partial GitHub outage translates directly into worker
+# starvation for every route (including /health).
+_GITHUB_TIMEOUT = httpx.Timeout(10.0)
+
 
 class AuthorizationPending(Exception):
     """Raised when the user has not yet completed GitHub authorization."""
@@ -44,7 +50,7 @@ async def request_device_code(client_id: str) -> DeviceCodeResponse:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.post(
             GITHUB_DEVICE_CODE_URL,
             data={"client_id": client_id, "scope": "read:org"},
@@ -79,7 +85,7 @@ async def poll_for_access_token(client_id: str, device_code: str, interval: int 
         RuntimeError: If the user denies access or the device code expires.
         httpx.HTTPStatusError: If the GitHub API returns an unexpected error.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.post(
             GITHUB_ACCESS_TOKEN_URL,
             data={
@@ -123,7 +129,7 @@ async def get_github_user(access_token: str) -> dict:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             GITHUB_USER_URL,
             headers={
@@ -168,7 +174,7 @@ async def list_user_orgs(access_token: str) -> list[dict]:
     orgs: list[dict] = []
     url: str | None = f"{GITHUB_USER_ORGS_URL}?per_page=100"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         while url is not None:
             response = await client.get(
                 url,
@@ -190,8 +196,20 @@ async def check_org_membership(access_token: str, org: str, username: str) -> bo
     """Check whether a GitHub user is a member of an organization.
 
     Uses the public org members endpoint which works without the read:org
-    scope. Falls back to checking public membership if the authenticated
-    endpoint returns 403.
+    scope.
+
+    Return contract (mirrors https://docs.github.com/en/rest/orgs/members):
+
+    * ``204`` — user is a member.
+    * ``404`` — user is not a member (or the caller can't see it).
+    * ``302`` — caller isn't an org member, so membership is opaque; treated
+      as "not a member" since we cannot prove otherwise.
+
+    Anything else (``5xx``, ``403`` from a revoked token, an unexpected
+    ``httpx.HTTPError`` from the transport) propagates as ``httpx.HTTPError``
+    so the caller can distinguish "GitHub said no" from "GitHub is
+    unreachable". Previously every non-204 collapsed to ``False``, which
+    silently locked every real member out during a GitHub incident.
 
     Args:
         access_token: A valid GitHub OAuth access token.
@@ -199,9 +217,15 @@ async def check_org_membership(access_token: str, org: str, username: str) -> bo
         username: GitHub username to check.
 
     Returns:
-        True if the user is a member of the organization.
+        True if the user is a member of the organization, False for the
+        definitively-not-a-member cases above.
+
+    Raises:
+        httpx.HTTPError: On transport failures or unexpected status codes,
+            so the caller can respond with 502/503 instead of a misleading
+            403 that permanently denies access.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             f"https://api.github.com/orgs/{org}/members/{username}",
             headers={
@@ -211,14 +235,20 @@ async def check_org_membership(access_token: str, org: str, username: str) -> bo
         )
     if response.status_code == 204:
         return True
-    if response.status_code == 404:
+    if response.status_code in (302, 404):
         return False
 
-    # 302 means requester is not an org member — can't see membership list
-    if response.status_code == 302:
-        return False
-
-    return False
+    # Any other status is a real error (5xx, 401 revoked token, 403 rate-limited,
+    # etc.). Raise so the caller can return 502 instead of a misleading 403.
+    response.raise_for_status()
+    # raise_for_status() only raises for 4xx/5xx; unexpected 2xx/3xx codes
+    # (which the API doesn't document) also should not be interpreted as
+    # membership. Fail loud rather than guess.
+    raise httpx.HTTPStatusError(
+        f"Unexpected {response.status_code} from GitHub org membership endpoint",
+        request=response.request,
+        response=response,
+    )
 
 
 async def fetch_org_metadata(access_token: str, org_login: str) -> dict:
@@ -235,7 +265,7 @@ async def fetch_org_metadata(access_token: str, org_login: str) -> dict:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             f"https://api.github.com/orgs/{org_login}",
             headers={
@@ -270,7 +300,7 @@ async def fetch_user_metadata(access_token: str, username: str) -> dict:
     Raises:
         httpx.HTTPStatusError: If the GitHub API returns an error response.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_GITHUB_TIMEOUT) as client:
         response = await client.get(
             f"https://api.github.com/users/{username}",
             headers={

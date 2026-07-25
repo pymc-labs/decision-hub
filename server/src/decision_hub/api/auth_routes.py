@@ -143,10 +143,26 @@ async def exchange_token(
     if allowed_orgs:
         username = gh_user["login"]
         is_member = False
-        for org in allowed_orgs:
-            if await check_org_membership(gh_token, org, username):
-                is_member = True
-                break
+        try:
+            for org in allowed_orgs:
+                if await check_org_membership(gh_token, org, username):
+                    is_member = True
+                    break
+        except httpx.HTTPError as exc:
+            # A GitHub outage (5xx, timeout, transport error) must not silently
+            # translate into 403 for legitimate members. Return 502 so the CLI
+            # surfaces "GitHub is unreachable" instead of the misleading
+            # "you're not authorised" that would appear if we treated every
+            # non-204 as a hard deny (the previous behaviour).
+            logger.opt(exception=True).warning(
+                "GitHub org membership check failed for user={} orgs={}",
+                username,
+                allowed_orgs,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Could not verify GitHub org membership right now — please try again",
+            ) from exc
         if not is_member:
             logger.warning("User {} denied access — not in required orgs {}", username, allowed_orgs)
             raise HTTPException(

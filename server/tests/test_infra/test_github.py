@@ -5,11 +5,25 @@ import pytest
 import respx
 
 from decision_hub.infra.github import (
+    _GITHUB_TIMEOUT,
     _parse_next_link,
+    check_org_membership,
     fetch_org_metadata,
     fetch_user_metadata,
     list_user_orgs,
 )
+
+
+class TestGithubTimeoutConstant:
+    """Every AsyncClient in this module must have an explicit timeout.
+
+    Without one, a stuck TCP connection would pin a FastAPI worker
+    indefinitely; the constant is the single knob that fixes that.
+    """
+
+    def test_timeout_is_finite(self) -> None:
+        assert _GITHUB_TIMEOUT.read is not None
+        assert _GITHUB_TIMEOUT.connect is not None
 
 
 class TestParseNextLink:
@@ -199,3 +213,66 @@ class TestFetchUserMetadata:
 
         with pytest.raises(httpx.HTTPStatusError):
             await fetch_user_metadata("gh-token", "ghost")
+
+
+class TestCheckOrgMembership:
+    """check_org_membership must distinguish "not a member" from "GitHub broke".
+
+    Regression: the previous implementation silently returned False for every
+    non-204 status. A 500 during a GitHub incident then locked every real
+    member out of login as if they'd been kicked from the org.
+    """
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_204_is_member(self) -> None:
+        respx.get("https://api.github.com/orgs/acme/members/alice").mock(return_value=httpx.Response(204))
+        assert await check_org_membership("gh-token", "acme", "alice") is True
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_404_is_not_member(self) -> None:
+        respx.get("https://api.github.com/orgs/acme/members/bob").mock(
+            return_value=httpx.Response(404, json={"message": "Not Found"})
+        )
+        assert await check_org_membership("gh-token", "acme", "bob") is False
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_302_is_not_member(self) -> None:
+        # GitHub returns 302 when the caller can't see the membership list
+        # (public-only membership + non-member caller).
+        respx.get("https://api.github.com/orgs/acme/members/carol").mock(
+            return_value=httpx.Response(302, headers={"Location": "https://api.github.com"})
+        )
+        assert await check_org_membership("gh-token", "acme", "carol") is False
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_500_raises_instead_of_denying(self) -> None:
+        """A GitHub 500 must surface, not silently return False."""
+        respx.get("https://api.github.com/orgs/acme/members/dave").mock(
+            return_value=httpx.Response(500, json={"message": "Server Error"})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await check_org_membership("gh-token", "acme", "dave")
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_403_raises(self) -> None:
+        """403 (revoked token / rate-limited) is not a definitive answer either."""
+        respx.get("https://api.github.com/orgs/acme/members/eve").mock(
+            return_value=httpx.Response(403, json={"message": "Forbidden"})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await check_org_membership("gh-token", "acme", "eve")
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_transport_error_propagates(self) -> None:
+        """Network-level errors must reach the caller, not be swallowed."""
+        respx.get("https://api.github.com/orgs/acme/members/frank").mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
+        with pytest.raises(httpx.HTTPError):
+            await check_org_membership("gh-token", "acme", "frank")

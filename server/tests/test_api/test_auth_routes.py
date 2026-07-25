@@ -134,6 +134,41 @@ class TestExchangeToken:
         assert org_route.calls[0].request.headers["authorization"] == "Bearer gh-access-token-xyz"
 
     @respx.mock
+    @patch("decision_hub.api.auth_routes.upsert_user")
+    def test_returns_502_when_org_membership_check_is_broken(
+        self,
+        mock_upsert: MagicMock,
+        client: TestClient,
+        test_settings: MagicMock,
+    ) -> None:
+        """A GitHub 5xx on the org-membership call must not translate to 403.
+
+        Regression: `check_org_membership` previously swallowed every non-204
+        as "not a member", so a GitHub incident locked every real member out
+        with a permanent-looking 403.
+        """
+        test_settings.require_github_org = "pymc-labs"
+        test_settings.required_github_orgs = ["pymc-labs"]
+        respx.post("https://github.com/login/oauth/access_token").mock(
+            return_value=httpx.Response(200, json={"access_token": "gh-access-token-xyz"})
+        )
+        respx.get("https://api.github.com/user").mock(
+            return_value=httpx.Response(200, json={"id": 42, "login": "alice"})
+        )
+        respx.get("https://api.github.com/orgs/pymc-labs/members/alice").mock(
+            return_value=httpx.Response(500, json={"message": "Server Error"})
+        )
+
+        resp = client.post(
+            "/auth/github/token",
+            json={"device_code": "dev-code-abc"},
+        )
+
+        assert resp.status_code == 502
+        assert "GitHub" in resp.json()["detail"] or "try again" in resp.json()["detail"]
+        mock_upsert.assert_not_called()
+
+    @respx.mock
     @patch("decision_hub.api.auth_routes.sync_org_github_metadata")
     @patch("decision_hub.api.auth_routes.sync_user_orgs", return_value=["alice", "pymc-labs"])
     @patch("decision_hub.api.auth_routes.upsert_user")
