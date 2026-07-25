@@ -1017,8 +1017,14 @@ def _install_single_skill(
         zip_data = resp.content
     verify_checksum(zip_data, expected_checksum)
 
-    # Extract to the canonical skill path
+    # Extract to the canonical skill path. Wipe first so files that existed
+    # in the previous version but were removed/renamed in the new zip don't
+    # linger (agents that discover-by-filename would otherwise pick up stale
+    # scripts). Safe: this path is the CLI-owned ~/.dhub/skills/<org>/<name>
+    # location, not user-authored content.
     skill_path = get_dhub_skill_path(org_slug, skill_name)
+    if skill_path.exists():
+        shutil.rmtree(skill_path)
     skill_path.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
