@@ -1,11 +1,14 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import stat
+import sys
 
 import click
 import pytest
 
-from dhub.cli.config import CliConfig, load_config, save_config
+from dhub.cli.config import CliConfig, config_file, load_config, save_config
 
 
 class TestLoadConfig:
@@ -104,6 +107,44 @@ class TestSaveConfig:
         assert loaded.orgs == ()
         assert loaded.default_org is None
         assert loaded.token == "old-tok"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes only")
+    def test_token_file_is_not_world_or_group_readable(self, tmp_path, monkeypatch):
+        """The bearer token file must be 0600, not the umask-derived 0644.
+
+        Regression: previously ``save_config`` did no chmod, so on a normal
+        umask the token was readable by every other local user (shared dev
+        boxes, CI runners with sidecar containers, pipx service accounts).
+        """
+        new_dir = tmp_path / "dhub"
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", new_dir)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="super-secret"))
+
+        path = config_file()
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600, f"token file mode was 0o{mode:o}, expected 0o600"
+
+        dir_mode = stat.S_IMODE(os.stat(new_dir).st_mode)
+        assert dir_mode == 0o700, f"config dir mode was 0o{dir_mode:o}, expected 0o700"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes only")
+    def test_tightens_perms_on_pre_existing_loose_dir(self, tmp_path, monkeypatch):
+        """A pre-0755 ~/.dhub (from before this fix landed) must be locked down.
+
+        ``Path.mkdir(exist_ok=True, mode=…)`` silently ignores the mode when
+        the dir already exists; we must chmod it explicitly.
+        """
+        loose_dir = tmp_path / "dhub"
+        loose_dir.mkdir(mode=0o755)
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", loose_dir)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="tok"))
+
+        dir_mode = stat.S_IMODE(os.stat(loose_dir).st_mode)
+        assert dir_mode == 0o700
 
 
 class TestGetToken:

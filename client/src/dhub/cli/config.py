@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -82,14 +83,25 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory if it does not already exist. The
+    directory is restricted to 0700 and the file to 0600 so the bearer
+    token cannot be read by other local users on shared machines (dev
+    VMs, CI runners, pipx service accounts). ``chmod`` is a no-op on
+    Windows -- POSIX-only ACLs already restrict other users there.
     """
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # mkdir(exist_ok=True, mode=…) does NOT chmod an existing dir, so
+    # tighten it separately for pre-existing 0755 installs. chmod is a
+    # no-op on Windows; suppress OSError for non-POSIX filesystems too.
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_DIR, 0o700)
     path = config_file()
     path.write_text(
         json.dumps(asdict(config), indent=2) + "\n",
         encoding="utf-8",
     )
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)
 
 
 def get_api_url() -> str:
