@@ -109,7 +109,7 @@ def _clamp_poll_interval(raw: object) -> int:
     interpreted as a number.
     """
     try:
-        value = int(raw)  # type: ignore[arg-type]
+        value = int(raw)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         value = 5
     return max(_MIN_POLL_INTERVAL, min(value, _MAX_POLL_INTERVAL))
