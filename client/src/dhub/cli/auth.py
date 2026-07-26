@@ -30,7 +30,11 @@ def login_command(
     device_code: str = data["device_code"]
     user_code: str = data["user_code"]
     verification_uri: str = data["verification_uri"]
-    poll_interval: int = data.get("interval", 5)
+    # GitHub's device flow specifies `interval` (typically 5s). Clamp
+    # server input to a sane range so a malformed or hostile value
+    # (0, -1, or "365 days") can't spin the CLI in a tight loop or make
+    # login hang effectively forever.
+    poll_interval = _clamp_poll_interval(data.get("interval", 5))
 
     # Step 2: Show the user code and URL
     console.print(
@@ -92,6 +96,23 @@ def _prompt_default_org(orgs: tuple[str, ...]) -> str | None:
         # Default to first org
         return orgs[0]
     return None
+
+
+_MIN_POLL_INTERVAL = 1
+_MAX_POLL_INTERVAL = 30
+
+
+def _clamp_poll_interval(raw: object) -> int:
+    """Coerce a server-supplied poll interval to a safe integer in [1, 30] seconds.
+
+    Falls back to 5s (GitHub's device-flow default) if the value can't be
+    interpreted as a number.
+    """
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        value = 5
+    return max(_MIN_POLL_INTERVAL, min(value, _MAX_POLL_INTERVAL))
 
 
 def _poll_for_token(

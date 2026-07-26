@@ -622,7 +622,11 @@ def _create_zip(path: Path) -> bytes:
     entry_count = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(path.rglob("*")):
-            if not file.is_file():
+            # Skip symlinks explicitly so publish never dereferences a
+            # link pointing outside the skill (e.g. `notes.md ->
+            # ~/.aws/credentials`). `is_file()` alone would follow the
+            # symlink and package its target's bytes.
+            if file.is_symlink() or not file.is_file():
                 continue
             # Skip hidden files and __pycache__
             relative = file.relative_to(path)
@@ -656,7 +660,11 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     for s in skills:
         rating = s.get("safety_rating", "")
         rating_style = grade_styles.get(rating, "white")
-        updated = s.get("updated_at", "")[:10]
+        # `updated_at` may be present-but-None (server returns null before
+        # the timestamp columns land, or in mocked tests); the previous
+        # `s.get("updated_at", "")[:10]` crashed with `NoneType not
+        # subscriptable`. Coerce None to "" before slicing.
+        updated = (s.get("updated_at") or "")[:10]
         table.add_row(
             s["org_slug"],
             s["skill_name"],

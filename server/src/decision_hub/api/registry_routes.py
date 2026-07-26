@@ -1165,19 +1165,32 @@ def get_eval_run_logs(
         after_seq=0,
     )
 
-    # Read and parse events from each chunk, filtering by cursor
+    # Read and parse events from each chunk, filtering by cursor. Skip
+    # any line that fails to parse — a mid-flight write, an aborted
+    # worker, or a truncated chunk shouldn't 500 every subsequent poll
+    # for the run's logs.
     all_events: list[dict] = []
     max_seq = cursor
     for _chunk_seq, s3_key in chunks:
         content = read_eval_log_chunk(s3_client, settings.s3_bucket, s3_key)
         for line in content.strip().split("\n"):
-            if line.strip():
-                event = json.loads(line)
-                event_seq = event.get("seq", 0)
-                if event_seq > cursor:
-                    all_events.append(event)
-                if event_seq > max_seq:
-                    max_seq = event_seq
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                event = json.loads(stripped)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Skipping malformed log line in chunk {} for run {}",
+                    s3_key,
+                    run_id,
+                )
+                continue
+            event_seq = event.get("seq", 0)
+            if event_seq > cursor:
+                all_events.append(event)
+            if event_seq > max_seq:
+                max_seq = event_seq
 
     return EvalRunLogsResponse(
         events=all_events,

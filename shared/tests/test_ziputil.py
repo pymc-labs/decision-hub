@@ -1,6 +1,7 @@
 """Tests for dhub_core.ziputil — zip archive safety utilities."""
 
 import io
+import stat
 import zipfile
 
 import pytest
@@ -14,6 +15,19 @@ def _make_zip(entries: dict[str, bytes]) -> zipfile.ZipFile:
     with zipfile.ZipFile(buf, "w") as zf:
         for name, data in entries.items():
             zf.writestr(name, data)
+    buf.seek(0)
+    return zipfile.ZipFile(buf, "r")
+
+
+def _make_symlink_zip(name: str, target: str) -> zipfile.ZipFile:
+    """Create an in-memory zip with a POSIX symlink entry named *name* -> *target*."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        info = zipfile.ZipInfo(name)
+        # Encode a POSIX symlink in the external attributes.
+        info.create_system = 3  # unix
+        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        zf.writestr(info, target)
     buf.seek(0)
     return zipfile.ZipFile(buf, "r")
 
@@ -85,4 +99,58 @@ class TestValidateZipEntries:
         zf = _make_zip({"../target2/evil.txt": b"malicious"})
         with pytest.raises(ValueError, match="escapes target directory"):
             validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_windows_separator_rejected(self) -> None:
+        """Entries containing backslashes are rejected — a POSIX validator
+        can't collapse them, but a Windows extractor would treat them as
+        directory separators and let the entry escape."""
+        zf = _make_zip({"..\\..\\evil.txt": b"malicious"})
+        with pytest.raises(ValueError, match="invalid path separator"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_backslash_anywhere_rejected(self) -> None:
+        """Even a benign-looking backslash inside a name is rejected —
+        we can't reason about how downstream extractors will interpret it."""
+        zf = _make_zip({"docs\\readme.md": b"content"})
+        with pytest.raises(ValueError, match="invalid path separator"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_symlink_entry_rejected(self) -> None:
+        """Zip entries encoding POSIX symlinks are rejected — the stdlib
+        currently extracts them as regular files, but any change (or a
+        third-party extractor honoring the mode) turns them into a
+        path-escape vector via the symlink target."""
+        zf = _make_symlink_zip("config", "/etc/shadow")
+        with pytest.raises(ValueError, match="symlink"):
+            validate_zip_entries(zf, "/tmp/target")
+        zf.close()
+
+    def test_entry_count_cap_rejected(self) -> None:
+        """Archives with more entries than the cap are rejected."""
+        zf = _make_zip({f"file_{i}.txt": b"x" for i in range(50)})
+        with pytest.raises(ValueError, match="too many entries"):
+            validate_zip_entries(zf, "/tmp/target", max_entries=10)
+        zf.close()
+
+    def test_uncompressed_size_cap_rejected(self) -> None:
+        """Archives whose total uncompressed size exceeds the cap are
+        rejected — protects against zip bombs regardless of on-disk size."""
+        zf = _make_zip({"big.bin": b"x" * 10_000})
+        with pytest.raises(ValueError, match="uncompressed size"):
+            validate_zip_entries(zf, "/tmp/target", max_uncompressed_bytes=1024)
+        zf.close()
+
+    def test_default_caps_allow_typical_skills(self) -> None:
+        """A representative small skill archive fits well under the defaults."""
+        zf = _make_zip(
+            {
+                "SKILL.md": b"# Skill" + b"a" * 5000,
+                "scripts/run.py": b"print('hi')" * 100,
+                "data/input.csv": b"col1,col2\n" + b"1,2\n" * 500,
+            }
+        )
+        validate_zip_entries(zf, "/tmp/target")
         zf.close()

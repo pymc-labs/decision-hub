@@ -187,7 +187,9 @@ class TestPublishSkill:
         sample_user_id: UUID,
         test_settings: MagicMock,
     ) -> None:
-        """Publishing when user is not an org member should return 403."""
+        """Publishing when user is not an org member must return the SAME 404
+        as a truly-missing org — otherwise the differing status codes let
+        any authenticated caller enumerate the org namespace."""
         test_settings.google_api_key = "test-key"
         org = _make_org(sample_user_id)
         mock_find_org.return_value = org
@@ -195,8 +197,36 @@ class TestPublishSkill:
 
         resp = _publish_request(client, auth_headers)
 
-        assert resp.status_code == 403
-        assert "not a member" in resp.json()["detail"]
+        assert resp.status_code == 404
+        assert "Organisation not found" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_service.find_org_member")
+    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    def test_org_membership_response_indistinguishable_from_missing(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+        test_settings: MagicMock,
+    ) -> None:
+        """Regression guard: the 'org does not exist' and 'you are not a
+        member' branches must return byte-for-byte the same response so a
+        caller can't tell them apart."""
+        test_settings.google_api_key = "test-key"
+
+        # Case 1: org does not exist
+        mock_find_org.return_value = None
+        resp_missing = _publish_request(client, auth_headers, org_slug="unknown-org")
+
+        # Case 2: org exists, caller is not a member
+        mock_find_org.return_value = _make_org(sample_user_id)
+        mock_find_member.return_value = None
+        resp_not_member = _publish_request(client, auth_headers, org_slug="unknown-org")
+
+        assert resp_missing.status_code == resp_not_member.status_code == 404
+        assert resp_missing.json() == resp_not_member.json()
 
     def test_publish_no_auth(self, client: TestClient) -> None:
         """Publishing without auth should return 401."""
@@ -1046,7 +1076,9 @@ class TestDeleteSkillVersion:
         auth_headers: dict[str, str],
         sample_user_id: UUID,
     ) -> None:
-        """Non-members should get 403."""
+        """Non-members get the same 404 as if the org didn't exist —
+        otherwise the differing status codes let anyone enumerate the
+        org namespace. See require_org_membership."""
         org = _make_org(sample_user_id)
         mock_find_org.return_value = org
         mock_find_member.return_value = None
@@ -1056,7 +1088,7 @@ class TestDeleteSkillVersion:
             headers=auth_headers,
         )
 
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
     @patch("decision_hub.api.registry_service.find_org_by_slug")
     def test_delete_org_not_found(

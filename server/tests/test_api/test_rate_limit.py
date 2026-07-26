@@ -84,3 +84,31 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+    def test_stale_ips_are_purged(self) -> None:
+        """After the window expires, stale IPs should be removed from the
+        internal tracking dict so memory usage stays bounded even under
+        high IP churn (scrapers using rotating addresses)."""
+        limiter = RateLimiter(max_requests=5, window_seconds=1)
+        # Force purge cadence to fire deterministically after a handful
+        # of requests instead of the production default of 100.
+        limiter._PURGE_EVERY = 10
+
+        with patch("decision_hub.api.rate_limit.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            for i in range(10):
+                limiter(_make_request(f"10.0.0.{i}"))
+
+            assert len(limiter._requests) == 10
+
+            # Advance well past the window, then push another 10 requests
+            # from *fresh* IPs. The purge should evict the original 10.
+            mock_time.monotonic.return_value = 1100.0
+            for i in range(100, 110):
+                limiter(_make_request(f"10.0.0.{i}"))
+
+            assert len(limiter._requests) == 10
+            for i in range(100, 110):
+                assert f"10.0.0.{i}" in limiter._requests
+            for i in range(10):
+                assert f"10.0.0.{i}" not in limiter._requests
