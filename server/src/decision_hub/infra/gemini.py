@@ -922,6 +922,64 @@ class BodyReviewResult(BaseModel):
     reason: str
 
 
+def _run_body_review(
+    *,
+    client: dict,
+    model: str,
+    prompt: str,
+    skill_name: str,
+    review_kind: str,
+) -> dict:
+    """Run a holistic Gemini body review with one retry, fail-closed on error.
+
+    Shared engine for ``review_code_body_safety`` and ``review_prompt_body_safety``:
+    both post a single ``BodyReviewResult`` JSON object and treat any error
+    (LLM unreachable, unparseable response, validation failure) as dangerous.
+    ``review_kind`` is a short label (e.g. ``"code"``, ``"body"``) used only
+    in the retry-warning log line.
+    """
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.0},
+    }
+
+    for attempt in range(2):
+        try:
+            data = _gemini_post(client, model, payload)
+
+            text = _extract_text(data)
+            if not text:
+                if attempt == 0:
+                    logger.warning(
+                        "Holistic {} review returned no response for '{}', retrying",
+                        review_kind,
+                        skill_name,
+                    )
+                    continue
+                return {"dangerous": True, "reason": "LLM returned no response (fail-closed)"}
+
+            text = _strip_markdown_fences(text)
+            result = json.loads(text)
+            review = BodyReviewResult.model_validate(result)
+            return review.model_dump()
+        except (json.JSONDecodeError, ValidationError, httpx.HTTPError):
+            if attempt == 0:
+                logger.opt(exception=True).warning(
+                    "Holistic {} review failed for '{}', retrying once",
+                    review_kind,
+                    skill_name,
+                )
+                continue
+            logger.opt(exception=True).warning(
+                "Holistic {} review failed for '{}' on retry, treating as dangerous (fail-closed)",
+                review_kind,
+                skill_name,
+            )
+            return {"dangerous": True, "reason": "Review failed (fail-closed)"}
+
+    return {"dangerous": True, "reason": "Review failed (fail-closed)"}
+
+
 def review_code_body_safety(
     client: dict,
     source_files: list[tuple[str, str]],
@@ -1013,38 +1071,13 @@ def review_code_body_safety(
         '  {"dangerous": true/false, "reason": "<brief explanation>"}\n'
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
-    for attempt in range(2):
-        try:
-            data = _gemini_post(client, model, payload)
-
-            text = _extract_text(data)
-            if not text:
-                if attempt == 0:
-                    logger.warning("Holistic code review returned no response for '{}', retrying", skill_name)
-                    continue
-                return {"dangerous": True, "reason": "LLM returned no response (fail-closed)"}
-
-            text = _strip_markdown_fences(text)
-
-            result = json.loads(text)
-            review = BodyReviewResult.model_validate(result)
-            return review.model_dump()
-        except (json.JSONDecodeError, ValidationError, httpx.HTTPError):
-            if attempt == 0:
-                logger.opt(exception=True).warning("Holistic code review failed for '{}', retrying once", skill_name)
-                continue
-            logger.opt(exception=True).warning(
-                "Holistic code review failed for '{}' on retry, treating as dangerous (fail-closed)",
-                skill_name,
-            )
-            return {"dangerous": True, "reason": "Review failed (fail-closed)"}
-
-    return {"dangerous": True, "reason": "Review failed (fail-closed)"}
+    return _run_body_review(
+        client=client,
+        model=model,
+        prompt=prompt,
+        skill_name=skill_name,
+        review_kind="code",
+    )
 
 
 def review_prompt_body_safety(
@@ -1120,35 +1153,10 @@ def review_prompt_body_safety(
         '  {"dangerous": true/false, "reason": "<brief explanation>"}\n'
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
-    for attempt in range(2):
-        try:
-            data = _gemini_post(client, model, payload)
-
-            text = _extract_text(data)
-            if not text:
-                if attempt == 0:
-                    logger.warning("Holistic body review returned no response for '{}', retrying", skill_name)
-                    continue
-                return {"dangerous": True, "reason": "LLM returned no response (fail-closed)"}
-
-            text = _strip_markdown_fences(text)
-
-            result = json.loads(text)
-            review = BodyReviewResult.model_validate(result)
-            return review.model_dump()
-        except (json.JSONDecodeError, ValidationError, httpx.HTTPError):
-            if attempt == 0:
-                logger.opt(exception=True).warning("Holistic body review failed for '{}', retrying once", skill_name)
-                continue
-            logger.opt(exception=True).warning(
-                "Holistic body review failed for '{}' on retry, treating as dangerous (fail-closed)",
-                skill_name,
-            )
-            return {"dangerous": True, "reason": "Review failed (fail-closed)"}
-
-    return {"dangerous": True, "reason": "Review failed (fail-closed)"}
+    return _run_body_review(
+        client=client,
+        model=model,
+        prompt=prompt,
+        skill_name=skill_name,
+        review_kind="body",
+    )

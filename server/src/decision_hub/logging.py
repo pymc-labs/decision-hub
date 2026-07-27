@@ -242,13 +242,32 @@ class RequestLoggingMiddleware:
                 )
 
 
+_JWT_USERNAME_MAX_LEN = 64
+
+
+def _sanitize_log_username(value: object) -> str:
+    """Coerce an unverified JWT claim to a safe log field.
+
+    The username claim comes from an unverified JWT (auth verification
+    happens later in the dependency layer). A hostile or malformed token
+    could carry newlines, ANSI escapes, or oversized payloads that would
+    corrupt log lines / terminals. Keep only printable ASCII (32-126) and
+    cap length.
+    """
+    if not isinstance(value, str):
+        return ""
+    cleaned = "".join(ch for ch in value if 32 <= ord(ch) <= 126)
+    return cleaned[:_JWT_USERNAME_MAX_LEN]
+
+
 def _extract_username_from_jwt(auth_header: str) -> str:
     """Extract the username from a Bearer JWT without verifying it.
 
     This is only used for logging context — actual auth verification
     happens in the dependency layer. We decode the payload segment
-    (base64url) to read the ``username`` claim. Returns empty string
-    on any failure.
+    (base64url) to read the ``username`` claim, then sanitize it so a
+    hostile token cannot inject newlines or escape sequences into logs.
+    Returns empty string on any failure.
     """
     import base64
 
@@ -263,6 +282,6 @@ def _extract_username_from_jwt(auth_header: str) -> str:
         payload_b64 = parts[1]
         payload_b64 += "=" * (-len(payload_b64) % 4)
         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        return payload.get("username", "")
+        return _sanitize_log_username(payload.get("username", ""))
     except Exception:
         return ""

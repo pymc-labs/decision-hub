@@ -539,7 +539,11 @@ def _finalize_skill(
     generate_and_store_skill_embedding(conn, prep.skill_id, prep.name, org.slug, category, prep.description, settings)
 
     s3_key = build_s3_key(org.slug, prep.name, prep.version)
-    upload_skill_zip(s3_client, settings.s3_bucket, s3_key, prep.zip_data)
+
+    # Insert the version row FIRST so a UniqueViolation aborts before we
+    # write anything to S3. The caller commits after this function returns;
+    # if the S3 upload below raises we skip the commit and the transaction
+    # rolls back — leaving neither a DB row nor an orphaned S3 object.
     try:
         version_record = insert_version(
             conn,
@@ -578,5 +582,9 @@ def _finalize_skill(
         from decision_hub.infra.database import upsert_skill_tracker
 
         upsert_skill_tracker(conn, bot_user_id, org.slug, source_repo_url)
+
+    # S3 upload is the last side effect. If it raises, the caller's
+    # `conn.commit()` never runs and all rows above roll back.
+    upload_skill_zip(s3_client, settings.s3_bucket, s3_key, prep.zip_data)
 
     return "published"

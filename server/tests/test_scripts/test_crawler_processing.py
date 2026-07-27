@@ -334,6 +334,72 @@ class TestPublishOneSkillReturnsStatus:
         assert status == "failed"
 
 
+class TestPublishOneSkillOrdering:
+    """Regression: DB write happens before S3 upload so a version race
+    can't leave an orphaned zip in S3.
+    """
+
+    def _setup_publish_ready(self, mock_skill_deps):
+        skill_mock = MagicMock()
+        skill_mock.id = uuid4()
+        skill_mock.source_repo_url = None
+        mock_skill_deps["find_skill"].return_value = skill_mock
+        mock_skill_deps["resolve_latest_version"].return_value = None
+        mock_skill_deps["find_version"].return_value = None
+
+        report = MagicMock()
+        report.passed = True
+        report.grade = "A"
+        report.gauntlet_summary = "All checks passed"
+        mock_skill_deps["run_gauntlet_pipeline"].return_value = (report, {}, "reasoning")
+        mock_skill_deps["classify_skill_category"].return_value = "devops"
+
+    def test_s3_upload_skipped_on_version_race(self, mock_skill_deps, tmp_path):
+        """insert_version raising IntegrityError must NOT trigger upload_skill_zip.
+
+        Previously the crawler uploaded the zip first and then inserted the row;
+        a concurrent tracker/crawler winning the version race left the zip
+        orphaned in S3 forever.
+        """
+        from decision_hub.domain.publish_pipeline import VersionConflictError
+
+        self._setup_publish_ready(mock_skill_deps)
+        mock_skill_deps["insert_version"].side_effect = sqlalchemy.exc.IntegrityError(
+            "INSERT ...", {}, Exception("duplicate key")
+        )
+
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
+
+        with pytest.raises(VersionConflictError):
+            _publish_one_skill(_make_engine_mock(), MagicMock(), MagicMock(), make_org(), skill_dir)
+
+        assert mock_skill_deps["upload_skill_zip"].call_count == 0
+
+    def test_insert_version_called_before_s3_upload(self, mock_skill_deps, tmp_path):
+        """Confirm the ordering: DB insert first, then S3 upload."""
+        self._setup_publish_ready(mock_skill_deps)
+        mock_skill_deps["insert_version"].return_value = MagicMock(id=uuid4())
+
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test Skill\nA test skill")
+
+        # Shared parent mock records call order across both children.
+        call_order = MagicMock()
+        call_order.attach_mock(mock_skill_deps["insert_version"], "insert_version")
+        call_order.attach_mock(mock_skill_deps["upload_skill_zip"], "upload_skill_zip")
+
+        status = _publish_one_skill(_make_engine_mock(), MagicMock(), MagicMock(), make_org(), skill_dir)
+        assert status == "published"
+
+        names = [call[0] for call in call_order.mock_calls]
+        assert "insert_version" in names
+        assert "upload_skill_zip" in names
+        assert names.index("insert_version") < names.index("upload_skill_zip")
+
+
 # ---------------------------------------------------------------------------
 # Parallel processing result collection
 # ---------------------------------------------------------------------------

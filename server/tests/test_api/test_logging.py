@@ -181,3 +181,42 @@ class TestExtractUsernameFromJwt:
         token = f"{header}.{payload}.{sig}"
         result = _extract_username_from_jwt(f"Bearer {token}")
         assert result == ""
+
+    def _make_token_with_username(self, username: str) -> str:
+        """Build a JWT-shaped string with an arbitrary username claim payload."""
+        import base64
+
+        header = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
+        payload_json = json.dumps({"username": username}).encode()
+        payload = base64.urlsafe_b64encode(payload_json).rstrip(b"=").decode()
+        return f"{header}.{payload}.fakesig"
+
+    def test_strips_newlines_from_username(self):
+        """A hostile JWT with newlines in the username claim must not be able
+        to inject fake log lines into the request-context log record."""
+        token = self._make_token_with_username("alice\nFAKE-LOG-LINE")
+        assert _extract_username_from_jwt(f"Bearer {token}") == "aliceFAKE-LOG-LINE"
+
+    def test_strips_ansi_control_chars_from_username(self):
+        """ANSI escapes and other control chars in the JWT username must be
+        stripped so terminal-tailed logs aren't recolored / cursor-moved."""
+        token = self._make_token_with_username("bob\x1b[31mRED\x1b[0m\x07")
+        assert _extract_username_from_jwt(f"Bearer {token}") == "bob[31mRED[0m"
+
+    def test_caps_username_length(self):
+        """A pathologically-long username claim is truncated so log records
+        can't be inflated by an untrusted claim."""
+        token = self._make_token_with_username("x" * 500)
+        result = _extract_username_from_jwt(f"Bearer {token}")
+        assert len(result) == 64
+        assert result == "x" * 64
+
+    def test_non_string_claim_returns_empty(self):
+        """A JWT whose ``username`` claim is not a string (e.g. an int or an
+        object) must not blow up — it falls back to the empty string."""
+        import base64
+
+        header = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(b'{"username":12345}').rstrip(b"=").decode()
+        token = f"{header}.{payload}.fakesig"
+        assert _extract_username_from_jwt(f"Bearer {token}") == ""

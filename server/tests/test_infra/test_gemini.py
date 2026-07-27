@@ -17,6 +17,8 @@ from decision_hub.infra.gemini import (
     analyze_credential_entropy,
     classify_skill,
     create_gemini_client,
+    review_code_body_safety,
+    review_prompt_body_safety,
 )
 
 _DEFAULT_MODEL = get_default_gemini_model()
@@ -379,3 +381,79 @@ class TestAnalyzeCredentialEntropyLineAttribution:
 
         assert len(results) == 1
         assert results[0]["line"] == entropy_hits[0]["line"]
+
+
+class TestHolisticBodyReview:
+    """The two ``review_*_body_safety`` functions delegate to a single
+    ``_run_body_review`` helper. These tests lock in its fail-closed
+    behavior via the two public entry points.
+    """
+
+    @respx.mock
+    def test_code_review_valid_response(self, gemini_client: dict) -> None:
+        respx.post(_GEMINI_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "candidates": [
+                        {"content": {"parts": [{"text": json.dumps({"dangerous": False, "reason": "clean"})}]}}
+                    ]
+                },
+            )
+        )
+        result = review_code_body_safety(gemini_client, [("app.py", "print('hi')")], "test", "desc", _DEFAULT_MODEL)
+        assert result == {"dangerous": False, "reason": "clean"}
+
+    @respx.mock
+    def test_prompt_review_valid_response(self, gemini_client: dict) -> None:
+        respx.post(_GEMINI_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "candidates": [
+                        {"content": {"parts": [{"text": json.dumps({"dangerous": True, "reason": "injection"})}]}}
+                    ]
+                },
+            )
+        )
+        result = review_prompt_body_safety(gemini_client, "some body", "test", "desc", _DEFAULT_MODEL)
+        assert result == {"dangerous": True, "reason": "injection"}
+
+    @respx.mock
+    def test_fail_closed_on_unparseable_json_after_retry(self, gemini_client: dict) -> None:
+        """Two malformed responses in a row → fail-closed to dangerous."""
+        respx.post(_GEMINI_URL).mock(
+            side_effect=[
+                httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "not json"}]}}]}),
+                httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "still not json"}]}}]}),
+            ]
+        )
+        result = review_code_body_safety(gemini_client, [("a.py", "x=1")], "test", "desc", _DEFAULT_MODEL)
+        assert result == {"dangerous": True, "reason": "Review failed (fail-closed)"}
+
+    @respx.mock
+    def test_fail_closed_on_empty_text_after_retry(self, gemini_client: dict) -> None:
+        """Two empty-text responses → fail-closed with the no-response reason."""
+        empty = httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": ""}]}}]})
+        respx.post(_GEMINI_URL).mock(side_effect=[empty, empty])
+        result = review_prompt_body_safety(gemini_client, "body", "test", "desc", _DEFAULT_MODEL)
+        assert result == {"dangerous": True, "reason": "LLM returned no response (fail-closed)"}
+
+    @respx.mock
+    def test_retries_once_then_returns_on_second_success(self, gemini_client: dict) -> None:
+        """One bad response, one good response → returns the good one."""
+        respx.post(_GEMINI_URL).mock(
+            side_effect=[
+                httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "bad"}]}}]}),
+                httpx.Response(
+                    200,
+                    json={
+                        "candidates": [
+                            {"content": {"parts": [{"text": json.dumps({"dangerous": False, "reason": "ok"})}]}}
+                        ]
+                    },
+                ),
+            ]
+        )
+        result = review_prompt_body_safety(gemini_client, "body", "test", "desc", _DEFAULT_MODEL)
+        assert result == {"dangerous": False, "reason": "ok"}
