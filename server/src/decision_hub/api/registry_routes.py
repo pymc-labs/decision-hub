@@ -167,6 +167,24 @@ def _enforce_publish_rate_limit(request: Request) -> None:
     state._publish_rate_limiter(request)
 
 
+def _enforce_public_read_rate_limit(request: Request) -> None:
+    """Shared limiter for public GET endpoints that touch the DB but previously
+    had no rate limit (``/stats``, per-skill summary/latest-version/eval-report).
+
+    Unauthenticated scrapers otherwise drive expensive ``COUNT(DISTINCT ...)``
+    or per-version lookups from these endpoints cheaply. CLAUDE.md requires a
+    limiter on every new public endpoint; this catches the pre-rule ones.
+    """
+    state = request.app.state
+    if not hasattr(state, "_public_read_rate_limiter"):
+        settings: Settings = state.settings
+        state._public_read_rate_limiter = RateLimiter(
+            max_requests=settings.public_read_rate_limit,
+            window_seconds=settings.public_read_rate_window,
+        )
+    state._public_read_rate_limiter(request)
+
+
 _VALID_VISIBILITIES = {"public", "org"}
 
 
@@ -556,6 +574,7 @@ def publish_skill(
 
 @public_router.get(
     "/stats",
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
 )
 def get_registry_stats(
     response: Response,
@@ -642,6 +661,7 @@ def list_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/summary",
     response_model=SkillSummary,
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
 )
 def get_skill_summary(
     org_slug: str,
@@ -718,6 +738,7 @@ def get_similar_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/latest-version",
     response_model=LatestVersionResponse,
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
 )
 def get_latest_version(
     org_slug: str,
@@ -955,6 +976,7 @@ def get_scan_report(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
 )
 def get_eval_report_by_skill(
     org_slug: str,
@@ -977,6 +999,7 @@ def get_eval_report_by_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/versions/{semver}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
 )
 def get_eval_report_by_version_path(
     org_slug: str,

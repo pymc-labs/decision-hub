@@ -142,6 +142,17 @@ class Settings(BaseSettings):
     scan_report_rate_limit: int = 30
     scan_report_rate_window: int = 60
 
+    # Rate limits for public read endpoints that hit the DB but had no limiter.
+    # Anonymous scrapers can drive expensive COUNT(DISTINCT)/full-index scans
+    # from /stats and /orgs/* cheaply without one.
+    #
+    # Chose generous ceilings so the browser's normal page-load sequence
+    # (which fans out multiple summary/latest-version/eval-report requests
+    # per skill page) stays comfortably under the limit while still bounding
+    # what a single IP can throw at the DB.
+    public_read_rate_limit: int = 120
+    public_read_rate_window: int = 60
+
     # Blocked organizations: comma-separated list of GitHub org slugs.
     # Skills from these orgs are rejected at publish, tracker creation,
     # and tracker processing time. Used to permanently exclude bad actors.

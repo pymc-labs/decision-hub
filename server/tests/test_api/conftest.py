@@ -52,6 +52,12 @@ def test_settings() -> MagicMock:
     settings.publish_rate_window = 60
     settings.auth_rate_limit = 10
     settings.auth_rate_window = 60
+    # Public read endpoints (/stats, /skills/*/summary, /skills/*/latest-version,
+    # /skills/*/eval-report, /orgs/stats, /orgs/profiles, /orgs/{slug}/profile).
+    settings.public_read_rate_limit = 30
+    settings.public_read_rate_window = 60
+    settings.scan_report_rate_limit = 30
+    settings.scan_report_rate_window = 60
     # Cache TTLs
     settings.cache_ttl_taxonomy = 300
     settings.cache_ttl_org_profiles = 60

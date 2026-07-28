@@ -282,7 +282,7 @@ class TestProcessTrackerAllFailed:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
-    def test_partial_success_advances_sha(
+    def test_partial_success_advances_sha_and_surfaces_error(
         self,
         mock_publish,
         _mock_s3,
@@ -291,7 +291,14 @@ class TestProcessTrackerAllFailed:
         _mock_commits,
         _mock_token,
     ):
-        """When at least one skill succeeds, SHA advances and no error is recorded."""
+        """When at least one skill succeeds, SHA advances but the per-skill
+        error MUST still be recorded on the tracker row.
+
+        Previous behaviour cleared ``last_error`` on any partial success, so
+        the failing skill would never be retried until the repo changed
+        again and the tracker UI showed no failure indicator. See
+        ``TestProcessTrackerMultiSkillPartialFailure`` for the full picture.
+        """
         tracker = self._make_tracker()
         mock_clone.return_value = Path("/tmp/fake/repo")
         mock_discover.return_value = [
@@ -314,9 +321,13 @@ class TestProcessTrackerAllFailed:
 
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
-            # SHA should advance since at least one succeeded
+            # SHA advances so the succeeded skill isn't re-published on next tick.
             assert kwargs["last_commit_sha"] == "new_sha_xyz"
-            assert kwargs["last_error"] is None
+            # The failure MUST be surfaced so the tracker UI shows red and
+            # operators can act on it. Silently clearing this was the bug.
+            assert kwargs["last_error"] is not None
+            assert "skill-b" in kwargs["last_error"]
+            assert "gauntlet error" in kwargs["last_error"]
 
     @patch("decision_hub.domain.tracker_service._resolve_github_token", return_value="ghs_test_token")
     @patch("decision_hub.domain.tracker_service.has_new_commits", return_value=(True, "new_sha_xyz"))
@@ -1749,7 +1760,7 @@ class TestProcessTrackerMultiSkillPartialFailure:
     @patch("decision_hub.domain.tracker_service.discover_skills")
     @patch("decision_hub.infra.storage.create_s3_client")
     @patch("decision_hub.domain.tracker_service._publish_skill_from_tracker")
-    def test_three_of_five_succeed_advances_sha_clears_error(
+    def test_three_of_five_succeed_advances_sha_and_preserves_errors(
         self,
         mock_publish,
         _mock_s3,
@@ -1758,7 +1769,16 @@ class TestProcessTrackerMultiSkillPartialFailure:
         _mock_commits,
         _mock_token,
     ):
-        """When 3 out of 5 skills succeed and 2 fail, SHA advances and last_error is cleared."""
+        """Regression: a partial failure must surface the per-skill errors on
+        the tracker row instead of silently clearing them.
+
+        Previously the code cleared ``last_error`` whenever *any* skill in the
+        batch succeeded (``last_error=None if not all_failed``), which meant
+        the 2 failing skills would never be retried until the repo changed
+        again and no failure indicator appeared in the tracker UI. The SHA
+        still advances (the successful skills are done for this commit) but
+        the errors are now visible.
+        """
         tracker = self._make_tracker()
         mock_clone.return_value = Path("/tmp/fake/repo")
         mock_discover.return_value = [
@@ -1790,10 +1810,16 @@ class TestProcessTrackerMultiSkillPartialFailure:
 
             mock_update.assert_called_once()
             _, kwargs = mock_update.call_args
-            # SHA advances because at least one skill succeeded
+            # SHA advances because at least one skill succeeded — otherwise we
+            # would re-publish the 3 succeeded skills on every subsequent tick.
             assert kwargs["last_commit_sha"] == "new_sha_multi"
-            # last_error is None because not all failed
-            assert kwargs["last_error"] is None
+            # last_error MUST carry the per-skill failure messages so the
+            # tracker UI shows failure and operators can diagnose it.
+            assert kwargs["last_error"] is not None
+            assert "skill-b" in kwargs["last_error"]
+            assert "skill-e" in kwargs["last_error"]
+            assert "gauntlet error" in kwargs["last_error"]
+            assert "S3 timeout" in kwargs["last_error"]
             # last_published_at should be set because 3 skills were published
             assert kwargs["last_published_at"] is not None
 

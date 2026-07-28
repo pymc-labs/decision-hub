@@ -802,6 +802,14 @@ def process_tracker(
                     )
 
             all_failed = published_count == 0 and len(errors) > 0
+            # A partial failure (some skills published, some didn't) must NOT
+            # silently discard the errors. If we clear last_error here the
+            # failing skill(s) will never be retried until the repo changes
+            # again, and the tracker UI shows no failure. Keep the SHA advance
+            # so the next tick doesn't re-publish the successful skills, but
+            # surface the errors so operators can see what needs attention.
+            partial_failed = published_count > 0 and len(errors) > 0
+            last_error_text = "; ".join(errors)[:500] if (all_failed or partial_failed) else None
             with engine.connect() as conn:
                 update_skill_tracker(
                     conn,
@@ -811,7 +819,7 @@ def process_tracker(
                     last_commit_sha=current_sha if not all_failed else None,
                     last_checked_at=now,
                     last_published_at=now if published_count > 0 else None,
-                    last_error="; ".join(errors)[:500] if all_failed else None,
+                    last_error=last_error_text,
                 )
                 conn.commit()
 

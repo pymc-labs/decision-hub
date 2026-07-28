@@ -22,7 +22,7 @@ from decision_hub.infra.gemini import (
     create_gemini_client,
     parse_query_with_guard,
 )
-from decision_hub.infra.storage import upload_search_log
+from decision_hub.infra.storage import build_search_log_key, upload_search_log
 from decision_hub.models import SkillIndexEntry, User
 from decision_hub.settings import Settings
 
@@ -153,8 +153,14 @@ def _log_ask_analytics(
         if fallback:
             metadata["fallback"] = True
 
-        s3_key = upload_search_log(s3_client, s3_bucket, log_id, query, answer, metadata)
-
+        # Insert the metadata row (with its future S3 key precomputed) BEFORE
+        # uploading the payload. If the DB insert fails (unique-violation,
+        # DB down, constraint change) we don't want an orphaned S3 blob with
+        # no metadata pointer. If the S3 upload fails after commit, we get
+        # a row with a dangling s3_key — the same failure mode we'd have on
+        # a delayed S3 lifecycle expiration, and it's recoverable by
+        # re-uploading. Orphaned blobs are not.
+        s3_key = build_search_log_key(log_id)
         with engine.begin() as conn:
             insert_search_log(
                 conn,
@@ -166,6 +172,7 @@ def _log_ask_analytics(
                 latency_ms=latency_ms,
                 user_id=user_id,
             )
+        upload_search_log(s3_client, s3_bucket, log_id, query, answer, metadata)
     except Exception:
         logger.opt(exception=True).warning("Analytics logging failed for ask q='{}'", query[:80])
 

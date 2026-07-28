@@ -2,13 +2,14 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_cache, get_connection, get_current_user, get_settings
+from decision_hub.api.rate_limit import RateLimiter
 from decision_hub.domain.orgs import validate_org_slug
 from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import (
@@ -26,6 +27,22 @@ from decision_hub.settings import Settings
 
 org_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
 org_public_router = APIRouter(prefix="/v1/orgs", tags=["orgs"])
+
+
+def _enforce_public_read_rate_limit(request: Request) -> None:
+    """Shared limiter for the public /orgs read endpoints (``/stats``,
+    ``/profiles``, ``/{slug}/profile``). These are unauthenticated and hit the
+    DB — a scraper otherwise fanning out to /orgs/{slug}/profile for every
+    known slug can drive a lot of queries cheaply. Reuses the ``public_read_*``
+    settings knobs shared with the equivalent endpoints in registry_routes.
+    """
+    state = request.app.state
+    if not hasattr(state, "_public_read_rate_limiter"):
+        state._public_read_rate_limiter = RateLimiter(
+            max_requests=state.settings.public_read_rate_limit,
+            window_seconds=state.settings.public_read_rate_window,
+        )
+    state._public_read_rate_limiter(request)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +168,11 @@ class OrgStatsResponse(BaseModel):
     items: list[OrgStatsEntry]
 
 
-@org_public_router.get("/stats", response_model=OrgStatsResponse)
+@org_public_router.get(
+    "/stats",
+    response_model=OrgStatsResponse,
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
+)
 def get_org_stats(
     response: Response,
     search: str | None = Query(None, max_length=200),
@@ -190,7 +211,11 @@ def get_org_stats(
     return result
 
 
-@org_public_router.get("/profiles", response_model=list[OrgProfile])
+@org_public_router.get(
+    "/profiles",
+    response_model=list[OrgProfile],
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
+)
 def list_org_profiles(
     response: Response,
     conn: Connection = Depends(get_connection),
@@ -223,7 +248,11 @@ def list_org_profiles(
     return result
 
 
-@org_public_router.get("/{slug}/profile", response_model=OrgProfile)
+@org_public_router.get(
+    "/{slug}/profile",
+    response_model=OrgProfile,
+    dependencies=[Depends(_enforce_public_read_rate_limit)],
+)
 def get_org_profile(
     slug: str,
     response: Response,

@@ -5,10 +5,18 @@ that never had a user log in via OAuth, and to fix the is_personal flag
 for orgs that were incorrectly classified.
 
 Usage:
-    cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-        python -m decision_hub.scripts.backfill_org_metadata --github-token "$(gh auth token)"
-    cd server && DHUB_ENV=dev uv run --package decision-hub-server \
-        python -m decision_hub.scripts.backfill_org_metadata fix-is-personal --github-token "$(gh auth token)"
+    cd server && DHUB_ENV=dev GITHUB_TOKEN="$(gh auth token)" \
+        uv run --package decision-hub-server \
+        python -m decision_hub.scripts.backfill_org_metadata
+    cd server && DHUB_ENV=dev GITHUB_TOKEN="$(gh auth token)" \
+        uv run --package decision-hub-server \
+        python -m decision_hub.scripts.backfill_org_metadata fix-is-personal
+
+The token MUST be supplied via the ``GITHUB_TOKEN`` environment variable —
+passing it on the command line would expose it to every other local user
+via ``ps auxww`` and to the shell history file. The legacy
+``--github-token`` flag is still accepted but deprecated and prints a
+warning.
 """
 
 import argparse
@@ -44,8 +52,36 @@ def _make_github_headers(token: str) -> dict[str, str]:
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--github-token", type=str, required=True, help="GitHub PAT")
+    # --github-token is DEPRECATED: values passed on argv are visible in
+    # ``ps auxww`` to every local user for the lifetime of the process and
+    # end up in shell history. Prefer the ``GITHUB_TOKEN`` env var.
+    parser.add_argument(
+        "--github-token",
+        type=str,
+        default=None,
+        help="DEPRECATED — pass via GITHUB_TOKEN env var instead (argv leaks to `ps`).",
+    )
     parser.add_argument("--dry-run", action="store_true")
+
+
+def _resolve_github_token(cli_token: str | None) -> str:
+    """Return the GitHub token, preferring the env var over argv.
+
+    Emits a warning when the deprecated ``--github-token`` flag is used so
+    operators migrate off the argv path.
+    """
+    env_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if env_token:
+        return env_token
+    if cli_token:
+        _log(
+            "WARNING: --github-token is deprecated — the value is visible in "
+            "`ps` output to every local user. Set GITHUB_TOKEN in the "
+            "environment instead."
+        )
+        return cli_token
+    _log("ERROR: no GitHub token provided. Set GITHUB_TOKEN in the environment.")
+    sys.exit(2)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -262,10 +298,12 @@ def main() -> None:
     settings = create_settings(env)
     engine = create_engine(settings.database_url)
 
+    token = _resolve_github_token(args.github_token)
+
     if args.command == "fix-is-personal":
-        fix_is_personal(engine, args.github_token, dry_run=args.dry_run)
+        fix_is_personal(engine, token, dry_run=args.dry_run)
     elif args.command == "metadata":
-        backfill_metadata(engine, args.github_token, dry_run=args.dry_run)
+        backfill_metadata(engine, token, dry_run=args.dry_run)
 
     sys.exit(0)
 

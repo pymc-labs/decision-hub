@@ -367,3 +367,83 @@ class TestAskSkillsPost:
             },
         )
         assert resp.status_code == 422
+
+
+class TestLogAskAnalyticsOrdering:
+    """_log_ask_analytics must write the DB row before uploading to S3.
+
+    Regression: previously the S3 upload ran first, so an insert failure
+    (unique-violation, DB down, constraint change) left an orphaned blob
+    in the search-logs prefix with nothing pointing to it. Order matters
+    for the whole reverse-lookup / cleanup story to work.
+    """
+
+    def _run_log(self, *, upload_side_effect=None, insert_side_effect=None):
+        """Invoke _log_ask_analytics with mocked collaborators and return the recording mocks."""
+        from unittest.mock import MagicMock, patch
+        from uuid import uuid4
+
+        from decision_hub.api.search_routes import _log_ask_analytics
+
+        engine = MagicMock()
+        s3_client = MagicMock()
+        log_id = uuid4()
+        recorder = MagicMock()
+
+        def _insert(*args, **kwargs):
+            recorder("insert_search_log")
+            if insert_side_effect is not None:
+                raise insert_side_effect
+
+        def _upload(*args, **kwargs):
+            recorder("upload_search_log")
+            if upload_side_effect is not None:
+                raise upload_side_effect
+            return "search-logs/2026-07-28/fake.json"
+
+        with (
+            patch("decision_hub.api.search_routes.insert_search_log", side_effect=_insert) as mock_insert,
+            patch("decision_hub.api.search_routes.upload_search_log", side_effect=_upload) as mock_upload,
+        ):
+            _log_ask_analytics(
+                engine=engine,
+                s3_client=s3_client,
+                s3_bucket="test-bucket",
+                log_id=log_id,
+                query="test",
+                answer="answer",
+                results_count=3,
+                model="gemini-pro",
+                latency_ms=42,
+                user_id=None,
+                username=None,
+            )
+        return mock_insert, mock_upload, recorder
+
+    def test_insert_runs_before_upload_on_happy_path(self) -> None:
+        _mock_insert, _mock_upload, recorder = self._run_log()
+
+        names = [c.args[0] for c in recorder.call_args_list]
+        assert names == ["insert_search_log", "upload_search_log"], (
+            "DB insert must precede the S3 upload so a failed insert never leaves an orphan blob"
+        )
+
+    def test_upload_is_not_called_when_insert_fails(self) -> None:
+        """A DB insert failure must prevent the S3 upload entirely — otherwise
+        we produce the orphaned blob this ordering exists to avoid."""
+        _mock_insert, mock_upload, _recorder = self._run_log(
+            insert_side_effect=RuntimeError("insert failed"),
+        )
+        mock_upload.assert_not_called()
+
+    def test_upload_failure_does_not_prevent_insert(self) -> None:
+        """A failure on the S3 upload leaves the DB row in place — the row
+        still points to a well-formed s3_key that can be re-uploaded later,
+        which is the recoverable failure mode we want to keep."""
+        mock_insert, _mock_upload, _recorder = self._run_log(
+            upload_side_effect=RuntimeError("S3 unreachable"),
+        )
+        mock_insert.assert_called_once()
+        # The s3_key argument must be present and non-empty even before upload.
+        _args, kwargs = mock_insert.call_args
+        assert kwargs["s3_key"], "s3_key must be pre-computed and persisted before upload"

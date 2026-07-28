@@ -229,6 +229,17 @@ def delete_eval_logs(
 # ---------------------------------------------------------------------------
 
 
+def build_search_log_key(log_id: UUID) -> str:
+    """Compute the canonical S3 key for a search-log entry.
+
+    Split out from ``upload_search_log`` so callers can precompute the key,
+    persist it to the metadata row, and only then upload — avoiding an
+    orphaned S3 blob if the DB insert fails.
+    """
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    return f"search-logs/{date_str}/{log_id}.json"
+
+
 def upload_search_log(
     client: BaseClient,
     bucket: str,
@@ -250,8 +261,7 @@ def upload_search_log(
     Returns:
         The S3 key of the uploaded log.
     """
-    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
-    s3_key = f"search-logs/{date_str}/{log_id}.json"
+    s3_key = build_search_log_key(log_id)
 
     log_data = {
         "id": str(log_id),

@@ -172,6 +172,13 @@ export default function FileBrowser({ files }: FileBrowserProps) {
   }
 
   const tree = buildTree(files);
+  // Derive a per-files identity so React remounts TreeNodeView (and its
+  // internal ``expanded`` state) when the browsed skill changes. Without
+  // this, two skills that share a directory path (e.g. both have
+  // ``evals/``) inherit each other's collapse state via the shared
+  // ``key={child.path}``, showing folders as "open" even after navigating
+  // to a completely different skill.
+  const treeKey = `${files.length}:${files[0]?.path ?? ""}:${files[files.length - 1]?.path ?? ""}`;
 
   return (
     <div className={styles.browser}>
@@ -181,7 +188,7 @@ export default function FileBrowser({ files }: FileBrowserProps) {
           <span>Files</span>
           <span className={styles.fileCount}>{files.length}</span>
         </div>
-        <div className={styles.tree}>
+        <div className={styles.tree} key={treeKey}>
           {tree.map((node) => (
             <TreeNodeView
               key={node.path}
