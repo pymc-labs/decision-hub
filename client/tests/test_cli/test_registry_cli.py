@@ -1362,6 +1362,24 @@ class TestEvalReportJsonOutput:
 # ---------------------------------------------------------------------------
 
 
+class TestAutoDetectOrgStdout:
+    """`_auto_detect_org` must never contaminate stdout — publish --output json
+    parses stdout, so an informational line about the auto-detected namespace
+    would break machine consumers."""
+
+    @patch("dhub.cli.config.get_default_org", return_value="myorg")
+    def test_prints_to_stderr_not_stdout(self, _mock_org, capsys) -> None:
+        """The 'Using default namespace: …' line lands on stderr."""
+        from dhub.cli.registry import _auto_detect_org
+
+        result = _auto_detect_org("http://test:8000", "unused-token")
+
+        assert result == "myorg"
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "myorg" in captured.err
+
+
 class TestPublishJsonOutput:
     @respx.mock
     @patch("dhub.cli.registry._auto_detect_org", return_value="myorg")

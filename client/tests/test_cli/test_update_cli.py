@@ -313,6 +313,40 @@ class TestUpdateCommand:
         assert resolve_route.called
         assert "allow_risky=true" in str(resolve_route.calls[0].request.url)
 
+    @respx.mock
+    @patch("dhub.core.install.get_dhub_skill_path")
+    @patch(
+        "dhub.core.install.list_installed_skills",
+        return_value=[("myorg", "skill-a"), ("myorg", "skill-b")],
+    )
+    @patch("dhub.core.install.get_installed_version", return_value=InstalledVersion("1.0.0"))
+    @patch("dhub.cli.config.get_optional_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_update_all_exits_nonzero_on_failure(
+        self,
+        _mock_url,
+        _mock_token,
+        _mock_installed_ver,
+        _mock_list,
+        mock_skill_path,
+        tmp_path: Path,
+    ) -> None:
+        """--all exits 1 when any per-skill update fails so CI/cron flags it."""
+        mock_skill_path.side_effect = lambda org, name: tmp_path / org / name
+
+        # Both /latest-version calls return 5xx errors — every skill fails.
+        respx.get("http://test:8000/v1/skills/myorg/skill-a/latest-version").mock(
+            return_value=httpx.Response(500, text="boom")
+        )
+        respx.get("http://test:8000/v1/skills/myorg/skill-b/latest-version").mock(
+            return_value=httpx.Response(500, text="boom")
+        )
+
+        result = runner.invoke(app, ["update", "--all"])
+
+        assert result.exit_code == 1
+        assert "2 failed" in result.output
+
 
 class TestVersionTracking:
     def test_save_and_get_installed_version(self, tmp_path: Path) -> None:

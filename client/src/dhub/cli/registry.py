@@ -14,6 +14,9 @@ from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
+# Separate stderr console for informational chatter that must NOT contaminate
+# stdout when the CLI is invoked with `--output json` (callers parse stdout).
+err_console = Console(stderr=True)
 
 
 def _publish_skill_directory(
@@ -496,23 +499,26 @@ def _auto_detect_org(api_url: str, token: str) -> str:
     1. DHUB_DEFAULT_ORG env var or config default_org
     2. Cached orgs from config (if exactly one)
     3. Falls back to API call (for old configs without cached orgs)
+
+    All informational chatter goes to stderr so that ``dhub publish --output
+    json`` produces clean, parseable JSON on stdout.
     """
     from dhub.cli.config import build_headers, get_default_org, load_config, raise_for_status
 
     # 1. Check default org (env var takes priority over config)
     default = get_default_org()
     if default:
-        console.print(f"Using default namespace: [cyan]{default}[/]")
+        err_console.print(f"Using default namespace: [cyan]{default}[/]")
         return default
 
     # 2. Check cached orgs from config
     config = load_config()
     if config.orgs:
         if len(config.orgs) == 1:
-            console.print(f"Auto-detected namespace: [cyan]{config.orgs[0]}[/]")
+            err_console.print(f"Auto-detected namespace: [cyan]{config.orgs[0]}[/]")
             return config.orgs[0]
         slugs = ", ".join(config.orgs)
-        console.print(
+        err_console.print(
             f"[red]Error: You have multiple namespaces ({slugs}). "
             f"Run 'dhub config default-org' to set a default, "
             f"or set DHUB_DEFAULT_ORG, "
@@ -530,12 +536,12 @@ def _auto_detect_org(api_url: str, token: str) -> str:
         orgs = resp.json()
 
     if len(orgs) == 0:
-        console.print("[red]Error: No namespaces available. Run 'dhub login' to refresh your org memberships.[/]")
+        err_console.print("[red]Error: No namespaces available. Run 'dhub login' to refresh your org memberships.[/]")
         raise typer.Exit(1)
 
     if len(orgs) > 1:
         slugs = ", ".join(o["slug"] for o in orgs)
-        console.print(
+        err_console.print(
             f"[red]Error: You have multiple namespaces ({slugs}). "
             f"Run 'dhub config default-org' to set a default, "
             f"or set DHUB_DEFAULT_ORG, "
@@ -544,7 +550,7 @@ def _auto_detect_org(api_url: str, token: str) -> str:
         raise typer.Exit(1)
 
     org_slug = orgs[0]["slug"]
-    console.print(f"Auto-detected namespace: [cyan]{org_slug}[/]")
+    err_console.print(f"Auto-detected namespace: [cyan]{org_slug}[/]")
     return org_slug
 
 
@@ -1117,6 +1123,9 @@ def _install_from_repo(
     console.print(f"\n[green]Installed {succeeded}/{len(skills)} skills from {repo_ref}[/]")
     if failed:
         console.print(f"[yellow]{failed} skills failed to install.[/]")
+        # Non-zero exit so scripts that pipe `dhub install --repo` can detect
+        # partial failure. Publish's per-skill loop already does this.
+        raise typer.Exit(1)
 
 
 def install_command(
@@ -1633,6 +1642,9 @@ def _update_all_skills() -> None:
                 failed += 1
 
     console.print(f"\nDone: [green]{updated} updated[/], {up_to_date} up to date, [red]{failed} failed[/]")
+    if failed:
+        # Non-zero exit so `dhub update` in CI / cron flags partial failure.
+        raise typer.Exit(1)
 
 
 def visibility_command(

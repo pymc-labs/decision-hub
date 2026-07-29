@@ -10,7 +10,7 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.api.deps import get_cache, get_connection, get_settings
 from decision_hub.infra.cache import TTLCache
-from decision_hub.infra.database import organizations_table, skills_table
+from decision_hub.infra.database import _exclude_removed_or_archived, organizations_table, skills_table
 from decision_hub.settings import Settings
 
 router = APIRouter(tags=["seo"])
@@ -40,7 +40,8 @@ def sitemap_xml(
         (f"{_BASE_URL}/how-it-works", today, "monthly"),
     ]
 
-    # Public skills
+    # Public skills — excluding source-repo-removed and GitHub-archived, so
+    # search engines don't index detail pages that 404 or serve stale content.
     stmt = (
         sa.select(
             organizations_table.c.slug.label("org_slug"),
@@ -59,11 +60,12 @@ def sitemap_xml(
         )
         .order_by(organizations_table.c.slug, skills_table.c.name)
     )
+    stmt = _exclude_removed_or_archived(stmt)
     for row in conn.execute(stmt):
         lastmod = row.latest_published_at.strftime("%Y-%m-%d") if row.latest_published_at else today
         urls.append((f"{_BASE_URL}/skills/{row.org_slug}/{row.skill_name}", lastmod, "weekly"))
 
-    # Public orgs (only those with at least one published skill)
+    # Public orgs (only those with at least one non-removed published skill)
     org_stmt = (
         sa.select(sa.distinct(organizations_table.c.slug))
         .select_from(
@@ -78,6 +80,7 @@ def sitemap_xml(
         )
         .order_by(organizations_table.c.slug)
     )
+    org_stmt = _exclude_removed_or_archived(org_stmt)
     for row in conn.execute(org_stmt):
         urls.append((f"{_BASE_URL}/orgs/{row[0]}", today, "weekly"))
 

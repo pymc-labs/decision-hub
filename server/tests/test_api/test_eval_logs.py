@@ -171,6 +171,99 @@ class TestGetEvalRun:
 
         assert resp.status_code == 404
 
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_zombie_detection_uses_created_at_when_no_heartbeat(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A pre-heartbeat crash (Modal OOM before first heartbeat) is detected.
+
+        Regression: previously ``_check_zombie`` returned early when
+        ``heartbeat_at`` was NULL, leaving the row pending/provisioning forever
+        if the worker died before writing its first heartbeat.
+        """
+        stale_created = datetime.now(UTC) - timedelta(seconds=400)
+        run = _make_eval_run(
+            status="provisioning",
+            heartbeat_at=None,
+            created_at=stale_created,
+        )
+        failed_run = _make_eval_run(
+            id=run.id,
+            status="failed",
+            error_message="No heartbeat since creation",
+            heartbeat_at=None,
+            created_at=stale_created,
+        )
+        mock_find_run.side_effect = [run, failed_run]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+        mock_update_status.assert_called_once()
+        assert "No heartbeat" in mock_update_status.call_args.kwargs.get("error_message", "")
+
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_zombie_detection_covers_pending_status(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A stale ``pending`` run is now marked failed (was previously skipped)."""
+        stale_created = datetime.now(UTC) - timedelta(seconds=400)
+        run = _make_eval_run(
+            status="pending",
+            heartbeat_at=None,
+            created_at=stale_created,
+        )
+        failed_run = _make_eval_run(
+            id=run.id,
+            status="failed",
+            error_message="No heartbeat since creation",
+            heartbeat_at=None,
+            created_at=stale_created,
+        )
+        mock_find_run.side_effect = [run, failed_run]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+        mock_update_status.assert_called_once()
+
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_zombie_detection_uses_heartbeat_when_present(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """When heartbeat_at exists, it takes precedence over created_at."""
+        recent_heartbeat = datetime.now(UTC) - timedelta(seconds=30)
+        old_created = datetime.now(UTC) - timedelta(hours=1)
+        run = _make_eval_run(
+            status="running",
+            heartbeat_at=recent_heartbeat,
+            created_at=old_created,
+        )
+        mock_find_run.return_value = run
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+        mock_update_status.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/eval-runs/{run_id}/logs — cursor-based event pagination

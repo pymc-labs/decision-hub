@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,42 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepoTimeout:
+    """clone_repo wraps subprocess calls with a wall-clock cap."""
+
+    def test_timeout_raises_sanitized_runtime_error(self) -> None:
+        """subprocess.TimeoutExpired never leaks to the caller; a RuntimeError
+        naming the subcommand is raised instead. The URL — which may embed a
+        token — is not echoed in the message.
+        """
+        # Simulate a hung `git clone` — the URL argument holds a fake token
+        # to confirm it's never surfaced in the raised message.
+        secret_url = "https://x-access-token:sekrittoken@github.com/o/r"
+        with (
+            patch(
+                "dhub.core.git_repo.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd=["git", "clone", secret_url], timeout=120),
+            ),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            clone_repo(secret_url)
+
+        message = str(exc_info.value)
+        assert "timed out" in message
+        assert "clone" in message
+        # The token embedded in the URL must not appear in the error message.
+        assert "sekrittoken" not in message
+        assert secret_url not in message
+
+    def test_timeout_wraps_git_command(self) -> None:
+        """Even a non-clone subcommand (e.g. `git checkout`) reports as a timeout."""
+        with (
+            patch(
+                "dhub.core.git_repo.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd=["git", "clone"], timeout=120),
+            ),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            clone_repo("https://github.com/o/r")

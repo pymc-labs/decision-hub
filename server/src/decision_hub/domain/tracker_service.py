@@ -613,30 +613,33 @@ def _persist_orphaned_tracker_errors(
     *,
     error_msg: str,
 ) -> None:
-    """Update last_error for trackers whose Modal containers died before writing a result."""
-    from decision_hub.infra.database import update_skill_tracker
+    """Update last_error/last_checked_at for trackers whose Modal containers died.
+
+    Uses two bulk UPDATEs (one to set ``last_error``, one to bump
+    ``last_checked_at``) instead of N per-tracker updates so the cron doesn't
+    stall when the orphan set is large.
+    """
+    from decision_hub.infra.database import batch_set_tracker_errors, batch_set_tracker_last_checked
 
     if not orphaned_ids:
         return
 
-    now = datetime.now(UTC)
     tracker_by_id = {t.id: t for t, _ in changed_trackers}
+    for tid in orphaned_ids:
+        tracker = tracker_by_id.get(tid)
+        logger.warning(
+            "tracker_id={} repo={} status=orphaned_failure error={}",
+            tid,
+            tracker.repo_url if tracker else "?",
+            error_msg,
+        )
+
+    id_list = list(orphaned_ids)
+    now = datetime.now(UTC)
     try:
         with engine.connect() as conn:
-            for tid in orphaned_ids:
-                tracker = tracker_by_id.get(tid)
-                logger.warning(
-                    "tracker_id={} repo={} status=orphaned_failure error={}",
-                    tid,
-                    tracker.repo_url if tracker else "?",
-                    error_msg,
-                )
-                update_skill_tracker(
-                    conn,
-                    tid,
-                    last_checked_at=now,
-                    last_error=error_msg,
-                )
+            batch_set_tracker_errors(conn, id_list, error_msg)
+            batch_set_tracker_last_checked(conn, id_list, now)
             conn.commit()
     except Exception:
         logger.opt(exception=True).error("Failed to persist orphaned tracker errors")

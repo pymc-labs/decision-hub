@@ -50,6 +50,32 @@ def _looks_like_sha(ref: str) -> bool:
     return bool(_SHA_PATTERN.match(ref))
 
 
+# Default wall-clock cap for a single git operation. Prevents a network-
+# unreachable server or a giant repo from hanging the CLI indefinitely (per
+# CLAUDE.md "Sanitize subprocess credentials" / no-hang rules).
+_CLONE_TIMEOUT_SECONDS = 120
+
+
+def _run_git(cmd: list[str], *, cwd: str | None = None) -> subprocess.CompletedProcess:
+    """Run a git subprocess with a wall-clock cap.
+
+    Wraps ``TimeoutExpired`` in a ``RuntimeError`` naming the git subcommand
+    (never the full argv) so any credential embedded in a URL argument is
+    never re-emitted in error messages.
+    """
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=_CLONE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        subcmd = cmd[1] if len(cmd) > 1 else "git"
+        raise RuntimeError(f"git {subcmd} timed out after {_CLONE_TIMEOUT_SECONDS}s") from exc
+
+
 def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     """Clone a git repository into a temporary directory.
 
@@ -61,37 +87,32 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
         Path to the cloned repository root.
 
     Raises:
-        RuntimeError: If the clone or checkout fails.
+        RuntimeError: If the clone or checkout fails or exceeds the wall-clock cap.
     """
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
-    if ref and _looks_like_sha(ref):
-        # Commit SHAs don't work with --depth 1 --branch; do a full
-        # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
-        checkout = subprocess.run(
-            ["git", "checkout", ref],
-            cwd=str(repo_path),
-            capture_output=True,
-            text=True,
-        )
-        if checkout.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
-    else:
-        cmd = ["git", "clone", "--depth", "1"]
-        if ref:
-            cmd += ["--branch", ref]
-        cmd += [repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    try:
+        if ref and _looks_like_sha(ref):
+            # Commit SHAs don't work with --depth 1 --branch; do a full
+            # clone then checkout the specific commit.
+            result = _run_git(["git", "clone", repo_url, str(repo_path)])
+            if result.returncode != 0:
+                raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+            checkout = _run_git(["git", "checkout", ref], cwd=str(repo_path))
+            if checkout.returncode != 0:
+                raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
+        else:
+            cmd = ["git", "clone", "--depth", "1"]
+            if ref:
+                cmd += ["--branch", ref]
+            cmd += [repo_url, str(repo_path)]
+            result = _run_git(cmd)
+            if result.returncode != 0:
+                raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     return repo_path
 

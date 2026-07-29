@@ -1098,22 +1098,33 @@ def _run_to_response(run) -> EvalRunResponse:
 
 
 def _check_zombie(conn: Connection, run) -> str:
-    """Check if a running eval run has a stale heartbeat (zombie).
+    """Check if an in-flight eval run has gone stale (zombie).
 
-    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    Compares the newer of ``heartbeat_at`` and ``created_at`` against
+    ``_STALE_HEARTBEAT_SECONDS`` — falling back to ``created_at`` covers the
+    case where the Modal worker crashed (OOM, provisioning failure) before it
+    ever wrote its first heartbeat, which would otherwise leave the row
+    pending/provisioning forever.
+
+    Marks the run as failed and returns "failed" on staleness; otherwise
+    returns the existing ``run.status``.
     """
-    if run.status not in ("running", "judging", "provisioning"):
+    if run.status not in ("pending", "provisioning", "running", "judging"):
         return run.status
-    if run.heartbeat_at is None:
+    # Fall back to created_at when heartbeat_at is missing so pre-heartbeat
+    # crashes (e.g. Modal worker OOMs before run_streaming_eval writes the
+    # first heartbeat) are still detected instead of hanging indefinitely.
+    reference = run.heartbeat_at or run.created_at
+    if reference is None:
         return run.status
-    elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
+    elapsed = (datetime.now(UTC) - reference).total_seconds()
     if elapsed > _STALE_HEARTBEAT_SECONDS:
+        reason = "Stale heartbeat" if run.heartbeat_at else "No heartbeat since creation"
         update_eval_run_status(
             conn,
             run.id,
             status="failed",
-            error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
+            error_message=f"{reason} ({int(elapsed)}s). Worker may have crashed.",
             completed_at=datetime.now(UTC),
         )
         return "failed"

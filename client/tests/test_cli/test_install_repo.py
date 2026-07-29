@@ -235,7 +235,9 @@ class TestInstallRepo:
 
         result = runner.invoke(app, ["install", "--repo", "acme/repo"])
 
-        assert result.exit_code == 0
+        # Exit 1 on any per-skill failure so scripts can detect partial failure,
+        # while still processing every other skill in the repo.
+        assert result.exit_code == 1
         assert "Installed 1/2" in result.output
         assert "1 skills failed" in result.output
 
@@ -274,6 +276,8 @@ class TestInstallRepo:
 
         result = runner.invoke(app, ["install", "--repo", "acme/repo"])
 
-        assert result.exit_code == 0
+        # A rate-limited skill is a partial failure — exit 1 so CI/cron notices,
+        # but the other skills still install successfully.
+        assert result.exit_code == 1
         assert "Installed 1/2" in result.output
         assert "rate limited" in result.output

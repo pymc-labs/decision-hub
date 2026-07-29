@@ -14,12 +14,27 @@ CONFIG_DIR = Path.home() / ".dhub"
 _DEFAULT_API_URLS: dict[str, str] = {
     "dev": "https://pymc-labs--api-dev.modal.run",
     "prod": "https://pymc-labs--api.modal.run",
+    "local": "http://localhost:8000",
 }
+_VALID_ENVS: frozenset[str] = frozenset(_DEFAULT_API_URLS)
 
 
 def get_env() -> str:
-    """Return current environment name from DHUB_ENV (default: 'prod')."""
-    return os.environ.get("DHUB_ENV", "prod")
+    """Return current environment name from DHUB_ENV (default: 'prod').
+
+    Rejects unknown values (e.g. a typo like ``DHUB_ENV=devv``) so a
+    misspelling never silently degrades to production traffic — a
+    surprisingly costly failure mode discovered in review.
+    """
+    env = os.environ.get("DHUB_ENV", "prod")
+    if env not in _VALID_ENVS:
+        import typer
+        from rich.console import Console
+
+        valid = ", ".join(sorted(_VALID_ENVS))
+        Console(stderr=True).print(f"[red]Error: DHUB_ENV={env!r} is not recognized. Valid values: {valid}.[/]")
+        raise typer.Exit(1)
+    return env
 
 
 def default_api_url(env: str | None = None) -> str:

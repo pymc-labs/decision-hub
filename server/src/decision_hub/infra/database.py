@@ -1775,6 +1775,35 @@ def _build_skills_filters(
     return base
 
 
+def _tracker_exists_subquery():
+    """Correlated EXISTS subquery: does an enabled tracker cover this skill's repo?
+
+    A tracker's ``repo_url`` covers a skill when it either equals the skill's
+    ``source_repo_url`` (top-level skill) or is a strict prefix of it (skill
+    lives in a subdirectory of the tracked repo — e.g. tracker
+    ``https://github.com/org/repo`` covers skill
+    ``https://github.com/org/repo/skills/foo``).
+
+    Emits a single boolean via EXISTS(...) so it can be selected as a scalar
+    or dropped into a WHERE clause.
+    """
+    prefix_match = skills_table.c.source_repo_url.like(skill_trackers_table.c.repo_url + sa.literal("/%"))
+    return (
+        sa.select(sa.literal(True))
+        .where(
+            sa.and_(
+                sa.or_(
+                    skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
+                    prefix_match,
+                ),
+                skill_trackers_table.c.enabled.is_(True),
+            )
+        )
+        .correlate(skills_table)
+        .exists()
+    )
+
+
 def fetch_all_skills_for_index(
     conn: Connection,
     *,
@@ -1806,18 +1835,7 @@ def fetch_all_skills_for_index(
     and sorting by updated/name/downloads.
     """
     # Subquery: does an enabled tracker exist for this skill's source repo?
-    tracker_exists = (
-        sa.select(sa.literal(True))
-        .where(
-            sa.and_(
-                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
-                skill_trackers_table.c.enabled.is_(True),
-            )
-        )
-        .correlate(skills_table)
-        .exists()
-        .label("has_tracker")
-    )
+    tracker_exists = _tracker_exists_subquery().label("has_tracker")
 
     base = (
         sa.select(
@@ -1936,18 +1954,7 @@ def fetch_skills_by_repo(
     """
     normalized = _normalize_repo_url(repo_url)
 
-    tracker_exists = (
-        sa.select(sa.literal(True))
-        .where(
-            sa.and_(
-                skill_trackers_table.c.repo_url == skills_table.c.source_repo_url,
-                skill_trackers_table.c.enabled.is_(True),
-            )
-        )
-        .correlate(skills_table)
-        .exists()
-        .label("has_tracker")
-    )
+    tracker_exists = _tracker_exists_subquery().label("has_tracker")
 
     base = (
         sa.select(*_SKILL_SUMMARY_COLUMNS, tracker_exists)
@@ -2128,6 +2135,9 @@ def fetch_similar_skills(
         .order_by(sa.text("vec_dist ASC"))
         .limit(limit)
     )
+    # Don't suggest skills whose repo was removed or archived — the CLI can't
+    # download them and the detail page shows a dead banner.
+    vec_stmt = _exclude_removed_or_archived(vec_stmt)
     rows = conn.execute(vec_stmt).all()
     return [_row_to_skill_summary(r) for r in rows]
 
@@ -3032,6 +3042,22 @@ def batch_set_tracker_errors(conn: Connection, tracker_ids: list[UUID], error_me
         sa.update(skill_trackers_table)
         .where(skill_trackers_table.c.id.in_(tracker_ids))
         .values(last_error=error_message)
+    )
+    return conn.execute(stmt).rowcount
+
+
+def batch_set_tracker_last_checked(
+    conn: Connection,
+    tracker_ids: list[UUID],
+    last_checked_at: datetime,
+) -> int:
+    """Bump last_checked_at for multiple trackers in one UPDATE. Returns rowcount."""
+    if not tracker_ids:
+        return 0
+    stmt = (
+        sa.update(skill_trackers_table)
+        .where(skill_trackers_table.c.id.in_(tracker_ids))
+        .values(last_checked_at=last_checked_at)
     )
     return conn.execute(stmt).rowcount
 

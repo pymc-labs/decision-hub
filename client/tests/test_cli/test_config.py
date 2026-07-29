@@ -169,3 +169,29 @@ class TestGetDefaultOrg:
         result = get_default_org()
 
         assert result is None
+
+
+class TestGetEnvWhitelist:
+    """get_env rejects unknown DHUB_ENV values instead of silently degrading."""
+
+    def test_valid_env_returned(self, monkeypatch):
+        from dhub.cli.config import get_env
+
+        for value in ("dev", "prod", "local"):
+            monkeypatch.setenv("DHUB_ENV", value)
+            assert get_env() == value
+
+    def test_default_when_unset(self, monkeypatch):
+        from dhub.cli.config import get_env
+
+        monkeypatch.delenv("DHUB_ENV", raising=False)
+        assert get_env() == "prod"
+
+    def test_unknown_env_exits(self, monkeypatch):
+        """A typo like DHUB_ENV=devv must NOT silently degrade to prod traffic."""
+        from dhub.cli.config import get_env
+
+        monkeypatch.setenv("DHUB_ENV", "devv")
+
+        with pytest.raises(click.exceptions.Exit):
+            get_env()

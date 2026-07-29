@@ -630,9 +630,10 @@ class TestDispatchChangedTrackers:
         assert processed == 0
         assert failed == 1
 
-    @patch("decision_hub.infra.database.update_skill_tracker")
-    def test_persist_orphaned_tracker_errors(self, mock_update):
-        """When Modal containers die (timeout/OOM), last_error should be persisted."""
+    @patch("decision_hub.infra.database.batch_set_tracker_last_checked")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    def test_persist_orphaned_tracker_errors(self, mock_set_errors, mock_set_checked):
+        """When Modal containers die (timeout/OOM), last_error should be persisted via batch UPDATEs."""
         tracker = self._make_tracker()
         changed = [(tracker, "new_sha")]
         mock_engine = MagicMock()
@@ -647,15 +648,46 @@ class TestDispatchChangedTrackers:
             error_msg="Modal container failed (timeout/OOM)",
         )
 
-        mock_update.assert_called_once()
-        call_kwargs = mock_update.call_args
-        assert call_kwargs[0][1] == tracker.id
-        assert "timeout" in call_kwargs[1]["last_error"]
-        assert call_kwargs[1]["last_checked_at"] is not None
+        mock_set_errors.assert_called_once()
+        errors_args = mock_set_errors.call_args
+        assert errors_args[0][1] == [tracker.id]
+        assert "timeout" in errors_args[0][2]
+
+        mock_set_checked.assert_called_once()
+        checked_args = mock_set_checked.call_args
+        assert checked_args[0][1] == [tracker.id]
+        assert checked_args[0][2] is not None
+
         mock_conn.commit.assert_called_once()
 
-    @patch("decision_hub.infra.database.update_skill_tracker")
-    def test_persist_orphaned_no_op_when_all_completed(self, mock_update):
+    @patch("decision_hub.infra.database.batch_set_tracker_last_checked")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    def test_persist_orphaned_batches_all_ids_in_one_call(self, mock_set_errors, mock_set_checked):
+        """A large orphan set should be persisted in exactly two UPDATEs, not N."""
+        trackers = [self._make_tracker() for _ in range(50)]
+        changed = [(t, "sha") for t in trackers]
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        orphaned = {t.id for t in trackers}
+        _persist_orphaned_tracker_errors(
+            orphaned,
+            changed,
+            mock_engine,
+            error_msg="Modal container failed",
+        )
+
+        # Exactly one bulk UPDATE for last_error and one for last_checked_at.
+        assert mock_set_errors.call_count == 1
+        assert mock_set_checked.call_count == 1
+        assert set(mock_set_errors.call_args[0][1]) == orphaned
+        assert set(mock_set_checked.call_args[0][1]) == orphaned
+
+    @patch("decision_hub.infra.database.batch_set_tracker_last_checked")
+    @patch("decision_hub.infra.database.batch_set_tracker_errors")
+    def test_persist_orphaned_no_op_when_all_completed(self, mock_set_errors, mock_set_checked):
         """When all trackers completed, no DB update should happen."""
         mock_engine = MagicMock()
 
@@ -666,7 +698,8 @@ class TestDispatchChangedTrackers:
             error_msg="should not be written",
         )
 
-        mock_update.assert_not_called()
+        mock_set_errors.assert_not_called()
+        mock_set_checked.assert_not_called()
         mock_engine.connect.assert_not_called()
 
 
