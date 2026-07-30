@@ -69,11 +69,17 @@ export default function SkillDetailPage() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  // Reset state when navigating to a different skill.
+  // Also resets `activeTab` and `copied` — otherwise clicking a related-skill
+  // link from the Audit tab keeps you on that tab for the new skill, and the
+  // "Copied!" badge persists across skills.
   useEffect(() => {
+    setActiveTab("overview");
+    setCopied(false);
     setZipData(null);
     setZipError(null);
     setZipLoading(false);
+    setDownloading(false);
     setFiles([]);
     setSkillMdContent(null);
     zipRetries.current = 0;

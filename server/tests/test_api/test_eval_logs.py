@@ -382,6 +382,41 @@ class TestGetEvalRunLogs:
 
         assert resp.status_code == 404
 
+    @patch("decision_hub.api.registry_routes.read_eval_log_chunk")
+    @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_malformed_json_line_is_skipped(
+        self,
+        mock_find_run: MagicMock,
+        mock_list_chunks: MagicMock,
+        mock_read_chunk: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A partial-flush truncated line should not 500 the whole log poll.
+
+        A concurrent writer flushing a JSONL chunk can leave a partial trailing
+        line in S3. The reader must skip that line and keep parsing valid ones
+        so the client's log feed does not stall until the writer completes.
+        """
+        run = _make_eval_run()
+        mock_find_run.return_value = run
+        mock_list_chunks.return_value = [(1, "eval-logs/test-run/0001.jsonl")]
+        mock_read_chunk.return_value = (
+            '{"seq":1,"type":"setup","content":"init"}\n'
+            '{"seq":2,"type":"log","conte'  # truncated mid-line
+        )
+
+        resp = client.get(
+            f"/v1/eval-runs/{run.id}/logs?cursor=0",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert [e["seq"] for e in data["events"]] == [1]
+        assert data["next_cursor"] == 1
+
     @patch("decision_hub.api.registry_routes.update_eval_run_status")
     @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
     @patch("decision_hub.api.registry_routes.find_eval_run")
@@ -527,3 +562,62 @@ class TestEvalRunUUIDValidation:
         resp = client.get("/v1/eval-runs?version_id=not-a-uuid", headers=auth_headers)
         assert resp.status_code == 422
         assert "Invalid UUID" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+
+class TestEvalRunsRateLimit:
+    """The eval-run endpoints must enforce a per-IP rate limit.
+
+    Without one, an authenticated user polling the log endpoint aggressively
+    can drain the container's threadpool + S3 quota (every poll re-lists and
+    reads every chunk for the run).
+    """
+
+    @patch("decision_hub.api.registry_routes.find_active_eval_runs_for_user")
+    def test_list_eval_runs_returns_429_after_limit(
+        self,
+        mock_find_runs: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        mock_find_runs.return_value = []
+        test_settings.eval_runs_rate_limit = 3
+        test_settings.eval_runs_rate_window = 60
+
+        # New app state → fresh limiter for this test.
+        client.app.state._eval_runs_rate_limiter = None
+
+        for _ in range(3):
+            r = client.get("/v1/eval-runs", headers=auth_headers)
+            assert r.status_code == 200
+
+        resp = client.get("/v1/eval-runs", headers=auth_headers)
+        assert resp.status_code == 429
+        assert "Rate limit exceeded" in resp.json()["detail"]
+
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_get_eval_run_returns_429_after_limit(
+        self,
+        mock_find_run: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        test_settings: MagicMock,
+    ) -> None:
+        run = _make_eval_run()
+        mock_find_run.return_value = run
+        test_settings.eval_runs_rate_limit = 2
+        test_settings.eval_runs_rate_window = 60
+
+        client.app.state._eval_runs_rate_limiter = None
+
+        for _ in range(2):
+            r = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+            assert r.status_code == 200
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+        assert resp.status_code == 429

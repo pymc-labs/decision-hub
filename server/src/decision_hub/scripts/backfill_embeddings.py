@@ -54,6 +54,9 @@ def backfill(batch_size: int = 100) -> None:
                     )
                 )
                 .where(skills_table.c.embedding.is_(None))
+                # id ordering makes the batch loop deterministic under concurrent
+                # inserts — required by CLAUDE.md "every LIMIT needs ORDER BY".
+                .order_by(skills_table.c.id.asc())
                 .limit(batch_size)
             )
             rows = conn.execute(stmt).all()

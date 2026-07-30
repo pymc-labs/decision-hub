@@ -1,5 +1,6 @@
 """Tests for decision_hub.api.rate_limit -- per-IP sliding-window rate limiter."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -84,3 +85,67 @@ class TestRateLimiter:
         with pytest.raises(HTTPException) as exc_info:
             limiter(request)
         assert exc_info.value.status_code == 429
+
+
+class TestRateLimitEnforcerFactory:
+    """`_make_rate_limit_enforcer` collapses the per-endpoint boilerplate.
+
+    Each returned dependency must be self-contained (its own singleton
+    limiter, its own settings pair) and independent from other names.
+    """
+
+    @staticmethod
+    def _request(state: SimpleNamespace, host: str = "10.0.0.1") -> MagicMock:
+        request = MagicMock()
+        request.app.state = state
+        request.client.host = host
+        return request
+
+    def test_factory_lazily_builds_and_reuses_limiter(self) -> None:
+        from decision_hub.api.registry_routes import _make_rate_limit_enforcer
+
+        enforcer = _make_rate_limit_enforcer("widget")
+
+        state = SimpleNamespace(settings=SimpleNamespace(widget_rate_limit=3, widget_rate_window=60))
+        request = self._request(state)
+
+        for _ in range(3):
+            enforcer(request)
+
+        with pytest.raises(HTTPException) as exc_info:
+            enforcer(request)
+        assert exc_info.value.status_code == 429
+
+        # Limiter is cached on app.state for reuse across requests
+        assert hasattr(state, "_widget_rate_limiter")
+        first_limiter = state._widget_rate_limiter
+        # Reset counter so we can prove it's the same instance being reused
+        first_limiter._requests.clear()
+        enforcer(request)
+        assert state._widget_rate_limiter is first_limiter
+
+    def test_different_names_have_independent_limiters(self) -> None:
+        from decision_hub.api.registry_routes import _make_rate_limit_enforcer
+
+        enforcer_a = _make_rate_limit_enforcer("alpha")
+        enforcer_b = _make_rate_limit_enforcer("beta")
+
+        state = SimpleNamespace(
+            settings=SimpleNamespace(
+                alpha_rate_limit=1,
+                alpha_rate_window=60,
+                beta_rate_limit=5,
+                beta_rate_window=60,
+            )
+        )
+        request = self._request(state)
+
+        enforcer_a(request)
+        with pytest.raises(HTTPException):
+            enforcer_a(request)
+
+        # beta must not have been consumed by alpha's calls
+        for _ in range(5):
+            enforcer_b(request)
+        with pytest.raises(HTTPException):
+            enforcer_b(request)

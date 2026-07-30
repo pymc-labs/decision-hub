@@ -2040,7 +2040,9 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # skills.id tiebreaker keeps rank-tied rows in the same order across
+        # requests so the dedup at the bottom of this function is stable.
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id.asc()).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2054,7 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc()).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,7 +2127,7 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id.asc())
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -2724,7 +2726,7 @@ def find_active_eval_runs_for_user(conn: Connection, user_id: UUID, limit: int =
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.user_id == user_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.asc())
         .limit(limit)
     )
     rows = conn.execute(stmt).all()
@@ -2884,7 +2886,7 @@ def list_skill_trackers_for_user(conn: Connection, user_id: UUID) -> list[SkillT
     stmt = (
         sa.select(skill_trackers_table)
         .where(skill_trackers_table.c.user_id == user_id)
-        .order_by(skill_trackers_table.c.created_at.desc())
+        .order_by(skill_trackers_table.c.created_at.desc(), skill_trackers_table.c.id.asc())
     )
     rows = conn.execute(stmt).all()
     return [_row_to_skill_tracker(row) for row in rows]
@@ -2928,7 +2930,10 @@ def claim_due_trackers(
     locked_ids_cte = (
         sa.select(skill_trackers_table.c.id)
         .where(due_filter)
-        .order_by(skill_trackers_table.c.next_check_at.asc().nulls_first())
+        .order_by(
+            skill_trackers_table.c.next_check_at.asc().nulls_first(),
+            skill_trackers_table.c.id.asc(),
+        )
         .limit(batch_size)
         .with_for_update(skip_locked=True)
         .cte("locked_ids")
@@ -3249,7 +3254,11 @@ def insert_tracker_metrics(
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
     """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    stmt = (
+        sa.select(tracker_metrics_table)
+        .order_by(tracker_metrics_table.c.recorded_at.desc(), tracker_metrics_table.c.id.asc())
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 

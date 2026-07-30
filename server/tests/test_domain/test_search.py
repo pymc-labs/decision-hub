@@ -3,6 +3,7 @@
 from decision_hub.domain.search import (
     build_index_entry,
     format_trust_score,
+    resolve_author_display,
     serialize_index,
 )
 
@@ -112,3 +113,30 @@ def test_serialize_index_includes_github_metadata():
 def test_serialize_empty():
     jsonl = serialize_index([])
     assert jsonl == ""
+
+
+def test_resolve_author_display_maps_tracker_prefix():
+    """Tracker-published versions display as 'auto-sync' instead of the raw UUID."""
+    assert resolve_author_display("tracker:12345678-1234-5678-1234-567812345678") == "auto-sync"
+    assert resolve_author_display("tracker:anything") == "auto-sync"
+
+
+def test_resolve_author_display_passes_normal_usernames_through():
+    assert resolve_author_display("lfiaschi") == "lfiaschi"
+    assert resolve_author_display("") == ""
+
+
+def test_serialize_index_marks_removed_source_before_archived():
+    """When both flags are set, source_repo_removed takes priority over archived."""
+    entry = build_index_entry(
+        "org",
+        "skill",
+        "Desc",
+        "1.0.0",
+        "passed",
+        source_repo_removed=True,
+        github_is_archived=True,
+    )
+    jsonl = serialize_index([entry])
+    assert '"source_status": "removed"' in jsonl
+    assert '"source_status": "archived"' not in jsonl

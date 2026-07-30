@@ -83,88 +83,43 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
+def _make_rate_limit_enforcer(name: str):
+    """Return a FastAPI dependency that enforces a named rate limit.
+
+    Reads ``{name}_rate_limit`` and ``{name}_rate_window`` from settings and
+    lazily creates a singleton RateLimiter on ``app.state`` keyed by name.
+    All per-endpoint limits go through this factory so a new endpoint just
+    needs settings entries — no boilerplate helper.
+    """
+    state_attr = f"_{name}_rate_limiter"
+    limit_attr = f"{name}_rate_limit"
+    window_attr = f"{name}_rate_window"
+
+    def _enforce(request: Request) -> None:
+        state = request.app.state
+        limiter = getattr(state, state_attr, None)
+        if limiter is None:
+            settings: Settings = state.settings
+            limiter = RateLimiter(
+                max_requests=getattr(settings, limit_attr),
+                window_seconds=getattr(settings, window_attr),
+            )
+            setattr(state, state_attr, limiter)
+        limiter(request)
+
+    _enforce.__name__ = f"_enforce_{name}_rate_limit"
+    _enforce.__doc__ = f"Rate-limit dependency for '{name}' endpoints."
+    return _enforce
 
 
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+_enforce_list_skills_rate_limit = _make_rate_limit_enforcer("list_skills")
+_enforce_resolve_rate_limit = _make_rate_limit_enforcer("resolve")
+_enforce_similar_skills_rate_limit = _make_rate_limit_enforcer("similar_skills")
+_enforce_download_rate_limit = _make_rate_limit_enforcer("download")
+_enforce_audit_log_rate_limit = _make_rate_limit_enforcer("audit_log")
+_enforce_scan_report_rate_limit = _make_rate_limit_enforcer("scan_report")
+_enforce_publish_rate_limit = _make_rate_limit_enforcer("publish")
+_enforce_eval_runs_rate_limit = _make_rate_limit_enforcer("eval_runs")
 
 
 _VALID_VISIBILITIES = {"public", "org"}
@@ -1120,7 +1075,11 @@ def _check_zombie(conn: Connection, run) -> str:
     return run.status
 
 
-@router.get("/eval-runs/{run_id}", response_model=EvalRunResponse)
+@router.get(
+    "/eval-runs/{run_id}",
+    response_model=EvalRunResponse,
+    dependencies=[Depends(_enforce_eval_runs_rate_limit)],
+)
 def get_eval_run(
     run_id: str,
     conn: Connection = Depends(get_connection),
@@ -1137,7 +1096,11 @@ def get_eval_run(
     return _run_to_response(run)
 
 
-@router.get("/eval-runs/{run_id}/logs", response_model=EvalRunLogsResponse)
+@router.get(
+    "/eval-runs/{run_id}/logs",
+    response_model=EvalRunLogsResponse,
+    dependencies=[Depends(_enforce_eval_runs_rate_limit)],
+)
 def get_eval_run_logs(
     run_id: str,
     cursor: int = Query(0, ge=0, description="Return events with seq > cursor"),
@@ -1165,19 +1128,26 @@ def get_eval_run_logs(
         after_seq=0,
     )
 
-    # Read and parse events from each chunk, filtering by cursor
+    # Read and parse events from each chunk, filtering by cursor. A concurrent
+    # writer can flush a partial line to S3; skip the malformed tail instead
+    # of returning 500 for the whole poll and stalling the client's log feed.
     all_events: list[dict] = []
     max_seq = cursor
     for _chunk_seq, s3_key in chunks:
         content = read_eval_log_chunk(s3_client, settings.s3_bucket, s3_key)
         for line in content.strip().split("\n"):
-            if line.strip():
+            if not line.strip():
+                continue
+            try:
                 event = json.loads(line)
-                event_seq = event.get("seq", 0)
-                if event_seq > cursor:
-                    all_events.append(event)
-                if event_seq > max_seq:
-                    max_seq = event_seq
+            except json.JSONDecodeError:
+                logger.warning("Skipping malformed log line in {} (run={})", s3_key, run.id)
+                continue
+            event_seq = event.get("seq", 0)
+            if event_seq > cursor:
+                all_events.append(event)
+            if event_seq > max_seq:
+                max_seq = event_seq
 
     return EvalRunLogsResponse(
         events=all_events,
@@ -1188,7 +1158,11 @@ def get_eval_run_logs(
     )
 
 
-@router.get("/eval-runs", response_model=list[EvalRunResponse])
+@router.get(
+    "/eval-runs",
+    response_model=list[EvalRunResponse],
+    dependencies=[Depends(_enforce_eval_runs_rate_limit)],
+)
 def list_eval_runs(
     version_id: str | None = Query(None, description="Filter by version ID"),
     conn: Connection = Depends(get_connection),

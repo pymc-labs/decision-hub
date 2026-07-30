@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     publish_rate_window: int = 60  # window in seconds
     auth_rate_limit: int = 10  # max requests per window
     auth_rate_window: int = 60  # window in seconds
+    # Eval-run polling endpoints. Poll cadence is per-second per client while a
+    # run is in-flight, and each log poll fetches every S3 chunk for the run,
+    # so an aggressive client can drain the container threadpool and S3 quota
+    # without a limit. Sized well above the ~1 Hz per-run polling from the UI.
+    eval_runs_rate_limit: int = 120
+    eval_runs_rate_window: int = 60
 
     # Sandbox resource limits for agent evals
     sandbox_memory_mb: int = 4096
