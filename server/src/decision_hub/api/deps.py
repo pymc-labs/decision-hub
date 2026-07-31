@@ -14,7 +14,8 @@ from sqlalchemy.engine import Connection, Engine
 
 from decision_hub.domain.auth import decode_jwt
 from decision_hub.infra.cache import TTLCache
-from decision_hub.models import User
+from decision_hub.infra.database import find_skill_by_slug, list_user_org_ids
+from decision_hub.models import Skill, User
 from decision_hub.settings import Settings
 
 
@@ -95,6 +96,61 @@ def get_current_user(
         username=payload["username"],
         github_orgs=tuple(payload["github_orgs"]),
     )
+
+
+def parse_uuid(value: str, name: str) -> UUID:
+    """Parse a UUID string, raising HTTP 422 with a clear message on failure.
+
+    Route handlers used to inline this same 5-line helper in both
+    ``registry_routes`` and ``tracker_routes``.  Consolidating avoids the
+    error-message drift that started to appear between them.
+    """
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid {name}: {value}") from None
+
+
+def require_visible_skill(
+    conn: Connection,
+    org_slug: str,
+    skill_name: str,
+    user: User | None,
+) -> tuple[Skill, list[UUID] | None]:
+    """Fetch a skill scoped to what the caller is allowed to see, or raise 404.
+
+    Public endpoints in ``registry_routes.py`` used to inline the same three
+    lines — ``list_user_org_ids`` + ``find_skill_by_slug`` + ``HTTPException(404)``
+    with a copy-pasted message — at five different call sites.  Centralising
+    the pattern also protects the visibility filter: any handler that forgets
+    to pass ``user_org_ids`` would otherwise silently omit private skills the
+    caller is entitled to see.
+
+    Returns ``user_org_ids`` alongside the skill so downstream calls
+    (``resolve_version``, ``resolve_latest_version``) can reuse the same list
+    without a second DB round-trip; callers that don't need it can just
+    unpack and ignore.
+
+    Args:
+        conn: Active DB connection.
+        org_slug: Organisation slug from the URL path.
+        skill_name: Skill name from the URL path.
+        user: The authenticated user, or ``None`` for anonymous callers.
+
+    Returns:
+        ``(skill, user_org_ids)`` where ``user_org_ids`` is the list of orgs
+        the caller belongs to, or ``None`` for anonymous callers.
+
+    Raises:
+        HTTPException(404): When the skill does not exist or is not visible
+            to the caller.  The same message is returned in both cases so
+            existence of private skills isn't leaked to non-members.
+    """
+    user_org_ids = list_user_org_ids(conn, user.id) if user else None
+    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    return skill, user_org_ids
 
 
 def get_current_user_optional(

@@ -959,18 +959,24 @@ def update_org_github_metadata(
     description: str | None = None,
     blog: str | None = None,
 ) -> None:
-    """Update GitHub-sourced metadata and set github_synced_at = now()."""
-    stmt = (
-        sa.update(organizations_table)
-        .where(organizations_table.c.id == org_id)
-        .values(
-            avatar_url=avatar_url,
-            email=email,
-            description=description,
-            blog=blog,
-            github_synced_at=sa.func.now(),
-        )
-    )
+    """Update GitHub-sourced metadata and set github_synced_at = now().
+
+    Only fields whose value is not ``None`` are written.  GitHub's ``/users``
+    and ``/orgs`` responses often omit ``email``/``description``/``blog`` — the
+    previous behaviour of unconditionally overwriting silently nulled any
+    backfilled value on every daily re-sync.  Callers that genuinely want
+    to clear a field must delete it via a separate query.
+    """
+    values: dict[str, Any] = {"github_synced_at": sa.func.now()}
+    if avatar_url is not None:
+        values["avatar_url"] = avatar_url
+    if email is not None:
+        values["email"] = email
+    if description is not None:
+        values["description"] = description
+    if blog is not None:
+        values["blog"] = blog
+    stmt = sa.update(organizations_table).where(organizations_table.c.id == org_id).values(**values)
     conn.execute(stmt)
 
 

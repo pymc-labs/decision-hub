@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     github_app_installation_id: str = ""
 
     # Rate limiting (per IP, sliding window)
+    # Comma-separated peer IPs (or prefixes matched with str.startswith) whose
+    # ``X-Forwarded-For`` header we trust for identifying the true client IP.
+    # Required for Modal / any reverse-proxy deployment — without it, every
+    # request keys off the proxy socket IP and one client throttles everyone.
+    # Leave empty to disable (safe default for direct connections).
+    trusted_proxies: str = ""
+
     search_rate_limit: int = 20  # max requests per window
     search_rate_window: int = 60  # window in seconds
 
