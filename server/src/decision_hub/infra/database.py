@@ -959,18 +959,25 @@ def update_org_github_metadata(
     description: str | None = None,
     blog: str | None = None,
 ) -> None:
-    """Update GitHub-sourced metadata and set github_synced_at = now()."""
-    stmt = (
-        sa.update(organizations_table)
-        .where(organizations_table.c.id == org_id)
-        .values(
-            avatar_url=avatar_url,
-            email=email,
-            description=description,
-            blog=blog,
-            github_synced_at=sa.func.now(),
-        )
-    )
+    """Update GitHub-sourced metadata and set ``github_synced_at = now()``.
+
+    Only fields that are not ``None`` overwrite the stored value. GitHub
+    frequently returns null for optional fields (``description``, ``blog``,
+    ``email``); previously those nulls silently wiped values that were
+    legitimately populated on a prior sync (or set manually in the DB).
+    Pass an empty string if the intent is to explicitly clear a field.
+    """
+    values: dict[str, object] = {"github_synced_at": sa.func.now()}
+    if avatar_url is not None:
+        values["avatar_url"] = avatar_url
+    if email is not None:
+        values["email"] = email
+    if description is not None:
+        values["description"] = description
+    if blog is not None:
+        values["blog"] = blog
+
+    stmt = sa.update(organizations_table).where(organizations_table.c.id == org_id).values(**values)
     conn.execute(stmt)
 
 
@@ -2709,11 +2716,37 @@ def find_eval_run(conn: Connection, run_id: UUID) -> EvalRun | None:
 
 
 def find_eval_runs_for_version(conn: Connection, version_id: UUID) -> list[EvalRun]:
-    """List all eval runs for a version, newest first."""
+    """List all eval runs for a version, newest first.
+
+    Prefer :func:`find_eval_runs_for_version_and_user` for user-scoped
+    listings so tenant isolation happens in SQL rather than Python.
+    """
     stmt = (
         sa.select(eval_runs_table)
         .where(eval_runs_table.c.version_id == version_id)
-        .order_by(eval_runs_table.c.created_at.desc())
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
+    )
+    rows = conn.execute(stmt).all()
+    return [_row_to_eval_run(row) for row in rows]
+
+
+def find_eval_runs_for_version_and_user(
+    conn: Connection,
+    version_id: UUID,
+    user_id: UUID,
+) -> list[EvalRun]:
+    """List eval runs for a version owned by ``user_id``, newest first.
+
+    The user filter is applied in SQL so foreign-tenant rows never leave
+    the database.
+    """
+    stmt = (
+        sa.select(eval_runs_table)
+        .where(
+            eval_runs_table.c.version_id == version_id,
+            eval_runs_table.c.user_id == user_id,
+        )
+        .order_by(eval_runs_table.c.created_at.desc(), eval_runs_table.c.id.desc())
     )
     rows = conn.execute(stmt).all()
     return [_row_to_eval_run(row) for row in rows]
@@ -2788,7 +2821,13 @@ def insert_search_log(
 
 
 def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
-    """Map a database row to a SkillTracker model."""
+    """Map a database row to a SkillTracker model.
+
+    Every persisted column on ``skill_trackers`` must be mapped here.
+    Missing a column silently falls back to the dataclass default and
+    hides real state from every caller (past bug: ``consecutive_permanent_failures``
+    was dropped, so every tracker looked healthy regardless of DB state).
+    """
     return SkillTracker(
         id=row.id,
         user_id=row.user_id,
@@ -2802,6 +2841,7 @@ def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
         last_published_at=row.last_published_at,
         last_error=row.last_error,
         next_check_at=row.next_check_at,
+        consecutive_permanent_failures=row.consecutive_permanent_failures,
         created_at=row.created_at,
     )
 

@@ -45,7 +45,7 @@ from decision_hub.infra.database import (
     find_audit_logs,
     find_eval_report_by_skill,
     find_eval_run,
-    find_eval_runs_for_version,
+    find_eval_runs_for_version_and_user,
     find_latest_scan_report_for_skill,
     find_org_by_slug,
     find_scan_findings_for_report,
@@ -1132,9 +1132,12 @@ def get_eval_run(
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
     _check_zombie(conn, run)
-    # Re-read after potential zombie update
-    run = find_eval_run(conn, parsed_id)
-    return _run_to_response(run)
+    # Re-read after potential zombie update to get the fresh status /
+    # error_message. A concurrent delete between the two reads is rare
+    # but would previously crash _run_to_response(None) with a 500; fall
+    # back to the pre-zombie row so the caller still gets a valid response.
+    refreshed = find_eval_run(conn, parsed_id)
+    return _run_to_response(refreshed if refreshed is not None else run)
 
 
 @router.get("/eval-runs/{run_id}/logs", response_model=EvalRunLogsResponse)
@@ -1197,8 +1200,11 @@ def list_eval_runs(
     """List eval runs, optionally filtered by version ID."""
     if version_id is not None:
         parsed_vid = _parse_uuid(version_id, "version_id")
-        runs = find_eval_runs_for_version(conn, parsed_vid)
-        runs = [r for r in runs if r.user_id == current_user.id]
+        # Filter by user in SQL so foreign-tenant rows never leave the DB
+        # (the old code fetched every run for the version then filtered in
+        # Python, which both wasted work and momentarily held cross-tenant
+        # data in request memory).
+        runs = find_eval_runs_for_version_and_user(conn, parsed_vid, current_user.id)
     else:
         runs = find_active_eval_runs_for_user(conn, current_user.id)
     return [_run_to_response(r) for r in runs]

@@ -134,6 +134,35 @@ class TestGetEvalRun:
         assert resp.json()["status"] == "running"
         mock_update_status.assert_not_called()
 
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_get_run_survives_concurrent_delete_after_zombie_check(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Regression: the route re-reads the run after the zombie
+        sweep to pick up the fresh status. If a concurrent delete lands
+        between the sweep and the re-read, the second ``find_eval_run``
+        returns None; the response builder used to dereference that and
+        crash with a 500. The route must fall back to the pre-zombie
+        row so the caller still gets a valid response."""
+        stale_heartbeat = datetime.now(UTC) - timedelta(seconds=400)
+        run = _make_eval_run(status="running", heartbeat_at=stale_heartbeat)
+
+        # 1st find (auth + zombie): returns the run.
+        # 2nd find (post-sweep refresh): returns None (concurrent delete).
+        mock_find_run.side_effect = [run, None]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        # The response builder ran on the pre-zombie row; the id matches
+        # and no 500 was raised.
+        assert resp.json()["id"] == str(run.id)
+
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_completed_run_not_checked_for_zombie(
         self,
@@ -434,7 +463,7 @@ class TestListEvalRuns:
         assert len(data) == 1
         assert data[0]["id"] == str(run.id)
 
-    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version")
+    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version_and_user")
     def test_list_runs_by_version_id(
         self,
         mock_find_runs: MagicMock,
@@ -454,6 +483,11 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["version_id"] == str(version_id)
+        # The SQL helper must be scoped to the current user so no
+        # cross-tenant filtering has to happen in Python.
+        call_args = mock_find_runs.call_args
+        assert call_args.args[1] == version_id
+        assert call_args.args[2] == SAMPLE_USER_ID
 
     @patch("decision_hub.api.registry_routes.find_active_eval_runs_for_user")
     def test_list_runs_empty(
@@ -469,18 +503,23 @@ class TestListEvalRuns:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version")
-    def test_list_by_version_filters_to_current_user(
+    @patch("decision_hub.api.registry_routes.find_eval_runs_for_version_and_user")
+    def test_list_by_version_scopes_to_current_user_in_sql(
         self,
         mock_find_runs: MagicMock,
         client: TestClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """When filtering by version_id, only the current user's runs are returned."""
+        """User isolation happens in SQL, not Python.
+
+        The route calls the SQL helper with the caller's user_id so the
+        database only ever returns rows the user owns; the previous
+        implementation fetched every user's rows and filtered in Python,
+        which momentarily held cross-tenant data in request memory.
+        """
         version_id = uuid4()
         own_run = _make_eval_run(version_id=version_id, user_id=SAMPLE_USER_ID)
-        other_run = _make_eval_run(version_id=version_id, user_id=uuid4())
-        mock_find_runs.return_value = [own_run, other_run]
+        mock_find_runs.return_value = [own_run]
 
         resp = client.get(
             f"/v1/eval-runs?version_id={version_id}",
@@ -491,6 +530,9 @@ class TestListEvalRuns:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == str(own_run.id)
+        # Assert the DB helper receives user_id so filtering is SQL-side.
+        call_args = mock_find_runs.call_args
+        assert call_args.args[2] == SAMPLE_USER_ID
 
 
 # ---------------------------------------------------------------------------

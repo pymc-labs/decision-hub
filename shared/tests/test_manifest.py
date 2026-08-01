@@ -86,6 +86,26 @@ class TestParseFrontmatterYaml:
         with pytest.raises(yaml.YAMLError):
             parse_frontmatter_yaml(":\n  :\n    - [invalid")
 
+    def test_empty_frontmatter_returns_empty_dict(self) -> None:
+        """Regression: an empty frontmatter block (``---\\n---``) used
+        to yield ``None`` from ``yaml.safe_load``, which then crashed
+        the caller with ``AttributeError`` on ``.get("name")``. The
+        parser must always hand back a mapping so downstream field
+        extraction can raise a clean 'name is missing' error instead."""
+        assert parse_frontmatter_yaml("") == {}
+        assert parse_frontmatter_yaml("\n\n") == {}
+        assert parse_frontmatter_yaml("# just a comment\n") == {}
+
+    def test_empty_frontmatter_produces_clean_error_via_parse_skill_md(self, tmp_path) -> None:
+        """End-to-end: a SKILL.md with an empty frontmatter block should
+        surface as "Required field 'name' is missing.", not a Python
+        traceback."""
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_text("---\n---\nBody without any metadata.")
+
+        with pytest.raises(ValueError, match="name"):
+            parse_skill_md(skill_md)
+
 
 # ---------------------------------------------------------------------------
 # parse_runtime

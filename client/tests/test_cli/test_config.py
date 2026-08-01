@@ -119,6 +119,96 @@ class TestGetToken:
 
         assert result == "env-token-123"
 
+    def test_env_var_whitespace_is_stripped(self, monkeypatch):
+        """A trailing newline in DHUB_TOKEN (common with ``$(cat token)``)
+        used to end up inside the ``Authorization: Bearer …`` header,
+        producing an invalid HTTP request that the server rejects with
+        an opaque 400. The value must be stripped before use."""
+        from dhub.cli.config import get_optional_token, get_token
+
+        monkeypatch.setenv("DHUB_TOKEN", "  env-token-123\n\n")
+
+        assert get_token() == "env-token-123"
+        assert get_optional_token() == "env-token-123"
+
+    def test_whitespace_only_env_var_falls_back_to_config(self, tmp_path, monkeypatch):
+        """A blank env var should not shadow the saved config token."""
+        from dhub.cli.config import get_optional_token
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        monkeypatch.setenv("DHUB_TOKEN", "   \n")
+
+        config_path = tmp_path / "config.dev.json"
+        config_path.write_text(json.dumps({"api_url": "https://x.example.com", "token": "saved-tok"}))
+
+        assert get_optional_token() == "saved-tok"
+
+
+class TestSaveConfigPermissions:
+    """save_config should write the token file with 0600 (owner-only) perms."""
+
+    def test_file_has_owner_only_perms(self, tmp_path, monkeypatch):
+        """Regression: the token file used to inherit the process umask
+        (typically 0644 world-readable). On a shared host any other user
+        could read the bearer token from ``~/.dhub/config.dev.json``."""
+        import os
+        import stat
+
+        if os.name != "posix":
+            pytest.skip("POSIX-only permission check")
+
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x.example.com", token="secret"))
+
+        path = tmp_path / "config.dev.json"
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode == 0o600, f"expected 0600 permissions, got {oct(mode)}"
+
+
+class TestExtractErrorDetail:
+    """extract_error_detail should never raise on non-JSON responses."""
+
+    def test_returns_detail_from_json_body(self):
+        import httpx
+
+        from dhub.cli.config import extract_error_detail
+
+        resp = httpx.Response(422, json={"detail": "safety check failed"})
+
+        assert extract_error_detail(resp, "fallback") == "safety check failed"
+
+    def test_returns_default_when_json_has_no_detail(self):
+        import httpx
+
+        from dhub.cli.config import extract_error_detail
+
+        resp = httpx.Response(422, json={"other": "field"})
+
+        assert extract_error_detail(resp, "fallback") == "fallback"
+
+    def test_returns_body_text_when_not_json(self):
+        """A proxy returning text/plain used to crash the CLI with
+        ``json.JSONDecodeError``; the helper must return the plain text."""
+        import httpx
+
+        from dhub.cli.config import extract_error_detail
+
+        resp = httpx.Response(422, text="Upstream timed out", headers={"content-type": "text/plain"})
+
+        assert extract_error_detail(resp, "fallback") == "Upstream timed out"
+
+    def test_returns_default_when_body_empty_and_not_json(self):
+        import httpx
+
+        from dhub.cli.config import extract_error_detail
+
+        resp = httpx.Response(422, text="", headers={"content-type": "text/plain"})
+
+        assert extract_error_detail(resp, "fallback") == "fallback"
+
 
 class TestGetDefaultOrg:
     """get_default_org should check DHUB_DEFAULT_ORG env var first."""

@@ -35,7 +35,7 @@ def _publish_skill_directory(
     Returns True on success, False on skip (no changes).
     Raises typer.Exit on errors.
     """
-    from dhub.cli.config import build_headers, raise_for_status
+    from dhub.cli.config import build_headers, extract_error_detail, raise_for_status
     from dhub.core.validation import (
         FIRST_VERSION,
         bump_version,
@@ -109,7 +109,11 @@ def _publish_skill_directory(
             console.print(f"[red]Error: Version {version} already exists for {org}/{name}.[/]")
             raise typer.Exit(1)
         if resp.status_code == 422:
-            detail = resp.json().get("detail", "Gauntlet checks failed")
+            # A proxy in front of the API can return text/plain or HTML
+            # instead of the FastAPI JSON envelope; ``resp.json()`` would
+            # crash with a raw JSONDecodeError. Use the safe helper so
+            # the user always sees the intended "Rejected" message.
+            detail = extract_error_detail(resp, "Gauntlet checks failed")
             console.print(f"[red]Rejected (Grade F): {detail}[/]")
             raise typer.Exit(1)
         if resp.status_code == 503:

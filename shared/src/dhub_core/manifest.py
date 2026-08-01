@@ -93,37 +93,54 @@ def parse_skill_md(path: Path) -> SkillManifest:
 def parse_frontmatter_yaml(frontmatter_str: str) -> dict:
     """Parse YAML frontmatter with a fallback for unquoted special characters.
 
-    When yaml.safe_load fails, falls back to quoting values that contain
-    markdown links [text](url) or unquoted colons, then retries parsing.
+    When ``yaml.safe_load`` fails, falls back to quoting values that contain
+    markdown links ``[text](url)`` or unquoted colons, then retries parsing.
+
+    Always returns a dict — callers can safely call ``.get()`` on the
+    result. An empty frontmatter block (``---\\n---``) or a document that
+    parses to ``None`` returns an empty dict rather than propagating
+    ``None`` which would surface as a confusing ``AttributeError`` in the
+    field-extraction code below.
     """
+    parsed: object
     try:
-        return yaml.safe_load(frontmatter_str)
+        parsed = yaml.safe_load(frontmatter_str)
     except yaml.YAMLError:
-        pass
+        # Fallback: quote values containing markdown links [text](url) which
+        # YAML misinterprets as flow sequences, then retry parsing.
+        lines = frontmatter_str.split("\n")
+        patched: list[str] = []
+        for line in lines:
+            m = re.match(r"^(\s*[\w][\w-]*:\s*)(.+)$", line)
+            if m:
+                value = m.group(2)
+                needs_quoting = (
+                    not value.startswith('"')
+                    and not value.startswith("'")
+                    and not value.startswith(">")
+                    and not value.startswith("|")
+                    and ("](" in value or (":" in value and not value.startswith("[")))
+                )
+                if needs_quoting:
+                    escaped = value.replace('"', '\\"')
+                    patched.append(f'{m.group(1)}"{escaped}"')
+                    continue
+            patched.append(line)
 
-    # Fallback: quote values containing markdown links [text](url) which
-    # YAML misinterprets as flow sequences, then retry parsing.
-    lines = frontmatter_str.split("\n")
-    patched: list[str] = []
-    for line in lines:
-        m = re.match(r"^(\s*[\w][\w-]*:\s*)(.+)$", line)
-        if m:
-            value = m.group(2)
-            needs_quoting = (
-                not value.startswith('"')
-                and not value.startswith("'")
-                and not value.startswith(">")
-                and not value.startswith("|")
-                and ("](" in value or (":" in value and not value.startswith("[")))
-            )
-            if needs_quoting:
-                escaped = value.replace('"', '\\"')
-                patched.append(f'{m.group(1)}"{escaped}"')
-                continue
-        patched.append(line)
+        patched_str = "\n".join(patched)
+        parsed = yaml.safe_load(patched_str)
 
-    patched_str = "\n".join(patched)
-    return yaml.safe_load(patched_str)
+    if parsed is None:
+        # Empty or all-blank frontmatter — return an empty mapping so
+        # downstream ``.get()`` calls do not crash. The caller's
+        # ``isinstance(data, dict)`` guard still catches the
+        # "required field 'name' is missing" case with a clear message.
+        return {}
+    # A non-mapping shape (list, scalar, tuple) still needs to reach
+    # the caller so ``isinstance(data, dict)`` can reject it with a
+    # precise error; return-type is documented as dict but callers
+    # already handle the malformed case explicitly.
+    return parsed  # type: ignore[return-value]
 
 
 def split_frontmatter(content: str) -> tuple[str, str]:

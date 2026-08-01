@@ -266,6 +266,31 @@ class TestUpdateTracker:
         assert resp.status_code == 200
         assert resp.json()["poll_interval_minutes"] == 30
 
+    @patch("decision_hub.api.tracker_routes.find_skill_tracker")
+    @patch("decision_hub.api.tracker_routes.update_skill_tracker")
+    def test_update_tracker_returns_404_on_concurrent_delete(
+        self, mock_update, mock_find, tracker_client, auth_headers, sample_user_id
+    ):
+        """Regression: the route used to ``assert updated is not None``
+        after the UPDATE, which (a) crashes with AttributeError under
+        ``python -O`` when the assertion is stripped and the response
+        builder dereferences None, and (b) manifests as an opaque 500
+        even without ``-O``. A concurrent delete between UPDATE and
+        re-read is rare but real (admin cleanup, cascade from org
+        deletion). The route must return 404 instead."""
+        tracker = _make_tracker(user_id=sample_user_id)
+        # First find() (auth check) returns the tracker; the post-update
+        # re-read simulates the concurrent delete by returning None.
+        mock_find.side_effect = [tracker, None]
+
+        resp = tracker_client.patch(
+            f"/v1/trackers/{tracker.id}",
+            headers=auth_headers,
+            json={"enabled": False},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Tracker not found"
+
 
 class TestDeleteTracker:
     @patch("decision_hub.api.tracker_routes.delete_skill_tracker")

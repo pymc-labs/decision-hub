@@ -262,7 +262,12 @@ def update_tracker(
     )
 
     updated = find_skill_tracker(conn, tid)
-    assert updated is not None
+    if updated is None:
+        # ``assert`` would be stripped under ``python -O`` and leaves the
+        # response builder to crash with AttributeError; a concurrent
+        # delete between UPDATE and re-read is unlikely but real. Return
+        # 404 so the client learns the tracker is gone.
+        raise HTTPException(status_code=404, detail="Tracker not found")
     return _tracker_to_response(updated)
 
 

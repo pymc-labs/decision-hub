@@ -1,5 +1,6 @@
 """CLI configuration file management for ~/.dhub/config.{env}.json."""
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -82,7 +83,9 @@ def load_config() -> CliConfig:
 def save_config(config: CliConfig) -> None:
     """Save CLI config to ~/.dhub/config.{env}.json.
 
-    Creates the ~/.dhub directory if it does not already exist.
+    Creates the ~/.dhub directory if it does not already exist and writes
+    the file with 0600 permissions (owner read/write only) so the bearer
+    token is not world-readable on shared machines.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     path = config_file()
@@ -90,6 +93,11 @@ def save_config(config: CliConfig) -> None:
         json.dumps(asdict(config), indent=2) + "\n",
         encoding="utf-8",
     )
+    # POSIX-only. Windows has no meaningful equivalent for a config file
+    # in a per-user home directory, so silently skip if chmod is a no-op
+    # or errors.
+    with contextlib.suppress(OSError, NotImplementedError):
+        path.chmod(0o600)
 
 
 def get_api_url() -> str:
@@ -103,12 +111,19 @@ def get_api_url() -> str:
 def get_token() -> str:
     """Get the auth token from DHUB_TOKEN env var or saved config.
 
+    Env-var values are stripped so a stray newline (common with
+    ``export DHUB_TOKEN=$(cat token)``) does not become part of the
+    ``Authorization: Bearer …`` header — httpx would emit an invalid
+    request and the server would reject it with an opaque 400.
+
     Raises:
         typer.Exit: If no token is available (user not logged in).
     """
     env_token = os.environ.get("DHUB_TOKEN")
     if env_token:
-        return env_token
+        stripped = env_token.strip()
+        if stripped:
+            return stripped
 
     token = load_config().token
     if not token:
@@ -124,10 +139,14 @@ def get_optional_token() -> str | None:
     Unlike :func:`get_token`, this never exits — it simply returns
     ``None`` when no credentials are configured.  Use this for commands
     that work without authentication (e.g. installing public skills).
+
+    Env-var values are stripped for the same reason as :func:`get_token`.
     """
     env_token = os.environ.get("DHUB_TOKEN")
     if env_token:
-        return env_token
+        stripped = env_token.strip()
+        if stripped:
+            return stripped
     return load_config().token
 
 
@@ -155,6 +174,27 @@ def build_headers(token: str | None = None) -> dict[str, str]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+def extract_error_detail(resp: httpx.Response, default: str) -> str:
+    """Best-effort extraction of a FastAPI ``detail`` field from an error response.
+
+    FastAPI usually returns ``{"detail": "..."}`` on 4xx, but a proxy,
+    load balancer, or misconfigured middleware can return HTML or a bare
+    text/plain body. Calling ``resp.json()`` unconditionally in that case
+    crashes with ``json.JSONDecodeError``. This helper falls back to the
+    stripped response text, and to ``default`` if the body is empty.
+    """
+    try:
+        payload = resp.json()
+    except (ValueError, json.JSONDecodeError):
+        text = resp.text.strip()
+        return text or default
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, str) and detail.strip():
+            return detail
+    return default
 
 
 def raise_for_status(resp: httpx.Response) -> None:
