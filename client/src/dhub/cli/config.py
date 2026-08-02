@@ -2,6 +2,8 @@
 
 import json
 import os
+import stat
+import tempfile
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -80,16 +82,37 @@ def load_config() -> CliConfig:
 
 
 def save_config(config: CliConfig) -> None:
-    """Save CLI config to ~/.dhub/config.{env}.json.
+    """Save CLI config to ~/.dhub/config.{env}.json atomically with 0600 perms.
 
+    Writes to a temp file in the same directory, chmods to 0o600
+    (owner-only read/write, so the bearer token isn't world-readable on
+    shared machines), then atomically renames.  A crash or SIGINT
+    mid-write leaves the previous config intact instead of a truncated
+    file that would trip ``load_config``'s "corrupted config" branch.
     Creates the ~/.dhub directory if it does not already exist.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     path = config_file()
-    path.write_text(
-        json.dumps(asdict(config), indent=2) + "\n",
-        encoding="utf-8",
+    payload = json.dumps(asdict(config), indent=2) + "\n"
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
     )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        # POSIX file modes only; on Windows this call is a no-op for
+        # group/other bits, which matches Python's own behavior.
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+        os.replace(tmp_path, path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def get_api_url() -> str:

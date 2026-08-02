@@ -1,6 +1,8 @@
 """Tests for dhub.cli.config -- CLI configuration management."""
 
 import json
+import os
+import stat
 
 import click
 import pytest
@@ -90,6 +92,49 @@ class TestSaveConfig:
 
         assert loaded.orgs == ("alice", "pymc-labs")
         assert loaded.default_org == "pymc-labs"
+
+    def test_save_is_atomic_no_tempfile_left(self, tmp_path, monkeypatch):
+        """After a successful save, no temp files should remain in the config dir."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="t"))
+
+        siblings = [p.name for p in tmp_path.iterdir()]
+        assert siblings == ["config.dev.json"], f"stray files left after save: {siblings}"
+
+    def test_save_writes_owner_only_permissions(self, tmp_path, monkeypatch):
+        """Config file must not be world/group readable — it holds the bearer token."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        save_config(CliConfig(api_url="https://x", token="secret"))
+
+        mode = stat.S_IMODE(os.stat(tmp_path / "config.dev.json").st_mode)
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+    def test_save_failure_preserves_previous_file(self, tmp_path, monkeypatch):
+        """If the write blows up mid-way, the previous config must stay intact."""
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+
+        # Write a good config first.
+        save_config(CliConfig(api_url="https://old", token="old-tok"))
+
+        # Force os.replace to fail; the previous file must still be readable.
+        def _boom(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("dhub.cli.config.os.replace", _boom)
+
+        with pytest.raises(OSError, match="disk full"):
+            save_config(CliConfig(api_url="https://new", token="new-tok"))
+
+        loaded = load_config()
+        assert loaded.token == "old-tok"
+        # No stray temp files were left behind either.
+        siblings = [p.name for p in tmp_path.iterdir()]
+        assert siblings == ["config.dev.json"]
 
     def test_backward_compat_no_orgs_field(self, tmp_path, monkeypatch):
         """Loading old config without orgs field should use defaults."""

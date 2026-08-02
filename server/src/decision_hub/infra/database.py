@@ -2040,7 +2040,10 @@ def search_skills_hybrid(
             ]
         )
         fts_stmt = fts_stmt.where(skills_table.c.search_vector.op("@@")(combined_tsquery))
-        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC")).limit(limit)
+        # Tiebreak on skills.id so equal-rank rows page deterministically —
+        # short queries and near-duplicate descriptions produce many equal
+        # ts_rank_cd scores, which the old ORDER BY did not disambiguate.
+        fts_stmt = fts_stmt.order_by(sa.text("fts_rank DESC"), skills_table.c.id).limit(limit)
         fts_rows = conn.execute(fts_stmt).all()
 
     # --- 2. Vector query (if embedding available) ---
@@ -2052,7 +2055,10 @@ def search_skills_hybrid(
             ]
         )
         vec_stmt = vec_stmt.where(skills_table.c.embedding.isnot(None))
-        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC")).limit(limit)
+        # Same tiebreaker rationale as the FTS branch above: duplicate
+        # embeddings (auto-synced forks, near-identical descriptions) yield
+        # identical distances and would otherwise page nondeterministically.
+        vec_stmt = vec_stmt.order_by(sa.text("vec_dist ASC"), skills_table.c.id).limit(limit)
         vec_rows = conn.execute(vec_stmt).all()
 
     # --- 3. Union + dedup (vector first, then FTS-only) ---
@@ -2125,7 +2131,7 @@ def fetch_similar_skills(
                 )
             ),
         )
-        .order_by(sa.text("vec_dist ASC"))
+        .order_by(sa.text("vec_dist ASC"), skills_table.c.id)
         .limit(limit)
     )
     rows = conn.execute(vec_stmt).all()
@@ -3249,7 +3255,14 @@ def insert_tracker_metrics(
 
 def list_tracker_metrics(conn: Connection, *, limit: int = 50) -> list[TrackerMetrics]:
     """Return recent tracker metrics rows, newest first."""
-    stmt = sa.select(tracker_metrics_table).order_by(tracker_metrics_table.c.recorded_at.desc()).limit(limit)
+    stmt = (
+        sa.select(tracker_metrics_table)
+        # Tiebreak on id so LIMIT with equal recorded_at (same-tick rows)
+        # yields a deterministic order — otherwise pagination on the
+        # trackers dashboard can skip or duplicate rows.
+        .order_by(tracker_metrics_table.c.recorded_at.desc(), tracker_metrics_table.c.id.desc())
+        .limit(limit)
+    )
     rows = conn.execute(stmt).all()
     return [_row_to_tracker_metrics(row) for row in rows]
 

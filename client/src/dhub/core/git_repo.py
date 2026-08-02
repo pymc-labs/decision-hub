@@ -13,6 +13,33 @@ from pathlib import Path
 _GIT_URL_PREFIXES = ("https://", "http://", "git@", "ssh://", "git://")
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 
+# Bounds on how long we'll wait for git to talk to the remote before
+# giving up.  Without this, ``dhub publish <url>`` hangs indefinitely if
+# the remote is unresponsive or a credential prompt blocks stdin.
+_GIT_CLONE_TIMEOUT_SECONDS = 300
+_GIT_CHECKOUT_TIMEOUT_SECONDS = 60
+
+
+def _run_git(cmd: list[str], *, cwd: str | None = None, timeout: int) -> subprocess.CompletedProcess[str]:
+    """Run a git subcommand with a bounded timeout, raising ``RuntimeError`` on failure.
+
+    Timeouts are surfaced as ``RuntimeError`` (not ``TimeoutExpired``)
+    so callers only have to catch one exception type.  Non-zero exits
+    are re-raised as ``RuntimeError`` with the sanitised stderr — the
+    argv is never included in the message so tokens embedded in URLs
+    stay out of user-facing errors.
+    """
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"git {cmd[1]} timed out after {exc.timeout:.0f}s — remote unreachable?") from exc
+
 
 def git_url_to_https(url: str) -> str | None:
     """Convert a git-cloneable URL to an HTTPS browse URL.
@@ -66,32 +93,36 @@ def clone_repo(repo_url: str, ref: str | None = None) -> Path:
     tmp_dir = Path(tempfile.mkdtemp(prefix="dhub-repo-"))
     repo_path = tmp_dir / "repo"
 
-    if ref and _looks_like_sha(ref):
-        # Commit SHAs don't work with --depth 1 --branch; do a full
-        # clone then checkout the specific commit.
-        cmd = ["git", "clone", repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
-        checkout = subprocess.run(
-            ["git", "checkout", ref],
-            cwd=str(repo_path),
-            capture_output=True,
-            text=True,
-        )
-        if checkout.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
-    else:
-        cmd = ["git", "clone", "--depth", "1"]
-        if ref:
-            cmd += ["--branch", ref]
-        cmd += [repo_url, str(repo_path)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    try:
+        if ref and _looks_like_sha(ref):
+            # Commit SHAs don't work with --depth 1 --branch; do a full
+            # clone then checkout the specific commit.
+            result = _run_git(
+                ["git", "clone", repo_url, str(repo_path)],
+                timeout=_GIT_CLONE_TIMEOUT_SECONDS,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+            checkout = _run_git(
+                ["git", "checkout", ref],
+                cwd=str(repo_path),
+                timeout=_GIT_CHECKOUT_TIMEOUT_SECONDS,
+            )
+            if checkout.returncode != 0:
+                raise RuntimeError(f"git checkout {ref} failed:\n{checkout.stderr.strip()}")
+        else:
+            cmd = ["git", "clone", "--depth", "1"]
+            if ref:
+                cmd += ["--branch", ref]
+            cmd += [repo_url, str(repo_path)]
+            result = _run_git(cmd, timeout=_GIT_CLONE_TIMEOUT_SECONDS)
+            if result.returncode != 0:
+                raise RuntimeError(f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}")
+    except BaseException:
+        # Clean up the temp dir on any failure path (including
+        # KeyboardInterrupt) so we don't leak junk under /tmp.
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     return repo_path
 
