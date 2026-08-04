@@ -65,16 +65,6 @@ class TTLCache:
                 expires_at=time.monotonic() + ttl,
             )
 
-    def invalidate(self, key: str) -> None:
-        """Remove a specific key from the cache."""
-        with self._lock:
-            self._store.pop(key, None)
-
-    def clear(self) -> None:
-        """Remove all entries."""
-        with self._lock:
-            self._store.clear()
-
     def _evict_one(self) -> None:
         """Evict one entry: prefer expired, then oldest. Caller holds lock."""
         now = time.monotonic()

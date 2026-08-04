@@ -50,6 +50,17 @@ def get_connection(
         yield conn
 
 
+def parse_uuid_or_422(value: str, name: str) -> UUID:
+    """Parse a UUID string, raising HTTP 422 with a clear message on invalid input.
+
+    Shared between route modules so callers don't reinvent the same helper.
+    """
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
+
+
 def get_current_user(
     request: Request,
     settings: Settings = Depends(get_settings),

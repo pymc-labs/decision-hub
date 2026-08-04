@@ -5,9 +5,14 @@ avoiding a heavy SDK dependency.
 """
 
 import json
+import re
 
 import httpx
 from loguru import logger
+
+# Judge responses sometimes come back wrapped in a markdown fence.
+# Compile once at module import -- this fires per eval case.
+_JUDGE_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
 
 _ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 
@@ -82,11 +87,8 @@ def _parse_judge_response(raw_text: str) -> dict:
 
     Handles JSON wrapped in markdown code blocks (```json ... ```).
     """
-    import re
-
-    # Strip markdown code block wrappers if present
     cleaned = raw_text.strip()
-    match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
+    match = _JUDGE_JSON_FENCE_RE.search(cleaned)
     if match:
         cleaned = match.group(1).strip()
 
