@@ -155,6 +155,69 @@ class TestGetEvalRun:
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
 
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_stuck_pending_run_marked_failed(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Runs that never left 'pending' (Modal spawn crashed) age out via created_at.
+
+        Regression: the previous zombie check only inspected heartbeat_at,
+        so a spawn failure that swallowed the exception left the DB row in
+        pending/heartbeat=NULL forever and the endpoint faithfully served
+        "pending" for the lifetime of the row.
+        """
+        old_created = datetime.now(UTC) - timedelta(seconds=2400)  # 40 min old
+        run = _make_eval_run(
+            status="pending",
+            stage=None,
+            heartbeat_at=None,
+            created_at=old_created,
+        )
+        failed_run = _make_eval_run(
+            id=run.id,
+            status="failed",
+            heartbeat_at=None,
+            created_at=old_created,
+            error_message="Never left pending",
+        )
+        mock_find_run.side_effect = [run, failed_run]
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+        mock_update_status.assert_called_once()
+        assert mock_update_status.call_args.kwargs.get("status") == "failed"
+
+    @patch("decision_hub.api.registry_routes.update_eval_run_status")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_recent_pending_run_not_marked_failed(
+        self,
+        mock_find_run: MagicMock,
+        mock_update_status: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A freshly-created pending run must be given time for Modal cold-start."""
+        run = _make_eval_run(
+            status="pending",
+            stage=None,
+            heartbeat_at=None,
+            created_at=datetime.now(UTC) - timedelta(seconds=10),
+        )
+        mock_find_run.return_value = run
+
+        resp = client.get(f"/v1/eval-runs/{run.id}", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"
+        mock_update_status.assert_not_called()
+
     @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_returns_404_for_other_users_run(
         self,

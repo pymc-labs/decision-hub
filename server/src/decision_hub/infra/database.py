@@ -2803,6 +2803,7 @@ def _row_to_skill_tracker(row: sa.Row) -> SkillTracker:
         last_error=row.last_error,
         next_check_at=row.next_check_at,
         created_at=row.created_at,
+        consecutive_permanent_failures=row.consecutive_permanent_failures,
     )
 
 

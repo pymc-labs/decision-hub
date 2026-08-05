@@ -36,6 +36,7 @@ def _make_tracker_row(
     enabled: bool = True,
     last_error: str | None = None,
     next_check_at: datetime | None = None,
+    consecutive_permanent_failures: int = 0,
 ) -> MagicMock:
     """Create a mock row that simulates a skill_trackers row."""
     row = MagicMock()
@@ -52,6 +53,7 @@ def _make_tracker_row(
     row.last_error = last_error
     row.next_check_at = next_check_at
     row.created_at = datetime.now(UTC)
+    row.consecutive_permanent_failures = consecutive_permanent_failures
     return row
 
 
@@ -73,6 +75,15 @@ class TestRowToSkillTracker:
         row = _make_tracker_row(next_check_at=now)
         tracker = _row_to_skill_tracker(row)
         assert tracker.next_check_at == now
+
+    def test_maps_consecutive_permanent_failures(self):
+        # Regression: this field was silently dropped from the mapper,
+        # so any code that read tracker.consecutive_permanent_failures
+        # from a DB-loaded tracker (metrics/alerts) saw 0 forever even
+        # when batch_increment_permanent_failures had been advancing it.
+        row = _make_tracker_row(consecutive_permanent_failures=4)
+        tracker = _row_to_skill_tracker(row)
+        assert tracker.consecutive_permanent_failures == 4
 
 
 class TestInsertSkillTracker:

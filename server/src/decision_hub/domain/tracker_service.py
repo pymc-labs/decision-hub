@@ -39,6 +39,36 @@ DEADLINE_BUFFER_SECONDS = 30
 
 
 # ---------------------------------------------------------------------------
+# Version selection
+# ---------------------------------------------------------------------------
+
+
+def _choose_publish_version(latest_semver: str | None, manifest_version: str | None) -> str:
+    """Pick the next skill version for a tracker-driven publish.
+
+    ``manifest.runtime.version_hint`` is documented as a *language* version
+    constraint (e.g. ``">=3.11"``) — anything that fails to parse as a
+    skill semver is quietly ignored, so a spec-compliant manifest does not
+    crash the whole tracker cycle. Prefers the manifest hint when it is a
+    valid semver higher than the latest published version; otherwise
+    bumps the patch of the latest published version (or seeds "0.1.0"
+    for a brand-new skill with no valid hint).
+    """
+    manifest_semver: tuple[int, int, int] | None = None
+    if manifest_version:
+        try:
+            manifest_semver = parse_semver(manifest_version)
+        except ValueError:
+            manifest_semver = None
+    valid_hint = manifest_version if manifest_semver is not None else None
+    if latest_semver is None:
+        return valid_hint or "0.1.0"
+    if manifest_semver is not None and valid_hint is not None and manifest_semver > parse_semver(latest_semver):
+        return valid_hint
+    return bump_version(latest_semver)
+
+
+# ---------------------------------------------------------------------------
 # REST verification helpers
 # ---------------------------------------------------------------------------
 
@@ -967,14 +997,17 @@ def _publish_skill_from_tracker(
             )
             return False
 
-        # Determine version: prefer manifest version_hint if present and higher
         manifest_version = manifest.runtime.version_hint if manifest.runtime else None
-        if latest is None:
-            version = manifest_version or "0.1.0"
-        elif manifest_version and parse_semver(manifest_version) > parse_semver(latest.semver):
-            version = manifest_version
-        else:
-            version = bump_version(latest.semver)
+        latest_semver = latest.semver if latest is not None else None
+        version = _choose_publish_version(latest_semver, manifest_version)
+        if manifest_version and manifest_version != version:
+            logger.debug(
+                "tracker_id={} skill={}/{} version_hint={!r} not a skill semver; ignoring",
+                tracker.id,
+                org_slug,
+                skill_name,
+                manifest_version,
+            )
 
         try:
             result = execute_publish(

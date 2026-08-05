@@ -441,6 +441,11 @@ class AccessGrantListEntry(BaseModel):
 # Stale heartbeat threshold for zombie detection (5 minutes)
 _STALE_HEARTBEAT_SECONDS = 300
 
+# Pending eval runs never received a heartbeat, so they must be aged out
+# against created_at instead — but be generous, since Modal cold-starts can
+# legitimately take a while before the first heartbeat lands.
+_STALE_PENDING_SECONDS = 5 * _STALE_HEARTBEAT_SECONDS
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -1098,23 +1103,43 @@ def _run_to_response(run) -> EvalRunResponse:
 
 
 def _check_zombie(conn: Connection, run) -> str:
-    """Check if a running eval run has a stale heartbeat (zombie).
+    """Check if an eval run has stalled (zombie).
 
-    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    * pending — never got a heartbeat; age against created_at with a
+      generous timeout to allow for Modal cold-starts. Catches runs where
+      spawn() raised and the exception was swallowed upstream, leaving
+      the DB row in pending forever.
+    * running/judging/provisioning — age against heartbeat_at.
+
+    Marks the run failed on timeout and returns the effective status.
     """
+    now = datetime.now(UTC)
+    if run.status == "pending":
+        if run.created_at is None:
+            return run.status
+        elapsed = (now - run.created_at).total_seconds()
+        if elapsed > _STALE_PENDING_SECONDS:
+            update_eval_run_status(
+                conn,
+                run.id,
+                status="failed",
+                error_message=f"Never left pending ({int(elapsed)}s). Worker may have failed to start.",
+                completed_at=now,
+            )
+            return "failed"
+        return run.status
     if run.status not in ("running", "judging", "provisioning"):
         return run.status
     if run.heartbeat_at is None:
         return run.status
-    elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
+    elapsed = (now - run.heartbeat_at).total_seconds()
     if elapsed > _STALE_HEARTBEAT_SECONDS:
         update_eval_run_status(
             conn,
             run.id,
             status="failed",
             error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
-            completed_at=datetime.now(UTC),
+            completed_at=now,
         )
         return "failed"
     return run.status
