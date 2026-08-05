@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "daimon": {
+      "type": "http",
+      "url": "https://daimon-production-web.fly.dev/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${DAIMON_API_KEY}"
+      }
+    }
+  }
+}
