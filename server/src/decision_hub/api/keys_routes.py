@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
@@ -25,8 +25,12 @@ router = APIRouter(prefix="/v1/keys", tags=["keys"])
 class StoreKeyRequest(BaseModel):
     """Payload to store a new encrypted API key."""
 
-    key_name: str
-    value: str
+    # Bound both fields at the API boundary so an authenticated caller can't
+    # send a 50MB `value` that gets buffered, Fernet-encrypted (memory blow-up),
+    # and persisted. 8 KiB covers every real provider token we've seen and
+    # leaves headroom for future long JWTs.
+    key_name: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_\-]+$")
+    value: str = Field(..., min_length=1, max_length=8192)
 
 
 class StoreKeyResponse(BaseModel):

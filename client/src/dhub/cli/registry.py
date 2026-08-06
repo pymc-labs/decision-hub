@@ -771,6 +771,12 @@ def delete_command(
     skill_ref: str = typer.Argument(help="Skill name (e.g. 'myorg/my-skill')"),
     version: str = typer.Option(None, "--version", "-v", help="Version to delete (omit to delete all)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without actually deleting"),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip the interactive confirmation. REQUIRED for destructive deletes in --output json mode.",
+    ),
 ) -> None:
     """Delete a published skill version (or all versions) from the registry."""
     from dhub.cli.config import build_headers, get_api_url, get_token, raise_for_status
@@ -810,8 +816,22 @@ def delete_command(
         return
 
     if version is None:
-        # Delete ALL versions — skip confirmation in JSON mode (agents can't confirm)
-        if not is_json():
+        # Delete ALL versions is destructive. In interactive (non-JSON) mode
+        # we prompt for confirmation unless `--yes` was passed. In JSON mode
+        # (agents / CI) there is no way to prompt, so require `--yes`
+        # explicitly rather than silently wiping every version.
+        if is_json():
+            if not yes:
+                error = {
+                    "error": "delete_all_requires_yes",
+                    "message": (
+                        f"Refusing to delete ALL versions of {org_slug}/{skill_name} in JSON mode "
+                        "without --yes. Pass --yes to confirm."
+                    ),
+                }
+                print_json(error)
+                raise typer.Exit(1)
+        elif not yes:
             typer.confirm(
                 f"Delete ALL versions of {org_slug}/{skill_name}?",
                 abort=True,

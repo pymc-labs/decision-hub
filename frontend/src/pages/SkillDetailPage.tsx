@@ -64,6 +64,7 @@ export default function SkillDetailPage() {
   const [files, setFiles] = useState<SkillFile[]>([]);
   const [skillMdContent, setSkillMdContent] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const zipRetries = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -225,13 +226,18 @@ export default function SkillDetailPage() {
   const handleDownload = async () => {
     if (!orgSlug || !skillName) return;
     setDownloading(true);
+    setDownloadError(null);
     try {
       const allowRisky = skill?.safety_rating === "C";
       const zipData = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const blob = new Blob([zipData], { type: "application/zip" });
       saveAs(blob, `${orgSlug}-${skillName}.zip`);
     } catch (err) {
+      // Surface the failure to the user — previously we only logged to
+      // console, so the button re-enabled with no zip in Downloads and no
+      // visible explanation (looked like a silent success).
       console.error("Download failed:", err);
+      setDownloadError(err instanceof Error ? err.message : "Download failed");
     } finally {
       setDownloading(false);
     }
@@ -421,6 +427,11 @@ export default function SkillDetailPage() {
                 {downloading ? "Downloading..." : "Download .zip"}
               </button>
             </div>
+            {downloadError && (
+              <p role="alert" className={styles.downloadError}>
+                Download failed: {downloadError}
+              </p>
+            )}
           </NeonCard>
 
           <NeonCard glow="cyan">
@@ -695,9 +706,11 @@ export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
                 : styles.severityWarn;
           const isExpanded = expandedIndex === i;
           return (
-            <div
+            <button
               key={i}
+              type="button"
               className={`${styles.checkCard} ${severityClass}`}
+              aria-expanded={isExpanded}
               onClick={() => setExpandedIndex(isExpanded ? null : i)}
             >
               <div className={styles.checkHeader}>
@@ -707,7 +720,7 @@ export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
               <span className={`${styles.checkMessage} ${isExpanded ? styles.checkMessageExpanded : ""}`}>
                 {message}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>

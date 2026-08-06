@@ -215,3 +215,47 @@ class TestMaybeTriggerAgentAssessment:
             "prompt": "Do something",
             "judge_criteria": "PASS: works\nFAIL: breaks",
         }
+
+
+class TestEnginesAreDisposed:
+    """Every publish that triggers evals creates an Engine — dispose it.
+
+    Historical leak: `create_engine(settings.database_url)` was called and
+    never `.dispose()`d, so its QueuePool (default 5+10 idle connections)
+    stayed open until the background-task stack frame was GC'd. Under
+    concurrent publishes this ballooned Postgres connection counts.
+    """
+
+    @patch("modal.Function")
+    @patch("decision_hub.infra.database.insert_eval_run")
+    @patch("decision_hub.infra.database.create_engine")
+    def test_engine_is_disposed_after_maybe_trigger(
+        self,
+        mock_create_engine: MagicMock,
+        mock_insert_run: MagicMock,
+        mock_modal_function: MagicMock,
+    ):
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value = mock_conn
+        mock_create_engine.return_value = mock_engine
+
+        mock_insert_run.return_value = MagicMock(id=uuid4())
+        mock_modal_function.from_name.return_value = MagicMock()
+
+        maybe_trigger_agent_assessment(
+            eval_config=_make_eval_config(),
+            eval_cases=_make_eval_cases(1),
+            s3_key="skills/test.zip",
+            s3_bucket="test-bucket",
+            version_id=uuid4(),
+            org_slug="test-org",
+            skill_name="test-skill",
+            settings=_make_settings(),
+            user_id=uuid4(),
+        )
+
+        mock_engine.dispose.assert_called_once()
