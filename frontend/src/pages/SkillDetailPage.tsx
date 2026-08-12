@@ -713,10 +713,12 @@ export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
               aria-expanded={isExpanded}
               onClick={() => setExpandedIndex(isExpanded ? null : i)}
             >
-              <div className={styles.checkHeader}>
+              {/* <span>, not <div>: block-level children are invalid inside a
+                  <button> and trigger React DOM-nesting warnings. */}
+              <span className={styles.checkHeader}>
                 <SeverityIcon size={14} className={styles.checkIcon} />
                 <span className={styles.checkName}>{formatCheckName(checkName)}</span>
-              </div>
+              </span>
               <span className={`${styles.checkMessage} ${isExpanded ? styles.checkMessageExpanded : ""}`}>
                 {message}
               </span>
