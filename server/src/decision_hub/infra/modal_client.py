@@ -71,6 +71,12 @@ def validate_api_key(key_env_var: str, key_value: str) -> None:
 
     Raises ValueError with a clear message if the key is invalid, so the
     eval pipeline fails fast instead of hanging for 15 minutes in a sandbox.
+
+    Treats transport errors (timeout, DNS, TLS) as transient and returns
+    without raising. Treats HTTP 401/403 as authoritative "the key is bad"
+    and raises. Other non-2xx statuses are logged and pass — they represent
+    "the validation service told us something other than yes-or-no" and we
+    don't want a provider outage to block evals.
     """
     import httpx
 
@@ -84,9 +90,18 @@ def validate_api_key(key_env_var: str, key_value: str) -> None:
         logger.warning("Network error validating {}: {}", key_env_var, e)
         return  # Don't block on transient network issues
 
-    if resp.status_code == 401:
+    if resp.status_code in (401, 403):
         raise ValueError(
-            f"{key_env_var} is invalid (HTTP 401). The stored key may be expired or revoked. Update it and retry."
+            f"{key_env_var} is invalid (HTTP {resp.status_code}). "
+            "The stored key may be expired or revoked. Update it and retry."
+        )
+    if resp.status_code >= 400:
+        # Provider returned an unexpected error (e.g. 429, 5xx). Don't fail
+        # the eval — the sandbox call itself will hit the real error path.
+        logger.warning(
+            "Unexpected status {} validating {} — proceeding without confirmation",
+            resp.status_code,
+            key_env_var,
         )
 
 

@@ -1,8 +1,12 @@
 """Tests for dhub.core.git_repo -- clone and skill discovery."""
 
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from dhub.core.git_repo import discover_skills
+import pytest
+
+from dhub.core.git_repo import clone_repo, discover_skills
 
 
 class TestDiscoverSkills:
@@ -73,3 +77,77 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path)
         names = [p.name for p in result]
         assert names == sorted(names)
+
+
+class TestCloneRepoSubprocessHardening:
+    """Regression tests for the git-clone subprocess safety guarantees.
+
+    A slow or unreachable git host previously hung the CLI indefinitely
+    because ``subprocess.run`` was invoked without a ``timeout=``. These
+    tests pin in the behaviour that:
+
+    1. Every git invocation is bounded by a timeout.
+    2. ``TimeoutExpired`` is translated to a ``RuntimeError`` with a
+       sanitised message — the original ``cmd`` argv (which may carry an
+       authenticated URL) does not appear in the message.
+    """
+
+    def test_clone_runs_with_a_timeout(self) -> None:
+        """``subprocess.run`` must be called with a bounded ``timeout=``."""
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stderr = ""
+
+        with patch("dhub.core.git_repo.subprocess.run", return_value=completed) as run_mock:
+            clone_repo("https://github.com/example/repo.git")
+
+        run_mock.assert_called_once()
+        _args, kwargs = run_mock.call_args
+        assert kwargs.get("timeout"), "git clone must pass a timeout to subprocess.run"
+        assert kwargs["timeout"] > 0
+
+    def test_clone_timeout_raises_sanitised_runtime_error(self, tmp_path: Path) -> None:
+        """A ``TimeoutExpired`` becomes a ``RuntimeError`` without leaking argv."""
+
+        def _raise(*_args, **kwargs):
+            raise subprocess.TimeoutExpired(
+                cmd=["git", "clone", "https://x-access-token:SECRET@github.com/o/r.git"],
+                timeout=kwargs.get("timeout", 0),
+            )
+
+        with (
+            patch("dhub.core.git_repo.subprocess.run", side_effect=_raise),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            clone_repo("https://x-access-token:SECRET@github.com/o/r.git")
+
+        message = str(exc_info.value)
+        assert "timed out" in message
+        # The secret in the URL must not appear in the user-facing message.
+        assert "SECRET" not in message
+
+    def test_clone_failure_cleans_up_tempdir(self, tmp_path: Path) -> None:
+        """A non-zero exit triggers cleanup of the tempdir so /tmp does not fill."""
+
+        completed = MagicMock()
+        completed.returncode = 128
+        completed.stderr = "fatal: repository not found"
+
+        # Track the directory clone_repo creates so we can assert it is removed.
+        created: list[Path] = []
+        real_mkdtemp = __import__("tempfile").mkdtemp
+
+        def _spy_mkdtemp(*args, **kwargs):
+            path = real_mkdtemp(*args, **kwargs)
+            created.append(Path(path))
+            return path
+
+        with (
+            patch("dhub.core.git_repo.subprocess.run", return_value=completed),
+            patch("dhub.core.git_repo.tempfile.mkdtemp", side_effect=_spy_mkdtemp),
+            pytest.raises(RuntimeError, match="git clone failed"),
+        ):
+            clone_repo("https://github.com/example/does-not-exist.git")
+
+        assert created, "tempfile.mkdtemp was not invoked"
+        assert not created[0].exists(), "temp directory should be removed on clone failure"

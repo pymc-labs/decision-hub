@@ -216,6 +216,37 @@ class TestClaimDueTrackers:
         compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
         assert "random()" not in compiled
 
+    def test_order_by_includes_id_tiebreaker(self):
+        """The CTE that selects due tracker IDs must order by id as a tiebreaker.
+
+        Without this, trackers with the same ``next_check_at`` (including
+        the very common ``NULL`` case after a fresh seed) are claimed in
+        an undefined order — two replicas racing on ``LIMIT N`` can pick
+        non-overlapping subsets in different orders and produce flapping
+        claim behaviour. The CLAUDE.md hard-rule is "Every query with
+        LIMIT must have an explicit ORDER BY with a unique tiebreaker".
+        """
+        conn = MagicMock()
+        conn.execute.return_value.all.return_value = []
+
+        claim_due_trackers(conn, batch_size=10)
+
+        stmt = conn.execute.call_args[0][0]
+        # Compile the UPDATE statement; the embedded CTE's ORDER BY shows
+        # up as part of the compiled SQL, with id appearing after
+        # next_check_at NULLS FIRST.
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        # Strip whitespace/newlines for a robust substring assertion.
+        normalised = " ".join(compiled.split()).lower()
+        assert "next_check_at" in normalised
+        # The tiebreaker fragment must appear before LIMIT and after the
+        # NULLS FIRST clause.
+        next_check_pos = normalised.find("next_check_at")
+        id_asc_pos = normalised.find(".id asc", next_check_pos)
+        limit_pos = normalised.find("limit")
+        assert id_asc_pos != -1, f"missing id ASC tiebreaker in: {normalised}"
+        assert id_asc_pos < limit_pos, "id tiebreaker must appear before LIMIT"
+
 
 class TestDeleteSkillTracker:
     def test_delete_existing(self):

@@ -2922,13 +2922,18 @@ def claim_due_trackers(
     )
 
     # Select due tracker IDs with row-level locking, skipping already-locked rows.
-    # ORDER BY prioritises never-checked (NULLS FIRST) then most-overdue,
-    # which matches the ix_skill_trackers_next_check index.
+    # ORDER BY prioritises never-checked (NULLS FIRST) then most-overdue. The
+    # `id` tiebreaker keeps the claim order deterministic when many trackers
+    # share the same next_check_at (e.g. all NULL on a freshly seeded table),
+    # so two concurrent runs cannot race on overlapping subsets under LIMIT.
     # LIMIT prevents unbounded lock acquisition at scale.
     locked_ids_cte = (
         sa.select(skill_trackers_table.c.id)
         .where(due_filter)
-        .order_by(skill_trackers_table.c.next_check_at.asc().nulls_first())
+        .order_by(
+            skill_trackers_table.c.next_check_at.asc().nulls_first(),
+            skill_trackers_table.c.id.asc(),
+        )
         .limit(batch_size)
         .with_for_update(skip_locked=True)
         .cte("locked_ids")

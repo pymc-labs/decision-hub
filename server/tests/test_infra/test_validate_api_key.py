@@ -58,12 +58,25 @@ class TestValidateApiKey:
         validate_api_key("UNKNOWN_KEY", "some-value")
 
     @patch("httpx.get")
-    def test_non_401_error_does_not_raise(self, mock_get: MagicMock):
-        """Non-401 HTTP errors (500, 403, etc.) don't raise — only 401 is a clear signal."""
+    def test_5xx_error_does_not_raise(self, mock_get: MagicMock):
+        """5xx HTTP errors are treated as transient: don't fail the eval."""
         mock_get.return_value = MagicMock(status_code=500)
 
-        # 500 could be transient — should not raise
+        # Provider outage — sandbox call itself will hit the real error path.
         validate_api_key("ANTHROPIC_API_KEY", "sk-ant-some-key")
+
+    @patch("httpx.get")
+    def test_403_raises_valueerror(self, mock_get: MagicMock):
+        """403 (forbidden) is also an authoritative "bad key" signal.
+
+        Anthropic's API uses 401 for missing/invalid keys and 403 for keys
+        without permission for an endpoint; either way the key cannot be
+        used to run an eval, so we fail fast rather than spin up a sandbox.
+        """
+        mock_get.return_value = MagicMock(status_code=403)
+
+        with pytest.raises(ValueError, match="ANTHROPIC_API_KEY is invalid"):
+            validate_api_key("ANTHROPIC_API_KEY", "sk-ant-no-perms")
 
     @patch("httpx.get")
     def test_uses_correct_anthropic_version_header(self, mock_get: MagicMock):

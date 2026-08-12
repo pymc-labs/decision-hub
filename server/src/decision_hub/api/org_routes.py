@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from decision_hub.api.deps import get_cache, get_connection, get_current_user, get_settings
+from decision_hub.api.rate_limit import enforce_public_reads_rate_limit
 from decision_hub.domain.orgs import validate_org_slug
 from decision_hub.infra.cache import TTLCache
 from decision_hub.infra.database import (
@@ -151,7 +152,11 @@ class OrgStatsResponse(BaseModel):
     items: list[OrgStatsEntry]
 
 
-@org_public_router.get("/stats", response_model=OrgStatsResponse)
+@org_public_router.get(
+    "/stats",
+    response_model=OrgStatsResponse,
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
+)
 def get_org_stats(
     response: Response,
     search: str | None = Query(None, max_length=200),
@@ -190,7 +195,11 @@ def get_org_stats(
     return result
 
 
-@org_public_router.get("/profiles", response_model=list[OrgProfile])
+@org_public_router.get(
+    "/profiles",
+    response_model=list[OrgProfile],
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
+)
 def list_org_profiles(
     response: Response,
     conn: Connection = Depends(get_connection),
@@ -223,7 +232,11 @@ def list_org_profiles(
     return result
 
 
-@org_public_router.get("/{slug}/profile", response_model=OrgProfile)
+@org_public_router.get(
+    "/{slug}/profile",
+    response_model=OrgProfile,
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
+)
 def get_org_profile(
     slug: str,
     response: Response,

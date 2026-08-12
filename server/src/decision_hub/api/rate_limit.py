@@ -63,3 +63,21 @@ class RateLimiter:
         stale = [k for k, v in self._requests.items() if not v or v[-1] < cutoff]
         for k in stale:
             del self._requests[k]
+
+
+def enforce_public_reads_rate_limit(request: Request) -> None:
+    """Shared rate-limit dependency for lightweight public read endpoints.
+
+    A single per-IP budget is enforced across the cacheable public read
+    surface (registry stats, skill summary, org stats, org profiles). The
+    limiter is lazily instantiated on ``app.state`` from
+    ``settings.public_reads_rate_limit`` and ``public_reads_rate_window``.
+    """
+    state = request.app.state
+    if not hasattr(state, "_public_reads_rate_limiter"):
+        settings = state.settings
+        state._public_reads_rate_limiter = RateLimiter(
+            max_requests=settings.public_reads_rate_limit,
+            window_seconds=settings.public_reads_rate_window,
+        )
+    state._public_reads_rate_limiter(request)

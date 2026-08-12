@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 
 from decision_hub.api.deps import get_settings
+from decision_hub.api.rate_limit import enforce_public_reads_rate_limit
 from decision_hub.settings import Settings
 from dhub_core.taxonomy import CATEGORY_TAXONOMY
 
@@ -16,7 +17,11 @@ class TaxonomyResponse(BaseModel):
     groups: dict[str, list[str]]
 
 
-@public_router.get("/taxonomy", response_model=TaxonomyResponse)
+@public_router.get(
+    "/taxonomy",
+    response_model=TaxonomyResponse,
+    dependencies=[Depends(enforce_public_reads_rate_limit)],
+)
 def get_taxonomy(
     response: Response,
     settings: Settings = Depends(get_settings),

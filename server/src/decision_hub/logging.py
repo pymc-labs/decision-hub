@@ -207,6 +207,13 @@ class RequestLoggingMiddleware:
             nonlocal status_code, response_size
             if message["type"] == "http.response.start":
                 status_code = message.get("status", 0)
+                # Echo the request id on every response so clients can quote
+                # it in bug reports and correlate their logs with server
+                # logs. Appended (not overwritten) so a downstream handler
+                # that sets its own X-Request-ID still wins.
+                headers = list(message.get("headers", []))
+                headers.append([b"x-request-id", request_id.encode("ascii")])
+                message = {**message, "headers": headers}
             elif message["type"] == "http.response.body":
                 body = message.get("body", b"")
                 if body:
