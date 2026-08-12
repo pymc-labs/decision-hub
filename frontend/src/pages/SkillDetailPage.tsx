@@ -143,7 +143,7 @@ export default function SkillDetailPage() {
 
   const seoTitle = `${orgSlug}/${skillName}`;
   const seoDescription = skill
-    ? `${skill.description} — Safety grade: ${skill.safety_rating}, v${skill.latest_version}. Install with: dhub install ${orgSlug}/${skillName}`
+    ? `${skill.description} — Safety grade: ${skill.safety_rating}, v${skill.latest_version}. Install with: dhub install ${orgSlug}/${skillName}${skill.safety_rating === "C" || skill.safety_rating === "pending" ? " --allow-risky" : ""}`
     : `View the ${orgSlug}/${skillName} skill on Decision Hub.`;
   const jsonLd = useMemo(
     () =>
@@ -177,7 +177,8 @@ export default function SkillDetailPage() {
     setZipLoading(true);
     setZipError(null);
     try {
-      const allowRisky = skill?.safety_rating === "C";
+      const rating = skill?.safety_rating;
+      const allowRisky = rating === "C" || rating === "pending";
       const buf = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const zip = await JSZip.loadAsync(buf);
 
@@ -226,7 +227,8 @@ export default function SkillDetailPage() {
     if (!orgSlug || !skillName) return;
     setDownloading(true);
     try {
-      const allowRisky = skill?.safety_rating === "C";
+      const rating = skill?.safety_rating;
+      const allowRisky = rating === "C" || rating === "pending";
       const zipData = await downloadSkillZip(orgSlug, skillName, "latest", allowRisky);
       const blob = new Blob([zipData], { type: "application/zip" });
       saveAs(blob, `${orgSlug}-${skillName}.zip`);
@@ -238,7 +240,12 @@ export default function SkillDetailPage() {
   };
 
   const handleCopyInstall = () => {
-    navigator.clipboard.writeText(`dhub install ${orgSlug}/${skillName} --agent all`);
+    const rating = skill?.safety_rating;
+    const risky = rating === "C" || rating === "pending";
+    const cmd = risky
+      ? `dhub install ${orgSlug}/${skillName} --allow-risky --agent all`
+      : `dhub install ${orgSlug}/${skillName} --agent all`;
+    navigator.clipboard.writeText(cmd);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
