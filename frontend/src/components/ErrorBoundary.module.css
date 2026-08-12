@@ -1,0 +1,85 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  padding: 40px 20px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  max-width: 480px;
+  padding: 40px 32px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--glow-cyan);
+}
+
+.icon {
+  width: 56px;
+  height: 56px;
+  color: var(--neon-pink);
+  filter: drop-shadow(0 0 8px var(--neon-pink));
+}
+
+.title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: var(--text-heading);
+  color: var(--text-primary);
+  text-shadow: var(--glow-text-strong);
+  letter-spacing: 1px;
+}
+
+.message {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  margin-top: 8px;
+  background: transparent;
+  color: var(--neon-cyan);
+  border: 1px solid var(--neon-cyan);
+  border-radius: 6px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--text-sm);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.button:hover,
+.button:focus-visible {
+  background: var(--neon-cyan);
+  color: var(--bg-darkest);
+  box-shadow: var(--glow-cyan);
+  outline: none;
+}
+
+.buttonIcon {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 32px 20px;
+  }
+  .title {
+    font-size: var(--text-lg);
+  }
+  .message {
+    font-size: var(--text-sm);
+  }
+}
