@@ -1,19 +1,9 @@
 import { useEffect } from "react";
 
 const SITE_NAME = "Decision Hub";
-const PROD_URL = "https://hub.decision.ai";
+const BASE_URL = "https://hub.decision.ai";
 const DEFAULT_DESCRIPTION =
   "Decision Hub is the skill registry for AI coding agents. Every skill is automatically evaluated in a sandbox, security-graded A through F, and searchable in natural language.";
-
-// Use the live origin so dev (hub-dev.decision.ai) and local builds emit
-// canonical/og:url tags that point at themselves instead of at prod.
-// Falls back to the prod URL for non-browser contexts (tests, SSR).
-function getBaseUrl(): string {
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
-  }
-  return PROD_URL;
-}
 
 interface SEOProps {
   title?: string;
@@ -80,10 +70,9 @@ function setJsonLd(data: Record<string, unknown> | undefined) {
  */
 export function useSEO({ title, description, path, jsonLd }: SEOProps) {
   useEffect(() => {
-    const baseUrl = getBaseUrl();
     const fullTitle = title ? `${title} | ${SITE_NAME}` : `${SITE_NAME} - Skill Registry for AI Agents`;
     const desc = description ?? DEFAULT_DESCRIPTION;
-    const url = path ? `${baseUrl}${path}` : baseUrl;
+    const url = path ? `${BASE_URL}${path}` : BASE_URL;
 
     document.title = fullTitle;
 
@@ -111,10 +100,10 @@ export function useSEO({ title, description, path, jsonLd }: SEOProps) {
       setMetaTag("name", "description", DEFAULT_DESCRIPTION);
       setMetaTag("property", "og:title", `${SITE_NAME} - Skill Registry for AI Agents`);
       setMetaTag("property", "og:description", DEFAULT_DESCRIPTION);
-      setMetaTag("property", "og:url", baseUrl);
+      setMetaTag("property", "og:url", BASE_URL);
       setMetaTag("name", "twitter:title", `${SITE_NAME} - Skill Registry for AI Agents`);
       setMetaTag("name", "twitter:description", DEFAULT_DESCRIPTION);
-      setCanonical(baseUrl);
+      setCanonical(BASE_URL);
       setJsonLd(undefined);
     };
   }, [title, description, path, jsonLd]);
