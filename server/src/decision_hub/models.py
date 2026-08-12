@@ -18,6 +18,7 @@ from dhub_core.models import (  # noqa: F401
 # Status vocabularies — single source of truth for magic strings
 CheckSeverity = Literal["pass", "warn", "fail"]
 SafetyGrade = Literal["A", "B", "C", "F"]
+VersionEvalStatus = Literal["A", "B", "C", "F", "pending"]
 EvalReportStatus = Literal["pending", "completed", "failed", "error"]
 EvalRunStatus = Literal["pending", "provisioning", "running", "judging", "completed", "failed"]
 

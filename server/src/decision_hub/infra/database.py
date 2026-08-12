@@ -1524,10 +1524,12 @@ def resolve_version(
     granted = list_granted_skill_ids(conn, user_org_ids) if user_org_ids else None
     base = _apply_visibility_filter(base, user_org_ids, granted)
 
-    # Filter by grade: A/B (and legacy "passed") by default, add C if allow_risky
+    # Filter by grade: A/B (and legacy "passed") by default.
+    # allow_risky adds C (warnings) and "pending" (not yet graded, e.g. when
+    # the gauntlet is disabled).
     allowed_statuses = ["A", "B", "passed"]
     if allow_risky:
-        allowed_statuses.append("C")
+        allowed_statuses.extend(["C", "pending"])
     base = base.where(versions_table.c.eval_status.in_(allowed_statuses))
 
     if spec == "latest":
@@ -2305,6 +2307,10 @@ def get_api_keys_for_eval(conn: Connection, user_id: UUID, key_names: list[str])
 # ---------------------------------------------------------------------------
 
 
+_AUDIT_GRADE_TO_DB = {"pending": "P"}
+_AUDIT_GRADE_FROM_DB = {v: k for k, v in _AUDIT_GRADE_TO_DB.items()}
+
+
 def _row_to_audit_log_entry(row: sa.Row) -> AuditLogEntry:
     """Map a database row to an AuditLogEntry model."""
     return AuditLogEntry(
@@ -2312,7 +2318,7 @@ def _row_to_audit_log_entry(row: sa.Row) -> AuditLogEntry:
         org_slug=row.org_slug,
         skill_name=row.skill_name,
         semver=row.semver,
-        grade=row.grade,
+        grade=_AUDIT_GRADE_FROM_DB.get(row.grade, row.grade),
         version_id=row.version_id,
         check_results=row.check_results,
         llm_reasoning=row.llm_reasoning,
@@ -2345,7 +2351,7 @@ def insert_audit_log(
         org_slug: Organization slug (denormalized).
         skill_name: Skill name (denormalized).
         semver: Version string.
-        grade: A/B/C/F.
+        grade: A/B/C/F/pending (pending is stored as "P" in the DB).
         check_results: Serialized list of EvalResult dicts.
         publisher: GitHub username of the publisher.
         version_id: UUID of the version record (None for F-rejected).
@@ -2360,7 +2366,7 @@ def insert_audit_log(
         "org_slug": org_slug,
         "skill_name": skill_name,
         "semver": semver,
-        "grade": grade,
+        "grade": _AUDIT_GRADE_TO_DB.get(grade, grade),
         "check_results": check_results,
         "publisher": publisher,
     }

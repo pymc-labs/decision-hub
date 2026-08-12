@@ -159,6 +159,60 @@ class TestPublishSkill:
         # Audit log inserted for successful publish
         mock_insert_audit.assert_called_once()
 
+    @patch("decision_hub.domain.publish_pipeline.classify_skill_category", return_value="Other & Utilities")
+    @patch("decision_hub.domain.publish_pipeline.insert_audit_log")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_category")
+    @patch("decision_hub.domain.publish_pipeline.update_skill_description")
+    @patch("decision_hub.domain.publish_pipeline.insert_version")
+    @patch("decision_hub.domain.publish_pipeline.find_version")
+    @patch("decision_hub.domain.publish_pipeline.find_skill")
+    @patch("decision_hub.domain.publish_pipeline.upload_skill_zip")
+    @patch("decision_hub.api.registry_routes.compute_checksum")
+    @patch("decision_hub.api.registry_service.find_org_member")
+    @patch("decision_hub.api.registry_service.find_org_by_slug")
+    def test_publish_skips_gauntlet_when_disabled(
+        self,
+        mock_find_org: MagicMock,
+        mock_find_member: MagicMock,
+        mock_checksum: MagicMock,
+        mock_upload: MagicMock,
+        mock_find_skill: MagicMock,
+        mock_find_version: MagicMock,
+        mock_insert_version: MagicMock,
+        mock_update_desc: MagicMock,
+        mock_update_cat: MagicMock,
+        mock_insert_audit: MagicMock,
+        _mock_classify: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        sample_user_id: UUID,
+        test_settings: MagicMock,
+    ) -> None:
+        """When enable_gauntlet=False, publish skips the gauntlet and stores eval_status='pending'."""
+        test_settings.google_api_key = "test-key"
+        test_settings.enable_gauntlet = False
+        org = _make_org(sample_user_id)
+        skill = _make_skill(org)
+        version = _make_version(skill, eval_status="pending")
+
+        mock_find_org.return_value = org
+        mock_find_member.return_value = _make_member(org, sample_user_id)
+        mock_checksum.return_value = "abc123def456"
+        mock_find_skill.return_value = skill
+        mock_find_version.return_value = None
+        mock_insert_version.return_value = version
+
+        zip_bytes = _make_skill_zip()
+        resp = _publish_request(client, auth_headers, zip_bytes=zip_bytes)
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["eval_status"] == "pending"
+        mock_insert_version.assert_called_once()
+        assert mock_insert_version.call_args.kwargs["eval_status"] == "pending"
+        mock_insert_audit.assert_called_once()
+        assert mock_insert_audit.call_args.kwargs["grade"] == "pending"
+
     @patch("decision_hub.api.registry_service.find_org_by_slug")
     def test_publish_org_not_found(
         self,

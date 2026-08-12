@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     # Set to 0 to disable (always re-evaluate).
     tracker_quarantine_skip_hours: int = 24
 
+    # Gauntlet safety pipeline. When disabled, publish and crawler skip the
+    # Gauntlet entirely and store versions with eval_status="pending".
+    enable_gauntlet: bool = True
+
     # Cache TTLs (seconds) for hot read paths. Set to 0 to disable.
     cache_ttl_taxonomy: int = 300  # taxonomy is static — 5 min
     cache_ttl_org_profiles: int = 60  # org profile listings

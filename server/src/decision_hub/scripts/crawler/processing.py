@@ -36,6 +36,7 @@ from decision_hub.domain.repo_utils import (
     discover_skills,
 )
 from decision_hub.domain.skill_manifest import extract_body, extract_description
+from decision_hub.models import VersionEvalStatus
 from dhub_core.validation import _SLUG_PATTERN
 
 CLONE_TIMEOUT_SECONDS = 120
@@ -367,23 +368,35 @@ def _publish_one_skill(
         return prep  # "skipped" or "failed"
 
     # Phase 2: gauntlet pipeline — NO DB connection held
-    from decision_hub.api.registry_service import classify_skill_category, run_gauntlet_pipeline
+    from decision_hub.api.registry_service import classify_skill_category
 
-    report, check_results, llm_reasoning = run_gauntlet_pipeline(
-        prep.skill_md_content,
-        prep.lockfile_content,
-        prep.source_files,
-        prep.name,
-        prep.desc,
-        prep.skill_md_body,
-        settings,
-        allowed_tools=prep.allowed_tools,
-        unscanned_files=prep.unscanned_files,
-    )
+    if settings.enable_gauntlet:
+        from decision_hub.api.registry_service import run_gauntlet_pipeline
+
+        report, check_results, llm_reasoning = run_gauntlet_pipeline(
+            prep.skill_md_content,
+            prep.lockfile_content,
+            prep.source_files,
+            prep.name,
+            prep.desc,
+            prep.skill_md_body,
+            settings,
+            allowed_tools=prep.allowed_tools,
+            unscanned_files=prep.unscanned_files,
+        )
+        gauntlet_passed = report.passed
+        eval_status: VersionEvalStatus = report.grade
+        gauntlet_summary = report.gauntlet_summary
+    else:
+        check_results = []
+        llm_reasoning = None
+        gauntlet_passed = True
+        eval_status = "pending"
+        gauntlet_summary = None
 
     # Category classification only for passing skills (also hits Gemini API)
     category = ""
-    if report.passed:
+    if gauntlet_passed:
         category = classify_skill_category(prep.name, prep.desc, prep.skill_md_body, settings)
 
     # Phase 3: write results — DB writes + S3 upload (short connection)
@@ -394,10 +407,12 @@ def _publish_one_skill(
             settings,
             org,
             prep,
-            report,
-            check_results,
-            llm_reasoning,
-            category,
+            gauntlet_passed=gauntlet_passed,
+            eval_status=eval_status,
+            gauntlet_summary=gauntlet_summary,
+            check_results=check_results,
+            llm_reasoning=llm_reasoning,
+            category=category,
             bot_user_id=bot_user_id,
             set_tracker=set_tracker,
             source_repo_url=source_repo_url,
@@ -494,11 +509,13 @@ def _finalize_skill(
     settings,
     org,
     prep: _SkillPrep,
-    report,
-    check_results,
-    llm_reasoning,
-    category: str,
     *,
+    gauntlet_passed: bool,
+    eval_status: str,
+    gauntlet_summary: str | None,
+    check_results: list,
+    llm_reasoning: dict | None,
+    category: str,
     bot_user_id: UUID | None = None,
     set_tracker: bool = False,
     source_repo_url: str | None = None,
@@ -511,15 +528,14 @@ def _finalize_skill(
     )
     from decision_hub.infra.storage import upload_skill_zip
 
-    if not report.passed:
-        # Grade F — quarantine
+    if not gauntlet_passed:
         q_key = build_quarantine_s3_key(org.slug, prep.name, prep.version)
         insert_audit_log(
             conn,
             org_slug=org.slug,
             skill_name=prep.name,
             semver=prep.version,
-            grade=report.grade,
+            grade=eval_status,
             check_results=check_results,
             publisher=BOT_USERNAME,
             version_id=None,
@@ -530,10 +546,8 @@ def _finalize_skill(
         upload_skill_zip(s3_client, settings.s3_bucket, q_key, prep.zip_data)
         return "quarantined"
 
-    # Grade A/B/C — publish
     update_skill_category(conn, prep.skill_id, category)
 
-    # Generate embedding (fail-open: never blocks publish)
     from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 
     generate_and_store_skill_embedding(conn, prep.skill_id, prep.name, org.slug, category, prep.description, settings)
@@ -549,12 +563,10 @@ def _finalize_skill(
             checksum=prep.checksum,
             runtime_config=None,
             published_by=BOT_USERNAME,
-            eval_status=report.grade,
-            gauntlet_summary=report.gauntlet_summary,
+            eval_status=eval_status,
+            gauntlet_summary=gauntlet_summary,
         )
     except sqlalchemy.exc.IntegrityError:
-        # Race condition: tracker or concurrent crawler already published
-        # this version between our checksum check and insert.
         raise VersionConflictError(
             org.slug,
             prep.name,
@@ -565,7 +577,7 @@ def _finalize_skill(
         org_slug=org.slug,
         skill_name=prep.name,
         semver=prep.version,
-        grade=report.grade,
+        grade=eval_status,
         check_results=check_results,
         publisher=BOT_USERNAME,
         version_id=version_record.id,
