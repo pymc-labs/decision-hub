@@ -6,7 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -18,8 +18,9 @@ from decision_hub.api.deps import (
     get_current_user_optional,
     get_s3_client,
     get_settings,
+    require_visible_skill,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import rate_limited
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -82,96 +83,44 @@ from decision_hub.settings import Settings
 router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
-
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
+# Per-endpoint rate limiters wired via a shared factory (see rate_limit.py).
+# Each call registers a lazily-initialised, per-container RateLimiter under
+# ``app.state._<name>_rate_limiter``.  Replaces nine near-identical 12-line
+# helpers that used to live inline in each route file.
+_enforce_list_skills_rate_limit = rate_limited(
+    "list_skills", limit_attr="list_skills_rate_limit", window_attr="list_skills_rate_window"
+)
+_enforce_resolve_rate_limit = rate_limited(
+    "resolve", limit_attr="resolve_rate_limit", window_attr="resolve_rate_window"
+)
+_enforce_similar_skills_rate_limit = rate_limited(
+    "similar_skills", limit_attr="similar_skills_rate_limit", window_attr="similar_skills_rate_window"
+)
+_enforce_download_rate_limit = rate_limited(
+    "download", limit_attr="download_rate_limit", window_attr="download_rate_window"
+)
+_enforce_audit_log_rate_limit = rate_limited(
+    "audit_log", limit_attr="audit_log_rate_limit", window_attr="audit_log_rate_window"
+)
+_enforce_scan_report_rate_limit = rate_limited(
+    "scan_report", limit_attr="scan_report_rate_limit", window_attr="scan_report_rate_window"
+)
+_enforce_publish_rate_limit = rate_limited(
+    "publish", limit_attr="publish_rate_limit", window_attr="publish_rate_window"
+)
 
 
 _VALID_VISIBILITIES = {"public", "org"}
 
 
 def _parse_uuid(value: str, name: str) -> UUID:
-    """Parse a UUID string, raising 422 with a clear message on invalid input."""
+    """Kept for backward compat; delegates to the shared helper in ``deps``.
+
+    Registry_routes historically raised a slightly different error message
+    (``Invalid UUID for {name}: '{value}'``) than tracker_routes did.  This
+    shim preserves callers while routing them through the single canonical
+    implementation.
+    """
     try:
         return UUID(value)
     except ValueError:
@@ -650,10 +599,7 @@ def get_skill_summary(
     current_user: User | None = Depends(get_current_user_optional),
 ) -> SkillSummary:
     """Return a single skill summary by org slug and skill name."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    skill, user_org_ids = require_visible_skill(conn, org_slug, skill_name, current_user)
     version = resolve_latest_version(conn, org_slug, skill_name, user_org_ids=user_org_ids)
     if version is None:
         raise HTTPException(status_code=404, detail=f"No versions found for {org_slug}/{skill_name}")
@@ -832,10 +778,9 @@ def get_audit_log(
     current_user: User | None = Depends(get_current_user_optional),
 ) -> PaginatedAuditLogResponse:
     """Return evaluation audit log history for a skill."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    # Enforces visibility even though we don't use ``skill`` downstream —
+    # the audit log leaks publisher/checksum data for private skills.
+    require_visible_skill(conn, org_slug, skill_name, current_user)
     offset = (page - 1) * page_size
     entries, total = find_audit_logs(conn, org_slug, skill_name, semver=semver, limit=page_size, offset=offset)
     total_pages = math.ceil(total / page_size) if total > 0 else 1
@@ -877,10 +822,7 @@ def get_scan_report(
     current_user: User | None = Depends(get_current_user_optional),
 ) -> ScanReportResponse | None:
     """Return the latest Cisco scanner report for a skill version."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    _skill, user_org_ids = require_visible_skill(conn, org_slug, skill_name, current_user)
 
     version = None
     if semver:
@@ -964,10 +906,7 @@ def get_eval_report_by_skill(
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
     """Get the eval report for a specific skill version."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    require_visible_skill(conn, org_slug, skill_name, current_user)
     report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
     if report is None:
         return None
@@ -986,10 +925,7 @@ def get_eval_report_by_version_path(
     current_user: User | None = Depends(get_current_user_optional),
 ) -> EvalReportResponse | None:
     """Get the eval report for a specific skill version (path-based)."""
-    user_org_ids = list_user_org_ids(conn, current_user.id) if current_user else None
-    skill = find_skill_by_slug(conn, org_slug, skill_name, user_org_ids=user_org_ids)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in {org_slug}")
+    require_visible_skill(conn, org_slug, skill_name, current_user)
     report = find_eval_report_by_skill(conn, org_slug, skill_name, semver)
     if report is None:
         return None

@@ -52,8 +52,8 @@ class TestGetEvalReportBySkill:
     """GET /skills/{org}/{name}/eval-report?semver=X.Y.Z"""
 
     @patch("decision_hub.api.registry_routes.find_eval_report_by_skill")
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.deps.find_skill_by_slug")
+    @patch("decision_hub.api.deps.list_user_org_ids")
     def test_returns_report_when_found(
         self,
         mock_list_org_ids: MagicMock,
@@ -85,8 +85,8 @@ class TestGetEvalReportBySkill:
         assert data["case_results"][0]["verdict"] == "pass"
 
     @patch("decision_hub.api.registry_routes.find_eval_report_by_skill")
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.deps.find_skill_by_slug")
+    @patch("decision_hub.api.deps.list_user_org_ids")
     def test_returns_null_when_no_report(
         self,
         mock_list_org_ids: MagicMock,
@@ -108,8 +108,8 @@ class TestGetEvalReportBySkill:
         assert resp.status_code == 200
         assert resp.json() is None
 
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.deps.find_skill_by_slug")
+    @patch("decision_hub.api.deps.list_user_org_ids")
     def test_returns_404_when_skill_not_found(
         self,
         mock_list_org_ids: MagicMock,
@@ -129,8 +129,8 @@ class TestGetEvalReportBySkill:
         assert resp.status_code == 404
 
     @patch("decision_hub.api.registry_routes.find_eval_report_by_skill")
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.deps.find_skill_by_slug")
+    @patch("decision_hub.api.deps.list_user_org_ids")
     def test_failed_report_includes_error_message(
         self,
         mock_list_org_ids: MagicMock,
@@ -168,8 +168,8 @@ class TestGetEvalReportByVersionPath:
     """GET /v1/skills/{org}/{name}/versions/{semver}/eval-report"""
 
     @patch("decision_hub.api.registry_routes.find_eval_report_by_skill")
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.deps.find_skill_by_slug")
+    @patch("decision_hub.api.deps.list_user_org_ids")
     def test_path_based_variant_returns_report(
         self,
         mock_list_org_ids: MagicMock,
@@ -195,8 +195,8 @@ class TestGetEvalReportByVersionPath:
         assert data["id"] == str(report.id)
         assert data["status"] == "completed"
 
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.deps.find_skill_by_slug")
+    @patch("decision_hub.api.deps.list_user_org_ids")
     def test_path_based_variant_404_for_missing_skill(
         self,
         mock_list_org_ids: MagicMock,
@@ -216,8 +216,8 @@ class TestGetEvalReportByVersionPath:
         assert resp.status_code == 404
 
     @patch("decision_hub.api.registry_routes.find_eval_report_by_skill")
-    @patch("decision_hub.api.registry_routes.find_skill_by_slug")
-    @patch("decision_hub.api.registry_routes.list_user_org_ids")
+    @patch("decision_hub.api.deps.find_skill_by_slug")
+    @patch("decision_hub.api.deps.list_user_org_ids")
     def test_path_based_variant_null_for_no_report(
         self,
         mock_list_org_ids: MagicMock,
