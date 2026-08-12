@@ -54,6 +54,11 @@ def backfill(batch_size: int = 100) -> None:
                     )
                 )
                 .where(skills_table.c.embedding.is_(None))
+                # ORDER BY id is required per CLAUDE.md: LIMIT without a
+                # unique tiebreaker is nondeterministic. Without it a
+                # retry after a failing batch could pick a different set
+                # of rows and loop forever.
+                .order_by(skills_table.c.id)
                 .limit(batch_size)
             )
             rows = conn.execute(stmt).all()

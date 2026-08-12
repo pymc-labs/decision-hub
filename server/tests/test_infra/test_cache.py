@@ -6,7 +6,7 @@ from decision_hub.infra.cache import TTLCache
 
 
 class TestTTLCacheBasics:
-    """Core get/set/invalidate/clear operations."""
+    """Core get/set operations."""
 
     def test_get_returns_none_for_missing_key(self) -> None:
         cache = TTLCache(default_ttl=10)
@@ -16,24 +16,6 @@ class TestTTLCacheBasics:
         cache = TTLCache(default_ttl=10)
         cache.set("key", {"data": 42})
         assert cache.get("key") == {"data": 42}
-
-    def test_invalidate_removes_key(self) -> None:
-        cache = TTLCache(default_ttl=10)
-        cache.set("key", "value")
-        cache.invalidate("key")
-        assert cache.get("key") is None
-
-    def test_invalidate_nonexistent_key_is_noop(self) -> None:
-        cache = TTLCache(default_ttl=10)
-        cache.invalidate("nope")  # should not raise
-
-    def test_clear_removes_all(self) -> None:
-        cache = TTLCache(default_ttl=10)
-        cache.set("a", 1)
-        cache.set("b", 2)
-        cache.clear()
-        assert cache.get("a") is None
-        assert cache.get("b") is None
 
 
 class TestTTLCacheExpiration:

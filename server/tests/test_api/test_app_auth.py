@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from decision_hub.api.deps import get_current_user
 from decision_hub.api.keys_routes import router as keys_router
 from decision_hub.api.org_routes import org_router
+from decision_hub.api.rate_limit import RateLimiters
 from decision_hub.api.registry_routes import router as registry_router
 from decision_hub.api.tracker_routes import router as tracker_router
 
@@ -40,17 +41,16 @@ def _make_app(require_github_org: str = "") -> FastAPI:
         [o.strip() for o in require_github_org.split(",") if o.strip()] if require_github_org else []
     )
     settings.min_cli_version = ""
-    settings.list_skills_rate_limit = 30
-    settings.list_skills_rate_window = 60
-    settings.resolve_rate_limit = 30
-    settings.resolve_rate_window = 60
-    settings.download_rate_limit = 10
-    settings.download_rate_window = 60
+    # RateLimiters iterates every known name — provide sane defaults.
+    for _name in RateLimiters._NAMES:
+        setattr(settings, f"{_name}_rate_limit", 30)
+        setattr(settings, f"{_name}_rate_window", 60)
 
     app = FastAPI()
     app.state.settings = settings
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
+    app.state.rate_limiters = RateLimiters(settings)
 
     # Mirror the unconditional auth wiring from create_app()
     write_deps = [Depends(get_current_user)]

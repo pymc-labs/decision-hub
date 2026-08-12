@@ -1,6 +1,6 @@
 """Tests for decision_hub.infra.github_client."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -67,48 +67,57 @@ class TestGitHubClientContextManager:
 
 
 class TestGitHubClientGraphQL:
-    """Verify GraphQL method."""
+    """Verify GraphQL method routes through the pooled client."""
 
-    @patch("decision_hub.infra.github_client.httpx.post")
-    def test_graphql_success(self, mock_post):
+    def _build_response(self, *, json_body: dict, headers: dict | None = None) -> MagicMock:
         resp = MagicMock()
         resp.status_code = 200
-        resp.headers = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": "1700000000"}
-        resp.json.return_value = {"data": {"viewer": {"login": "test"}}}
+        resp.headers = headers or {}
+        resp.json.return_value = json_body
         resp.raise_for_status = MagicMock()
-        mock_post.return_value = resp
+        return resp
+
+    def test_graphql_success(self):
+        resp = self._build_response(
+            json_body={"data": {"viewer": {"login": "test"}}},
+            headers={"x-ratelimit-remaining": "100", "x-ratelimit-reset": "1700000000"},
+        )
 
         with GitHubClient(token="ghp_test") as gh:
+            gh._client = MagicMock()
+            gh._client.post.return_value = resp
+
             result = gh.graphql("{ viewer { login } }")
 
         assert result == {"viewer": {"login": "test"}}
+        # Regression: must NOT call module-level httpx.post — a fresh
+        # TCP+TLS handshake per batch defeated the connection pool.
+        gh._client.post.assert_called_once()
+        call_args, call_kwargs = gh._client.post.call_args
+        assert call_args[0] == "https://api.github.com/graphql"
+        assert call_kwargs["json"]["query"] == "{ viewer { login } }"
 
-    @patch("decision_hub.infra.github_client.httpx.post")
-    def test_graphql_errors_without_data_raises(self, mock_post):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {}
-        resp.json.return_value = {"errors": [{"message": "bad query"}]}
-        resp.raise_for_status = MagicMock()
-        mock_post.return_value = resp
+    def test_graphql_errors_without_data_raises(self):
+        resp = self._build_response(json_body={"errors": [{"message": "bad query"}]})
 
-        with GitHubClient() as gh, pytest.raises(ValueError, match="GraphQL errors"):
-            gh.graphql("{ bad }")
+        with GitHubClient() as gh:
+            gh._client = MagicMock()
+            gh._client.post.return_value = resp
+            with pytest.raises(ValueError, match="GraphQL errors"):
+                gh.graphql("{ bad }")
 
-    @patch("decision_hub.infra.github_client.httpx.post")
-    def test_graphql_partial_errors_returns_data(self, mock_post):
+    def test_graphql_partial_errors_returns_data(self):
         """When both data and errors are present, return data instead of raising."""
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {}
-        resp.json.return_value = {
-            "data": {"r0": {"ref": {"target": {"oid": "abc123"}}}},
-            "errors": [{"message": "Could not resolve to a Repository"}],
-        }
-        resp.raise_for_status = MagicMock()
-        mock_post.return_value = resp
+        resp = self._build_response(
+            json_body={
+                "data": {"r0": {"ref": {"target": {"oid": "abc123"}}}},
+                "errors": [{"message": "Could not resolve to a Repository"}],
+            }
+        )
 
         with GitHubClient(token="ghp_test") as gh:
+            gh._client = MagicMock()
+            gh._client.post.return_value = resp
             result = gh.graphql("query { ... }")
 
         assert result == {"r0": {"ref": {"target": {"oid": "abc123"}}}}

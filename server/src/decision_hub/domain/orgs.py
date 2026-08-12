@@ -8,25 +8,6 @@ from sqlalchemy.engine import Connection
 
 from dhub_core.validation import _SLUG_PATTERN, validate_org_slug  # noqa: F401 — re-exported
 
-VALID_ROLES: tuple[str, ...] = ("owner", "admin", "member")
-
-
-def validate_role(role: str) -> str:
-    """Validate that a role is one of the allowed values.
-
-    Args:
-        role: The role string to validate.
-
-    Returns:
-        The validated role.
-
-    Raises:
-        ValueError: If the role is not in VALID_ROLES.
-    """
-    if role not in VALID_ROLES:
-        raise ValueError(f"Invalid role '{role}': must be one of {VALID_ROLES}.")
-    return role
-
 
 def sync_user_orgs(
     conn: Connection,

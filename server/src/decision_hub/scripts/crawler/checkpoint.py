@@ -6,6 +6,7 @@ Flushes every N results to balance durability vs. I/O at scale.
 """
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,12 +25,20 @@ class Checkpoint:
     _flush_counter: int = field(default=0, repr=False)
 
     def save(self, path: Path) -> None:
-        """Write checkpoint to disk."""
+        """Write checkpoint to disk atomically.
+
+        Writes to a sibling ``.tmp`` file first, then ``os.replace``s it
+        into place. A SIGKILL/OOM between calls to ``save`` cannot leave
+        a half-written JSON file on disk -- the module docstring calls
+        the crawler "crash-safe" and now actually is.
+        """
         data = {
             "discovered_repos": self.discovered_repos,
             "processed_repos": self.processed_repos,
         }
-        path.write_text(json.dumps(data, indent=2))
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path: Path) -> "Checkpoint":

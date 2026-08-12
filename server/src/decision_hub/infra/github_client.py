@@ -82,15 +82,24 @@ class GitHubClient:
 
         Raises ``httpx.HTTPStatusError`` on non-2xx responses and
         ``ValueError`` when the response contains GraphQL-level errors.
+
+        Uses the pooled client's connection pool -- calling module-level
+        ``httpx.post`` forced a fresh TCP+TLS handshake per batch and
+        leaked short-lived clients until GC ran.
         """
         self._wait_for_rate_limit()
         payload: dict = {"query": query}
         if variables:
             payload["variables"] = variables
-        headers = {"Accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        resp = httpx.post(GITHUB_GRAPHQL, json=payload, headers=headers, timeout=30)
+        # The base_url on self._client is GITHUB_API (REST). GraphQL lives
+        # on a different absolute URL, so we pass the full URL and let httpx
+        # ignore the base for absolute URLs. Auth + accept headers come from
+        # the client's defaults.
+        resp = self._client.post(
+            GITHUB_GRAPHQL,
+            json=payload,
+            headers={"Accept": "application/json"},
+        )
         self._update_rate_limit(resp)
         resp.raise_for_status()
         body = resp.json()
