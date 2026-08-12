@@ -273,9 +273,9 @@ def crawl_trusted_orgs_nightly() -> None:
 _TRACKER_LOOP_BUDGET_SECONDS = 180
 
 
-@app.function(image=crawler_image, timeout=900, schedule=modal.Period(seconds=600))
+@app.function(image=crawler_image, timeout=900, schedule=modal.Period(hours=1))
 def check_trackers():
-    """Poll GitHub repos for skill updates every 10 minutes.
+    """Poll GitHub repos for skill updates every hour.
 
     Loops batch claims until no more trackers are due or the time budget
     is exhausted. Each iteration claims a batch, checks SHAs via GraphQL,
