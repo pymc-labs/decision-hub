@@ -88,3 +88,52 @@ class TestInitCommand:
         assert result.exit_code == 0
         content = (tmp_path / "cool-tool" / "SKILL.md").read_text()
         assert "# cool-tool" in content
+
+    def test_init_description_with_double_quote_produces_valid_yaml(self, tmp_path: Path) -> None:
+        """A description containing a `"` must not corrupt the SKILL.md frontmatter.
+
+        Historical bug: `f'description: "{description}"'` produced
+        `description: "Say "hello""` for the input `Say "hello"`, which is
+        invalid YAML. The freshly scaffolded skill then failed to parse.
+        """
+        result = runner.invoke(
+            app,
+            ["init", str(tmp_path)],
+            input='cool-tool\nSay "hello" from the shell\n',
+        )
+
+        assert result.exit_code == 0
+
+        # Parse the frontmatter to verify it's valid YAML end-to-end.
+        from dhub_core.manifest import parse_skill_md
+
+        skill_md_path = tmp_path / "cool-tool" / "SKILL.md"
+        manifest = parse_skill_md(skill_md_path)
+        assert manifest.name == "cool-tool"
+        assert manifest.description == 'Say "hello" from the shell'
+
+    def test_init_description_with_backslash_produces_valid_yaml(self, tmp_path: Path) -> None:
+        """Backslashes in the description must not break YAML parsing."""
+        result = runner.invoke(
+            app,
+            ["init", str(tmp_path)],
+            input="cool-tool\nUse C:\\Windows\\path here\n",
+        )
+
+        assert result.exit_code == 0
+        from dhub_core.manifest import parse_skill_md
+
+        skill_md_path = tmp_path / "cool-tool" / "SKILL.md"
+        manifest = parse_skill_md(skill_md_path)
+        assert manifest.description == "Use C:\\Windows\\path here"
+
+    def test_init_shows_friendly_error_on_invalid_name(self, tmp_path: Path) -> None:
+        """Invalid names must produce a Rich error, not a raw Python traceback."""
+        result = runner.invoke(
+            app,
+            ["init", str(tmp_path)],
+            input="Invalid Upper\nA description\n",
+        )
+        assert result.exit_code == 1
+        # No traceback — the ValueError from validate_skill_name must be caught.
+        assert "Traceback" not in (result.output + str(result.exception or ""))

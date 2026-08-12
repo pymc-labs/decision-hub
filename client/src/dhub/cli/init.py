@@ -1,5 +1,6 @@
 """CLI command for scaffolding a new skill project."""
 
+import json
 from pathlib import Path
 
 import typer
@@ -21,7 +22,11 @@ def init_command(
 
     from dhub.core.validation import validate_skill_name
 
-    validate_skill_name(name)
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(1) from None
 
     if len(description) > 1024:
         console.print("[red]Error: Description must be 1-1024 characters.[/]")
@@ -38,15 +43,20 @@ def init_command(
         console.print(f"[red]Error: {skill_md} already exists.[/]")
         raise typer.Exit(1)
 
+    # Emit the description as a JSON-encoded string so `"` / `\` / newlines
+    # in the user's input can't produce an unparseable SKILL.md. JSON is a
+    # valid subset of YAML, so `parse_skill_md` accepts the result.
+    description_yaml = json.dumps(description)
     skill_md.write_text(
         f"---\n"
         f"name: {name}\n"
-        f'description: "{description}"\n'
+        f"description: {description_yaml}\n"
         f"---\n"
         f"\n"
         f"# {name}\n"
         f"\n"
-        f"Describe what this skill does and how the agent should use it.\n"
+        f"Describe what this skill does and how the agent should use it.\n",
+        encoding="utf-8",
     )
 
     console.print(f"[green]Created skill project at {skill_dir.resolve()}[/]")

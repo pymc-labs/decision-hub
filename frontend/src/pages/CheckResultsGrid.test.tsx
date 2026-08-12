@@ -89,4 +89,36 @@ describe("CheckResultsGrid", () => {
     expect(firstMessage.className).not.toMatch(/checkMessageExpanded/);
     expect(secondMessage.className).toMatch(/checkMessageExpanded/);
   });
+
+  it("renders each check card as a real button so it is keyboard-focusable", async () => {
+    // Historical a11y bug: the check cards were <div onClick=...>, so
+    // keyboard-only and screen-reader users could not expand a check to
+    // read its message.
+    render(<CheckResultsGrid checks={CHECKS} />);
+
+    const buttons = screen.getAllByRole("button");
+    // All three checks + the possible "Findings" toggle for scan report
+    // do not appear in this isolated component. We should get exactly 3.
+    expect(buttons.length).toBe(3);
+    // Every button must carry aria-expanded so screen readers can announce state.
+    for (const btn of buttons) {
+      expect(btn.getAttribute("aria-expanded")).toBe("false");
+      expect(btn.tagName).toBe("BUTTON");
+    }
+  });
+
+  it("expands via keyboard (Enter) — not just mouse", async () => {
+    const user = userEvent.setup();
+    render(<CheckResultsGrid checks={CHECKS} />);
+
+    const messageSpan = screen.getByText("Schema is valid");
+    const card = messageSpan.closest("button")!;
+
+    card.focus();
+    expect(document.activeElement).toBe(card);
+
+    await user.keyboard("{Enter}");
+    expect(messageSpan.className).toMatch(/checkMessageExpanded/);
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+  });
 });

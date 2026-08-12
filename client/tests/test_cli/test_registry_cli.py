@@ -1285,6 +1285,80 @@ class TestDeleteCommand:
         assert result.exit_code == 1
         assert "not found" in result.output
 
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_delete_all_json_mode_without_yes_refuses(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """In JSON mode we cannot prompt — delete-all must require --yes.
+
+        Historical bug: JSON mode silently skipped the confirmation prompt,
+        so `dhub --output json delete myorg/skill` (no --version) would
+        immediately delete every published version with no gate.
+        """
+        # No DELETE mock — if the fix isn't in, the code will attempt the
+        # HTTP call and respx will raise.
+        result = runner.invoke(app, ["--output", "json", "delete", "myorg/my-skill"])
+
+        assert result.exit_code == 1
+        # The JSON error carries a stable machine-readable code so agents
+        # can detect this exact condition.
+        assert "delete_all_requires_yes" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_delete_all_json_mode_with_yes_proceeds(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """--yes in JSON mode confirms the destructive delete."""
+        respx.delete("http://test:8000/v1/skills/myorg/my-skill").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "org_slug": "myorg",
+                    "skill_name": "my-skill",
+                    "versions_deleted": 2,
+                },
+            )
+        )
+
+        result = runner.invoke(app, ["--output", "json", "delete", "myorg/my-skill", "--yes"])
+
+        assert result.exit_code == 0
+        assert "versions_deleted" in result.output
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_delete_all_interactive_yes_flag_skips_prompt(
+        self,
+        _mock_url,
+        _mock_token,
+    ) -> None:
+        """--yes in interactive mode skips the confirm prompt but still deletes."""
+        respx.delete("http://test:8000/v1/skills/myorg/my-skill").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "org_slug": "myorg",
+                    "skill_name": "my-skill",
+                    "versions_deleted": 1,
+                },
+            )
+        )
+
+        # No stdin input — if --yes wasn't honored, the confirm() would abort.
+        result = runner.invoke(app, ["delete", "myorg/my-skill", "--yes"])
+
+        assert result.exit_code == 0
+        assert "1 version(s)" in result.output
+
 
 # ---------------------------------------------------------------------------
 # info_command JSON output
@@ -1416,14 +1490,30 @@ class TestDeleteJsonOutput:
     @respx.mock
     @patch("dhub.cli.config.get_token", return_value="test-token")
     @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
-    def test_delete_all_versions_json_skips_confirm(self, _mock_url, _mock_token) -> None:
-        """JSON mode should skip the interactive confirmation prompt."""
+    def test_delete_all_versions_json_requires_yes(self, _mock_url, _mock_token) -> None:
+        """JSON mode used to silently skip the confirm and destroy every version.
+
+        The new contract: destructive delete-all in JSON mode must fail with
+        exit=1 unless the caller passed `--yes`, so agents cannot wipe a
+        skill by omitting one flag.
+        """
+        # No respx handler needed — the HTTP delete must not fire.
+        result = runner.invoke(app, ["--output", "json", "delete", "acme/test-skill"])
+        assert result.exit_code == 1
+        data = json.loads(result.output)
+        assert data["error"] == "delete_all_requires_yes"
+
+    @respx.mock
+    @patch("dhub.cli.config.get_token", return_value="test-token")
+    @patch("dhub.cli.config.get_api_url", return_value="http://test:8000")
+    def test_delete_all_versions_json_with_yes_proceeds(self, _mock_url, _mock_token) -> None:
+        """`--yes` in JSON mode confirms the destructive delete."""
         respx.delete("http://test:8000/v1/skills/acme/test-skill").mock(
             return_value=httpx.Response(
                 200, json={"org_slug": "acme", "skill_name": "test-skill", "versions_deleted": 3}
             )
         )
-        result = runner.invoke(app, ["--output", "json", "delete", "acme/test-skill"])
+        result = runner.invoke(app, ["--output", "json", "delete", "acme/test-skill", "--yes"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["versions_deleted"] == 3

@@ -83,6 +83,38 @@ def test_parse_response_empty_string():
     assert result.category == DEFAULT_CATEGORY
 
 
+def test_parse_response_null_confidence_does_not_crash():
+    """A `"confidence": null` field must not blow up the parser.
+
+    Historical bug: `float(data.get("confidence", 0.0))` returned None
+    (the key was present, so the default wasn't used) and float(None)
+    TypeErrored. The outer `classify_skill_category` swallowed the
+    exception and silently stored DEFAULT_CATEGORY, throwing away a
+    valid category picked by the LLM.
+    """
+    raw = '{"category": "Backend & APIs", "confidence": null}'
+    result = parse_classification_response(raw)
+    assert result.category == "Backend & APIs"
+    assert result.confidence == 0.0
+
+
+def test_parse_response_null_category_falls_back_to_default():
+    """`"category": null` must not raise KeyError from SUBCATEGORY_TO_GROUP[None]."""
+    raw = '{"category": null, "confidence": 0.5}'
+    result = parse_classification_response(raw)
+    assert result.category == DEFAULT_CATEGORY
+    # (Confidence value when category is null is undefined by the contract;
+    # only the fallback + no-crash matters.)
+
+
+def test_parse_response_non_numeric_confidence_falls_back_to_zero():
+    """`"confidence": "high"` must not crash — coerce failures fall back to 0."""
+    raw = '{"category": "Backend & APIs", "confidence": "high"}'
+    result = parse_classification_response(raw)
+    assert result.category == "Backend & APIs"
+    assert result.confidence == 0.0
+
+
 def test_all_subcategories_have_groups():
     """Every subcategory in the taxonomy maps to a group."""
     for sub in ALL_SUBCATEGORIES:

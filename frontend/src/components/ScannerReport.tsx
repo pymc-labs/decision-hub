@@ -51,7 +51,16 @@ function FindingRow({ finding }: { finding: ScanFinding }) {
   return (
     <div
       className={`${styles.findingRow} ${isFP ? styles.findingFP : ""}`}
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
       onClick={() => setExpanded(!expanded)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setExpanded(!expanded);
+        }
+      }}
     >
       <div className={styles.findingHeader}>
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -265,7 +274,16 @@ export default function ScannerReport({ report }: { report: ScanReport }) {
               {fpFindings.length > 0 && (
                 <div
                   className={`${styles.findingRow} ${styles.findingFP}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={showFP}
                   onClick={() => setShowFP(!showFP)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowFP(!showFP);
+                    }
+                  }}
                 >
                   <div className={styles.findingHeader}>
                     {showFP ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

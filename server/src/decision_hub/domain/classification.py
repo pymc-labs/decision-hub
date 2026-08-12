@@ -56,8 +56,15 @@ def parse_classification_response(text: str) -> SkillClassification:
             confidence=0.0,
         )
 
-    category = data.get("category", DEFAULT_CATEGORY)
-    confidence = float(data.get("confidence", 0.0))
+    category = data.get("category") or DEFAULT_CATEGORY
+    # `data.get("confidence", 0.0)` returns None (not the default) when the
+    # LLM sends `"confidence": null`; float(None) then TypeErrors and the
+    # whole classification is silently discarded by the caller's except.
+    raw_confidence = data.get("confidence")
+    try:
+        confidence = float(raw_confidence) if raw_confidence is not None else 0.0
+    except (TypeError, ValueError):
+        confidence = 0.0
 
     if category not in ALL_SUBCATEGORIES:
         category = DEFAULT_CATEGORY
