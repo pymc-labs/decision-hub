@@ -122,6 +122,26 @@ class TestJudgeDispatch:
         assert results[0]["dangerous"] is False
 
     @respx.mock
+    def test_analyze_code_safety_parses_concatenated_objects(self, openrouter_client: dict) -> None:
+        """Qwen sometimes emits '{...}\\n{...}' instead of a JSON array on
+        many-finding prompts. The parser must not fail-close the whole batch."""
+        concatenated = (
+            '{"file": "a.py", "label": "subprocess invocation", "dangerous": false, "reason": "git call"}\n'
+            '{"file": "b.py", "label": "subprocess invocation", "dangerous": false, "reason": "list-form"}'
+        )
+        respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response(concatenated)))
+
+        snippets = [
+            {"file": "a.py", "label": "subprocess invocation", "line": "subprocess.run([...])"},
+            {"file": "b.py", "label": "subprocess invocation", "line": "subprocess.run([...])"},
+        ]
+        files = [("a.py", "code"), ("b.py", "code")]
+        results = analyze_code_safety(openrouter_client, snippets, files, "s", "d", model=_MODEL)
+
+        assert len(results) == 2
+        assert all(r["dangerous"] is False for r in results)
+
+    @respx.mock
     def test_analyze_code_safety_fails_closed_on_empty_response(self, openrouter_client: dict) -> None:
         respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json={"choices": []}))
         snippets = [{"file": "a.py", "label": "subprocess invocation", "line": "subprocess.run([...])"}]
