@@ -32,42 +32,40 @@ from decision_hub.settings import Settings, create_settings
 
 
 def _fetch_sample(settings: Settings, limit: int) -> list[dict]:
-    """Fetch a deterministic sample of public skills with their latest version s3_key."""
+    """Fetch a deterministic sample of public skills with their latest version s3_key.
+
+    Fetches the skill sample first, then the latest version per skill via
+    indexed point lookups — a single group-by over the whole versions
+    table exceeds the 30s statement timeout.
+    """
     engine = create_engine(settings.database_url)
-    latest = (
-        sa.select(
-            versions_table.c.skill_id,
-            sa.func.max(versions_table.c.created_at).label("max_created"),
-        )
-        .group_by(versions_table.c.skill_id)
-        .subquery()
-    )
-    stmt = (
+    skills_stmt = (
         sa.select(
             skills_table.c.id,
             skills_table.c.name,
             skills_table.c.description,
             skills_table.c.category,
             organizations_table.c.slug.label("org_slug"),
-            versions_table.c.s3_key,
         )
-        .select_from(
-            skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id)
-            .join(latest, latest.c.skill_id == skills_table.c.id)
-            .join(
-                versions_table,
-                sa.and_(
-                    versions_table.c.skill_id == skills_table.c.id,
-                    versions_table.c.created_at == latest.c.max_created,
-                ),
-            )
-        )
+        .select_from(skills_table.join(organizations_table, skills_table.c.org_id == organizations_table.c.id))
         .where(skills_table.c.visibility == "public")
         .order_by(skills_table.c.download_count.desc(), skills_table.c.id)
         .limit(limit)
     )
+    sample: list[dict] = []
     with engine.connect() as conn:
-        return [dict(row._mapping) for row in conn.execute(stmt).all()]
+        skills = [dict(row._mapping) for row in conn.execute(skills_stmt).all()]
+        for skill in skills:
+            version_stmt = (
+                sa.select(versions_table.c.s3_key)
+                .where(versions_table.c.skill_id == skill["id"])
+                .order_by(versions_table.c.created_at.desc(), versions_table.c.id)
+                .limit(1)
+            )
+            row = conn.execute(version_stmt).first()
+            if row is not None:
+                sample.append({**skill, "s3_key": row.s3_key})
+    return sample
 
 
 def _classify_both(
