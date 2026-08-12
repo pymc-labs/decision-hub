@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface UseApiResult<T> {
   data: T | null;
@@ -12,36 +12,53 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []): UseA
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Manual refetch (no staleness guard — caller triggers intentionally)
-  const refetch = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    fetcher()
-      .then(setData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  // Monotonically-increasing fetch id. Every in-flight request captures
+  // the id it started with and is silently ignored on resolution when a
+  // newer one has been issued. Guards against two independent races:
+  //   1. Deps change while a fetch is in flight — old response would
+  //      otherwise overwrite the new one.
+  //   2. refetch() is called twice quickly (double-click on a retry
+  //      button, or refetch() + subsequent deps change) — without this,
+  //      whichever fetch resolves last wins, not the most recent one.
+  const fetchIdRef = useRef(0);
 
-  // Auto-fetch on dep changes with staleness guard to prevent
-  // old responses from overwriting newer ones when deps change rapidly.
-  useEffect(() => {
-    let cancelled = false;
+  const refetch = useCallback(() => {
+    const id = ++fetchIdRef.current;
     setLoading(true);
     setError(null);
     fetcher()
       .then((result) => {
-        if (!cancelled) setData(result);
+        if (id !== fetchIdRef.current) return;
+        setData(result);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message);
+        if (id !== fetchIdRef.current) return;
+        setError(err.message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (id !== fetchIdRef.current) return;
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  useEffect(() => {
+    const id = ++fetchIdRef.current;
+    setLoading(true);
+    setError(null);
+    fetcher()
+      .then((result) => {
+        if (id !== fetchIdRef.current) return;
+        setData(result);
+      })
+      .catch((err) => {
+        if (id !== fetchIdRef.current) return;
+        setError(err.message);
+      })
+      .finally(() => {
+        if (id !== fetchIdRef.current) return;
+        setLoading(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 const SITE_NAME = "Decision Hub";
 const BASE_URL = "https://hub.decision.ai";
@@ -69,6 +69,14 @@ function setJsonLd(data: Record<string, unknown> | undefined) {
  * Call once per page component. Tags are restored to defaults on unmount.
  */
 export function useSEO({ title, description, path, jsonLd }: SEOProps) {
+  // Depend on the serialized JSON-LD, not the object reference. Consumers
+  // that forget to wrap the object in useMemo would otherwise pass a
+  // fresh reference on every parent render — the effect would re-run,
+  // its cleanup would fire, and the browser would see title/canonical/OG
+  // tags flicker and the JSON-LD <script> tag briefly disappear on every
+  // keystroke or state change in the parent.
+  const jsonLdKey = useMemo(() => (jsonLd ? JSON.stringify(jsonLd) : ""), [jsonLd]);
+
   useEffect(() => {
     const fullTitle = title ? `${title} | ${SITE_NAME}` : `${SITE_NAME} - Skill Registry for AI Agents`;
     const desc = description ?? DEFAULT_DESCRIPTION;
@@ -91,8 +99,9 @@ export function useSEO({ title, description, path, jsonLd }: SEOProps) {
     // Canonical
     setCanonical(url);
 
-    // JSON-LD
-    setJsonLd(jsonLd);
+    // JSON-LD — parse from the serialized key so the DOM write is
+    // driven by the same value as the dep-array comparison.
+    setJsonLd(jsonLdKey ? (JSON.parse(jsonLdKey) as Record<string, unknown>) : undefined);
 
     return () => {
       // Restore defaults on unmount so navigating away resets
@@ -106,5 +115,5 @@ export function useSEO({ title, description, path, jsonLd }: SEOProps) {
       setCanonical(BASE_URL);
       setJsonLd(undefined);
     };
-  }, [title, description, path, jsonLd]);
+  }, [title, description, path, jsonLdKey]);
 }
