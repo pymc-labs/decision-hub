@@ -43,6 +43,16 @@ DEADLINE_BUFFER_SECONDS = 30
 # ---------------------------------------------------------------------------
 
 
+def _parse_skill_semver(value: str | None) -> tuple[int, int, int] | None:
+    """Parse a manifest version hint as a skill semver, or None if it is not one."""
+    if not value:
+        return None
+    try:
+        return parse_semver(value)
+    except ValueError:
+        return None
+
+
 def _choose_publish_version(latest_semver: str | None, manifest_version: str | None) -> str:
     """Pick the next skill version for a tracker-driven publish.
 
@@ -54,12 +64,7 @@ def _choose_publish_version(latest_semver: str | None, manifest_version: str | N
     bumps the patch of the latest published version (or seeds "0.1.0"
     for a brand-new skill with no valid hint).
     """
-    manifest_semver: tuple[int, int, int] | None = None
-    if manifest_version:
-        try:
-            manifest_semver = parse_semver(manifest_version)
-        except ValueError:
-            manifest_semver = None
+    manifest_semver = _parse_skill_semver(manifest_version)
     valid_hint = manifest_version if manifest_semver is not None else None
     if latest_semver is None:
         return valid_hint or "0.1.0"
@@ -1000,7 +1005,9 @@ def _publish_skill_from_tracker(
         manifest_version = manifest.runtime.version_hint if manifest.runtime else None
         latest_semver = latest.semver if latest is not None else None
         version = _choose_publish_version(latest_semver, manifest_version)
-        if manifest_version and manifest_version != version:
+        # Only warn about hints we could not parse — a valid-but-lower hint is
+        # expected (we bump past it) and is not a manifest problem.
+        if manifest_version and _parse_skill_semver(manifest_version) is None:
             logger.debug(
                 "tracker_id={} skill={}/{} version_hint={!r} not a skill semver; ignoring",
                 tracker.id,
