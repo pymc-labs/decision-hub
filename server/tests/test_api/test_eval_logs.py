@@ -234,6 +234,43 @@ class TestGetEvalRunLogs:
     @patch("decision_hub.api.registry_routes.read_eval_log_chunk")
     @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
     @patch("decision_hub.api.registry_routes.find_eval_run")
+    def test_malformed_lines_are_skipped_not_500(
+        self,
+        mock_find_run: MagicMock,
+        mock_list_chunks: MagicMock,
+        mock_read_chunk: MagicMock,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """A truncated write, a crashed worker, or partial S3 upload can
+        leave a chunk with an unparseable line. Previously that raised
+        JSONDecodeError from inside the response path and 500'd every
+        subsequent poll for the run's logs. Now we skip the bad line
+        and return the good ones."""
+        run = _make_eval_run()
+        mock_find_run.return_value = run
+        mock_list_chunks.return_value = [(1, "eval-logs/test-run/0001.jsonl")]
+        mock_read_chunk.return_value = (
+            '{"seq":1,"type":"log","content":"before"}\n'
+            "{truncated garbage half-written line\n"
+            '{"seq":2,"type":"log","content":"after"}\n'
+        )
+
+        resp = client.get(
+            f"/v1/eval-runs/{run.id}/logs?cursor=0",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        event_seqs = [e["seq"] for e in data["events"]]
+        # Good events survive; the malformed line is silently dropped.
+        assert event_seqs == [1, 2]
+        assert data["next_cursor"] == 2
+
+    @patch("decision_hub.api.registry_routes.read_eval_log_chunk")
+    @patch("decision_hub.api.registry_routes.list_eval_log_chunks")
+    @patch("decision_hub.api.registry_routes.find_eval_run")
     def test_cursor_zero_returns_all_events(
         self,
         mock_find_run: MagicMock,

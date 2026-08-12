@@ -91,3 +91,41 @@ class TestLoginCommand:
         saved_config = mock_save.call_args[0][0]
         assert saved_config.api_url == "http://localhost:8000"
         assert saved_config.token == "jwt-token-custom"
+
+
+class TestClampPollInterval:
+    """_clamp_poll_interval — coerce server-supplied poll interval into [1, 30]s."""
+
+    def test_typical_value_passes_through(self) -> None:
+        from dhub.cli.auth import _clamp_poll_interval
+
+        assert _clamp_poll_interval(5) == 5
+
+    def test_zero_raised_to_one(self) -> None:
+        """A hostile or buggy server returning 0 must not spin the CLI."""
+        from dhub.cli.auth import _clamp_poll_interval
+
+        assert _clamp_poll_interval(0) == 1
+
+    def test_negative_raised_to_one(self) -> None:
+        from dhub.cli.auth import _clamp_poll_interval
+
+        assert _clamp_poll_interval(-100) == 1
+
+    def test_absurdly_large_clamped(self) -> None:
+        """A value like 31_536_000 (a year) is clamped so login never hangs."""
+        from dhub.cli.auth import _clamp_poll_interval
+
+        assert _clamp_poll_interval(31_536_000) == 30
+
+    def test_string_number_accepted(self) -> None:
+        from dhub.cli.auth import _clamp_poll_interval
+
+        assert _clamp_poll_interval("7") == 7
+
+    def test_garbage_falls_back_to_default(self) -> None:
+        from dhub.cli.auth import _clamp_poll_interval
+
+        assert _clamp_poll_interval("not-a-number") == 5
+        assert _clamp_poll_interval(None) == 5
+        assert _clamp_poll_interval({"foo": "bar"}) == 5

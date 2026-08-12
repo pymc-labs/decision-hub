@@ -26,11 +26,19 @@ class RateLimiter:
         def search(...): ...
     """
 
+    # How many requests to serve between full "purge stale IPs" sweeps.
+    # The old implementation summed len(v) across every IP on every
+    # request just to decide whether to purge — that turned every
+    # request into O(N in tracked IPs). A monotonic per-limiter counter
+    # gives the same "sweep every 100" cadence without the scan.
+    _PURGE_EVERY = 100
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._calls_since_purge = 0
 
     def __call__(self, request: Request) -> None:
         key = request.client.host if request.client else "unknown"
@@ -52,10 +60,9 @@ class RateLimiter:
 
             self._requests[key].append(now)
 
-            # Periodically purge stale IPs to bound memory growth.
-            # Check every 100 requests (cheap modulo on list length).
-            total = sum(len(v) for v in self._requests.values())
-            if total % 100 == 0:
+            self._calls_since_purge += 1
+            if self._calls_since_purge >= self._PURGE_EVERY:
+                self._calls_since_purge = 0
                 self._purge_stale(cutoff)
 
     def _purge_stale(self, cutoff: float) -> None:

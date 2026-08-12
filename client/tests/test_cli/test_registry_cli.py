@@ -411,6 +411,54 @@ class TestCreateZip:
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             assert len(zf.namelist()) == _MAX_ZIP_ENTRIES
 
+    def test_render_skills_table_handles_null_updated_at(self) -> None:
+        """A server row with `updated_at=None` (or absent) must not crash the
+        table renderer with `NoneType is not subscriptable`."""
+        from dhub.cli.registry import _render_skills_table
+
+        skills = [
+            {
+                "org_slug": "org",
+                "skill_name": "s1",
+                "latest_version": "1.0.0",
+                "updated_at": None,
+                "safety_rating": "A",
+            },
+            {
+                "org_slug": "org",
+                "skill_name": "s2",
+                "latest_version": "1.0.0",
+                # updated_at absent entirely
+                "safety_rating": "B",
+            },
+        ]
+        # Should not raise.
+        table = _render_skills_table(skills)
+        assert table.row_count == 2
+
+    def test_skips_symlinks(self, tmp_path: Path) -> None:
+        """Symlinks in the skill dir must NOT be packaged — if we followed
+        them, a stray link like `notes.md -> ~/.aws/credentials` would
+        exfiltrate the target's contents into a public zip on the registry."""
+        # Create a legitimate file
+        (tmp_path / "SKILL.md").write_text("# real content")
+
+        # Create a "sensitive" file OUTSIDE the skill dir, and a symlink
+        # to it INSIDE the skill dir.
+        secret = tmp_path.parent / "SECRETS.txt"
+        secret.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE")
+        link = tmp_path / "notes.md"
+        link.symlink_to(secret)
+
+        result = _create_zip(tmp_path)
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = set(zf.namelist())
+            assert "SKILL.md" in names
+            assert "notes.md" not in names, "symlink was followed — secret file bytes leaked into zip"
+            # And crucially: the sensitive content is nowhere in the archive.
+            for name in zf.namelist():
+                assert b"AWS_KEY" not in zf.read(name)
+
 
 # ---------------------------------------------------------------------------
 # install_command

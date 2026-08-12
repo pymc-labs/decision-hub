@@ -50,8 +50,11 @@ def require_org_membership(
 ) -> Organization:
     """Verify org exists and user is a member; return the Organisation.
 
-    Raises 404 if org not found, 403 if not a member (or not admin
-    when admin_only=True).
+    Returns the same 404 for "org does not exist" and "caller is not a
+    member" — otherwise the differing status codes let any authenticated
+    caller enumerate the org namespace by watching for 403 vs 404. The
+    admin_only role check still raises 403, because reaching it already
+    proves membership so nothing new is disclosed.
     """
     org = find_org_by_slug(conn, org_slug)
     if org is None:
@@ -59,10 +62,9 @@ def require_org_membership(
 
     member = find_org_member(conn, org.id, user_id)
     if member is None:
-        raise HTTPException(
-            status_code=403,
-            detail="You are not a member of this organisation",
-        )
+        # Deliberately mirror the "org not found" response so a non-member
+        # cannot distinguish "no such org" from "org exists but I'm out".
+        raise HTTPException(status_code=404, detail="Organisation not found")
     if admin_only and member.role not in ("owner", "admin"):
         raise HTTPException(
             status_code=403,
