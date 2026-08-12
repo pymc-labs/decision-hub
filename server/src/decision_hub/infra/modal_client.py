@@ -93,11 +93,15 @@ def validate_api_key(key_env_var: str, key_value: str) -> None:
 def _extract_skill_body(skill_zip: bytes) -> str:
     """Extract the SKILL.md body (system prompt) from a skill zip archive."""
     import io
+    import posixpath
     import zipfile
 
     with zipfile.ZipFile(io.BytesIO(skill_zip)) as zf:
         for name in zf.namelist():
-            if name.endswith("SKILL.md"):
+            # basename equality — endswith("SKILL.md") would also match
+            # e.g. "MYSKILL.md" and pick the wrong file, diverging from
+            # the gauntlet's extract_for_evaluation which uses basename.
+            if posixpath.basename(name) == "SKILL.md":
                 content = zf.read(name).decode("utf-8")
                 # Body is everything after the closing --- delimiter
                 parts = content.split("---", 2)

@@ -712,7 +712,17 @@ def execute_publish(
         if auto_bump_version:
             from decision_hub.domain.repo_utils import bump_version
 
-            version = bump_version(version)
+            # Keep bumping until we find a gap. A single bump is not
+            # enough when several patch versions already exist (e.g. a
+            # manual publish landed between tracker cycles): otherwise
+            # insert_version below hits the unique constraint and the
+            # tracker loops forever with status=version_conflict.
+            for _ in range(1000):
+                version = bump_version(version)
+                if find_version(conn, skill.id, version) is None:
+                    break
+            else:
+                raise VersionConflictError(org_slug, skill_name, version)
         else:
             raise VersionConflictError(org_slug, skill_name, version)
 

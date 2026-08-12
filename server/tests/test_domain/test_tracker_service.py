@@ -15,6 +15,7 @@ from decision_hub.domain.repo_utils import (
     parse_semver,
 )
 from decision_hub.domain.tracker_service import (
+    _choose_publish_version,
     _dispatch_changed_trackers,
     _persist_orphaned_tracker_errors,
     check_all_due_trackers,
@@ -215,6 +216,46 @@ class TestVersionDetermination:
         else:
             version = _bump_version(latest_semver)
         assert version == "2.0.1"
+
+
+class TestChoosePublishVersion:
+    """Directly cover the (real) version-selection helper.
+
+    Regression: version_hint is documented as a *language-version*
+    constraint (e.g. '>=3.11'), but the tracker used to pass it straight
+    to parse_semver. A spec-compliant tracker would raise ValueError,
+    the wrapper caught it as a per-skill error, and the tracker looped
+    forever with `last_error = ValueError('Invalid semver...')`.
+    """
+
+    def test_first_publish_no_hint_seeds_0_1_0(self) -> None:
+        assert _choose_publish_version(None, None) == "0.1.0"
+
+    def test_first_publish_with_valid_hint_uses_it(self) -> None:
+        assert _choose_publish_version(None, "1.0.0") == "1.0.0"
+
+    def test_first_publish_with_language_constraint_seeds_0_1_0(self) -> None:
+        # ">=3.11" is a valid Python constraint but not a skill semver.
+        assert _choose_publish_version(None, ">=3.11") == "0.1.0"
+
+    def test_first_publish_with_v_prefix_seeds_0_1_0(self) -> None:
+        assert _choose_publish_version(None, "v1.0.0") == "0.1.0"
+
+    def test_bumps_when_hint_not_higher(self) -> None:
+        assert _choose_publish_version("2.0.0", "1.0.0") == "2.0.1"
+
+    def test_uses_hint_when_higher(self) -> None:
+        assert _choose_publish_version("1.0.0", "2.0.0") == "2.0.0"
+
+    def test_bumps_when_hint_is_language_constraint(self) -> None:
+        # Doesn't parse — must fall back to bump, not crash.
+        assert _choose_publish_version("1.2.3", ">=3.11") == "1.2.4"
+
+    def test_bumps_when_hint_has_v_prefix(self) -> None:
+        assert _choose_publish_version("1.2.3", "v9.9.9") == "1.2.4"
+
+    def test_bumps_when_hint_is_range(self) -> None:
+        assert _choose_publish_version("0.5.0", ">=3.11,<4.0") == "0.5.1"
 
 
 class TestProcessTrackerAllFailed:
