@@ -46,7 +46,7 @@ from decision_hub.infra.database import (
 from decision_hub.infra.embeddings import generate_and_store_skill_embedding
 from decision_hub.infra.storage import upload_skill_zip
 from decision_hub.models import GauntletReport
-from decision_hub.settings import Settings
+from decision_hub.settings import Settings, resolve_judge_provider
 
 # ---------------------------------------------------------------------------
 # Result / error types
@@ -171,108 +171,97 @@ def parse_manifest_from_content(
 # ---------------------------------------------------------------------------
 
 
-def _build_analyze_fn(settings: Settings, gemini: dict | None = None):
-    """Build a Gemini analyze callback if google_api_key is configured."""
-    if not settings.google_api_key:
+def _create_judge_client(
+    settings: Settings,
+    http_client: httpx.Client | None = None,
+) -> tuple[dict, str] | None:
+    """Build the (client, model) pair for the configured gauntlet LLM backend.
+
+    Returns None when no provider has an API key. The client dict carries
+    a ``provider`` field that the judge functions in ``infra.gemini``
+    dispatch on, so Gemini and OpenRouter run identical prompts.
+    """
+    provider = resolve_judge_provider(settings)
+    if provider is None:
         return None
+    if provider == "openrouter":
+        from decision_hub.infra.openrouter import create_openrouter_client
 
-    from decision_hub.infra.gemini import analyze_code_safety, create_gemini_client
+        return (
+            create_openrouter_client(settings.openrouter_api_key, http_client=http_client),
+            settings.openrouter_model,
+        )
+    from decision_hub.infra.gemini import create_gemini_client
 
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
+    return create_gemini_client(settings.google_api_key, http_client=http_client), settings.gemini_model
+
+
+def _build_analyze_fn(judge: tuple[dict, str] | None):
+    """Build the code-safety judge callback if an LLM backend is configured."""
+    if judge is None:
+        return None
+    client, model = judge
+
+    from decision_hub.infra.gemini import analyze_code_safety
 
     def analyze_fn(snippets, source_files, skill_name, skill_description):
-        return analyze_code_safety(
-            gemini_client,
-            snippets,
-            source_files,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+        return analyze_code_safety(client, snippets, source_files, skill_name, skill_description, model=model)
 
     return analyze_fn
 
 
-def _build_analyze_prompt_fn(settings: Settings, gemini: dict | None = None):
-    """Build a Gemini prompt analyze callback if google_api_key is configured."""
-    if not settings.google_api_key:
+def _build_analyze_prompt_fn(judge: tuple[dict, str] | None):
+    """Build the prompt-safety judge callback if an LLM backend is configured."""
+    if judge is None:
         return None
+    client, model = judge
 
-    from decision_hub.infra.gemini import analyze_prompt_safety, create_gemini_client
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
+    from decision_hub.infra.gemini import analyze_prompt_safety
 
     def analyze_prompt_fn(prompt_hits, skill_name, skill_description):
-        return analyze_prompt_safety(
-            gemini_client,
-            prompt_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+        return analyze_prompt_safety(client, prompt_hits, skill_name, skill_description, model=model)
 
     return analyze_prompt_fn
 
 
-def _build_review_body_fn(settings: Settings, gemini: dict | None = None):
-    """Build a Gemini holistic body review callback if google_api_key is configured."""
-    if not settings.google_api_key:
+def _build_review_body_fn(judge: tuple[dict, str] | None):
+    """Build the holistic body review callback if an LLM backend is configured."""
+    if judge is None:
         return None
+    client, model = judge
 
-    from decision_hub.infra.gemini import create_gemini_client, review_prompt_body_safety
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
+    from decision_hub.infra.gemini import review_prompt_body_safety
 
     def review_body_fn(body, skill_name, skill_description):
-        return review_prompt_body_safety(
-            gemini_client,
-            body,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+        return review_prompt_body_safety(client, body, skill_name, skill_description, model=model)
 
     return review_body_fn
 
 
-def _build_review_code_fn(settings: Settings, gemini: dict | None = None):
-    """Build a Gemini holistic code review callback if google_api_key is configured."""
-    if not settings.google_api_key:
+def _build_review_code_fn(judge: tuple[dict, str] | None):
+    """Build the holistic code review callback if an LLM backend is configured."""
+    if judge is None:
         return None
+    client, model = judge
 
-    from decision_hub.infra.gemini import create_gemini_client, review_code_body_safety
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
+    from decision_hub.infra.gemini import review_code_body_safety
 
     def review_code_fn(source_files, skill_name, skill_description):
-        return review_code_body_safety(
-            gemini_client,
-            source_files,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+        return review_code_body_safety(client, source_files, skill_name, skill_description, model=model)
 
     return review_code_fn
 
 
-def _build_analyze_credential_fn(settings: Settings, gemini: dict | None = None):
-    """Build a Gemini credential entropy review callback if google_api_key is configured."""
-    if not settings.google_api_key:
+def _build_analyze_credential_fn(judge: tuple[dict, str] | None):
+    """Build the credential entropy review callback if an LLM backend is configured."""
+    if judge is None:
         return None
+    client, model = judge
 
-    from decision_hub.infra.gemini import analyze_credential_entropy, create_gemini_client
-
-    gemini_client = gemini or create_gemini_client(settings.google_api_key)
+    from decision_hub.infra.gemini import analyze_credential_entropy
 
     def analyze_credential_fn(entropy_hits, skill_name, skill_description):
-        return analyze_credential_entropy(
-            gemini_client,
-            entropy_hits,
-            skill_name,
-            skill_description,
-            model=settings.gemini_model,
-        )
+        return analyze_credential_entropy(client, entropy_hits, skill_name, skill_description, model=model)
 
     return analyze_credential_fn
 
@@ -295,19 +284,17 @@ def run_gauntlet_pipeline(
     Returns (report, check_results_dicts, llm_reasoning).
 
     Raises:
-        RuntimeError: If llm_required=True but no Google API key is configured.
+        RuntimeError: If llm_required=True but no LLM API key is configured.
     """
-    if llm_required and not settings.google_api_key:
-        raise RuntimeError("LLM judge required for gauntlet but GOOGLE_API_KEY is not configured")
+    if llm_required and resolve_judge_provider(settings) is None:
+        raise RuntimeError(
+            "LLM judge required for gauntlet but neither OPENROUTER_API_KEY nor GOOGLE_API_KEY is configured"
+        )
 
-    from decision_hub.infra.gemini import create_gemini_client
-
-    # Reuse one HTTP client for all Gemini calls in this gauntlet run,
+    # Reuse one HTTP client for all LLM calls in this gauntlet run,
     # saving ~100-200ms of TCP+TLS handshake per LLM call (2-4 calls typical).
     with httpx.Client(timeout=60) as shared_http:
-        gemini = (
-            create_gemini_client(settings.google_api_key, http_client=shared_http) if settings.google_api_key else None
-        )
+        judge = _create_judge_client(settings, shared_http)
 
         report = run_static_checks(
             skill_md_content,
@@ -315,13 +302,13 @@ def run_gauntlet_pipeline(
             source_files,
             skill_name=skill_name,
             skill_description=description,
-            analyze_fn=_build_analyze_fn(settings, gemini),
+            analyze_fn=_build_analyze_fn(judge),
             skill_md_body=skill_md_body,
             allowed_tools=allowed_tools,
-            analyze_prompt_fn=_build_analyze_prompt_fn(settings, gemini),
-            review_body_fn=_build_review_body_fn(settings, gemini),
-            analyze_credential_fn=_build_analyze_credential_fn(settings, gemini),
-            review_code_fn=_build_review_code_fn(settings, gemini),
+            analyze_prompt_fn=_build_analyze_prompt_fn(judge),
+            review_body_fn=_build_review_body_fn(judge),
+            analyze_credential_fn=_build_analyze_credential_fn(judge),
+            review_code_fn=_build_review_code_fn(judge),
             unscanned_files=unscanned_files,
         )
 
@@ -416,22 +403,23 @@ def classify_skill_category(
     """
     from dhub_core.taxonomy import DEFAULT_CATEGORY
 
-    if not settings.google_api_key:
+    judge = _create_judge_client(settings)
+    if judge is None:
         return DEFAULT_CATEGORY
 
     from decision_hub.domain.classification import build_taxonomy_prompt_fragment, parse_classification_response
-    from decision_hub.infra.gemini import classify_skill, create_gemini_client
+    from decision_hub.infra.gemini import classify_skill
 
     try:
-        gemini_client = create_gemini_client(settings.google_api_key)
+        client, model = judge
         taxonomy_fragment = build_taxonomy_prompt_fragment()
         raw_response = classify_skill(
-            gemini_client,
+            client,
             skill_name,
             description,
             skill_md_body,
             taxonomy_fragment,
-            model=settings.gemini_model,
+            model=model,
         )
         result = parse_classification_response(raw_response)
         logger.info(

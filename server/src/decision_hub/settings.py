@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite-preview"
 
+    # Gauntlet LLM judge + skill classification backend.
+    # Default is OpenRouter (Qwen); Gemini is the fallback when the
+    # preferred provider has no API key. Search/ask/embeddings always
+    # use Gemini regardless of this setting.
+    openrouter_api_key: str = ""
+    openrouter_model: str = "qwen/qwen3.7-flash"
+    gauntlet_llm_provider: str = "openrouter"  # "openrouter" | "gemini"
+
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
     embedding_model: str = "gemini-embedding-001"
@@ -158,6 +166,25 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # Logging format: "text" (human-readable, default) or "json" (structured).
     log_format: str = "text"
+
+
+def resolve_judge_provider(settings: Settings) -> str | None:
+    """Resolve which LLM backend judges the gauntlet, or None if no key.
+
+    Tries the preferred provider (``gauntlet_llm_provider``) first, then
+    falls back to the other one, so a missing OPENROUTER_API_KEY degrades
+    to Gemini instead of disabling the LLM judge entirely.
+
+    A module function (not a Settings property) so tests using plain
+    MagicMock settings resolve from the key fields they actually set.
+    """
+    preferred = settings.gauntlet_llm_provider.strip().lower()
+    order = ["gemini", "openrouter"] if preferred == "gemini" else ["openrouter", "gemini"]
+    for provider in order:
+        key = settings.openrouter_api_key if provider == "openrouter" else settings.google_api_key
+        if key:
+            return provider
+    return None
 
 
 def get_env() -> str:

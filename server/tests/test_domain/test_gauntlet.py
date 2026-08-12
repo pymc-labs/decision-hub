@@ -1729,6 +1729,8 @@ class TestLLMRequiredGate:
 
         settings = MagicMock()
         settings.google_api_key = ""
+        settings.openrouter_api_key = ""
+        settings.gauntlet_llm_provider = "openrouter"
 
         with pytest.raises(RuntimeError, match="LLM judge required"):
             run_gauntlet_pipeline(
@@ -1748,6 +1750,8 @@ class TestLLMRequiredGate:
 
         settings = MagicMock()
         settings.google_api_key = ""
+        settings.openrouter_api_key = ""
+        settings.gauntlet_llm_provider = "openrouter"
 
         # Should not raise — llm_required=False
         report, _, _ = run_gauntlet_pipeline(

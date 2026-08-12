@@ -18,7 +18,8 @@ This is a **uv workspace monorepo** with four components:
 - **FastAPI** for REST API (server)
 - **Typer + Rich** for CLI (client)
 - **Pydantic** for data validation and settings
-- **Gemini** for LLM (search, classification, gauntlet safety analysis)
+- **OpenRouter (Qwen)** for LLM (gauntlet safety analysis, skill classification — default backend, Gemini fallback)
+- **Gemini** for LLM (search/ask, embeddings)
 - **Anthropic** for LLM (eval judging)
 - **boto3** for S3 access
 - **loguru** for server logging

@@ -1,4 +1,12 @@
-"""Gemini LLM client for skill search."""
+"""Gemini LLM transport plus provider-agnostic judge/classification prompts.
+
+Search (guard/ask) and embeddings are Gemini-specific (structured output,
+embedding API). The gauntlet judge and skill-classification functions
+build plain-text prompts and go through ``_llm_generate``, which
+dispatches to Gemini or OpenRouter based on the client dict's
+``provider`` field — the client is built by ``publish_pipeline`` from
+settings.
+"""
 
 import json
 import random
@@ -162,6 +170,38 @@ def _gemini_post(
     """
     url = f"{client['base_url']}/{model}:generateContent"
     return gemini_request_with_retry(client, url, payload, timeout=timeout, max_retries=max_retries)
+
+
+def _llm_generate(
+    client: dict,
+    model: str,
+    prompt: str,
+    *,
+    temperature: float = 0.0,
+    timeout: int = 60,
+    max_retries: int = 3,
+) -> str:
+    """Run a plain-text completion on whichever provider the client targets.
+
+    The gauntlet judge and classification prompts are provider-agnostic:
+    they embed all instructions in the prompt and expect a JSON text
+    response. Dispatching on the client's ``provider`` field keeps the
+    prompts single-source while allowing the backend (Gemini or
+    OpenRouter/Qwen) to be swapped via settings.
+    """
+    if client.get("provider") == "openrouter":
+        from decision_hub.infra.openrouter import openrouter_generate
+
+        return openrouter_generate(
+            client, model, prompt, temperature=temperature, timeout=timeout, max_retries=max_retries
+        )
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": temperature},
+    }
+    data = _gemini_post(client, model, payload, timeout=timeout, max_retries=max_retries)
+    return _extract_text(data)
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -549,16 +589,9 @@ def classify_skill(
         'how well the skill fits. If unsure, use "Other & Utilities".'
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
-    logger.debug("Gemini classify skill: '{}' model={}", skill_name, model)
-    data = _gemini_post(client, model, payload, timeout=30, max_retries=3)
-
-    text = _extract_text(data)
-    return text or '{"category": "Other & Utilities", "confidence": 0.0}'
+    logger.debug("Classify skill: '{}' model={} provider={}", skill_name, model, client.get("provider", "gemini"))
+    text = _llm_generate(client, model, prompt, timeout=30, max_retries=3)
+    return _strip_markdown_fences(text) if text else '{"category": "Other & Utilities", "confidence": 0.0}'
 
 
 def analyze_code_safety(
@@ -649,14 +682,7 @@ def analyze_code_safety(
         "Respond ONLY with the JSON array, no other text."
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
-    data = _gemini_post(client, model, payload)
-
-    text = _extract_text(data)
+    text = _llm_generate(client, model, prompt)
     if not text:
         return [
             {"file": s["file"], "label": s["label"], "dangerous": True, "reason": "LLM returned no response"}
@@ -760,14 +786,7 @@ def analyze_credential_entropy(
         "Respond ONLY with the JSON array, no other text."
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
-    data = _gemini_post(client, model, payload)
-
-    text = _extract_text(data)
+    text = _llm_generate(client, model, prompt)
     if not text:
         return [{**h, "dangerous": True, "reason": "LLM returned no response"} for h in entropy_hits]
 
@@ -867,14 +886,7 @@ def analyze_prompt_safety(
         "Respond ONLY with the JSON array, no other text."
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
-    data = _gemini_post(client, model, payload)
-
-    text = _extract_text(data)
+    text = _llm_generate(client, model, prompt)
     if not text:
         return [
             {"label": h["label"], "dangerous": True, "ambiguous": False, "reason": "LLM returned no response"}
@@ -1013,16 +1025,9 @@ def review_code_body_safety(
         '  {"dangerous": true/false, "reason": "<brief explanation>"}\n'
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
     for attempt in range(2):
         try:
-            data = _gemini_post(client, model, payload)
-
-            text = _extract_text(data)
+            text = _llm_generate(client, model, prompt)
             if not text:
                 if attempt == 0:
                     logger.warning("Holistic code review returned no response for '{}', retrying", skill_name)
@@ -1120,16 +1125,9 @@ def review_prompt_body_safety(
         '  {"dangerous": true/false, "reason": "<brief explanation>"}\n'
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0},
-    }
-
     for attempt in range(2):
         try:
-            data = _gemini_post(client, model, payload)
-
-            text = _extract_text(data)
+            text = _llm_generate(client, model, prompt)
             if not text:
                 if attempt == 0:
                     logger.warning("Holistic body review returned no response for '{}', retrying", skill_name)
