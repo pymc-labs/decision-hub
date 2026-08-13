@@ -56,10 +56,17 @@ def _fetch_sample(settings: Settings, limit: int) -> list[dict]:
     with engine.connect() as conn:
         skills = [dict(row._mapping) for row in conn.execute(skills_stmt).all()]
         for skill in skills:
+            # Order by semver parts to hit idx_versions_skill_semver_parts —
+            # ordering by created_at forces a sort that times out on dev.
             version_stmt = (
                 sa.select(versions_table.c.s3_key)
                 .where(versions_table.c.skill_id == skill["id"])
-                .order_by(versions_table.c.created_at.desc(), versions_table.c.id)
+                .order_by(
+                    versions_table.c.semver_major.desc(),
+                    versions_table.c.semver_minor.desc(),
+                    versions_table.c.semver_patch.desc(),
+                    versions_table.c.id,
+                )
                 .limit(1)
             )
             row = conn.execute(version_stmt).first()
