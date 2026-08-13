@@ -16,7 +16,7 @@ from decision_hub.infra.database import (
     create_engine,
     organizations_table,
     skills_table,
-    update_skill_embedding,
+    update_skill_embeddings_bulk,
 )
 from decision_hub.infra.embeddings import (
     EMBEDDING_DIMENSIONS,
@@ -102,8 +102,9 @@ def _process_batch(
             logger.opt(exception=True).error("Batch embedding failed, retrying after backoff")
             raise _EmbedBatchError from exc
 
-        for row, embedding in zip(rows, embeddings, strict=True):
-            update_skill_embedding(conn, row.id, embedding)
+        # One statement for the whole batch: per-row UPDATEs cost a full
+        # round trip each and dominated runtime (~1s/row vs 3s/100 to embed).
+        update_skill_embeddings_bulk(conn, list(zip((r.id for r in rows), embeddings, strict=True)))
         conn.commit()
 
         return len(rows), max(row.id for row in rows)
