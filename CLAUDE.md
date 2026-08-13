@@ -19,7 +19,7 @@ This is a **uv workspace monorepo** with four components:
 - **Typer + Rich** for CLI (client)
 - **Pydantic** for data validation and settings
 - **OpenRouter (Qwen)** for LLM (gauntlet safety analysis, skill classification, search/ask, Cisco scanner — default backend, Gemini fallback)
-- **Gemini** for embeddings (default — stored vectors and query vectors must share one embedding space; switching `EMBEDDING_LLM_PROVIDER` requires a full re-embed) and as fallback chat backend
+- **Gemini** for embeddings (Gemini-only, no provider switch — stored vectors and query vectors must share one embedding space, so changing the embedding model is a migration requiring a full re-embed) and as fallback chat backend
 - **Anthropic** for LLM (eval judging)
 - **boto3** for S3 access
 - **loguru** for server logging

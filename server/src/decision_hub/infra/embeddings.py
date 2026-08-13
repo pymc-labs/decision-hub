@@ -1,11 +1,14 @@
-"""Embedding utilities for hybrid search (Gemini default, OpenRouter fallback).
+"""Gemini embedding utilities for hybrid search.
 
-Dispatches on the client dict's ``provider`` field, mirroring the LLM
-judge functions in ``infra.gemini``. Embeddings keep their own provider
-preference (default Gemini) independent of the chat backend: query
-embeddings must live in the same vector space as the stored skill
-embeddings, so switching providers requires re-embedding all skills
-(scripts/backfill_embeddings.py --all).
+Embeddings are deliberately Gemini-only and do NOT follow the chat
+backend switch (``gauntlet_llm_provider``). A stored skill vector and a
+query vector are only comparable if they come from the same model, so a
+provider swap here is not a config change — it is a migration that has
+to re-embed every skill in the registry before search works again. There
+is no fallback provider for the same reason: if the Gemini key is
+missing, embeddings are unavailable and search degrades to FTS-only,
+which is a visible, recoverable state. Silently embedding queries with a
+different model would return plausible-looking nonsense instead.
 """
 
 from uuid import UUID
@@ -16,30 +19,35 @@ from sqlalchemy.engine import Connection
 
 from decision_hub.infra.database import update_skill_embedding
 from decision_hub.infra.gemini import create_gemini_client, gemini_request_with_retry
-from decision_hub.infra.openrouter import create_openrouter_client, openrouter_request_with_retry
-from decision_hub.settings import Settings, resolve_embedding_provider
+from decision_hub.settings import Settings
 
 # Must match the DB column: vector(768) in the migration.
 EMBEDDING_DIMENSIONS = 768
 
 
 def create_embedding_client(settings: Settings, *, http_client: httpx.Client | None = None) -> tuple[dict, str] | None:
-    """Build the (client, model) pair for the configured embedding backend.
+    """Build the (client, model) pair for the embedding backend.
 
-    Embeddings default to Gemini independent of the chat backend
-    (``embedding_llm_provider``): stored skill vectors and query vectors
-    must share one embedding space, so switching providers requires
-    re-embedding every skill. Returns None when no provider has an API key.
+    Returns None when no Gemini API key is configured; callers degrade
+    to keyword-only search rather than substituting another provider.
     """
-    provider = resolve_embedding_provider(settings)
-    if provider is None:
+    if not settings.google_api_key:
         return None
-    if provider == "openrouter":
-        return (
-            create_openrouter_client(settings.openrouter_api_key, http_client=http_client),
-            settings.openrouter_embedding_model,
-        )
     return create_gemini_client(settings.google_api_key, http_client=http_client), settings.embedding_model
+
+
+def _validate_dimensions(vector: list[float], expected: int, model: str) -> list[float]:
+    """Reject vectors that don't match the DB column width.
+
+    ``outputDimensionality`` is a request hint; a model that ignores it
+    (or a misconfigured ``EMBEDDING_MODEL``) yields a vector Postgres
+    cannot store in ``vector(768)``. Failing here keeps the error at the
+    call site instead of surfacing as an opaque pgvector insert failure,
+    or — worse — a silently mixed embedding space.
+    """
+    if len(vector) != expected:
+        raise ValueError(f"Embedding model {model} returned {len(vector)} dimensions, expected {expected}")
+    return vector
 
 
 def build_embedding_text(
@@ -71,17 +79,15 @@ def embed_query(
     *,
     max_retries: int = 3,
 ) -> list[float]:
-    """Embed a single search query.
+    """Embed a single search query via Gemini.
 
-    Dispatches on the client's ``provider`` field (OpenRouter uses the
-    OpenAI-compatible /embeddings endpoint; Gemini uses embedContent).
     Retries with exponential backoff on transient HTTP errors (403
-    rate-limit, 429, 500, 502, 503) via the shared retry helpers.
+    rate-limit, 429, 500, 502, 503) via the shared retry helper.
 
     Args:
-        client: Provider client config dict with api_key and base_url.
+        client: Gemini client config dict with api_key and base_url.
         text: The text to embed.
-        model: Embedding model name for the client's provider.
+        model: Gemini embedding model name.
         dimensions: Output dimensionality.
         max_retries: Number of retries on transient errors.
 
@@ -89,22 +95,10 @@ def embed_query(
         List of floats representing the embedding vector.
 
     Raises:
+        ValueError: If the model returns a vector of unexpected width.
         httpx.HTTPStatusError: On non-2xx, non-retriable response.
         httpx.TimeoutException: On timeout after all retries exhausted.
     """
-    if client.get("provider") == "openrouter":
-        url = f"{client['base_url']}/embeddings"
-        payload = {"model": model, "input": text, "dimensions": dimensions}
-        data = openrouter_request_with_retry(
-            client,
-            url,
-            payload,
-            timeout=10,
-            max_retries=max_retries,
-            label="OpenRouter embedding",
-        )
-        return data["data"][0]["embedding"]
-
     url = f"{client['base_url']}/{model}:embedContent"
     payload = {
         "model": f"models/{model}",
@@ -119,7 +113,7 @@ def embed_query(
         max_retries=max_retries,
         label="Gemini embedding",
     )
-    return data["embedding"]["values"]
+    return _validate_dimensions(data["embedding"]["values"], dimensions, model)
 
 
 def embed_texts_batch(
@@ -128,33 +122,22 @@ def embed_texts_batch(
     model: str,
     dimensions: int,
 ) -> list[list[float]]:
-    """Batch embed multiple texts.
-
-    Dispatches on the client's ``provider`` field (OpenRouter accepts a
-    list input on /embeddings; Gemini uses batchEmbedContents).
+    """Batch embed multiple texts via Gemini batchEmbedContents.
 
     Args:
-        client: Provider client config dict with api_key and base_url.
+        client: Gemini client config dict with api_key and base_url.
         texts: List of texts to embed.
-        model: Embedding model name for the client's provider.
+        model: Gemini embedding model name.
         dimensions: Output dimensionality.
 
     Returns:
         List of embedding vectors (one per input text).
 
     Raises:
+        ValueError: If the model returns a vector of unexpected width.
         httpx.HTTPStatusError: On non-2xx response.
         httpx.TimeoutException: On timeout.
     """
-    if client.get("provider") == "openrouter":
-        url = f"{client['base_url']}/embeddings"
-        payload = {"model": model, "input": texts, "dimensions": dimensions}
-        data = openrouter_request_with_retry(client, url, payload, timeout=30, label="OpenRouter embedding")
-        # The API returns one entry per input with an explicit index;
-        # sort defensively so output order always matches input order.
-        entries = sorted(data["data"], key=lambda e: e["index"])
-        return [e["embedding"] for e in entries]
-
     url = f"{client['base_url']}/{model}:batchEmbedContents"
     requests = [
         {
@@ -173,7 +156,7 @@ def embed_texts_batch(
         )
         resp.raise_for_status()
         data = resp.json()
-    return [e["values"] for e in data["embeddings"]]
+    return [_validate_dimensions(e["values"], dimensions, model) for e in data["embeddings"]]
 
 
 def generate_and_store_skill_embedding(
@@ -187,9 +170,9 @@ def generate_and_store_skill_embedding(
 ) -> None:
     """Generate and store an embedding for a skill. Fail-open: never blocks publish.
 
-    Builds the embedding text from skill metadata, embeds it via the
-    configured provider, and stores the result in the database. Any
-    failure is logged as a warning but does not raise.
+    Builds the embedding text from skill metadata, embeds it via Gemini,
+    and stores the result in the database. Any failure is logged as a
+    warning but does not raise.
     """
     embedder = create_embedding_client(settings)
     if embedder is None:

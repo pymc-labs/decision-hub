@@ -98,7 +98,12 @@ def _classify_both(
     }
     backends = {
         "gemini": (create_gemini_client(settings.google_api_key), settings.gemini_model),
-        "qwen": (create_openrouter_client(settings.openrouter_api_key), settings.openrouter_model),
+        # Same provider pin as production, so the study measures the
+        # routing the gauntlet will actually get.
+        "qwen": (
+            create_openrouter_client(settings.openrouter_api_key, providers=settings.openrouter_provider_slugs),
+            settings.openrouter_model,
+        ),
     }
     for label, (client, model) in backends.items():
         raw = classify_skill(client, skill["name"], skill["description"] or "", body, taxonomy_fragment, model=model)

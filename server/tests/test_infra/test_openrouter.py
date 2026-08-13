@@ -9,6 +9,7 @@ import respx
 
 from decision_hub.infra.gemini import analyze_code_safety, ask_conversational, classify_skill, parse_query_with_guard
 from decision_hub.infra.openrouter import (
+    DEFAULT_MAX_TOKENS,
     create_openrouter_client,
     openrouter_generate,
     openrouter_request_with_retry,
@@ -33,6 +34,53 @@ class TestCreateClient:
         assert openrouter_client["provider"] == "openrouter"
         assert openrouter_client["base_url"] == "https://openrouter.ai/api/v1"
         assert openrouter_client["api_key"] == "test-or-key"
+        assert openrouter_client["providers"] == []
+
+
+class TestProviderRouting:
+    """Every request pins routing policy so verdicts stay reproducible."""
+
+    @respx.mock
+    def test_sends_default_routing_policy(self, openrouter_client: dict) -> None:
+        route = respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response("ok")))
+
+        openrouter_generate(openrouter_client, _MODEL, "p")
+
+        routing = json.loads(route.calls[0].request.content)["provider"]
+        # Skill source code is in the prompt — never route it to a provider
+        # that may retain or train on it.
+        assert routing["data_collection"] == "deny"
+        assert routing["require_parameters"] is True
+        # No quantization filter: providers that declare none are excluded
+        # by it, which for qwen/qwen3.7-flash means all of them (404).
+        assert "quantizations" not in routing
+        # Unpinned: OpenRouter may pick any provider satisfying the policy
+        assert "order" not in routing
+        assert "allow_fallbacks" not in routing
+
+    @respx.mock
+    def test_pinned_providers_disable_fallback(self) -> None:
+        client = create_openrouter_client("k", providers=["deepinfra", "fireworks"])
+        route = respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response("ok")))
+
+        openrouter_generate(client, _MODEL, "p")
+
+        routing = json.loads(route.calls[0].request.content)["provider"]
+        assert routing["order"] == ["deepinfra", "fireworks"]
+        assert routing["allow_fallbacks"] is False
+        assert routing["data_collection"] == "deny"
+
+    @respx.mock
+    def test_pin_does_not_mutate_shared_policy(self) -> None:
+        """The policy dict is module-level; pinning must copy, not mutate it."""
+        pinned = create_openrouter_client("k", providers=["deepinfra"])
+        respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response("ok")))
+        openrouter_generate(pinned, _MODEL, "p")
+
+        route = respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response("ok")))
+        openrouter_generate(create_openrouter_client("k"), _MODEL, "p")
+
+        assert "order" not in json.loads(route.calls[-1].request.content)["provider"]
 
 
 class TestOpenRouterGenerate:
@@ -50,6 +98,16 @@ class TestOpenRouterGenerate:
         assert payload["messages"] == [{"role": "user", "content": "test prompt"}]
         assert payload["temperature"] == 0.0
         assert payload["reasoning"] == {"enabled": False}
+        # Never left to the provider default, which varies by upstream host
+        assert payload["max_tokens"] == DEFAULT_MAX_TOKENS
+
+    @respx.mock
+    def test_max_tokens_override(self, openrouter_client: dict) -> None:
+        route = respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response("hi")))
+
+        openrouter_generate(openrouter_client, _MODEL, "p", max_tokens=1024)
+
+        assert json.loads(route.calls[0].request.content)["max_tokens"] == 1024
 
     @respx.mock
     def test_empty_choices_returns_empty_string(self, openrouter_client: dict) -> None:
@@ -59,6 +117,52 @@ class TestOpenRouterGenerate:
     @respx.mock
     def test_null_content_returns_empty_string(self, openrouter_client: dict) -> None:
         respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json={"choices": [{"message": {"content": None}}]}))
+        assert openrouter_generate(openrouter_client, _MODEL, "p") == ""
+
+
+class TestTruncationLogging:
+    """Truncation must be distinguishable from a garbage response in logs.
+
+    Both fail closed to grade F, so without a distinct signal there is no
+    way to tell a too-small token cap from a model that returned junk.
+    """
+
+    @respx.mock
+    def test_warns_when_finish_reason_is_length(self, openrouter_client: dict) -> None:
+        respx.post(_CHAT_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "provider": "deepinfra",
+                    "usage": {"completion_tokens": 16384},
+                    "choices": [{"finish_reason": "length", "message": {"content": '[{"file": "a.py"'}}],
+                },
+            )
+        )
+
+        with patch("decision_hub.infra.openrouter.logger.warning") as mock_warn:
+            result = openrouter_generate(openrouter_client, _MODEL, "p")
+
+        assert result == '[{"file": "a.py"'  # partial content still returned
+        assert mock_warn.call_count == 1
+        assert "truncated" in mock_warn.call_args[0][0]
+
+    @respx.mock
+    def test_no_warning_on_normal_stop(self, openrouter_client: dict) -> None:
+        respx.post(_CHAT_URL).mock(
+            return_value=httpx.Response(
+                200, json={"choices": [{"finish_reason": "stop", "message": {"content": "[]"}}]}
+            )
+        )
+
+        with patch("decision_hub.infra.openrouter.logger.warning") as mock_warn:
+            openrouter_generate(openrouter_client, _MODEL, "p")
+
+        mock_warn.assert_not_called()
+
+    @respx.mock
+    def test_no_crash_on_empty_choices(self, openrouter_client: dict) -> None:
+        respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json={"choices": []}))
         assert openrouter_generate(openrouter_client, _MODEL, "p") == ""
 
 
@@ -214,6 +318,21 @@ class TestResolveJudgeProvider:
 
     def test_none_when_no_keys(self) -> None:
         assert resolve_judge_provider(self._settings()) is None
+
+    def test_provider_pin_reaches_the_client(self) -> None:
+        from decision_hub.domain.publish_pipeline import _create_judge_client
+
+        settings = self._settings(openrouter_api_key="or-key", openrouter_providers="deepinfra, fireworks")
+        judge = _create_judge_client(settings)
+        assert judge is not None
+        assert judge[0]["providers"] == ["deepinfra", "fireworks"]
+
+    def test_empty_provider_pin_yields_no_pin(self) -> None:
+        from decision_hub.domain.publish_pipeline import _create_judge_client
+
+        judge = _create_judge_client(self._settings(openrouter_api_key="or-key"))
+        assert judge is not None
+        assert judge[0]["providers"] == []
 
     def test_judge_client_uses_openrouter_model(self) -> None:
         from decision_hub.domain.publish_pipeline import _create_judge_client

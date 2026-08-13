@@ -126,7 +126,11 @@ def create_llm_client(settings, *, http_client: httpx.Client | None = None) -> t
         from decision_hub.infra.openrouter import create_openrouter_client
 
         return (
-            create_openrouter_client(settings.openrouter_api_key, http_client=http_client),
+            create_openrouter_client(
+                settings.openrouter_api_key,
+                http_client=http_client,
+                providers=settings.openrouter_provider_slugs,
+            ),
             settings.openrouter_model,
         )
     return create_gemini_client(settings.google_api_key, http_client=http_client), settings.gemini_model
@@ -240,6 +244,7 @@ def _llm_generate(
     temperature: float = 0.0,
     timeout: int = 60,
     max_retries: int = 3,
+    max_tokens: int | None = None,
 ) -> str:
     """Run a plain-text completion on whichever provider the client targets.
 
@@ -248,12 +253,21 @@ def _llm_generate(
     response. Dispatching on the client's ``provider`` field keeps the
     prompts single-source while allowing the backend (Gemini or
     OpenRouter/Qwen) to be swapped via settings.
+
+    ``max_tokens`` caps the OpenRouter response length; Gemini keeps its
+    own model default, so this is not a source of prompt drift.
     """
     if client.get("provider") == "openrouter":
-        from decision_hub.infra.openrouter import openrouter_generate
+        from decision_hub.infra.openrouter import DEFAULT_MAX_TOKENS, openrouter_generate
 
         return openrouter_generate(
-            client, model, prompt, temperature=temperature, timeout=timeout, max_retries=max_retries
+            client,
+            model,
+            prompt,
+            temperature=temperature,
+            timeout=timeout,
+            max_retries=max_retries,
+            max_tokens=max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS,
         )
 
     payload = {
@@ -432,7 +446,11 @@ def parse_query_with_guard(
                 '{"is_skill_query": <true|false>, "reason": "<brief reason>", '
                 '"fts_queries": ["<keyword phrase>", ...]}'
             )
-            text = _strip_markdown_fences(openrouter_generate(client, model, prompt, timeout=10, max_retries=1))
+            text = _strip_markdown_fences(
+                # A guard verdict is a handful of keywords; a large cap
+                # here would only buy latency on a runaway response.
+                openrouter_generate(client, model, prompt, timeout=10, max_retries=1, max_tokens=1024)
+            )
         else:
             payload = {
                 "contents": [{"parts": [{"text": f"{_GUARD_AND_PARSE_PROMPT}\n\nUser query: {query}"}]}],
@@ -634,7 +652,7 @@ def ask_conversational(
             '[{"org_slug": "<org>", "skill_name": "<name>", "reason": "<one sentence>"}, ...]}'
         )
         text = _strip_markdown_fences(
-            openrouter_generate(client, model, prompt, temperature=0.3, timeout=30, max_retries=1)
+            openrouter_generate(client, model, prompt, temperature=0.3, timeout=30, max_retries=1, max_tokens=4096)
         )
     else:
         payload = {

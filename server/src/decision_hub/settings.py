@@ -39,25 +39,27 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.1-flash-lite-preview"
 
     # LLM backend for the gauntlet judge, skill classification, search/ask,
-    # embeddings, and the Cisco skill-scanner bridge. Default is OpenRouter
-    # (Qwen); Gemini is the fallback when the preferred provider has no
-    # API key.
+    # and the Cisco skill-scanner bridge. Default is OpenRouter (Qwen);
+    # Gemini is the fallback when the preferred provider has no API key.
+    # Embeddings are deliberately NOT covered by this switch — they are
+    # Gemini-only (see infra/embeddings.py).
     openrouter_api_key: str = ""
     openrouter_model: str = "qwen/qwen3.7-flash"
     gauntlet_llm_provider: str = "openrouter"  # "openrouter" | "gemini"
 
+    # Upstream inference providers OpenRouter may route to, as a
+    # comma-separated list of provider slugs (e.g. "deepinfra,fireworks").
+    # Empty means "any provider that satisfies the routing policy" — see
+    # infra/openrouter.py for the policy applied to every request. Pinning
+    # this makes gauntlet verdicts reproducible: OpenRouter's default is
+    # price-weighted load balancing, so the same skill can otherwise be
+    # judged by a different model host (and quantization) on each publish.
+    openrouter_providers: str = ""
+
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
-    # Embeddings have their own provider preference, defaulting to Gemini
-    # independent of the chat backend: stored skill vectors and query
-    # vectors must share one embedding space, so flipping this setting
-    # requires re-embedding every skill (backfill_embeddings.py --all) —
-    # an expensive migration that a chat-backend switch shouldn't force.
-    embedding_llm_provider: str = "gemini"  # "gemini" | "openrouter"
-    # Embedding models per provider. Both must produce vectors compatible
-    # with the DB column vector(768).
+    # Must produce vectors compatible with the DB column vector(768).
     embedding_model: str = "gemini-embedding-001"
-    openrouter_embedding_model: str = "qwen/qwen3-embedding-8b"
 
     # Authorization: comma-separated list of GitHub orgs.
     # When set, only members of these orgs can log in (checked at token
@@ -171,6 +173,15 @@ class Settings(BaseSettings):
             return frozenset()
         return frozenset(o.strip().lower() for o in self.blocked_org_slugs.split(",") if o.strip())
 
+    @property
+    def openrouter_provider_slugs(self) -> list[str]:
+        """Parse the comma-separated OpenRouter provider pin into a list.
+
+        Order is preserved: OpenRouter tries the listed providers in the
+        given sequence.
+        """
+        return [p.strip() for p in self.openrouter_providers.split(",") if p.strip()]
+
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
     # Logging format: "text" (human-readable, default) or "json" (structured).
@@ -189,22 +200,6 @@ def resolve_judge_provider(settings: Settings) -> str | None:
     """
     preferred = settings.gauntlet_llm_provider.strip().lower()
     order = ["gemini", "openrouter"] if preferred == "gemini" else ["openrouter", "gemini"]
-    for provider in order:
-        key = settings.openrouter_api_key if provider == "openrouter" else settings.google_api_key
-        if key:
-            return provider
-    return None
-
-
-def resolve_embedding_provider(settings: Settings) -> str | None:
-    """Resolve which backend generates embeddings, or None if no key.
-
-    Mirrors ``resolve_judge_provider`` but keys on
-    ``embedding_llm_provider`` (default Gemini), falling back to the
-    other provider when the preferred one has no API key.
-    """
-    preferred = settings.embedding_llm_provider.strip().lower()
-    order = ["openrouter", "gemini"] if preferred == "openrouter" else ["gemini", "openrouter"]
     for provider in order:
         key = settings.openrouter_api_key if provider == "openrouter" else settings.google_api_key
         if key:
