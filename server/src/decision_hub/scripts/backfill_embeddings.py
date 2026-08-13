@@ -10,6 +10,7 @@ import time
 
 import sqlalchemy as sa
 from loguru import logger
+from sqlalchemy.exc import OperationalError
 
 from decision_hub.infra.database import (
     create_engine,
@@ -24,6 +25,88 @@ from decision_hub.infra.embeddings import (
     embed_texts_batch,
 )
 from decision_hub.settings import create_settings
+
+
+class _EmbedBatchError(Exception):
+    """Embedding API failed for a batch; the caller backs off and retries."""
+
+
+def _process_batch(
+    engine,
+    client: dict,
+    model: str,
+    batch_size: int,
+    *,
+    reembed_all: bool,
+    last_id,
+) -> tuple[int, object] | None:
+    """Fetch, embed, and store one batch. Returns (count, new_last_id), or None when done.
+
+    Raises OperationalError on DB connection failure and _EmbedBatchError on
+    embedding API failure — the caller owns backoff and the circuit breaker.
+    The keyset cursor is returned (not mutated) only after a successful
+    commit, so a failed batch is retried, never skipped.
+    """
+    with engine.connect() as conn:
+        stmt = (
+            sa.select(
+                skills_table.c.id,
+                skills_table.c.name,
+                skills_table.c.description,
+                skills_table.c.category,
+                organizations_table.c.slug.label("org_slug"),
+            )
+            .select_from(
+                skills_table.join(
+                    organizations_table,
+                    skills_table.c.org_id == organizations_table.c.id,
+                )
+            )
+            # ORDER BY id is required per CLAUDE.md: LIMIT without a
+            # unique tiebreaker is nondeterministic. Without it a
+            # retry after a failing batch could pick a different set
+            # of rows and loop forever.
+            .order_by(skills_table.c.id)
+            .limit(batch_size)
+        )
+        if reembed_all:
+            # Keyset pagination: "embedding IS NULL" can't track progress
+            # when every row already has an embedding to replace.
+            if last_id is not None:
+                stmt = stmt.where(skills_table.c.id > last_id)
+        else:
+            stmt = stmt.where(skills_table.c.embedding.is_(None))
+        rows = conn.execute(stmt).all()
+
+        if not rows:
+            return None
+
+        texts = [
+            build_embedding_text(
+                name=row.name,
+                org_slug=row.org_slug,
+                category=row.category or "",
+                description=row.description or "",
+            )
+            for row in rows
+        ]
+
+        try:
+            embeddings = embed_texts_batch(
+                client,
+                texts,
+                model,
+                EMBEDDING_DIMENSIONS,
+            )
+        except Exception as exc:
+            logger.opt(exception=True).error("Batch embedding failed, retrying after backoff")
+            raise _EmbedBatchError from exc
+
+        for row, embedding in zip(rows, embeddings, strict=True):
+            update_skill_embedding(conn, row.id, embedding)
+        conn.commit()
+
+        return len(rows), max(row.id for row in rows)
 
 
 def backfill(batch_size: int = 100, *, reembed_all: bool = False) -> None:
@@ -50,82 +133,49 @@ def backfill(batch_size: int = 100, *, reembed_all: bool = False) -> None:
     consecutive_errors = 0  # circuit breaker: abort if too many in a row
 
     while True:
-        with engine.connect() as conn:
-            # Fetch a batch of skills without embeddings
-            stmt = (
-                sa.select(
-                    skills_table.c.id,
-                    skills_table.c.name,
-                    skills_table.c.description,
-                    skills_table.c.category,
-                    organizations_table.c.slug.label("org_slug"),
-                )
-                .select_from(
-                    skills_table.join(
-                        organizations_table,
-                        skills_table.c.org_id == organizations_table.c.id,
-                    )
-                )
-                # ORDER BY id is required per CLAUDE.md: LIMIT without a
-                # unique tiebreaker is nondeterministic. Without it a
-                # retry after a failing batch could pick a different set
-                # of rows and loop forever.
-                .order_by(skills_table.c.id)
-                .limit(batch_size)
+        try:
+            result = _process_batch(
+                engine,
+                client,
+                model,
+                batch_size,
+                reembed_all=reembed_all,
+                last_id=last_id,
             )
-            if reembed_all:
-                # Keyset pagination: "embedding IS NULL" can't track progress
-                # when every row already has an embedding to replace.
-                if last_id is not None:
-                    stmt = stmt.where(skills_table.c.id > last_id)
-            else:
-                stmt = stmt.where(skills_table.c.embedding.is_(None))
-            rows = conn.execute(stmt).all()
-
-            if not rows:
+        except OperationalError:
+            # The engine uses NullPool (PgBouncer transaction mode), so every
+            # batch opens a fresh connection and any DB drop surfaces here as
+            # a raw OperationalError. Dispose, back off, and retry — the
+            # keyset cursor only advances after a successful commit, so
+            # nothing is skipped.
+            engine.dispose()
+            total_errors += 1
+            consecutive_errors += 1
+            logger.opt(exception=True).warning(
+                "DB connection dropped after {} skills — reconnecting (consecutive failure {})",
+                total_processed,
+                consecutive_errors,
+            )
+            if consecutive_errors > 10:
+                logger.error("Too many consecutive errors, aborting")
                 break
-            if reembed_all:
-                last_id = max(row.id for row in rows)
+            time.sleep(min(2**consecutive_errors, 60))
+            continue
+        except _EmbedBatchError:
+            total_errors += 1
+            consecutive_errors += 1
+            if consecutive_errors > 10:
+                logger.error("Too many consecutive errors, aborting")
+                break
+            time.sleep(min(2**consecutive_errors, 60))
+            continue
 
-            # Build texts for this batch
-            texts = [
-                build_embedding_text(
-                    name=row.name,
-                    org_slug=row.org_slug,
-                    category=row.category or "",
-                    description=row.description or "",
-                )
-                for row in rows
-            ]
-
-            try:
-                embeddings = embed_texts_batch(
-                    client,
-                    texts,
-                    model,
-                    EMBEDDING_DIMENSIONS,
-                )
-            except Exception:
-                logger.opt(exception=True).error(
-                    "Batch embedding failed at offset {}, retrying after backoff",
-                    total_processed,
-                )
-                total_errors += 1
-                consecutive_errors += 1
-                if consecutive_errors > 10:
-                    logger.error("Too many consecutive errors, aborting")
-                    break
-                time.sleep(min(2**consecutive_errors, 60))
-                continue
-
-            # Store embeddings
-            for row, embedding in zip(rows, embeddings, strict=True):
-                update_skill_embedding(conn, row.id, embedding)
-
-            conn.commit()
-            total_processed += len(rows)
-            consecutive_errors = 0  # reset circuit breaker on success
-            logger.info("Backfilled {}/{} skills", total_processed, total_processed)
+        if result is None:
+            break
+        processed, last_id = result
+        total_processed += processed
+        consecutive_errors = 0  # reset circuit breaker on success
+        logger.info("Backfilled {} skills", total_processed)
 
     logger.info(
         "Backfill complete: {} skills processed, {} errors",
