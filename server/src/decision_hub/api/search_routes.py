@@ -16,15 +16,15 @@ from decision_hub.api.deps import get_connection, get_current_user_optional, get
 from decision_hub.api.rate_limit import limiter_dep
 from decision_hub.domain.search import build_index_entry, format_trust_score, resolve_author_display, serialize_index
 from decision_hub.infra.database import insert_search_log, list_user_org_ids, search_skills_hybrid
-from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, embed_query
+from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, create_embedding_client, embed_query
 from decision_hub.infra.gemini import (
     ask_conversational,
-    create_gemini_client,
+    create_llm_client,
     parse_query_with_guard,
 )
 from decision_hub.infra.storage import upload_search_log
 from decision_hub.models import SkillIndexEntry, User
-from decision_hub.settings import Settings
+from decision_hub.settings import Settings, resolve_judge_provider
 
 router = APIRouter(prefix="/v1", tags=["search"])
 
@@ -237,10 +237,10 @@ def ask_skills(
     conversational answer with explicit skill references that both the CLI and
     the frontend can render.
     """
-    if not settings.google_api_key:
+    if resolve_judge_provider(settings) is None:
         raise HTTPException(
             status_code=503,
-            detail="Ask is not configured (missing GOOGLE_API_KEY)",
+            detail="Ask is not configured (no LLM API key)",
         )
 
     # Share a single TCP+TLS connection across all Gemini calls in this request
@@ -278,10 +278,10 @@ def ask_skills_post(
     Accepts conversation history so follow-up questions have context.
     The web modal uses this; CLI uses GET for single-shot queries.
     """
-    if not settings.google_api_key:
+    if resolve_judge_provider(settings) is None:
         raise HTTPException(
             status_code=503,
-            detail="Ask is not configured (missing GOOGLE_API_KEY)",
+            detail="Ask is not configured (no LLM API key)",
         )
 
     history = [{"role": m.role, "content": m.content} for m in body.history] if body.history else None
@@ -315,17 +315,24 @@ def _ask_skills_inner(
     history: list[dict] | None,
 ) -> AskResponse:
     """Core ask logic, extracted so the shared httpx.Client context manager stays flat."""
-    gemini = create_gemini_client(settings.google_api_key, http_client=shared_http)
+    llm = create_llm_client(settings, http_client=shared_http)
+    if llm is None:  # defensive; the endpoints 503 before reaching here
+        raise HTTPException(status_code=503, detail="Ask is not configured (no LLM API key)")
+    llm_client, llm_model = llm
+    embedder = create_embedding_client(settings, http_client=shared_http)
     start_time = time.monotonic()
 
     # Run guard+parse and embedding in parallel to hide topicality latency
     def _do_guard():
-        return parse_query_with_guard(gemini, q, settings.gemini_model)
+        return parse_query_with_guard(llm_client, q, llm_model)
 
     def _do_embed():
+        if embedder is None:
+            return None, 0
         try:
             t0 = time.monotonic()
-            emb = embed_query(gemini, q, settings.embedding_model, EMBEDDING_DIMENSIONS)
+            emb_client, emb_model = embedder
+            emb = embed_query(emb_client, q, emb_model, EMBEDDING_DIMENSIONS)
             return emb, int((time.monotonic() - t0) * 1000)
         except Exception:
             logger.opt(exception=True).warning("Query embedding failed, falling back to FTS-only")
@@ -367,10 +374,10 @@ def _ask_skills_inner(
     try:
         llm_start = time.monotonic()
         llm_result = ask_conversational(
-            gemini,
+            llm_client,
             q,
             result.index_content,
-            settings.gemini_model,
+            llm_model,
             history=history,
         )
         llm_ms = int((time.monotonic() - llm_start) * 1000)
@@ -406,7 +413,7 @@ def _ask_skills_inner(
             query=q,
             answer="",
             results_count=len(result.entries),
-            model=settings.gemini_model,
+            model=llm_model,
             latency_ms=fallback_latency_ms,
             user_id=current_user.id if current_user else None,
             username=current_user.username if current_user else None,
@@ -440,7 +447,7 @@ def _ask_skills_inner(
         query=q,
         answer=llm_result.get("answer", ""),
         results_count=len(result.entries),
-        model=settings.gemini_model,
+        model=llm_model,
         latency_ms=latency_ms,
         user_id=current_user.id if current_user else None,
         username=current_user.username if current_user else None,

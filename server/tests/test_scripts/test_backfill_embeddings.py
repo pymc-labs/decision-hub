@@ -45,9 +45,7 @@ def test_backfill_query_orders_by_id_before_limit() -> None:
             return _StubConn()
 
     class _StubSettings:
-        google_api_key = "test-key"
         database_url = "postgresql://ignored"
-        embedding_model = "gemini-embedding-001"
 
     def _stub_create_engine(_url: str) -> _StubEngine:
         return _StubEngine()
@@ -55,20 +53,20 @@ def test_backfill_query_orders_by_id_before_limit() -> None:
     def _stub_create_settings(*_a: object, **_kw: object) -> _StubSettings:
         return _StubSettings()
 
-    def _stub_create_client(_key: str) -> dict:
-        return {}
+    def _stub_create_embedding_client(_settings: object) -> tuple[dict, str]:
+        return {}, "gemini-embedding-001"
 
     orig_create_engine = backfill_mod.create_engine
-    orig_create_client = backfill_mod.create_gemini_client
+    orig_create_client = backfill_mod.create_embedding_client
     orig_create_settings = backfill_mod.create_settings
     backfill_mod.create_engine = _stub_create_engine
-    backfill_mod.create_gemini_client = _stub_create_client
+    backfill_mod.create_embedding_client = _stub_create_embedding_client
     backfill_mod.create_settings = _stub_create_settings
     try:
         backfill_mod.backfill(batch_size=10)
     finally:
         backfill_mod.create_engine = orig_create_engine
-        backfill_mod.create_gemini_client = orig_create_client
+        backfill_mod.create_embedding_client = orig_create_client
         backfill_mod.create_settings = orig_create_settings
 
     sql = captured["sql"]

@@ -38,8 +38,27 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite-preview"
 
+    # LLM backend for the gauntlet judge, skill classification, search/ask,
+    # and the Cisco skill-scanner bridge. Default is OpenRouter (Qwen);
+    # Gemini is the fallback when the preferred provider has no API key.
+    # Embeddings are deliberately NOT covered by this switch — they are
+    # Gemini-only (see infra/embeddings.py).
+    openrouter_api_key: str = ""
+    openrouter_model: str = "qwen/qwen3.7-flash"
+    gauntlet_llm_provider: str = "openrouter"  # "openrouter" | "gemini"
+
+    # Upstream inference providers OpenRouter may route to, as a
+    # comma-separated list of provider slugs (e.g. "deepinfra,fireworks").
+    # Empty means "any provider that satisfies the routing policy" — see
+    # infra/openrouter.py for the policy applied to every request. Pinning
+    # this makes gauntlet verdicts reproducible: OpenRouter's default is
+    # price-weighted load balancing, so the same skill can otherwise be
+    # judged by a different model host (and quantization) on each publish.
+    openrouter_providers: str = ""
+
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
+    # Must produce vectors compatible with the DB column vector(768).
     embedding_model: str = "gemini-embedding-001"
 
     # Authorization: comma-separated list of GitHub orgs.
@@ -154,10 +173,38 @@ class Settings(BaseSettings):
             return frozenset()
         return frozenset(o.strip().lower() for o in self.blocked_org_slugs.split(",") if o.strip())
 
+    @property
+    def openrouter_provider_slugs(self) -> list[str]:
+        """Parse the comma-separated OpenRouter provider pin into a list.
+
+        Order is preserved: OpenRouter tries the listed providers in the
+        given sequence.
+        """
+        return [p.strip() for p in self.openrouter_providers.split(",") if p.strip()]
+
     # Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.
     log_level: str = "INFO"
     # Logging format: "text" (human-readable, default) or "json" (structured).
     log_format: str = "text"
+
+
+def resolve_judge_provider(settings: Settings) -> str | None:
+    """Resolve which LLM backend judges the gauntlet, or None if no key.
+
+    Tries the preferred provider (``gauntlet_llm_provider``) first, then
+    falls back to the other one, so a missing OPENROUTER_API_KEY degrades
+    to Gemini instead of disabling the LLM judge entirely.
+
+    A module function (not a Settings property) so tests using plain
+    MagicMock settings resolve from the key fields they actually set.
+    """
+    preferred = settings.gauntlet_llm_provider.strip().lower()
+    order = ["gemini", "openrouter"] if preferred == "gemini" else ["openrouter", "gemini"]
+    for provider in order:
+        key = settings.openrouter_api_key if provider == "openrouter" else settings.google_api_key
+        if key:
+            return provider
+    return None
 
 
 def get_env() -> str:

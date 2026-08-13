@@ -25,7 +25,22 @@ from loguru import logger
 from sqlalchemy.engine import Connection
 
 from decision_hub.infra.database import insert_scan_findings, insert_scan_report
-from decision_hub.settings import Settings
+from decision_hub.settings import Settings, resolve_judge_provider
+
+
+def _scanner_llm_config(settings: Settings) -> tuple[str, str] | None:
+    """Resolve the litellm model string and API key for the scanner's LLM passes.
+
+    Follows the same provider preference as the rest of the platform
+    (OpenRouter/Qwen default, Gemini fallback). Returns None when no
+    provider has an API key — the scanner then runs without LLM analyzers.
+    """
+    provider = resolve_judge_provider(settings)
+    if provider == "openrouter":
+        return f"openrouter/{settings.openrouter_model}", settings.openrouter_api_key
+    if provider == "gemini":
+        return f"gemini/{settings.gemini_model}", settings.google_api_key
+    return None
 
 
 def _get_scanner_version() -> str | None:
@@ -66,12 +81,13 @@ def _build_scanner(settings: Settings) -> tuple[Any, Any]:
 
     policy = ScanPolicy.from_preset(settings.cisco_scanner_policy)
 
+    llm_config = _scanner_llm_config(settings)
     analyzers = build_analyzers(
         policy,
         use_behavioral=True,
-        use_llm=bool(settings.google_api_key),
-        llm_model=f"gemini/{settings.gemini_model}" if settings.google_api_key else None,
-        llm_api_key=settings.google_api_key or None,
+        use_llm=llm_config is not None,
+        llm_model=llm_config[0] if llm_config else None,
+        llm_api_key=llm_config[1] if llm_config else None,
         use_trigger=True,
         llm_max_tokens=16384,
     )
@@ -88,7 +104,8 @@ def _run_meta_analysis(
     Returns (meta_result, error). On success error is None.
     On failure meta_result is None and error is the exception.
     """
-    if not settings.google_api_key or not result.findings:
+    llm_config = _scanner_llm_config(settings)
+    if llm_config is None or not result.findings:
         return None, None
 
     try:
@@ -102,8 +119,8 @@ def _run_meta_analysis(
 
     try:
         meta = MetaAnalyzer(
-            model=f"gemini/{settings.gemini_model}",
-            api_key=settings.google_api_key,
+            model=llm_config[0],
+            api_key=llm_config[1],
             policy=policy,
         )
 
@@ -171,6 +188,7 @@ def scan_skill_zip(zip_bytes: bytes, settings: Settings) -> dict:
     Scanner errors are caught and returned as a fail-closed error result.
     """
     start = time.monotonic()
+    llm_config = _scanner_llm_config(settings)
 
     try:
         scanner, policy = _build_scanner(settings)
@@ -219,7 +237,7 @@ def scan_skill_zip(zip_bytes: bytes, settings: Settings) -> dict:
         "meta_recommendations": (meta_result.recommendations if meta_result and meta_result.recommendations else None),
         "meta_false_positive_count": (len(meta_result.false_positives) if meta_result else None),
         "scanner_version": _get_scanner_version(),
-        "scanner_model": f"gemini/{settings.gemini_model}" if settings.google_api_key else None,
+        "scanner_model": llm_config[0] if llm_config else None,
         "policy_name": settings.cisco_scanner_policy,
         "scan_duration_ms": elapsed_ms,
         "full_report": result.to_dict(),

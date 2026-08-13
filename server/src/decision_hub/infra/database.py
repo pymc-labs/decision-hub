@@ -2080,6 +2080,29 @@ def update_skill_embedding(conn: Connection, skill_id: UUID, embedding: list[flo
     conn.execute(stmt)
 
 
+def update_skill_embeddings_bulk(conn: Connection, updates: list[tuple[UUID, list[float]]]) -> None:
+    """Store embedding vectors for many skills in one round trip.
+
+    Uses a single UPDATE ... FROM (VALUES ...) statement instead of one
+    UPDATE per skill: per-row updates each cost a full network round trip
+    (~16KB vector literal + pgvector index maintenance), which dominates
+    backfill runtime against a remote database.
+    """
+    if not updates:
+        return
+    values_sql = ", ".join(f"(:id_{i}, :emb_{i})" for i in range(len(updates)))
+    params: dict = {}
+    for i, (skill_id, embedding) in enumerate(updates):
+        params[f"id_{i}"] = str(skill_id)
+        params[f"emb_{i}"] = "[" + ",".join(map(str, embedding)) + "]"
+    stmt = sa.text(
+        f"UPDATE skills SET embedding = v.embedding::vector "
+        f"FROM (VALUES {values_sql}) AS v(id, embedding) "
+        f"WHERE skills.id = v.id::uuid"
+    )
+    conn.execute(stmt, params)
+
+
 def fetch_similar_skills(
     conn: Connection,
     org_slug: str,

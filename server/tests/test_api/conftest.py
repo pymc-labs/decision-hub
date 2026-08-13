@@ -33,6 +33,9 @@ def test_settings() -> MagicMock:
     settings.github_client_id = "test-client-id"
     settings.s3_bucket = "test-bucket"
     settings.google_api_key = ""
+    settings.openrouter_api_key = ""
+    settings.openrouter_model = "qwen/qwen3.7-flash"
+    settings.gauntlet_llm_provider = "openrouter"
     settings.require_github_org = ""
     settings.required_github_orgs = []
     settings.min_cli_version = ""

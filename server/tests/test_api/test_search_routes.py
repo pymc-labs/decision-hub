@@ -71,10 +71,13 @@ _LLM_RESULT = {
 
 @pytest.fixture
 def search_settings() -> MagicMock:
-    """Mocked Settings with google_api_key and gemini_model configured."""
+    """Mocked Settings with the OpenRouter backend configured."""
     settings = MagicMock()
     settings.google_api_key = "test-google-api-key"
     settings.gemini_model = "gemini-pro"
+    settings.openrouter_api_key = "test-openrouter-api-key"
+    settings.openrouter_model = "qwen/qwen3.7-flash"
+    settings.gauntlet_llm_provider = "openrouter"
     settings.s3_bucket = "test-bucket"
     # RateLimiters iterates every known name — provide sane defaults for all.
     for _name in RateLimiters._NAMES:
@@ -82,6 +85,8 @@ def search_settings() -> MagicMock:
         setattr(settings, f"{_name}_rate_window", 60)
     settings.search_candidate_limit = 20
     settings.embedding_model = "gemini-embedding-001"
+    settings.openrouter_providers = ""
+    settings.openrouter_provider_slugs = []
     return settings
 
 
@@ -111,14 +116,15 @@ class TestAskSkills:
     """GET /v1/ask?q=... -- conversational skill discovery."""
 
     def test_ask_no_api_key(self, search_app: FastAPI) -> None:
-        """Should return 503 when google_api_key is not configured."""
+        """Should return 503 when no LLM provider has an API key."""
         search_app.state.settings.google_api_key = ""
+        search_app.state.settings.openrouter_api_key = ""
 
         client = TestClient(search_app)
         resp = client.get("/v1/ask", params={"q": "find me a tool"})
 
         assert resp.status_code == 503
-        assert "GOOGLE_API_KEY" in resp.json()["detail"]
+        assert "no LLM API key" in resp.json()["detail"]
 
     @patch("decision_hub.api.search_routes.parse_query_with_guard", return_value=_GUARD_PASS)
     @patch("decision_hub.api.search_routes.embed_query", return_value=_FIXED_EMBEDDING)

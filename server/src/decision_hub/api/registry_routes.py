@@ -77,7 +77,7 @@ from decision_hub.infra.storage import (
     download_skill_zip as download_zip_from_s3,
 )
 from decision_hub.models import User
-from decision_hub.settings import Settings
+from decision_hub.settings import Settings, resolve_judge_provider
 
 router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
@@ -377,7 +377,7 @@ def publish_skill(
 ) -> PublishResponse:
     """Publish a new skill version."""
     logger.info("Publish request from user={}", current_user.username)
-    if not settings.google_api_key:
+    if resolve_judge_provider(settings) is None:
         raise HTTPException(
             status_code=503,
             detail="LLM judge not configured. Cannot publish without LLM review.",
