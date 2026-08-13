@@ -7,8 +7,15 @@ import httpx
 import pytest
 import respx
 
-from decision_hub.infra.embeddings import build_embedding_text, embed_query, generate_and_store_skill_embedding
+from decision_hub.infra.embeddings import (
+    build_embedding_text,
+    create_embedding_client,
+    embed_query,
+    embed_texts_batch,
+    generate_and_store_skill_embedding,
+)
 from decision_hub.infra.gemini import create_gemini_client
+from decision_hub.infra.openrouter import create_openrouter_client
 
 
 class TestBuildEmbeddingText:
@@ -39,20 +46,24 @@ class TestGenerateAndStoreSkillEmbedding:
     """Tests for generate_and_store_skill_embedding() -- fail-open behavior."""
 
     def test_no_api_key_skips(self):
-        """Should silently skip when google_api_key is empty."""
+        """Should silently skip when no provider has an API key."""
         settings = MagicMock()
         settings.google_api_key = ""
+        settings.openrouter_api_key = ""
+        settings.gauntlet_llm_provider = "openrouter"
         conn = MagicMock()
 
         # Should not raise
         generate_and_store_skill_embedding(conn, uuid4(), "skill", "org", "cat", "desc", settings)
 
     @patch("decision_hub.infra.embeddings.embed_query", side_effect=Exception("API down"))
-    @patch("decision_hub.infra.gemini.create_gemini_client", return_value={"api_key": "k", "base_url": "u"})
+    @patch("decision_hub.infra.embeddings.create_gemini_client", return_value={"api_key": "k", "base_url": "u"})
     def test_swallows_errors(self, _mock_client, _mock_embed):
         """Should log warning but not raise on embedding failure."""
         settings = MagicMock()
         settings.google_api_key = "test-key"
+        settings.openrouter_api_key = ""
+        settings.gauntlet_llm_provider = "openrouter"
         settings.embedding_model = "gemini-embedding-001"
         conn = MagicMock()
 
@@ -61,11 +72,13 @@ class TestGenerateAndStoreSkillEmbedding:
 
     @patch("decision_hub.infra.embeddings.update_skill_embedding")
     @patch("decision_hub.infra.embeddings.embed_query", return_value=[0.1] * 768)
-    @patch("decision_hub.infra.gemini.create_gemini_client", return_value={"api_key": "k", "base_url": "u"})
+    @patch("decision_hub.infra.embeddings.create_gemini_client", return_value={"api_key": "k", "base_url": "u"})
     def test_stores_embedding_on_success(self, _mock_client, _mock_embed, mock_store):
         """Should call update_skill_embedding with the generated vector."""
         settings = MagicMock()
         settings.google_api_key = "test-key"
+        settings.openrouter_api_key = ""
+        settings.gauntlet_llm_provider = "openrouter"
         settings.embedding_model = "gemini-embedding-001"
         conn = MagicMock()
         skill_id = uuid4()
@@ -143,3 +156,70 @@ class TestEmbedQueryRetry:
         assert exc_info.value.response.status_code == 400
         assert route.call_count == 1
         mock_sleep.assert_not_called()
+
+
+_OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings"
+
+
+class TestOpenRouterEmbeddings:
+    """The embedding functions dispatch on the client's provider field."""
+
+    @respx.mock
+    def test_embed_query_routes_to_openrouter(self) -> None:
+        import json
+
+        client = create_openrouter_client("or-key")
+        route = respx.post(_OPENROUTER_EMBED_URL).mock(
+            return_value=httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2]}]})
+        )
+
+        result = embed_query(client, "hello", "qwen/qwen3-embedding-8b", 768)
+
+        assert result == [0.1, 0.2]
+        request = route.calls[0].request
+        assert request.headers["authorization"] == "Bearer or-key"
+        payload = json.loads(request.content)
+        assert payload == {"model": "qwen/qwen3-embedding-8b", "input": "hello", "dimensions": 768}
+
+    @respx.mock
+    def test_embed_texts_batch_preserves_input_order(self) -> None:
+        client = create_openrouter_client("or-key")
+        # Response deliberately out of order: output must follow the index field
+        respx.post(_OPENROUTER_EMBED_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": [{"index": 1, "embedding": [0.2]}, {"index": 0, "embedding": [0.1]}]},
+            )
+        )
+
+        result = embed_texts_batch(client, ["a", "b"], "qwen/qwen3-embedding-8b", 768)
+
+        assert result == [[0.1], [0.2]]
+
+
+class TestCreateEmbeddingClient:
+    def _settings(self, **kwargs) -> MagicMock:
+        settings = MagicMock()
+        settings.google_api_key = kwargs.get("google_api_key", "")
+        settings.openrouter_api_key = kwargs.get("openrouter_api_key", "")
+        settings.gauntlet_llm_provider = kwargs.get("gauntlet_llm_provider", "openrouter")
+        settings.embedding_model = "gemini-embedding-001"
+        settings.openrouter_embedding_model = "qwen/qwen3-embedding-8b"
+        return settings
+
+    def test_prefers_openrouter(self) -> None:
+        result = create_embedding_client(self._settings(openrouter_api_key="or-key", google_api_key="g-key"))
+        assert result is not None
+        client, model = result
+        assert client["provider"] == "openrouter"
+        assert model == "qwen/qwen3-embedding-8b"
+
+    def test_falls_back_to_gemini(self) -> None:
+        result = create_embedding_client(self._settings(google_api_key="g-key"))
+        assert result is not None
+        client, model = result
+        assert client.get("provider") is None
+        assert model == "gemini-embedding-001"
+
+    def test_none_without_keys(self) -> None:
+        assert create_embedding_client(self._settings()) is None

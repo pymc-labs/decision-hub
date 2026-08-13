@@ -215,6 +215,9 @@ class TestScanSkillZip:
         settings = SimpleNamespace(
             google_api_key="",
             gemini_model="test",
+            openrouter_api_key="",
+            openrouter_model="qwen/qwen3.7-flash",
+            gauntlet_llm_provider="openrouter",
             cisco_scanner_policy="balanced",
             enable_cisco_scanner=True,
         )
@@ -234,6 +237,9 @@ class TestScanSkillZip:
         settings = SimpleNamespace(
             google_api_key="",
             gemini_model="test",
+            openrouter_api_key="",
+            openrouter_model="qwen/qwen3.7-flash",
+            gauntlet_llm_provider="openrouter",
             cisco_scanner_policy="balanced",
             enable_cisco_scanner=True,
         )
@@ -261,6 +267,9 @@ class TestScanSkillZip:
         settings = SimpleNamespace(
             google_api_key="",
             gemini_model="test",
+            openrouter_api_key="",
+            openrouter_model="qwen/qwen3.7-flash",
+            gauntlet_llm_provider="openrouter",
             cisco_scanner_policy="balanced",
             enable_cisco_scanner=True,
         )

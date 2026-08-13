@@ -181,19 +181,9 @@ def _create_judge_client(
     a ``provider`` field that the judge functions in ``infra.gemini``
     dispatch on, so Gemini and OpenRouter run identical prompts.
     """
-    provider = resolve_judge_provider(settings)
-    if provider is None:
-        return None
-    if provider == "openrouter":
-        from decision_hub.infra.openrouter import create_openrouter_client
+    from decision_hub.infra.gemini import create_llm_client
 
-        return (
-            create_openrouter_client(settings.openrouter_api_key, http_client=http_client),
-            settings.openrouter_model,
-        )
-    from decision_hub.infra.gemini import create_gemini_client
-
-    return create_gemini_client(settings.google_api_key, http_client=http_client), settings.gemini_model
+    return create_llm_client(settings, http_client=http_client)
 
 
 def _build_analyze_fn(judge: tuple[dict, str] | None):

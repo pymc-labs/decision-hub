@@ -17,20 +17,33 @@ from decision_hub.infra.database import (
     skills_table,
     update_skill_embedding,
 )
-from decision_hub.infra.embeddings import EMBEDDING_DIMENSIONS, build_embedding_text, embed_texts_batch
-from decision_hub.infra.gemini import create_gemini_client
+from decision_hub.infra.embeddings import (
+    EMBEDDING_DIMENSIONS,
+    build_embedding_text,
+    create_embedding_client,
+    embed_texts_batch,
+)
 from decision_hub.settings import create_settings
 
 
-def backfill(batch_size: int = 100) -> None:
-    """Backfill embeddings for all skills with embedding IS NULL."""
+def backfill(batch_size: int = 100, *, reembed_all: bool = False) -> None:
+    """Backfill embeddings for skills.
+
+    By default only fills skills with embedding IS NULL. With
+    ``reembed_all`` every skill is re-embedded — required after switching
+    the embedding provider, since query and stored vectors must come
+    from the same model.
+    """
     settings = create_settings()
-    if not settings.google_api_key:
-        logger.error("GOOGLE_API_KEY not set — cannot generate embeddings")
+    embedder = create_embedding_client(settings)
+    if embedder is None:
+        logger.error("No LLM API key set — cannot generate embeddings")
         return
+    client, model = embedder
+    logger.info("Embedding with provider={} model={}", client.get("provider", "gemini"), model)
 
     engine = create_engine(settings.database_url)
-    client = create_gemini_client(settings.google_api_key)
+    last_id = None
 
     total_processed = 0
     total_errors = 0  # cumulative errors for final summary
@@ -53,13 +66,22 @@ def backfill(batch_size: int = 100) -> None:
                         skills_table.c.org_id == organizations_table.c.id,
                     )
                 )
-                .where(skills_table.c.embedding.is_(None))
                 .limit(batch_size)
             )
+            if reembed_all:
+                # Keyset pagination: "embedding IS NULL" can't track progress
+                # when every row already has an embedding to replace.
+                if last_id is not None:
+                    stmt = stmt.where(skills_table.c.id > last_id)
+                stmt = stmt.order_by(skills_table.c.id)
+            else:
+                stmt = stmt.where(skills_table.c.embedding.is_(None))
             rows = conn.execute(stmt).all()
 
             if not rows:
                 break
+            if reembed_all:
+                last_id = max(row.id for row in rows)
 
             # Build texts for this batch
             texts = [
@@ -76,7 +98,7 @@ def backfill(batch_size: int = 100) -> None:
                 embeddings = embed_texts_batch(
                     client,
                     texts,
-                    settings.embedding_model,
+                    model,
                     EMBEDDING_DIMENSIONS,
                 )
             except Exception:
@@ -111,8 +133,13 @@ def backfill(batch_size: int = 100) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill skill embeddings")
     parser.add_argument("--batch-size", type=int, default=100, help="Skills per API call")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Re-embed every skill (required after switching embedding provider)",
+    )
     args = parser.parse_args()
-    backfill(batch_size=args.batch_size)
+    backfill(batch_size=args.batch_size, reembed_all=args.all)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 
-from decision_hub.infra.gemini import analyze_code_safety, classify_skill
+from decision_hub.infra.gemini import analyze_code_safety, ask_conversational, classify_skill, parse_query_with_guard
 from decision_hub.infra.openrouter import (
     create_openrouter_client,
     openrouter_generate,
@@ -140,6 +140,40 @@ class TestJudgeDispatch:
 
         assert len(results) == 2
         assert all(r["dangerous"] is False for r in results)
+
+    @respx.mock
+    def test_parse_query_with_guard_routes_to_openrouter(self, openrouter_client: dict) -> None:
+        respx.post(_CHAT_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=_chat_response(
+                    '{"is_skill_query": true, "reason": "on-topic", "fts_queries": ["bayesian model"]}'
+                ),
+            )
+        )
+        result = parse_query_with_guard(openrouter_client, "help me build a bayesian model", _MODEL)
+        assert result.is_skill_query is True
+        assert result.fts_queries == ["bayesian model"]
+
+    @respx.mock
+    def test_parse_query_with_guard_fails_open_on_error(self, openrouter_client: dict) -> None:
+        respx.post(_CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response("not json")))
+        result = parse_query_with_guard(openrouter_client, "some query", _MODEL)
+        assert result.is_skill_query is True
+        assert result.fts_queries == ["some query"]
+
+    @respx.mock
+    def test_ask_conversational_routes_to_openrouter(self, openrouter_client: dict) -> None:
+        answer = {
+            "answer": "Use **acme/weather**.",
+            "referenced_skills": [{"org_slug": "acme", "skill_name": "weather", "reason": "fits"}],
+        }
+        respx.post(_CHAT_URL).mock(
+            return_value=httpx.Response(200, json=_chat_response(f"```json\n{json.dumps(answer)}\n```"))
+        )
+        result = ask_conversational(openrouter_client, "weather tool?", "{}", _MODEL)
+        assert result["answer"] == "Use **acme/weather**."
+        assert result["referenced_skills"] == answer["referenced_skills"]
 
     @respx.mock
     def test_analyze_code_safety_fails_closed_on_empty_response(self, openrouter_client: dict) -> None:

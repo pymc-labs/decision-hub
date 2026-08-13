@@ -38,17 +38,22 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite-preview"
 
-    # Gauntlet LLM judge + skill classification backend.
-    # Default is OpenRouter (Qwen); Gemini is the fallback when the
-    # preferred provider has no API key. Search/ask/embeddings always
-    # use Gemini regardless of this setting.
+    # LLM backend for the gauntlet judge, skill classification, search/ask,
+    # embeddings, and the Cisco skill-scanner bridge. Default is OpenRouter
+    # (Qwen); Gemini is the fallback when the preferred provider has no
+    # API key.
     openrouter_api_key: str = ""
     openrouter_model: str = "qwen/qwen3.7-flash"
     gauntlet_llm_provider: str = "openrouter"  # "openrouter" | "gemini"
 
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
+    # Embedding models per provider. Both must produce vectors compatible
+    # with the DB column vector(768); switching providers changes the
+    # embedding space and requires re-embedding all skills
+    # (scripts/backfill_embeddings.py).
     embedding_model: str = "gemini-embedding-001"
+    openrouter_embedding_model: str = "qwen/qwen3-embedding-8b"
 
     # Authorization: comma-separated list of GitHub orgs.
     # When set, only members of these orgs can log in (checked at token

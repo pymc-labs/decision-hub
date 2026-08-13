@@ -326,7 +326,7 @@ Skills are installed as symlinks into each agent's skill directory. Use `--agent
 | Shared | `shared/` | `dhub-core` | Domain models and SKILL.md parsing |
 | Frontend | `frontend/` | — | Web UI at [hub.decision.ai](https://hub.decision.ai) (React + TypeScript) |
 
-**Stack:** Python 3.11+ / PostgreSQL / S3 / Modal / Gemini (search) / Anthropic (eval judging)
+**Stack:** Python 3.11+ / PostgreSQL / S3 / Modal / OpenRouter Qwen (search, safety scanning) / Anthropic (eval judging)
 
 ## Development
 

@@ -1,11 +1,10 @@
-"""Gemini LLM transport plus provider-agnostic judge/classification prompts.
+"""Gemini LLM transport plus provider-agnostic LLM prompts.
 
-Search (guard/ask) and embeddings are Gemini-specific (structured output,
-embedding API). The gauntlet judge and skill-classification functions
-build plain-text prompts and go through ``_llm_generate``, which
-dispatches to Gemini or OpenRouter based on the client dict's
-``provider`` field — the client is built by ``publish_pipeline`` from
-settings.
+All LLM features (gauntlet judge, skill classification, search guard,
+conversational ask) dispatch to Gemini or OpenRouter based on the client
+dict's ``provider`` field — the client is built by ``create_llm_client``
+from settings (OpenRouter/Qwen by default, Gemini fallback). The prompts
+are single-source; only the transport differs per provider.
 """
 
 import json
@@ -71,6 +70,29 @@ def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = Non
 
 
 _RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
+
+
+def create_llm_client(settings, *, http_client: httpx.Client | None = None) -> tuple[dict, str] | None:
+    """Build the (client, model) pair for the configured LLM backend.
+
+    Resolves the preferred provider from settings (OpenRouter/Qwen by
+    default, Gemini fallback when the preferred key is missing) and
+    returns a client dict plus the model name to use with it. Returns
+    None when no provider has an API key.
+    """
+    from decision_hub.settings import resolve_judge_provider
+
+    provider = resolve_judge_provider(settings)
+    if provider is None:
+        return None
+    if provider == "openrouter":
+        from decision_hub.infra.openrouter import create_openrouter_client
+
+        return (
+            create_openrouter_client(settings.openrouter_api_key, http_client=http_client),
+            settings.openrouter_model,
+        )
+    return create_gemini_client(settings.google_api_key, http_client=http_client), settings.gemini_model
 
 
 def gemini_request_with_retry(
@@ -353,25 +375,38 @@ def parse_query_with_guard(
     query: str,
     model: str,
 ) -> GuardAndParseResult:
-    """Classify topicality AND extract keywords in a single Gemini call.
+    """Classify topicality AND extract keywords in a single LLM call.
+
+    Dispatches on the client's provider: Gemini uses structured output
+    (responseSchema); OpenRouter embeds the JSON shape in the prompt.
 
     Returns:
         GuardAndParseResult with is_skill_query, reason, and fts_queries.
         Fails open: on any error, is_skill_query=True and fts_queries=[query].
     """
-    payload = {
-        "contents": [{"parts": [{"text": f"{_GUARD_AND_PARSE_PROMPT}\n\nUser query: {query}"}]}],
-        "generationConfig": {
-            "temperature": 0.0,
-            "responseMimeType": "application/json",
-            "responseSchema": _GUARD_AND_PARSE_SCHEMA,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
-    }
-
     try:
-        data = _gemini_post(client, model, payload, timeout=10, max_retries=1)
-        text = _extract_text(data)
+        if client.get("provider") == "openrouter":
+            from decision_hub.infra.openrouter import openrouter_generate
+
+            prompt = (
+                f"{_GUARD_AND_PARSE_PROMPT}\n\nUser query: {query}\n\n"
+                "Respond ONLY with a JSON object of this exact shape:\n"
+                '{"is_skill_query": <true|false>, "reason": "<brief reason>", '
+                '"fts_queries": ["<keyword phrase>", ...]}'
+            )
+            text = _strip_markdown_fences(openrouter_generate(client, model, prompt, timeout=10, max_retries=1))
+        else:
+            payload = {
+                "contents": [{"parts": [{"text": f"{_GUARD_AND_PARSE_PROMPT}\n\nUser query: {query}"}]}],
+                "generationConfig": {
+                    "temperature": 0.0,
+                    "responseMimeType": "application/json",
+                    "responseSchema": _GUARD_AND_PARSE_SCHEMA,
+                    "thinkingConfig": {"thinkingBudget": 0},
+                },
+            }
+            data = _gemini_post(client, model, payload, timeout=10, max_retries=1)
+            text = _extract_text(data)
         result = json.loads(text)
 
         if isinstance(result, dict) and "is_skill_query" in result:
@@ -430,9 +465,9 @@ def ask_conversational(
 ) -> dict:
     """Generate a conversational answer with structured skill references.
 
-    Uses Gemini's structured output (responseSchema) to guarantee a JSON
-    response with both a conversational answer and an array of referenced
-    skills with org_slug/skill_name for linking.
+    Dispatches on the client's provider: Gemini uses structured output
+    (responseSchema) to guarantee the JSON shape; OpenRouter embeds the
+    shape in the prompt and parses the (fence-stripped) response.
 
     Args:
         client: Gemini client config dict with api_key and base_url.
@@ -550,19 +585,30 @@ def ask_conversational(
     parts.append(f"\nAvailable skills:\n{index}")
     user_message = "\n".join(parts)
 
-    payload = {
-        "contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "responseMimeType": "application/json",
-            "responseSchema": _ASK_CONVERSATIONAL_SCHEMA,
-        },
-    }
+    logger.debug("Ask query: '{}' model={} provider={}", query[:100], model, client.get("provider", "gemini"))
+    if client.get("provider") == "openrouter":
+        from decision_hub.infra.openrouter import openrouter_generate
 
-    logger.debug("Gemini ask query: '{}' model={}", query[:100], model)
-    data = _gemini_post(client, model, payload, timeout=30, max_retries=1)
-
-    text = _extract_text(data)
+        prompt = (
+            f"{system_prompt}\n\n{user_message}\n\n"
+            "Respond ONLY with a JSON object of this exact shape:\n"
+            '{"answer": "<markdown answer>", "referenced_skills": '
+            '[{"org_slug": "<org>", "skill_name": "<name>", "reason": "<one sentence>"}, ...]}'
+        )
+        text = _strip_markdown_fences(
+            openrouter_generate(client, model, prompt, temperature=0.3, timeout=30, max_retries=1)
+        )
+    else:
+        payload = {
+            "contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "responseMimeType": "application/json",
+                "responseSchema": _ASK_CONVERSATIONAL_SCHEMA,
+            },
+        }
+        data = _gemini_post(client, model, payload, timeout=30, max_retries=1)
+        text = _extract_text(data)
     if not text:
         return {"answer": "No recommendations found.", "referenced_skills": []}
     try:
