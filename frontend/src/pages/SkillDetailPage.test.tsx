@@ -312,4 +312,31 @@ describe("SkillDetailPage", () => {
     await user.click(screen.getByText("Overview"));
     expect(screen.getByText("Overview").closest("button")!.className).toMatch(/tabActive/);
   });
+
+  it("surfaces a visible error banner when the download API 500s", async () => {
+    // Override the /download handler to return a server error.
+    server.use(
+      http.get("/v1/skills/acme/data-tool/download", () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("data-tool");
+
+    // Sanity: no error visible yet.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Download .zip"));
+
+    // The failure previously only printed to console.error — the button
+    // flipped back to enabled and the user got no feedback. Now we render
+    // a role="alert" banner with the failure message.
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(alert.textContent).toMatch(/Download failed/i);
+    });
+  });
 });

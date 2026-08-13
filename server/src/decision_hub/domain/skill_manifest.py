@@ -83,7 +83,7 @@ def parse_eval_cases_from_zip(skill_zip: bytes) -> tuple[EvalCase, ...]:
 
     with zipfile.ZipFile(io.BytesIO(skill_zip)) as zf:
         for name in zf.namelist():
-            if name.startswith("evals/") and name.endswith(".yaml"):
+            if name.startswith("evals/") and name.endswith((".yaml", ".yml")):
                 content = zf.read(name).decode("utf-8")
                 data = yaml.safe_load(content)
 

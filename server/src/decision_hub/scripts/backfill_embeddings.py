@@ -66,6 +66,11 @@ def backfill(batch_size: int = 100, *, reembed_all: bool = False) -> None:
                         skills_table.c.org_id == organizations_table.c.id,
                     )
                 )
+                # ORDER BY id is required per CLAUDE.md: LIMIT without a
+                # unique tiebreaker is nondeterministic. Without it a
+                # retry after a failing batch could pick a different set
+                # of rows and loop forever.
+                .order_by(skills_table.c.id)
                 .limit(batch_size)
             )
             if reembed_all:
@@ -73,7 +78,6 @@ def backfill(batch_size: int = 100, *, reembed_all: bool = False) -> None:
                 # when every row already has an embedding to replace.
                 if last_id is not None:
                     stmt = stmt.where(skills_table.c.id > last_id)
-                stmt = stmt.order_by(skills_table.c.id)
             else:
                 stmt = stmt.where(skills_table.c.embedding.is_(None))
             rows = conn.execute(stmt).all()

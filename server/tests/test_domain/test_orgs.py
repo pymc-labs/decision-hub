@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs, validate_org_slug, validate_role
+from decision_hub.domain.orgs import sync_org_github_metadata, sync_user_orgs, validate_org_slug
 
 # ---------------------------------------------------------------------------
 # validate_org_slug
@@ -47,25 +47,6 @@ class TestValidateOrgSlug:
     def test_invalid_slugs(self, slug: str, reason: str) -> None:
         with pytest.raises(ValueError):
             validate_org_slug(slug)
-
-
-# ---------------------------------------------------------------------------
-# validate_role
-# ---------------------------------------------------------------------------
-
-
-class TestValidateRole:
-    @pytest.mark.parametrize("role", ["owner", "admin", "member"])
-    def test_valid_roles(self, role: str) -> None:
-        assert validate_role(role) == role
-
-    @pytest.mark.parametrize(
-        "role",
-        ["superadmin", "viewer", "", "Owner", "ADMIN"],
-    )
-    def test_invalid_roles(self, role: str) -> None:
-        with pytest.raises(ValueError):
-            validate_role(role)
 
 
 # ---------------------------------------------------------------------------

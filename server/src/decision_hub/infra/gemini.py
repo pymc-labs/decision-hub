@@ -69,7 +69,44 @@ def create_gemini_client(api_key: str, *, http_client: httpx.Client | None = Non
     }
 
 
-_RETRIABLE_STATUS_CODES = {403, 429, 500, 502, 503}
+_RETRIABLE_STATUS_CODES = {429, 500, 502, 503}
+
+
+# Google's canonical error statuses that mean "come back later".
+_RETRIABLE_403_STATUSES = {"RESOURCE_EXHAUSTED", "UNAVAILABLE"}
+# Phrases used in quota/rate messages that lack a machine-readable status.
+_RETRIABLE_403_PHRASES = ("rate limit", "ratelimit", "quota", "too many requests")
+
+
+def _is_retriable_403(resp: httpx.Response) -> bool:
+    """Return True when a 403 response indicates a transient rate/quota error.
+
+    Gemini uses 403 for both quota exhaustion (transient — retry) and
+    invalid/disabled API keys (permanent — fail fast). Without this check
+    every request with a rotated-but-not-updated key wastes ~7s retrying
+    before failing.
+
+    Match on the structured ``error.status`` first and fall back to whole
+    phrases in ``error.message``. Scanning the raw body for bare substrings
+    would misfire — "RATE" is contained in "GENERATE", so a PERMISSION_DENIED
+    message mentioning generation would look retriable.
+    """
+    error: object = {}
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        error = body.get("error", {})
+
+    message = ""
+    if isinstance(error, dict):
+        if str(error.get("status", "")).upper() in _RETRIABLE_403_STATUSES:
+            return True
+        message = str(error.get("message", ""))
+
+    haystack = (message or resp.text or "").lower()
+    return any(phrase in haystack for phrase in _RETRIABLE_403_PHRASES)
 
 
 def create_llm_client(settings, *, http_client: httpx.Client | None = None) -> tuple[dict, str] | None:
@@ -153,7 +190,8 @@ def gemini_request_with_retry(
         if resp.status_code < 400:
             return resp.json()
 
-        if resp.status_code not in _RETRIABLE_STATUS_CODES:
+        retriable = resp.status_code in _RETRIABLE_STATUS_CODES or (resp.status_code == 403 and _is_retriable_403(resp))
+        if not retriable:
             resp.raise_for_status()
 
         last_exc = httpx.HTTPStatusError(

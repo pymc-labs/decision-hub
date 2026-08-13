@@ -13,6 +13,7 @@ from decision_hub.api.auth_routes import router as auth_router
 from decision_hub.api.deps import get_current_user
 from decision_hub.api.keys_routes import router as keys_router
 from decision_hub.api.org_routes import org_public_router, org_router
+from decision_hub.api.rate_limit import RateLimiters
 from decision_hub.api.registry_routes import public_router as registry_public_router
 from decision_hub.api.registry_routes import router as registry_router
 from decision_hub.api.taxonomy_routes import public_router as taxonomy_public_router
@@ -55,6 +56,8 @@ def test_settings() -> MagicMock:
     settings.publish_rate_window = 60
     settings.auth_rate_limit = 10
     settings.auth_rate_window = 60
+    settings.scan_report_rate_limit = 30
+    settings.scan_report_rate_window = 60
     # Cache TTLs
     settings.cache_ttl_taxonomy = 300
     settings.cache_ttl_org_profiles = 60
@@ -74,6 +77,9 @@ def test_app(test_settings: MagicMock) -> FastAPI:
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
     app.state.cache = TTLCache(default_ttl=60)
+    # Mirror production create_app(): named limiters are eagerly built
+    # from settings so limiter_dep() can look them up per request.
+    app.state.rate_limiters = RateLimiters(test_settings)
 
     @app.middleware("http")
     async def check_cli_version(request: Request, call_next):

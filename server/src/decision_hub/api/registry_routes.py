@@ -4,9 +4,8 @@ import json
 import math
 import zipfile
 from datetime import UTC, datetime
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
@@ -18,8 +17,9 @@ from decision_hub.api.deps import (
     get_current_user_optional,
     get_s3_client,
     get_settings,
+    parse_uuid_or_422,
 )
-from decision_hub.api.rate_limit import RateLimiter
+from decision_hub.api.rate_limit import limiter_dep
 from decision_hub.api.registry_service import (
     require_org_membership,
 )
@@ -83,99 +83,7 @@ router = APIRouter(prefix="/v1", tags=["registry"])
 public_router = APIRouter(prefix="/v1", tags=["registry"])
 
 
-def _enforce_list_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the skills list endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_list_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._list_skills_rate_limiter = RateLimiter(
-            max_requests=settings.list_skills_rate_limit,
-            window_seconds=settings.list_skills_rate_window,
-        )
-    state._list_skills_rate_limiter(request)
-
-
-def _enforce_resolve_rate_limit(request: Request) -> None:
-    """Rate-limit the resolve endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_resolve_rate_limiter"):
-        settings: Settings = state.settings
-        state._resolve_rate_limiter = RateLimiter(
-            max_requests=settings.resolve_rate_limit,
-            window_seconds=settings.resolve_rate_window,
-        )
-    state._resolve_rate_limiter(request)
-
-
-def _enforce_similar_skills_rate_limit(request: Request) -> None:
-    """Rate-limit the similar skills endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_similar_skills_rate_limiter"):
-        settings: Settings = state.settings
-        state._similar_skills_rate_limiter = RateLimiter(
-            max_requests=settings.similar_skills_rate_limit,
-            window_seconds=settings.similar_skills_rate_window,
-        )
-    state._similar_skills_rate_limiter(request)
-
-
-def _enforce_download_rate_limit(request: Request) -> None:
-    """Rate-limit the download endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_download_rate_limiter"):
-        settings: Settings = state.settings
-        state._download_rate_limiter = RateLimiter(
-            max_requests=settings.download_rate_limit,
-            window_seconds=settings.download_rate_window,
-        )
-    state._download_rate_limiter(request)
-
-
-def _enforce_audit_log_rate_limit(request: Request) -> None:
-    """Rate-limit the audit log endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_audit_log_rate_limiter"):
-        settings: Settings = state.settings
-        state._audit_log_rate_limiter = RateLimiter(
-            max_requests=settings.audit_log_rate_limit,
-            window_seconds=settings.audit_log_rate_window,
-        )
-    state._audit_log_rate_limiter(request)
-
-
-def _enforce_scan_report_rate_limit(request: Request) -> None:
-    """Rate-limit the scan report endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_scan_report_rate_limiter"):
-        settings: Settings = state.settings
-        state._scan_report_rate_limiter = RateLimiter(
-            max_requests=settings.scan_report_rate_limit,
-            window_seconds=settings.scan_report_rate_window,
-        )
-    state._scan_report_rate_limiter(request)
-
-
-def _enforce_publish_rate_limit(request: Request) -> None:
-    """Rate-limit the publish endpoint."""
-    state = request.app.state
-    if not hasattr(state, "_publish_rate_limiter"):
-        settings: Settings = state.settings
-        state._publish_rate_limiter = RateLimiter(
-            max_requests=settings.publish_rate_limit,
-            window_seconds=settings.publish_rate_window,
-        )
-    state._publish_rate_limiter(request)
-
-
 _VALID_VISIBILITIES = {"public", "org"}
-
-
-def _parse_uuid(value: str, name: str) -> UUID:
-    """Parse a UUID string, raising 422 with a clear message on invalid input."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid UUID for {name}: '{value}'") from None
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +349,11 @@ class AccessGrantListEntry(BaseModel):
 # Stale heartbeat threshold for zombie detection (5 minutes)
 _STALE_HEARTBEAT_SECONDS = 300
 
+# Pending eval runs never received a heartbeat, so they must be aged out
+# against created_at instead — but be generous, since Modal cold-starts can
+# legitimately take a while before the first heartbeat lands.
+_STALE_PENDING_SECONDS = 5 * _STALE_HEARTBEAT_SECONDS
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -452,7 +365,7 @@ _STALE_HEARTBEAT_SECONDS = 300
 # also requires ``await zip_file.read()`` which deadlocks under
 # BaseHTTPMiddleware (see CLIVersionMiddleware docstring in app.py).
 @router.post(
-    "/publish", response_model=PublishResponse, status_code=201, dependencies=[Depends(_enforce_publish_rate_limit)]
+    "/publish", response_model=PublishResponse, status_code=201, dependencies=[Depends(limiter_dep("publish"))]
 )
 def publish_skill(
     metadata: str = Form(...),
@@ -556,6 +469,7 @@ def publish_skill(
 
 @public_router.get(
     "/stats",
+    dependencies=[Depends(limiter_dep("list_skills"))],
 )
 def get_registry_stats(
     response: Response,
@@ -569,7 +483,7 @@ def get_registry_stats(
 @public_router.get(
     "/skills",
     response_model=PaginatedSkillsResponse,
-    dependencies=[Depends(_enforce_list_skills_rate_limit)],
+    dependencies=[Depends(limiter_dep("list_skills"))],
 )
 def list_skills(
     page: int = Query(1, ge=1),
@@ -642,6 +556,7 @@ def list_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/summary",
     response_model=SkillSummary,
+    dependencies=[Depends(limiter_dep("list_skills"))],
 )
 def get_skill_summary(
     org_slug: str,
@@ -686,7 +601,7 @@ def get_skill_summary(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/similar",
     response_model=list[SimilarSkillRef],
-    dependencies=[Depends(_enforce_similar_skills_rate_limit)],
+    dependencies=[Depends(limiter_dep("similar_skills"))],
 )
 def get_similar_skills(
     org_slug: str,
@@ -718,6 +633,7 @@ def get_similar_skills(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/latest-version",
     response_model=LatestVersionResponse,
+    dependencies=[Depends(limiter_dep("resolve"))],
 )
 def get_latest_version(
     org_slug: str,
@@ -739,7 +655,7 @@ def get_latest_version(
 @public_router.get(
     "/resolve/{org_slug}/{skill_name}",
     response_model=ResolveResponse,
-    dependencies=[Depends(_enforce_resolve_rate_limit)],
+    dependencies=[Depends(limiter_dep("resolve"))],
 )
 def resolve_skill(
     org_slug: str,
@@ -785,7 +701,7 @@ def resolve_skill(
 
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/download",
-    dependencies=[Depends(_enforce_download_rate_limit)],
+    dependencies=[Depends(limiter_dep("download"))],
 )
 def download_skill(
     org_slug: str,
@@ -820,7 +736,7 @@ def download_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/audit-log",
     response_model=PaginatedAuditLogResponse,
-    dependencies=[Depends(_enforce_audit_log_rate_limit)],
+    dependencies=[Depends(limiter_dep("audit_log"))],
 )
 def get_audit_log(
     org_slug: str,
@@ -867,7 +783,7 @@ def get_audit_log(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/scan-report",
     response_model=ScanReportResponse | None,
-    dependencies=[Depends(_enforce_scan_report_rate_limit)],
+    dependencies=[Depends(limiter_dep("scan_report"))],
 )
 def get_scan_report(
     org_slug: str,
@@ -955,6 +871,7 @@ def get_scan_report(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(limiter_dep("audit_log"))],
 )
 def get_eval_report_by_skill(
     org_slug: str,
@@ -977,6 +894,7 @@ def get_eval_report_by_skill(
 @public_router.get(
     "/skills/{org_slug}/{skill_name}/versions/{semver}/eval-report",
     response_model=EvalReportResponse | None,
+    dependencies=[Depends(limiter_dep("audit_log"))],
 )
 def get_eval_report_by_version_path(
     org_slug: str,
@@ -1098,23 +1016,43 @@ def _run_to_response(run) -> EvalRunResponse:
 
 
 def _check_zombie(conn: Connection, run) -> str:
-    """Check if a running eval run has a stale heartbeat (zombie).
+    """Check if an eval run has stalled (zombie).
 
-    If heartbeat_at is older than _STALE_HEARTBEAT_SECONDS, marks the
-    run as failed and returns "failed". Otherwise returns run.status.
+    * pending — never got a heartbeat; age against created_at with a
+      generous timeout to allow for Modal cold-starts. Catches runs where
+      spawn() raised and the exception was swallowed upstream, leaving
+      the DB row in pending forever.
+    * running/judging/provisioning — age against heartbeat_at.
+
+    Marks the run failed on timeout and returns the effective status.
     """
+    now = datetime.now(UTC)
+    if run.status == "pending":
+        if run.created_at is None:
+            return run.status
+        elapsed = (now - run.created_at).total_seconds()
+        if elapsed > _STALE_PENDING_SECONDS:
+            update_eval_run_status(
+                conn,
+                run.id,
+                status="failed",
+                error_message=f"Never left pending ({int(elapsed)}s). Worker may have failed to start.",
+                completed_at=now,
+            )
+            return "failed"
+        return run.status
     if run.status not in ("running", "judging", "provisioning"):
         return run.status
     if run.heartbeat_at is None:
         return run.status
-    elapsed = (datetime.now(UTC) - run.heartbeat_at).total_seconds()
+    elapsed = (now - run.heartbeat_at).total_seconds()
     if elapsed > _STALE_HEARTBEAT_SECONDS:
         update_eval_run_status(
             conn,
             run.id,
             status="failed",
             error_message=f"Stale heartbeat ({int(elapsed)}s). Worker may have crashed.",
-            completed_at=datetime.now(UTC),
+            completed_at=now,
         )
         return "failed"
     return run.status
@@ -1127,7 +1065,7 @@ def get_eval_run(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunResponse:
     """Get eval run metadata by run ID."""
-    parsed_id = _parse_uuid(run_id, "run_id")
+    parsed_id = parse_uuid_or_422(run_id, "run_id")
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
@@ -1147,7 +1085,7 @@ def get_eval_run_logs(
     current_user: User = Depends(get_current_user),
 ) -> EvalRunLogsResponse:
     """Get eval run log events with cursor-based pagination."""
-    parsed_id = _parse_uuid(run_id, "run_id")
+    parsed_id = parse_uuid_or_422(run_id, "run_id")
     run = find_eval_run(conn, parsed_id)
     if run is None or run.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Eval run not found")
@@ -1196,7 +1134,7 @@ def list_eval_runs(
 ) -> list[EvalRunResponse]:
     """List eval runs, optionally filtered by version ID."""
     if version_id is not None:
-        parsed_vid = _parse_uuid(version_id, "version_id")
+        parsed_vid = parse_uuid_or_422(version_id, "version_id")
         runs = find_eval_runs_for_version(conn, parsed_vid)
         runs = [r for r in runs if r.user_id == current_user.id]
     else:

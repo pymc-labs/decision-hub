@@ -93,6 +93,7 @@ def run_assessment_background(
     from decision_hub.infra.database import create_engine, get_api_keys_for_eval
     from decision_hub.infra.modal_client import get_agent_config, validate_api_key
 
+    engine = None
     try:
         logger.info("Assessment phase 1: loading API keys for {}/{}", org_slug, skill_name)
         engine = create_engine(settings.database_url)
@@ -214,50 +215,64 @@ def run_assessment_background(
     except Exception as e:
         logger.error("Agent assessment failed for version {}: {}", version_id, e)
 
-        # Update run row if using streaming pipeline
-        if run_id is not None:
+        # Reuse the phase-1 engine on the error path so we don't stand up a
+        # second QueuePool (and its own TCP+TLS handshakes) per failed publish.
+        err_engine = engine
+        err_engine_owned = False
+        if err_engine is None:
+            err_engine = create_engine(settings.database_url)
+            err_engine_owned = True
+
+        try:
+            # Update run row if using streaming pipeline
+            if run_id is not None:
+                try:
+                    from datetime import datetime
+
+                    from decision_hub.infra.database import update_eval_run_status
+
+                    with err_engine.connect() as err_conn:
+                        update_eval_run_status(
+                            err_conn,
+                            run_id,
+                            status="failed",
+                            error_message=str(e),
+                            completed_at=datetime.now(UTC),
+                        )
+                        err_conn.commit()
+                except Exception as inner:
+                    logger.error("Failed to update run {}: {}", run_id, inner)
+
+            # INSERT an error report
             try:
-                from datetime import datetime
+                from decision_hub.infra.database import insert_eval_report
 
-                from decision_hub.infra.database import create_engine as _ce
-                from decision_hub.infra.database import update_eval_run_status
-
-                err_engine = _ce(settings.database_url)
                 with err_engine.connect() as err_conn:
-                    update_eval_run_status(
+                    insert_eval_report(
                         err_conn,
-                        run_id,
+                        version_id=version_id,
+                        agent=assessment_config.agent,
+                        judge_model=assessment_config.judge_model,
+                        case_results=[],
+                        passed=0,
+                        total=len(assessment_cases),
+                        total_duration_ms=0,
                         status="failed",
                         error_message=str(e),
-                        completed_at=datetime.now(UTC),
                     )
                     err_conn.commit()
             except Exception as inner:
-                logger.error("Failed to update run {}: {}", run_id, inner)
-
-        # INSERT an error report
-        try:
-            from decision_hub.infra.database import create_engine as _create_engine
-            from decision_hub.infra.database import insert_eval_report
-
-            err_engine = _create_engine(settings.database_url)
-            with err_engine.connect() as err_conn:
-                insert_eval_report(
-                    err_conn,
-                    version_id=version_id,
-                    agent=assessment_config.agent,
-                    judge_model=assessment_config.judge_model,
-                    case_results=[],
-                    passed=0,
-                    total=len(assessment_cases),
-                    total_duration_ms=0,
-                    status="failed",
-                    error_message=str(e),
+                logger.error(
+                    "Failed to store error report for version {}: {}",
+                    version_id,
+                    inner,
                 )
-                err_conn.commit()
-        except Exception as inner:
-            logger.error(
-                "Failed to store error report for version {}: {}",
-                version_id,
-                inner,
-            )
+        finally:
+            if err_engine_owned:
+                err_engine.dispose()
+    finally:
+        # Dispose the pooled engine so its connections are returned to Postgres
+        # instead of lingering until GC — otherwise every publish leaks ~5 idle
+        # connections until the background task's stack frame collects.
+        if engine is not None:
+            engine.dispose()

@@ -37,6 +37,17 @@ class TestParseJudgeResponse:
         result = _parse_judge_response(raw)
         assert result["verdict"] == "error"
 
+    def test_strips_markdown_json_fence(self):
+        raw = "```json\n" + json.dumps({"verdict": "pass", "reasoning": "wrapped"}) + "\n```"
+        result = _parse_judge_response(raw)
+        assert result["verdict"] == "pass"
+        assert result["reasoning"] == "wrapped"
+
+    def test_strips_bare_code_fence(self):
+        raw = "```\n" + json.dumps({"verdict": "fail", "reasoning": "still wrapped"}) + "\n```"
+        result = _parse_judge_response(raw)
+        assert result["verdict"] == "fail"
+
 
 class TestJudgeEvalOutput:
     @respx.mock

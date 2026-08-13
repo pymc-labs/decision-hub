@@ -49,6 +49,42 @@ class TestStoreKey:
         )
         assert resp.status_code == 401
 
+    def test_store_key_rejects_oversized_value(self, client: TestClient, auth_headers: dict[str, str]) -> None:
+        """A > 8KiB value must be rejected at validation, not encrypted+persisted.
+
+        Historical hole: `value: str` had no `max_length`, so an authenticated
+        caller could POST a multi-MB value; the endpoint fully buffered it,
+        Fernet-encrypted it (~12x memory overhead), and wrote it to Postgres.
+        """
+        # 8193 chars — one over the cap. Payload is small enough to send from
+        # the test but large enough to trigger the field-level validator.
+        oversized = "x" * 8193
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "openai", "value": oversized},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_store_key_rejects_oversized_name(self, client: TestClient, auth_headers: dict[str, str]) -> None:
+        """Key name is bounded to 64 chars and must match ^[A-Za-z0-9_-]+$."""
+        resp = client.post(
+            "/v1/keys",
+            json={"key_name": "x" * 65, "value": "sk-12345"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_store_key_rejects_invalid_name_chars(self, client: TestClient, auth_headers: dict[str, str]) -> None:
+        """Key names with whitespace / slashes / dots are rejected."""
+        for bad in ["with space", "with/slash", "with.dot", ""]:
+            resp = client.post(
+                "/v1/keys",
+                json={"key_name": bad, "value": "sk-12345"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 422, f"expected 422 for name={bad!r}"
+
 
 class TestListKeys:
     """GET /v1/keys -- list stored API key names."""

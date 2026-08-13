@@ -103,18 +103,18 @@ def _run() -> None:
 
     created = 0
     skipped = 0
-    with engine.connect() as conn:
-        for repo_url, org_slug in missing:
-            try:
+    # Commit each insert in its own transaction so an IntegrityError on row N
+    # doesn't rollback the successful inserts for rows 1..N-1.
+    for repo_url, org_slug in missing:
+        try:
+            with engine.begin() as conn:
                 insert_skill_tracker(conn, user_id=crawler_user_id, org_slug=org_slug, repo_url=repo_url)
-                created += 1
-            except IntegrityError:
-                # Race condition or duplicate — skip
-                conn.rollback()
-                skipped += 1
-                print(f"  [skip] already exists: {org_slug} | {repo_url}")
-                continue
-        conn.commit()
+            created += 1
+        except IntegrityError:
+            # Race condition or duplicate — engine.begin() already rolled back this txn
+            skipped += 1
+            print(f"  [skip] already exists: {org_slug} | {repo_url}")
+            continue
 
     print(f"\nDone. Created {created} trackers, skipped {skipped}.")
 

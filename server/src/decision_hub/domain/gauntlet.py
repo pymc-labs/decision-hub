@@ -124,6 +124,11 @@ _CREDENTIAL_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "JWT token"),
 )
 
+# Compiled-only view of the known-credential regex set. Exported so that
+# domain/evals.py can redact the same provider tokens the gauntlet would
+# reject at publish time (eval reports are served by a public endpoint).
+CREDENTIAL_REGEXES: tuple[re.Pattern, ...] = tuple(pat for pat, _label in _CREDENTIAL_PATTERNS)
+
 # Entropy thresholds — charset-aware, following the trufflehog approach.
 # Hex charset (0-9a-f) has a theoretical max of 4.0 bits, so a lower
 # threshold is needed.  The full base64/printable charset can reach ~6 bits.

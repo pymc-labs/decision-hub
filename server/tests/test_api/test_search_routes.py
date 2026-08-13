@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from decision_hub.api.rate_limit import RateLimiters
 from decision_hub.api.search_routes import router as search_router
 from decision_hub.infra.gemini import GuardAndParseResult
 
@@ -78,8 +79,10 @@ def search_settings() -> MagicMock:
     settings.openrouter_model = "qwen/qwen3.7-flash"
     settings.gauntlet_llm_provider = "openrouter"
     settings.s3_bucket = "test-bucket"
-    settings.search_rate_limit = 100
-    settings.search_rate_window = 60
+    # RateLimiters iterates every known name — provide sane defaults for all.
+    for _name in RateLimiters._NAMES:
+        setattr(settings, f"{_name}_rate_limit", 100)
+        setattr(settings, f"{_name}_rate_window", 60)
     settings.search_candidate_limit = 20
     settings.embedding_model = "gemini-embedding-001"
     settings.openrouter_embedding_model = "qwen/qwen3-embedding-8b"
@@ -93,6 +96,7 @@ def search_app(search_settings: MagicMock) -> FastAPI:
     app.state.settings = search_settings
     app.state.engine = MagicMock()
     app.state.s3_client = MagicMock()
+    app.state.rate_limiters = RateLimiters(search_settings)
     app.include_router(search_router)
     return app
 
@@ -256,8 +260,12 @@ class TestAskSkills:
 
     def test_ask_rate_limited(self, search_app: FastAPI) -> None:
         """Exceeding the rate limit returns HTTP 429."""
+        # Rate limiters are eagerly built at app startup — mutating settings
+        # after the fact won't take effect. Rebuild the container so the
+        # tightened cap is picked up.
         search_app.state.settings.search_rate_limit = 2
         search_app.state.settings.search_rate_window = 60
+        search_app.state.rate_limiters = RateLimiters(search_app.state.settings)
         client = TestClient(search_app)
 
         with patch(

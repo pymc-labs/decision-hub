@@ -278,6 +278,35 @@ class TestRedactSecrets:
         assert "sk-ant" not in result
         assert "[REDACTED]" in result
 
+    @pytest.mark.parametrize(
+        ("label", "sample"),
+        [
+            # These match gauntlet._CREDENTIAL_PATTERNS. Because the eval-report
+            # endpoint is public, the redactor must cover every provider the
+            # gauntlet would reject at publish time — a user-provided prompt or
+            # env var could otherwise leak a token through case reasoning /
+            # agent_output. Built via concat so this test file itself doesn't
+            # trip secret-scanning hooks.
+            ("aws", "AKI" + "A1234567890ABCDEF12"),
+            ("github-classic", "gh" + "p_" + "A" * 40),
+            ("github-pat", "github_pat" + "_" + "B" * 30),
+            ("slack", "xox" + "b-" + "C" * 20),
+            ("stripe-secret", "sk_live" + "_" + "D" * 30),
+            ("stripe-restricted", "rk_live" + "_" + "E" * 30),
+            (
+                "jwt",
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhYmMxMjM.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+            ),
+            ("pem", "-----BEGIN RSA PRIVATE KEY-----"),
+        ],
+        ids=lambda p: p if isinstance(p, str) and len(p) < 30 else "sample",
+    )
+    def test_gauntlet_patterns_are_also_redacted(self, label: str, sample: str) -> None:
+        text = f"env leak: {sample} — end"
+        result = _redact_secrets(text)
+        assert sample not in result, f"{label!r} pattern survived redaction"
+        assert "[REDACTED]" in result
+
 
 class TestInsertEvalReportConflict:
     """Verify that insert_eval_report raises IntegrityError on duplicate version_id.

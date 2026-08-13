@@ -11,7 +11,21 @@ from decision_hub.infra.storage import (
 
 
 def _make_s3_client() -> MagicMock:
-    return MagicMock()
+    client = MagicMock()
+    # Emulate boto3's paginator by default: yields one page whose Contents
+    # is whatever `list_objects_v2` is currently returning. Individual tests
+    # can override client.get_paginator to inject multi-page fixtures.
+    default_paginator = MagicMock()
+    default_paginator.paginate.side_effect = lambda **kwargs: [client.list_objects_v2(**kwargs)]
+    client.get_paginator.return_value = default_paginator
+    return client
+
+
+def _paginator_returning(pages: list[dict]) -> MagicMock:
+    """Build a MagicMock paginator that yields the given pages verbatim."""
+    paginator = MagicMock()
+    paginator.paginate.return_value = pages
+    return paginator
 
 
 class TestUploadEvalLogChunk:
@@ -106,3 +120,41 @@ class TestDeleteEvalLogs:
         count = delete_eval_logs(client, "bucket", "p/")
         assert count == 0
         client.delete_objects.assert_not_called()
+
+
+class TestPaginatedListing:
+    """Regression tests: long-running eval logs may exceed the S3 1000-key page."""
+
+    def test_list_traverses_all_pages(self) -> None:
+        client = _make_s3_client()
+        # Two pages of 3 chunks each, simulating a truncated first response.
+        pages = [
+            {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in (1, 2, 3)]},
+            {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in (4, 5, 6)]},
+        ]
+        client.get_paginator.return_value = _paginator_returning(pages)
+
+        result = list_eval_log_chunks(client, "bucket", "p/")
+
+        assert [s for s, _ in result] == [1, 2, 3, 4, 5, 6]
+        client.get_paginator.assert_called_once_with("list_objects_v2")
+
+    def test_delete_batches_over_thousand_at_a_time(self) -> None:
+        client = _make_s3_client()
+        # 2500 keys spread across three pages — should trigger THREE delete_objects
+        # calls (1000 + 1000 + 500) since S3 rejects delete batches > 1000.
+        pages = [
+            {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in range(1000)]},
+            {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in range(1000, 2000)]},
+            {"Contents": [{"Key": f"p/{i:04d}.jsonl"} for i in range(2000, 2500)]},
+        ]
+        client.get_paginator.return_value = _paginator_returning(pages)
+
+        count = delete_eval_logs(client, "bucket", "p/")
+
+        assert count == 2500
+        assert client.delete_objects.call_count == 3
+        # Every batch must be <=1000 keys (S3 hard cap).
+        for call in client.delete_objects.call_args_list:
+            batch = call.kwargs["Delete"]["Objects"]
+            assert len(batch) <= 1000
