@@ -48,10 +48,14 @@ class Settings(BaseSettings):
 
     # Hybrid search settings
     search_candidate_limit: int = 20  # candidates per retrieval signal
+    # Embeddings have their own provider preference, defaulting to Gemini
+    # independent of the chat backend: stored skill vectors and query
+    # vectors must share one embedding space, so flipping this setting
+    # requires re-embedding every skill (backfill_embeddings.py --all) —
+    # an expensive migration that a chat-backend switch shouldn't force.
+    embedding_llm_provider: str = "gemini"  # "gemini" | "openrouter"
     # Embedding models per provider. Both must produce vectors compatible
-    # with the DB column vector(768); switching providers changes the
-    # embedding space and requires re-embedding all skills
-    # (scripts/backfill_embeddings.py).
+    # with the DB column vector(768).
     embedding_model: str = "gemini-embedding-001"
     openrouter_embedding_model: str = "qwen/qwen3-embedding-8b"
 
@@ -185,6 +189,22 @@ def resolve_judge_provider(settings: Settings) -> str | None:
     """
     preferred = settings.gauntlet_llm_provider.strip().lower()
     order = ["gemini", "openrouter"] if preferred == "gemini" else ["openrouter", "gemini"]
+    for provider in order:
+        key = settings.openrouter_api_key if provider == "openrouter" else settings.google_api_key
+        if key:
+            return provider
+    return None
+
+
+def resolve_embedding_provider(settings: Settings) -> str | None:
+    """Resolve which backend generates embeddings, or None if no key.
+
+    Mirrors ``resolve_judge_provider`` but keys on
+    ``embedding_llm_provider`` (default Gemini), falling back to the
+    other provider when the preferred one has no API key.
+    """
+    preferred = settings.embedding_llm_provider.strip().lower()
+    order = ["openrouter", "gemini"] if preferred == "openrouter" else ["gemini", "openrouter"]
     for provider in order:
         key = settings.openrouter_api_key if provider == "openrouter" else settings.google_api_key
         if key:

@@ -50,7 +50,7 @@ class TestGenerateAndStoreSkillEmbedding:
         settings = MagicMock()
         settings.google_api_key = ""
         settings.openrouter_api_key = ""
-        settings.gauntlet_llm_provider = "openrouter"
+        settings.embedding_llm_provider = "gemini"
         conn = MagicMock()
 
         # Should not raise
@@ -63,7 +63,7 @@ class TestGenerateAndStoreSkillEmbedding:
         settings = MagicMock()
         settings.google_api_key = "test-key"
         settings.openrouter_api_key = ""
-        settings.gauntlet_llm_provider = "openrouter"
+        settings.embedding_llm_provider = "gemini"
         settings.embedding_model = "gemini-embedding-001"
         conn = MagicMock()
 
@@ -78,7 +78,7 @@ class TestGenerateAndStoreSkillEmbedding:
         settings = MagicMock()
         settings.google_api_key = "test-key"
         settings.openrouter_api_key = ""
-        settings.gauntlet_llm_provider = "openrouter"
+        settings.embedding_llm_provider = "gemini"
         settings.embedding_model = "gemini-embedding-001"
         conn = MagicMock()
         skill_id = uuid4()
@@ -202,24 +202,34 @@ class TestCreateEmbeddingClient:
         settings = MagicMock()
         settings.google_api_key = kwargs.get("google_api_key", "")
         settings.openrouter_api_key = kwargs.get("openrouter_api_key", "")
-        settings.gauntlet_llm_provider = kwargs.get("gauntlet_llm_provider", "openrouter")
+        settings.embedding_llm_provider = kwargs.get("embedding_llm_provider", "gemini")
         settings.embedding_model = "gemini-embedding-001"
         settings.openrouter_embedding_model = "qwen/qwen3-embedding-8b"
         return settings
 
-    def test_prefers_openrouter(self) -> None:
+    def test_defaults_to_gemini_even_with_both_keys(self) -> None:
+        """The chat backend switch must not silently change the embedding space."""
         result = create_embedding_client(self._settings(openrouter_api_key="or-key", google_api_key="g-key"))
+        assert result is not None
+        client, model = result
+        assert client.get("provider") is None
+        assert model == "gemini-embedding-001"
+
+    def test_openrouter_when_configured(self) -> None:
+        result = create_embedding_client(
+            self._settings(openrouter_api_key="or-key", google_api_key="g-key", embedding_llm_provider="openrouter")
+        )
         assert result is not None
         client, model = result
         assert client["provider"] == "openrouter"
         assert model == "qwen/qwen3-embedding-8b"
 
-    def test_falls_back_to_gemini(self) -> None:
-        result = create_embedding_client(self._settings(google_api_key="g-key"))
+    def test_falls_back_to_openrouter_without_google_key(self) -> None:
+        result = create_embedding_client(self._settings(openrouter_api_key="or-key"))
         assert result is not None
         client, model = result
-        assert client.get("provider") is None
-        assert model == "gemini-embedding-001"
+        assert client["provider"] == "openrouter"
+        assert model == "qwen/qwen3-embedding-8b"
 
     def test_none_without_keys(self) -> None:
         assert create_embedding_client(self._settings()) is None

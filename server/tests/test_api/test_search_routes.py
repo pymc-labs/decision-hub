@@ -84,6 +84,7 @@ def search_settings() -> MagicMock:
         setattr(settings, f"{_name}_rate_limit", 100)
         setattr(settings, f"{_name}_rate_window", 60)
     settings.search_candidate_limit = 20
+    settings.embedding_llm_provider = "gemini"
     settings.embedding_model = "gemini-embedding-001"
     settings.openrouter_embedding_model = "qwen/qwen3-embedding-8b"
     return settings

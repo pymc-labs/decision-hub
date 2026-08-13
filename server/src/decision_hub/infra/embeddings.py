@@ -1,9 +1,11 @@
-"""Embedding utilities for hybrid search (OpenRouter/Qwen default, Gemini fallback).
+"""Embedding utilities for hybrid search (Gemini default, OpenRouter fallback).
 
 Dispatches on the client dict's ``provider`` field, mirroring the LLM
-judge functions in ``infra.gemini``. Query embeddings must live in the
-same vector space as the stored skill embeddings — switching providers
-requires re-embedding all skills (scripts/backfill_embeddings.py).
+judge functions in ``infra.gemini``. Embeddings keep their own provider
+preference (default Gemini) independent of the chat backend: query
+embeddings must live in the same vector space as the stored skill
+embeddings, so switching providers requires re-embedding all skills
+(scripts/backfill_embeddings.py --all).
 """
 
 from uuid import UUID
@@ -15,7 +17,7 @@ from sqlalchemy.engine import Connection
 from decision_hub.infra.database import update_skill_embedding
 from decision_hub.infra.gemini import create_gemini_client, gemini_request_with_retry
 from decision_hub.infra.openrouter import create_openrouter_client, openrouter_request_with_retry
-from decision_hub.settings import Settings, resolve_judge_provider
+from decision_hub.settings import Settings, resolve_embedding_provider
 
 # Must match the DB column: vector(768) in the migration.
 EMBEDDING_DIMENSIONS = 768
@@ -24,11 +26,12 @@ EMBEDDING_DIMENSIONS = 768
 def create_embedding_client(settings: Settings, *, http_client: httpx.Client | None = None) -> tuple[dict, str] | None:
     """Build the (client, model) pair for the configured embedding backend.
 
-    Uses the same provider resolution as the LLM judge (OpenRouter
-    preferred, Gemini fallback) so one API key setting drives all LLM
-    features. Returns None when no provider has an API key.
+    Embeddings default to Gemini independent of the chat backend
+    (``embedding_llm_provider``): stored skill vectors and query vectors
+    must share one embedding space, so switching providers requires
+    re-embedding every skill. Returns None when no provider has an API key.
     """
-    provider = resolve_judge_provider(settings)
+    provider = resolve_embedding_provider(settings)
     if provider is None:
         return None
     if provider == "openrouter":
