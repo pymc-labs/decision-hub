@@ -29,9 +29,13 @@ def doctor_command() -> None:
         start = time.monotonic()
         with httpx.Client(timeout=10) as client:
             resp = client.get(f"{api_url}/health")
-            api_reachable = resp.status_code == 200
-        latency_ms = int((time.monotonic() - start) * 1000)
-    except httpx.HTTPError:
+            latency_ms = int((time.monotonic() - start) * 1000)
+            if resp.status_code == 200:
+                health = resp.json()
+                api_reachable = (
+                    isinstance(health, dict) and health.get("status") == "ok" and health.get("database") == "ok"
+                )
+    except (httpx.HTTPError, ValueError):
         pass
 
     result = {

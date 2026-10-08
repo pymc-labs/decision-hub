@@ -382,6 +382,10 @@ dhub doctor
 
 Reports: environment, CLI version, authentication status, default org, API reachability with latency.
 
+The API check requires `/health` to return HTTP 200 with a JSON object containing
+`"status": "ok"` and `"database": "ok"`. HTML fallback pages and invalid or degraded
+health responses report `FAIL` (`api_reachable: false` in JSON mode).
+
 ---
 
 ## Global Behavior
