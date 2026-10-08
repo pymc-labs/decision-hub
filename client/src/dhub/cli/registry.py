@@ -681,7 +681,7 @@ def list_command(
     import sys
 
     from dhub.cli.banner import print_banner
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, parse_json_object, raise_for_status
     from dhub.cli.output import is_json, print_json
 
     json_mode = is_json()
@@ -712,7 +712,7 @@ def list_command(
                 params=params,
             )
             raise_for_status(resp)
-            data = resp.json()
+            data = parse_json_object(resp, required_keys=("items", "total", "total_pages"))
 
             items = data["items"]
             total = data["total"]
@@ -1732,7 +1732,7 @@ def info_command(
     skill_ref: str = typer.Argument(help="Skill reference (e.g. 'myorg/my-skill')"),
 ) -> None:
     """Show detailed information about a published skill."""
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, parse_json_object, raise_for_status
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -1754,7 +1754,7 @@ def info_command(
             console.print(f"[red]Error: Skill '{org_slug}/{skill_name}' not found.[/]")
             raise typer.Exit(1)
         raise_for_status(resp)
-        summary = resp.json()
+        summary = parse_json_object(resp)
 
         # Fetch latest audit log entry (best-effort)
         audit_entry = None

@@ -24,7 +24,7 @@ def ask_command(
     Example: dhub ask "analyze A/B test results"
     Example: dhub ask "build a REST API" --category "Backend & APIs"
     """
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, raise_for_status
+    from dhub.cli.config import build_headers, get_api_url, get_optional_token, parse_json_object, raise_for_status
 
     params: dict[str, str] = {"q": query}
     if category:
@@ -40,7 +40,7 @@ def ask_command(
             console.print("[red]Search is not available (server not configured).[/]")
             raise typer.Exit(1)
         raise_for_status(resp)
-        data = resp.json()
+        data = parse_json_object(resp, required_keys=("query", "answer"))
 
     from dhub.cli.output import is_json, print_json
 

@@ -174,3 +174,27 @@ def raise_for_status(resp: httpx.Response) -> None:
             fatal=True,
         )
     resp.raise_for_status()
+
+
+def parse_json_object(resp: httpx.Response, *, required_keys: tuple[str, ...] = ()) -> dict:
+    """Read a JSON object, explaining stale or incompatible API responses.
+
+    Call after handling HTTP status codes. Never include the response body
+    or request URL: they may contain private diagnostics or query parameters.
+    """
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+
+    if not isinstance(data, dict) or any(key not in data for key in required_keys):
+        from dhub.cli.output import ErrorCode, exit_error
+
+        exit_error(
+            ErrorCode.INVALID_RESPONSE,
+            "The registry returned an invalid or incompatible API response. "
+            "Run 'dhub env' to inspect the API URL, and check DHUB_API_URL or your saved configuration. "
+            "Use a registry compatible with this CLI.",
+            status=resp.status_code,
+        )
+    return data
