@@ -725,14 +725,14 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.22.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.0" },
+    { name = "sqlalchemy", specifier = ">=2.0.0,<2.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "dhub-cli"
-version = "0.12.3"
+version = "0.12.4"
 source = { editable = "client" }
 dependencies = [
     { name = "dhub-core" },
@@ -764,7 +764,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "dhub-core"
-version = "0.2.10"
+version = "0.2.11"
 source = { editable = "shared" }
 dependencies = [
     { name = "pyyaml" },
