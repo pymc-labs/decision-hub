@@ -52,6 +52,7 @@ class ErrorCode(StrEnum):
     UPGRADE_REQUIRED = "UPGRADE_REQUIRED"
     VALIDATION_ERROR = "VALIDATION_ERROR"
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+    INVALID_RESPONSE = "INVALID_RESPONSE"
 
 
 def exit_error(code: ErrorCode, message: str, *, status: int | None = None, fatal: bool = False) -> NoReturn:

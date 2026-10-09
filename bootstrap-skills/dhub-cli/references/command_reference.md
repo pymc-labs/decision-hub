@@ -424,6 +424,18 @@ dhub access grant org/skill partner --dry-run  # validate without granting
 2. Saved config file (`~/.dhub/config.{env}.json`)
 3. Default URL for environment
 
+If `ask`, `list`, or `info` reports an invalid or incompatible API response, run
+`dhub env` and inspect the API URL and config path. A saved URL can still point
+to an older deployment after upgrading the CLI. For public registry discovery,
+test the current production endpoint without changing saved settings:
+
+```bash
+DHUB_API_URL=https://pymc-labs--api.modal.run dhub list --org pymc-labs
+```
+
+If this succeeds, correct the saved `api_url` or stale environment override.
+For a self-hosted registry, use the corresponding compatible server URL.
+
 **Error codes (JSON mode):**
 
 Errors in `--output json` mode are structured JSON on stderr:
@@ -441,3 +453,4 @@ Errors in `--output json` mode are structured JSON on stderr:
 | `UPGRADE_REQUIRED` | CLI too old for server |
 | `VALIDATION_ERROR` | Invalid input |
 | `SERVICE_UNAVAILABLE` | Server not configured |
+| `INVALID_RESPONSE` | Discovery received non-JSON, a non-object response, missing or mistyped required fields, or a 404 from an endpoint every compatible registry serves |

@@ -5,7 +5,7 @@ import json
 import click
 import pytest
 
-from dhub.cli.config import CliConfig, load_config, save_config
+from dhub.cli.config import CliConfig, active_config_file, load_config, save_config
 
 
 class TestLoadConfig:
@@ -55,6 +55,35 @@ class TestLoadConfig:
 
         with pytest.raises(click.exceptions.Exit):
             load_config()
+
+
+class TestActiveConfigFile:
+    """active_config_file must name the file load_config actually reads."""
+
+    def test_prod_falls_back_to_legacy_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "prod")
+        legacy = tmp_path / "config.json"
+        legacy.write_text(json.dumps({"api_url": "https://old.example"}))
+
+        assert active_config_file() == legacy
+        assert load_config().api_url == "https://old.example"
+
+    def test_env_file_wins_over_legacy(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "prod")
+        (tmp_path / "config.json").write_text("{}")
+        current = tmp_path / "config.prod.json"
+        current.write_text("{}")
+
+        assert active_config_file() == current
+
+    def test_dev_ignores_legacy_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("dhub.cli.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("DHUB_ENV", "dev")
+        (tmp_path / "config.json").write_text("{}")
+
+        assert active_config_file() == tmp_path / "config.dev.json"
 
 
 class TestSaveConfig:
