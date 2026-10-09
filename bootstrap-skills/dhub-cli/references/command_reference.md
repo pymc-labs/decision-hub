@@ -447,4 +447,4 @@ Errors in `--output json` mode are structured JSON on stderr:
 | `UPGRADE_REQUIRED` | CLI too old for server |
 | `VALIDATION_ERROR` | Invalid input |
 | `SERVICE_UNAVAILABLE` | Server not configured |
-| `INVALID_RESPONSE` | Discovery received non-JSON, a non-object response, or missing required fields |
+| `INVALID_RESPONSE` | Discovery received non-JSON, a non-object response, missing or mistyped required fields, or a 404 from an endpoint every compatible registry serves |

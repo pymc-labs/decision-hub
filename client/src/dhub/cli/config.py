@@ -2,9 +2,11 @@
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
+from typing import NoReturn
 
 import httpx
 
@@ -34,6 +36,21 @@ def config_file(env: str | None = None) -> Path:
     return CONFIG_DIR / f"config.{env}.json"
 
 
+def active_config_file(env: str | None = None) -> Path:
+    """Return the config file that :func:`load_config` actually reads.
+
+    Prefers ``config.{env}.json``. Prod installs that predate the per-env
+    split only have the legacy ``config.json``, which is still honoured, so
+    ``dhub env`` must report it rather than a file that does not exist.
+    """
+    env = env or get_env()
+    path = config_file(env)
+    legacy_path = CONFIG_DIR / "config.json"
+    if not path.exists() and env == "prod" and legacy_path.exists():
+        return legacy_path
+    return path
+
+
 @dataclass(frozen=True)
 class CliConfig:
     """Immutable CLI configuration."""
@@ -52,14 +69,9 @@ def load_config() -> CliConfig:
     Returns defaults if neither file exists.
     """
     env = get_env()
-    path = config_file(env)
-    # Migration: fall back to legacy config.json for existing prod users
+    path = active_config_file(env)
     if not path.exists():
-        legacy_path = CONFIG_DIR / "config.json"
-        if env == "prod" and legacy_path.exists():
-            path = legacy_path
-        else:
-            return CliConfig(api_url=default_api_url(env))
+        return CliConfig(api_url=default_api_url(env))
 
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -176,25 +188,40 @@ def raise_for_status(resp: httpx.Response) -> None:
     resp.raise_for_status()
 
 
-def parse_json_object(resp: httpx.Response, *, required_keys: tuple[str, ...] = ()) -> dict:
-    """Read a JSON object, explaining stale or incompatible API responses.
+def exit_incompatible_registry(status: int) -> NoReturn:
+    """Exit with recovery guidance when the API URL is not a compatible registry.
 
-    Call after handling HTTP status codes. Never include the response body
-    or request URL: they may contain private diagnostics or query parameters.
+    Never include the response body or request URL: they may contain private
+    diagnostics or query parameters.
+    """
+    from dhub.cli.output import ErrorCode, exit_error
+
+    exit_error(
+        ErrorCode.INVALID_RESPONSE,
+        "The registry returned an invalid or incompatible API response. "
+        "Run 'dhub env' to inspect the API URL, and check DHUB_API_URL or your saved configuration. "
+        "Use a registry compatible with this CLI.",
+        status=status,
+    )
+
+
+def parse_json_object(
+    resp: httpx.Response,
+    *,
+    required_fields: Mapping[str, type | tuple[type, ...]] | None = None,
+) -> dict:
+    """Read a JSON object whose required fields are present with the expected types.
+
+    Call after handling HTTP status codes. Non-JSON bodies (e.g. an older
+    deployment's HTML fallback page), non-object JSON, and missing or
+    mistyped required fields all exit via :func:`exit_incompatible_registry`.
     """
     try:
         data = resp.json()
     except ValueError:
         data = None
 
-    if not isinstance(data, dict) or any(key not in data for key in required_keys):
-        from dhub.cli.output import ErrorCode, exit_error
-
-        exit_error(
-            ErrorCode.INVALID_RESPONSE,
-            "The registry returned an invalid or incompatible API response. "
-            "Run 'dhub env' to inspect the API URL, and check DHUB_API_URL or your saved configuration. "
-            "Use a registry compatible with this CLI.",
-            status=resp.status_code,
-        )
+    fields = required_fields or {}
+    if not isinstance(data, dict) or any(not isinstance(data.get(key), kind) for key, kind in fields.items()):
+        exit_incompatible_registry(resp.status_code)
     return data

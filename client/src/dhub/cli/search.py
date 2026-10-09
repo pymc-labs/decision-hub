@@ -24,7 +24,15 @@ def ask_command(
     Example: dhub ask "analyze A/B test results"
     Example: dhub ask "build a REST API" --category "Backend & APIs"
     """
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, parse_json_object, raise_for_status
+    from dhub.cli.config import (
+        build_headers,
+        exit_incompatible_registry,
+        get_api_url,
+        get_optional_token,
+        parse_json_object,
+        raise_for_status,
+    )
+    from dhub.cli.output import ErrorCode, exit_error, is_json, print_json
 
     params: dict[str, str] = {"q": query}
     if category:
@@ -37,12 +45,13 @@ def ask_command(
             headers=build_headers(get_optional_token()),
         )
         if resp.status_code == 503:
-            console.print("[red]Search is not available (server not configured).[/]")
-            raise typer.Exit(1)
+            exit_error(ErrorCode.SERVICE_UNAVAILABLE, "Search is not available (server not configured).", status=503)
+        if resp.status_code == 404:
+            # Every compatible registry serves /v1/ask, so a 404 means the API
+            # URL points at an older deployment or a non-registry host.
+            exit_incompatible_registry(404)
         raise_for_status(resp)
-        data = parse_json_object(resp, required_keys=("query", "answer"))
-
-    from dhub.cli.output import is_json, print_json
+        data = parse_json_object(resp, required_fields={"query": str, "answer": str})
 
     if is_json():
         print_json(data)

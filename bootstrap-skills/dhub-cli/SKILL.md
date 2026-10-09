@@ -375,7 +375,7 @@ In `--output json` mode, errors are structured JSON on stderr:
 {"error": true, "code": "NOT_FOUND", "message": "Skill 'acme/foo' not found.", "status": 404}
 ```
 
-Codes: `AUTH_REQUIRED`, `PERMISSION_DENIED`, `NOT_FOUND`, `VERSION_EXISTS`, `GAUNTLET_FAILED`, `UPGRADE_REQUIRED`, `VALIDATION_ERROR`, `SERVICE_UNAVAILABLE`
+Codes: `AUTH_REQUIRED`, `PERMISSION_DENIED`, `NOT_FOUND`, `VERSION_EXISTS`, `GAUNTLET_FAILED`, `UPGRADE_REQUIRED`, `VALIDATION_ERROR`, `SERVICE_UNAVAILABLE`, `INVALID_RESPONSE`
 
 ## Troubleshooting
 

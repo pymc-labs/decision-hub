@@ -681,7 +681,14 @@ def list_command(
     import sys
 
     from dhub.cli.banner import print_banner
-    from dhub.cli.config import build_headers, get_api_url, get_optional_token, parse_json_object, raise_for_status
+    from dhub.cli.config import (
+        build_headers,
+        exit_incompatible_registry,
+        get_api_url,
+        get_optional_token,
+        parse_json_object,
+        raise_for_status,
+    )
     from dhub.cli.output import is_json, print_json
 
     json_mode = is_json()
@@ -711,8 +718,12 @@ def list_command(
                 headers=headers,
                 params=params,
             )
+            if resp.status_code == 404:
+                # /v1/skills never 404s on a compatible registry (unknown orgs
+                # yield an empty page), so this is a stale or foreign API URL.
+                exit_incompatible_registry(404)
             raise_for_status(resp)
-            data = parse_json_object(resp, required_keys=("items", "total", "total_pages"))
+            data = parse_json_object(resp, required_fields={"items": list, "total": int, "total_pages": int})
 
             items = data["items"]
             total = data["total"]
@@ -1728,11 +1739,28 @@ def _get_frontend_url() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _optional_json_object(resp: httpx.Response) -> dict | None:
+    """Return a 200 response's JSON object, or ``None`` for anything else.
+
+    Used for optional ``info`` sections: an older registry may answer an
+    unknown route with an HTML fallback page or a differently shaped body,
+    which must degrade to "no data" instead of aborting the command.
+    """
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def info_command(
     skill_ref: str = typer.Argument(help="Skill reference (e.g. 'myorg/my-skill')"),
 ) -> None:
     """Show detailed information about a published skill."""
     from dhub.cli.config import build_headers, get_api_url, get_optional_token, parse_json_object, raise_for_status
+    from dhub.cli.output import ErrorCode, exit_error, is_json, print_json
     from dhub.core.validation import parse_skill_ref
 
     try:
@@ -1743,6 +1771,7 @@ def info_command(
 
     api_url = get_api_url()
     headers = build_headers(get_optional_token())
+    json_mode = is_json()
 
     # Fetch skill summary
     with httpx.Client(timeout=60) as client:
@@ -1751,8 +1780,7 @@ def info_command(
             headers=headers,
         )
         if resp.status_code == 404:
-            console.print(f"[red]Error: Skill '{org_slug}/{skill_name}' not found.[/]")
-            raise typer.Exit(1)
+            exit_error(ErrorCode.NOT_FOUND, f"Skill '{org_slug}/{skill_name}' not found.", status=404)
         raise_for_status(resp)
         summary = parse_json_object(resp)
 
@@ -1764,12 +1792,14 @@ def info_command(
                 headers=headers,
                 params={"page_size": 1},
             )
-            if resp.status_code == 200:
-                audit_data = resp.json()
-                if audit_data.get("items"):
-                    audit_entry = audit_data["items"][0]
+            audit_data = _optional_json_object(resp)
+            items = audit_data.get("items") if audit_data else None
+            if isinstance(items, list) and items and isinstance(items[0], dict):
+                audit_entry = items[0]
         except httpx.HTTPError:
-            console.print("[dim]  (could not fetch audit log)[/]")
+            # Notices go to text output only: JSON-mode stdout must stay parseable.
+            if not json_mode:
+                console.print("[dim]  (could not fetch audit log)[/]")
 
         # Fetch eval report for latest version (best-effort)
         eval_report = None
@@ -1781,14 +1811,12 @@ def info_command(
                     headers=headers,
                     params={"semver": latest_version},
                 )
-                if resp.status_code == 200:
-                    eval_report = resp.json()
+                eval_report = _optional_json_object(resp)
             except httpx.HTTPError:
-                console.print("[dim]  (could not fetch eval report)[/]")
+                if not json_mode:
+                    console.print("[dim]  (could not fetch eval report)[/]")
 
-    from dhub.cli.output import is_json, print_json
-
-    if is_json():
+    if json_mode:
         print_json({"summary": summary, "audit_log": audit_entry, "eval_report": eval_report})
         return
 
