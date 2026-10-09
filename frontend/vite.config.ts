@@ -24,6 +24,7 @@ export default defineConfig({
       "/v1": "http://localhost:8000",
       "/cli": "http://localhost:8000",
       "/auth": "http://localhost:8000",
+      "/health": "http://localhost:8000",
     },
   },
   build: {
