@@ -77,7 +77,8 @@ def resolve_author_display(published_by: str) -> str:
 def format_trust_score(eval_status: str) -> str:
     """Map an evaluation status to a human-readable trust grade.
 
-    Handles both new A/B/C/F grades and legacy passed/pending/failed values.
+    Handles both new A/B/C/F grades, legacy passed/failed values, and
+    the "pending" state used when the gauntlet is disabled.
     """
     scores = {
         "A": "A",
@@ -85,7 +86,7 @@ def format_trust_score(eval_status: str) -> str:
         "C": "C",
         "F": "F",
         "passed": "A",
-        "pending": "C",
+        "pending": "pending",
         "failed": "F",
     }
     return scores.get(eval_status, "?")

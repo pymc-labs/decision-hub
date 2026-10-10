@@ -12,7 +12,7 @@ def test_format_trust_score_passed():
 
 
 def test_format_trust_score_pending():
-    assert format_trust_score("pending") == "C"
+    assert format_trust_score("pending") == "pending"
 
 
 def test_format_trust_score_failed():

@@ -1768,7 +1768,7 @@ def _build_skills_filters(
         grade_statuses = {
             "A": ["A", "passed"],
             "B": ["B"],
-            "C": ["C"],
+            "C": ["C", "pending"],
         }
         statuses = grade_statuses.get(grade, [grade])
         base = base.where(skills_table.c.latest_eval_status.in_(statuses))
@@ -1873,9 +1873,10 @@ def fetch_all_skills_for_index(
             (col.in_(["A", "passed"]), 1),
             (col == "B", 2),
             (col == "C", 3),
-            (col == "D", 4),
-            (col == "F", 5),
-            else_=6,
+            (col == "pending", 4),
+            (col == "D", 5),
+            (col == "F", 6),
+            else_=7,
         )
         base = base.order_by(
             is_unrated.asc(),

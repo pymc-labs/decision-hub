@@ -171,4 +171,4 @@ class TestSearchIndexEntry:
             latest_version="0.1.0",
             eval_status="pending",
         )
-        assert entry.trust_score == "C"
+        assert entry.trust_score == "pending"
