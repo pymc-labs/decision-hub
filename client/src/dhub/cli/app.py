@@ -50,7 +50,7 @@ def main(
         ) from None
     set_format(fmt)
 
-    if output == "text" and ctx.invoked_subcommand != "validate":
+    if output == "text" and ctx.invoked_subcommand not in {"installed", "validate"}:
         from dhub.cli.version_check import show_update_notice
 
         show_update_notice(Console(stderr=True))

@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import respx
@@ -56,7 +57,9 @@ def test_installed_lists_local_versions_and_current_links(skills_root: Path) -> 
 
 @respx.mock
 def test_installed_empty_state(skills_root: Path) -> None:
-    result = runner.invoke(app, ["installed"])
+    with patch("dhub.cli.version_check.show_update_notice") as update_check:
+        result = runner.invoke(app, ["installed"])
+    update_check.assert_not_called()
     assert result.exit_code == 0, result.output
     assert "No skills installed." in result.stdout
     assert not skills_root.exists()
