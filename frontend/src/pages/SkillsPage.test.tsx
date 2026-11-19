@@ -126,6 +126,7 @@ describe("SkillsPage", () => {
     const requests = recordSkillRequests();
     renderPage("/skills?search=api&org=acme&category=Backend+%26+APIs&grade=A&sort=downloads&sort_dir=asc");
     await waitForSkills();
+    expect(screen.getByText("1 skill")).toBeInTheDocument();
     expect(screen.getByRole("textbox")).toHaveValue("api");
     expect(screen.getByLabelText("Filter by organization")).toHaveValue("acme");
     expect(getCategorySelect()).toHaveValue("Backend & APIs");

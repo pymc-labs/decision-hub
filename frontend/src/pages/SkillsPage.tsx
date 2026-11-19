@@ -172,7 +172,7 @@ export default function SkillsPage() {
         </h1>
         {(items.length > 0 || (!loading && !error)) && (
           <p className={styles.subtitle}>
-            {total} skills — each automatically evaluated and security-graded
+            {total.toLocaleString()} {total === 1 ? "skill" : "skills"}
           </p>
         )}
       </div>
