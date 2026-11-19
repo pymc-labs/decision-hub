@@ -23,6 +23,7 @@ app = typer.Typer(
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False,
         "--version",
@@ -49,7 +50,7 @@ def main(
         ) from None
     set_format(fmt)
 
-    if output == "text":
+    if output == "text" and ctx.invoked_subcommand != "validate":
         from dhub.cli.version_check import show_update_notice
 
         show_update_notice(Console(stderr=True))
@@ -94,8 +95,10 @@ app.command("update")(update_command)
 app.command("visibility")(visibility_command)
 
 from dhub.cli.doctor import doctor_command  # noqa: E402
+from dhub.cli.validate import validate_command  # noqa: E402
 
 app.command("doctor")(doctor_command)
+app.command("validate")(validate_command)
 
 
 def _detect_installer() -> str:
