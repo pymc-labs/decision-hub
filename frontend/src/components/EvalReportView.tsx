@@ -1,3 +1,4 @@
+import { useId, useState } from "react";
 import {
   CheckCircle,
   XCircle,
@@ -96,6 +97,53 @@ function CaseResultCard({ result }: { result: EvalCaseResult }) {
   );
 }
 
+const verdictFilters = [
+  { value: "all", label: "All" },
+  { value: "pass", label: "Passed" },
+  { value: "fail", label: "Failed" },
+  { value: "error", label: "Errors" },
+];
+
+function CaseResults({ results }: { results: EvalCaseResult[] }) {
+  const groupName = useId();
+  const [filter, setFilter] = useState("all");
+  const counts = new Map<string, number>();
+  for (const { verdict } of results) {
+    counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
+  }
+
+  return (
+    <div className={styles.cases}>
+      <fieldset className={styles.verdictFilter}>
+        <legend>Filter cases by verdict</legend>
+        <div className={styles.filterOptions}>
+          {verdictFilters.map(({ value, label }) => (
+            <label key={value} className={styles.filterOption}>
+              <input
+                type="radio"
+                name={groupName}
+                value={value}
+                checked={filter === value}
+                onChange={() => setFilter(value)}
+              />
+              {label} ({value === "all" ? results.length : counts.get(value) ?? 0})
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {filter !== "all" && !counts.has(filter) && (
+        <p className={styles.emptyCases} role="status">No cases match this verdict.</p>
+      )}
+      {results.map((result, index) =>
+        (filter === "all" || result.verdict === filter) && (
+          <CaseResultCard key={index} result={result} />
+        )
+      )}
+    </div>
+  );
+}
+
 export default function EvalReportView({ report }: EvalReportViewProps) {
   const passRate =
     report.total > 0
@@ -148,12 +196,11 @@ export default function EvalReportView({ report }: EvalReportViewProps) {
         </NeonCard>
       )}
 
-      {/* Case results */}
-      <div className={styles.cases}>
-        {report.case_results.map((result) => (
-          <CaseResultCard key={result.name} result={result} />
-        ))}
-      </div>
+      {report.case_results.length > 0 ? (
+        <CaseResults key={report.id} results={report.case_results} />
+      ) : (
+        <p className={styles.emptyCases}>This report has no case results.</p>
+      )}
     </div>
   );
 }
