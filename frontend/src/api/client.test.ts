@@ -216,6 +216,21 @@ describe("getAuditLog", () => {
     const result = await getAuditLog("acme", "my-skill", "2.0.0");
     expect(result).toEqual(response);
   });
+
+  it("requests a specific audit page and page size alongside a version filter", async () => {
+    const response = { items: [], total: 12, page: 3, page_size: 5, total_pages: 3 };
+    server.use(
+      http.get("/v1/skills/acme/my-skill/audit-log", ({ request }) => {
+        expect(Object.fromEntries(new URL(request.url).searchParams)).toEqual({
+          semver: "1.0.0+build.1",
+          page: "3",
+          page_size: "5",
+        });
+        return HttpResponse.json(response);
+      }),
+    );
+    expect(await getAuditLog("acme", "my-skill", "1.0.0+build.1", 3, 5)).toEqual(response);
+  });
 });
 
 describe("downloadSkillZip", () => {

@@ -37,7 +37,7 @@ import {
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
 import { useRecentlyViewed } from "../hooks/useRecentlyViewed";
-import type { SkillSummary, EvalReport, AuditLogEntry, CheckResult, PaginatedAuditLogResponse, ScanReport, SkillFile, SimilarSkillRef } from "../types/api";
+import type { SkillSummary, EvalReport, CheckResult, ScanReport, SkillFile, SimilarSkillRef } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -115,24 +115,15 @@ export default function SkillDetailPage() {
     [orgSlug, skillName, skill?.latest_version]
   );
 
-  // Fetch audit log
-  const { data: auditLogResponse, loading: auditLoading } = useApi<PaginatedAuditLogResponse>(
-    () =>
-      orgSlug && skillName
-        ? getAuditLog(orgSlug, skillName)
-        : Promise.resolve({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 }),
-    [orgSlug, skillName]
-  );
-  const auditLog = auditLogResponse?.items ?? [];
-
   // Fetch Cisco scanner report (behind feature flag)
-  const { data: scanReport } = useApi<ScanReport | null>(
+  const scan = useApi<ScanReport | null>(
     () =>
       SHOW_SCANNER_REPORT && orgSlug && skillName
         ? getScanReport(orgSlug, skillName)
         : Promise.resolve(null),
     [orgSlug, skillName]
   );
+  const scanReport = scan.loading || scan.error ? null : scan.data;
 
   const { data: similarSkills, error: similarError } = useApi<SimilarSkillRef[]>(
     () =>
@@ -318,7 +309,12 @@ export default function SkillDetailPage() {
               <EvalsTab report={evalReport} loading={evalLoading} />
             )}
             {activeTab === "audit" && (
-              <AuditTab entries={auditLog ?? []} loading={auditLoading} scanReport={scanReport ?? undefined} />
+              <AuditTab
+                key={`${skill.org_slug}/${skill.skill_name}`}
+                orgSlug={skill.org_slug}
+                skillName={skill.skill_name}
+                scanReport={scanReport}
+              />
             )}
           </div>
         </div>
@@ -731,22 +727,23 @@ export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
 }
 
 function AuditTab({
-  entries,
-  loading,
+  orgSlug,
+  skillName,
   scanReport,
 }: {
-  entries: AuditLogEntry[];
-  loading: boolean;
-  scanReport?: ScanReport;
+  orgSlug: string;
+  skillName: string;
+  scanReport: ScanReport | null;
 }) {
-  if (loading) return <LoadingSpinner text="Loading audit log..." />;
-  if (entries.length === 0 && !scanReport) {
-    return (
-      <div className={styles.emptyTab}>
-        <Shield size={48} />
-        <p>No audit log entries found</p>
-      </div>
-    );
+  const [requestedPage, setRequestedPage] = useState(1);
+  const { data, loading, error, refetch } = useApi(
+    () => getAuditLog(orgSlug, skillName, undefined, requestedPage),
+    [orgSlug, skillName, requestedPage],
+  );
+
+  function goToPage(page: number) {
+    if (page === requestedPage) refetch();
+    else setRequestedPage(page);
   }
 
   return (
@@ -762,7 +759,55 @@ function AuditTab({
           </NeonCard>
         </div>
       )}
-      {entries.map((entry) => (
+      <div id="gauntlet-history">
+        {loading && !data && (
+          <div role="status"><LoadingSpinner text="Loading audit log..." /></div>
+        )}
+        {data && data.total > 0 && (
+          <div className={styles.auditPager}>
+            <p role="status" className={styles.auditPageStatus}>
+              {data.total.toLocaleString()} audit {data.total === 1 ? "entry" : "entries"} ·{" "}
+              {data.page <= data.total_pages
+                ? `Page ${data.page} of ${data.total_pages}`
+                : `Page ${data.page} is no longer available`}
+              {loading && ` · Loading page ${requestedPage}…`}
+            </p>
+            {(data.total_pages > 1 || data.page > 1) && (
+              <nav className={styles.auditPageControls} aria-label="Audit history pages">
+                <button
+                  type="button"
+                  className={styles.auditPageButton}
+                  disabled={loading || data.page <= 1}
+                  onClick={() => goToPage(Math.min(data.page - 1, data.total_pages))}
+                >
+                  Previous page
+                </button>
+                <button
+                  type="button"
+                  className={styles.auditPageButton}
+                  disabled={loading || data.page >= data.total_pages}
+                  onClick={() => goToPage(data.page + 1)}
+                >
+                  Next page
+                </button>
+              </nav>
+            )}
+          </div>
+        )}
+        {error && (
+          <div className={styles.auditPager}>
+            <p role="alert">Could not load audit page {requestedPage}.</p>
+            <button type="button" className={styles.auditPageButton} onClick={refetch}>Retry</button>
+          </div>
+        )}
+        {data?.total === 0 && (
+          <div className={styles.emptyTab}>
+            <Shield size={48} />
+            <p>No audit log entries found</p>
+          </div>
+        )}
+      </div>
+      {data?.items.map((entry) => (
         <NeonCard
           key={entry.id}
           glow={entry.grade === "F" ? "pink" : entry.grade === "A" ? "green" : "cyan"}

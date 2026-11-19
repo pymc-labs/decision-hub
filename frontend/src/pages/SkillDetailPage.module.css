@@ -475,6 +475,48 @@ a.metaItem:hover {
   gap: 12px;
 }
 
+.auditPager,
+.auditPageControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.auditPager {
+  font-size: var(--text-sm);
+}
+
+.auditPageStatus {
+  flex: 1 1 auto;
+  color: var(--text-secondary);
+}
+
+.auditPageButton {
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--neon-cyan);
+  font: inherit;
+  cursor: pointer;
+}
+
+.auditPageButton:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+
+.auditPageButton:hover:not(:disabled) {
+  border-color: var(--neon-cyan);
+}
+
+.auditPageButton:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .auditEntry {
   display: flex;
   flex-direction: column;
@@ -747,6 +789,10 @@ a.metaItem:hover {
   .checkGrid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .auditPageStatus {
+    flex-basis: 100%;
+  }
 }
 
 @media (max-width: 480px) {
@@ -782,6 +828,18 @@ a.metaItem:hover {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .auditPager {
+    font-size: var(--text-xs);
+  }
+
+  .auditPageControls {
+    width: 100%;
+  }
+
+  .auditPageButton {
+    flex: 1 1 auto;
   }
 
   .checkGrid {

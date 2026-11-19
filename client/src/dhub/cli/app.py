@@ -75,6 +75,7 @@ from dhub.cli.registry import (  # noqa: E402
 )
 from dhub.cli.runtime import run_command  # noqa: E402
 from dhub.cli.search import ask_command  # noqa: E402
+from dhub.cli.similar import similar_command  # noqa: E402
 
 app.command("login")(login_command)
 app.command("logout")(logout_command)
@@ -91,6 +92,7 @@ app.command("eval-report")(eval_report_command)
 app.command("logs")(logs_command)
 app.command("run")(run_command)
 app.command("ask")(ask_command)
+app.command("similar")(similar_command)
 app.command("update")(update_command)
 app.command("visibility")(visibility_command)
 

@@ -126,11 +126,14 @@ export async function getEvalReport(
 export async function getAuditLog(
   orgSlug: string,
   skillName: string,
-  semver?: string
+  semver?: string,
+  page = 1,
+  pageSize = 20,
 ): Promise<PaginatedAuditLogResponse> {
-  const qs = semver ? `?semver=${encodeURIComponent(semver)}` : "";
+  const qs = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (semver) qs.set("semver", semver);
   return fetchJSON<PaginatedAuditLogResponse>(
-    `/v1/skills/${orgSlug}/${skillName}/audit-log${qs}`
+    `/v1/skills/${orgSlug}/${skillName}/audit-log?${qs}`
   );
 }
 
