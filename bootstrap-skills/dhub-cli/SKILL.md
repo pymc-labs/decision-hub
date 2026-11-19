@@ -19,11 +19,14 @@ pipx install dhub-cli       # via pipx
 dhub login              Authenticate via GitHub
 dhub logout             Remove stored token
 dhub env                Show active environment, config path, API URL
-dhub init [path]        Scaffold a new skill project
+dhub init [path]        Scaffold a skill (use --name and --description in scripts)
+dhub validate [path]    Check a local SKILL.md before publishing
 dhub publish [ref]      Publish skill(s) — from dir or git repo
 dhub install org/skill  Install a skill from the registry
 dhub uninstall org/skill  Remove a locally installed skill
-dhub list               List all published skills
+dhub installed          Show local skills, versions and linked agents
+dhub list               Browse published skills by org, category, grade or sort order
+dhub similar org/skill  Find related public skills
 dhub delete org/skill   Delete skill versions from registry
 dhub run org/skill      Run a locally installed skill
 dhub ask "query"        Natural language skill search

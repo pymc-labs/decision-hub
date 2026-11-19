@@ -225,6 +225,7 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 | `dhub install ORG/SKILL --agent claude-code` | Download and symlink into a specific agent |
 | `dhub install ORG/SKILL -v VERSION` | Install a specific version |
 | `dhub install ORG/SKILL --allow-risky` | Allow installing C-grade skills |
+| `dhub installed` | Show local skills, installed versions and linked agents |
 | `dhub uninstall ORG/SKILL` | Remove a skill and its agent symlinks |
 | `dhub run ORG/SKILL [ARGS...]` | Run a locally installed skill |
 
@@ -235,9 +236,14 @@ dhub publish https://github.com/org/repo --no-track  # skip auto-tracking
 | `dhub list` | List all published skills |
 | `dhub list --org ORG` | Filter by organization |
 | `dhub list --skill NAME` | Filter by skill name |
+| `dhub list --grade A --category "Data Science & Statistics" --sort downloads` | Find popular skills matching a grade and category |
+| `dhub similar ORG/SKILL` | Find related skills in the registry |
 | `dhub info ORG/SKILL` | Show detailed information about a skill |
 | `dhub ask "QUERY"` | Natural language search |
-| `dhub init [PATH]` | Scaffold a new skill project |
+| `dhub init [PATH] --name NAME --description TEXT` | Scaffold a skill in a script, or omit the flags for prompts |
+| `dhub validate [PATH]` | Check a local skill manifest before publishing |
+
+On the web, the Skills directory keeps your search and filters in the URL so you can share the results. Open a skill to copy a version-pinned install command, search its files by path, filter evaluation cases by verdict, or page through its audit history.
 
 ### Evals
 

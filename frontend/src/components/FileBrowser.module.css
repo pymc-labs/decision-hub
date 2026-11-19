@@ -1,6 +1,7 @@
 .browser {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 248px minmax(0, 1fr);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
@@ -10,9 +11,11 @@
 }
 
 .sidebar {
-  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-bottom: 1px solid var(--border-color);
   background: var(--bg-dark);
-  overflow-y: auto;
 }
 
 .sidebarHeader {
@@ -39,8 +42,62 @@
   color: var(--neon-cyan);
 }
 
+.filter {
+  position: relative;
+  margin: 8px 12px 4px;
+}
+
+.filter input {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 40px 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-darkest);
+  color: var(--text-primary);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--text-body);
+}
+
+.filter input::placeholder {
+  color: var(--text-secondary);
+}
+
+.filter input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.filter button {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 40px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.filter :focus-visible,
+.treeItem:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: -2px;
+}
+
+.resultStatus {
+  padding: 2px 12px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.resultStatus:empty {
+  padding: 0;
+}
+
 .tree {
   padding: 4px 0;
+  overflow: auto;
 }
 
 .treeItem {
@@ -57,6 +114,7 @@
   cursor: pointer;
   transition: all 0.15s ease;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .treeItem:hover {
@@ -99,9 +157,12 @@
   font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-xs);
   color: var(--neon-cyan);
+  overflow-wrap: anywhere;
 }
 
 .editorSize {
+  flex-shrink: 0;
+  margin-left: 8px;
   font-family: 'Share Tech Mono', monospace;
   font-size: var(--text-xs);
   color: var(--text-muted);
@@ -127,14 +188,25 @@
   font-size: var(--text-sm);
 }
 
-@media (max-width: 768px) {
+@media (min-width: 480px) {
+  .filter {
+    margin-inline: 16px;
+  }
+}
+
+@media (min-width: 768px) {
   .browser {
-    grid-template-columns: 1fr;
-    grid-template-rows: 200px 1fr;
+    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    border-bottom: none;
+  }
+
+  .filter input {
+    min-height: 36px;
+    font-size: var(--text-xs);
   }
 }

@@ -1,5 +1,6 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Link } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -10,6 +11,9 @@ import {
   makeAuditLogEntry,
 } from "../test/helpers";
 import SkillDetailPage from "./SkillDetailPage";
+import * as api from "../api/client";
+import * as featureFlags from "../featureFlags";
+import type { PaginatedAuditLogResponse } from "../types/api";
 
 // --- Test data ---
 
@@ -134,6 +138,17 @@ function renderPage() {
   });
 }
 
+// The endpoint returns 20 newest-first entries by default. Page two contains
+// the oldest entry, which makes the server total distinct from either page size.
+function auditPage(page: number): PaginatedAuditLogResponse {
+  const entries = Array.from({ length: 21 }, (_, index) => makeAuditLogEntry({
+    id: `audit-${index}`,
+    publisher: `publisher-${21 - index}`,
+    check_results: [],
+  }));
+  return { items: entries.slice((page - 1) * 20, page * 20), page, total: 21, page_size: 20, total_pages: 2 };
+}
+
 // --- Tests ---
 
 describe("SkillDetailPage", () => {
@@ -179,25 +194,103 @@ describe("SkillDetailPage", () => {
     );
   });
 
-  it("shows install button and copies to clipboard on click", async () => {
-    // userEvent.setup() replaces navigator.clipboard, so we must set up
-    // the spy *after* calling setup() to intercept the correct object.
+  it.each([
+    ["A", ""],
+    ["C", " --allow-risky"],
+  ])("shows and copies the latest and exact commands for grade %s", async (grade, riskFlag) => {
+    server.use(http.get("/v1/skills/acme/data-tool/summary", () =>
+      HttpResponse.json({ ...SKILL, safety_rating: grade }),
+    ));
     const user = userEvent.setup();
-
     renderPage();
-    await screen.findByText("data-tool");
+    const version = await screen.findByRole("combobox", { name: "Install version" });
+    const latest = `dhub install acme/data-tool --agent all${riskFlag}`;
+    const pinned = `dhub install acme/data-tool --version 2.1.0 --agent all${riskFlag}`;
+    expect(version).toHaveDisplayValue("Latest");
 
-    const clipboardSpy = vi.spyOn(navigator.clipboard, "writeText");
+    async function expectVisibleCommandCopied(command: string) {
+      const displayed = screen.getByText(command);
+      await user.click(screen.getByRole("button", { name: "Copy install command" }));
+      expect(await navigator.clipboard.readText()).toBe(displayed.textContent);
+      expect(screen.getByText("Copied!")).toBeInTheDocument();
+    }
 
-    const installBtn = screen.getByText("dhub install");
-    await user.click(installBtn);
+    await expectVisibleCommandCopied(latest);
+    await user.selectOptions(version, screen.getByRole("option", { name: "Exact (2.1.0)" }));
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+    await expectVisibleCommandCopied(pinned);
+    await user.selectOptions(version, "latest");
+    expect(screen.getByText(latest)).toBeInTheDocument();
+    expect(screen.queryByText(pinned)).not.toBeInTheDocument();
+  });
 
-    expect(clipboardSpy).toHaveBeenCalledWith(
-      "dhub install acme/data-tool --agent all",
+  it("reports a rejected copy and allows a successful retry", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("Permission denied"));
+    renderPage();
+    const copy = await screen.findByRole("button", { name: "Copy install command" });
+    await user.click(copy);
+    expect(screen.getByRole("status")).toHaveTextContent(/copy the command manually/i);
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+    expect(screen.getByText("dhub install acme/data-tool --agent all")).toBeVisible();
+    await user.click(copy);
+    expect(screen.getByRole("status")).toHaveTextContent("Copied!");
+  });
+
+  it("offers manual copy when the clipboard API is unavailable", async () => {
+    const user = userEvent.setup();
+    // The DOM types assume a secure context. HTTP pages can lack this property.
+    Reflect.deleteProperty(navigator, "clipboard");
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Copy install command" }));
+    expect(screen.getByRole("status")).toHaveTextContent(/copy the command manually/i);
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+  });
+
+  it("ignores a pending copy after changing the selected command", async () => {
+    const user = userEvent.setup();
+    let finishCopy!: () => void;
+    vi.spyOn(navigator.clipboard, "writeText").mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishCopy = resolve;
+    }));
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Copy install command" }));
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Install version"), "exact");
+    await act(async () => finishCopy());
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+  });
+
+  it("resets the install version and copy feedback when navigating to another skill", async () => {
+    const otherSkill = "/v1/skills/other/data-tool";
+    server.use(
+      http.get(`${otherSkill}/summary`, () =>
+        HttpResponse.json({ ...SKILL, org_slug: "other", latest_version: "3.0.0" }),
+      ),
+      http.get(`${otherSkill}/eval-report`, () => HttpResponse.json(null)),
+      http.get(`${otherSkill}/similar`, () => HttpResponse.json([])),
+      http.get(`${otherSkill}/audit-log`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 }),
+      ),
+      http.get(`${otherSkill}/download`, () => new HttpResponse(EMPTY_ZIP)),
     );
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <Link to="/skills/other/data-tool">Other skill</Link>
+        <SkillDetailPage />
+      </>,
+      { initialEntries: ["/skills/acme/data-tool"], path: "/skills/:orgSlug/:skillName" },
+    );
+    const version = await screen.findByLabelText("Install version");
+    await user.selectOptions(version, screen.getByRole("option", { name: "Exact (2.1.0)" }));
+    await user.click(screen.getByRole("button", { name: "Copy install command" }));
     expect(screen.getByText("Copied!")).toBeInTheDocument();
-
-    clipboardSpy.mockRestore();
+    await user.click(screen.getByRole("link", { name: "Other skill" }));
+    expect(await screen.findByText("dhub install other/data-tool --agent all")).toBeVisible();
+    expect(screen.getByLabelText("Install version")).toHaveDisplayValue("Latest");
+    expect(screen.getByRole("option", { name: "Exact (3.0.0)" })).toBeInTheDocument();
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
   });
 
   it("switches to evals tab and shows eval report", async () => {
@@ -248,6 +341,7 @@ describe("SkillDetailPage", () => {
     });
     expect(screen.getByText(/alice@example\.com/)).toBeInTheDocument();
     expect(screen.getByText(/bob@example\.com/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Cisco Skill Scanner" })).not.toBeInTheDocument();
   });
 
   it("shows check results in audit entries", async () => {
@@ -261,6 +355,125 @@ describe("SkillDetailPage", () => {
       expect(screen.getByText("No shell commands found")).toBeInTheDocument();
     });
     expect(screen.getByText("No data exfiltration")).toBeInTheDocument();
+  });
+
+  it("pages through audit history by keyboard and retries the failed page", async () => {
+    const requests: number[] = [];
+    server.use(http.get("/v1/skills/acme/data-tool/audit-log", ({ request }) => {
+      const page = Number(new URL(request.url).searchParams.get("page") ?? 1);
+      if (page === 2 && !requests.includes(2)) {
+        requests.push(page);
+        return new HttpResponse(null, { status: 503 });
+      }
+      requests.push(page);
+      return HttpResponse.json(auditPage(page));
+    }));
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Audit Log" }));
+
+    const nav = within(await screen.findByRole("navigation", { name: "Audit history pages" }));
+    const previous = nav.getByRole("button", { name: "Previous page" });
+    const next = nav.getByRole("button", { name: "Next page" });
+    expect(previous).toBeDisabled();
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("21 audit entries · Page 1 of 2");
+    next.focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not load audit page 2/i);
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("Page 1 of 2");
+    expect(screen.getByText("by publisher-21")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("by publisher-1");
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("21 audit entries · Page 2 of 2");
+    expect(next).toBeDisabled();
+    expect(screen.queryByText("by publisher-21")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(previous);
+    await screen.findByText("by publisher-21");
+    expect(previous).toBeDisabled();
+    expect(requests).toEqual([1, 2, 2, 1]);
+  });
+
+  it("can return to the remaining page if older entries disappear between requests", async () => {
+    const firstPage = auditPage(1);
+    server.use(http.get("/v1/skills/acme/data-tool/audit-log", ({ request }) => {
+      const page = Number(new URL(request.url).searchParams.get("page"));
+      if (page === 1) return HttpResponse.json(firstPage);
+      firstPage.total = 20;
+      firstPage.total_pages = 1;
+      return HttpResponse.json({ ...firstPage, page, items: [] });
+    }));
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Audit Log" }));
+    await user.click(await screen.findByRole("button", { name: "Next page" }));
+    await screen.findByText(/Page 2 is no longer available/);
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    await screen.findByText("by publisher-21");
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("20 audit entries · Page 1 of 1");
+  });
+
+  it("starts the next skill at page one and ignores a late page from the previous skill", async () => {
+    let finishOldPage!: (page: PaginatedAuditLogResponse) => void;
+    const oldPage = new Promise<PaginatedAuditLogResponse>((resolve) => { finishOldPage = resolve; });
+    const requests: [string, number][] = [];
+    const fetchAudit = vi.spyOn(api, "getAuditLog").mockImplementation((org, _skill, _semver, page = 1) => {
+      requests.push([org, page]);
+      if (org === "acme") return page === 1 ? Promise.resolve(auditPage(1)) : oldPage;
+      return Promise.resolve({ items: [], total: 0, page, page_size: 20, total_pages: 1 });
+    });
+    server.use(
+      http.get("/v1/skills/acme/data-tool/similar", () => HttpResponse.json([{ ...SKILL, org_slug: "other" }])),
+      http.get("/v1/skills/other/data-tool/summary", () => HttpResponse.json({ ...SKILL, org_slug: "other" })),
+      http.get("/v1/skills/other/data-tool/eval-report", () => HttpResponse.json(null)),
+      http.get("/v1/skills/other/data-tool/similar", () => HttpResponse.json([])),
+    );
+    try {
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByRole("button", { name: "Audit Log" }));
+      await user.click(await screen.findByRole("button", { name: "Next page" }));
+      await waitFor(() => expect(requests).toContainEqual(["acme", 2]));
+      await user.click(screen.getByRole("link", { name: /other\/data-tool/ }));
+      await screen.findByText("No audit log entries found");
+      await act(async () => { finishOldPage(auditPage(2)); });
+
+      expect(requests).toEqual([["acme", 1], ["acme", 2], ["other", 1]]);
+      expect(screen.getByText("No audit log entries found")).toBeInTheDocument();
+      expect(screen.queryByText("by publisher-1")).not.toBeInTheDocument();
+      expect(screen.queryByRole("navigation", { name: "Audit history pages" })).not.toBeInTheDocument();
+    } finally {
+      fetchAudit.mockRestore();
+    }
+  });
+
+  it("keeps the enabled scanner visible when the first audit page fails and retries to empty history", async () => {
+    const flags: { SHOW_SCANNER_REPORT: boolean } = featureFlags;
+    const scannerFlag = vi.spyOn(flags, "SHOW_SCANNER_REPORT", "get").mockReturnValue(true);
+    server.use(
+      http.get("/v1/skills/acme/data-tool/scan-report", () => HttpResponse.json({
+        max_severity: "SAFE", findings: [], analyzers_used: ["static"],
+      })),
+      http.get("/v1/skills/acme/data-tool/audit-log", () =>
+        new HttpResponse(null, { status: 503 }), { once: true }),
+      http.get("/v1/skills/acme/data-tool/audit-log", () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 })),
+    );
+    try {
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByRole("button", { name: "Audit Log" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(/could not load audit page 1/i);
+      const scanner = await screen.findByRole("link", { name: "Cisco Skill Scanner" });
+      expect(screen.queryByText("No audit log entries found")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect(await screen.findByText("No audit log entries found")).toBeInTheDocument();
+      expect(scanner).toBeInTheDocument();
+    } finally {
+      scannerFlag.mockRestore();
+    }
   });
 
   it("switches to files tab", async () => {
@@ -339,4 +552,22 @@ describe("SkillDetailPage", () => {
       expect(alert.textContent).toMatch(/Download failed/i);
     });
   });
+});
+
+it("does not offer the previous skill's details or install action when a linked skill disappears", async () => {
+  server.use(
+    http.get("/v1/skills/acme/data-tool/similar", () =>
+      HttpResponse.json([{ ...SKILL, org_slug: "retired" }]),
+    ),
+    http.get("/v1/skills/retired/data-tool/summary", () => new HttpResponse(null, { status: 404 })),
+    http.get("/v1/skills/retired/data-tool/similar", () => HttpResponse.json([])),
+    http.get("/v1/skills/retired/data-tool/eval-report", () => HttpResponse.json(null)),
+    http.get("/v1/skills/retired/data-tool/download", () => new HttpResponse(EMPTY_ZIP)),
+  );
+  const user = userEvent.setup();
+  renderPage();
+  await user.click(await screen.findByRole("link", { name: /retired\/data-tool/ }));
+  expect(await screen.findByText("Skill not found: retired/data-tool")).toBeInTheDocument();
+  expect(screen.queryByText("Analyzes datasets")).not.toBeInTheDocument();
+  expect(screen.queryByText(/dhub install/)).not.toBeInTheDocument();
 });

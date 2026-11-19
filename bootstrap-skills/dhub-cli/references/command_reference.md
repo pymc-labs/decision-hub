@@ -57,14 +57,16 @@ No options. Displays the current `DHUB_ENV` value, resolved config path, and API
 Scaffold a new skill project with SKILL.md and src/ directory.
 
 ```
-dhub init [PATH]
+dhub init [PATH] [--name NAME] [--description TEXT]
 ```
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PATH` | no | current directory | Where to create the skill |
 
-Interactive — prompts for skill name and description. Validates name against pattern `^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`.
+Prompts for the skill name or description when its option is omitted. Validates name against pattern `^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`.
+
+When both options are supplied, the command runs without prompting. For an explicit parent directory other than `.`, it creates a subdirectory named after the skill. In the current directory it creates the files in place.
 
 **Creates:**
 ```
@@ -72,6 +74,12 @@ skill-name/
   SKILL.md
   src/
 ```
+
+---
+
+## dhub validate
+
+Run `dhub validate [PATH]` to check a local skill directory or its SKILL.md before publishing. Omit the path to check the current directory. An invalid manifest exits with a nonzero status. Use `dhub --output json validate [PATH]` for automation.
 
 ---
 
@@ -156,6 +164,12 @@ dhub install ORG/SKILL [--version VER] [--agent AGENT] [--allow-risky]
 
 ---
 
+## dhub installed
+
+Run `dhub installed` to see which skills are installed locally, the recorded versions, and which agents link to them. Use `dhub --output json installed` for an array of `ref`, `version` and `agents` records. Older installs without version metadata have a null version.
+
+---
+
 ## dhub uninstall
 
 Remove a locally installed skill and all its agent symlinks.
@@ -181,9 +195,19 @@ dhub list --org ORG          # filter by organization
 dhub list --skill NAME       # filter by skill name (substring match)
 dhub list --page-size 20     # items per page (default 50, max 100)
 dhub list --all              # dump all pages without prompting
+dhub list --grade A --category "Data Science & Statistics" --sort downloads
+dhub list --sort name --sort-dir asc
 ```
 
-Displays a table with columns: Org, Skill, Category, Version, Updated (YYYY-MM-DD), Safety (grade), Downloads, Author, Description.
+The table shows the organization, skill, category, version, update date, safety grade, downloads, author and description.
+
+The registry applies the filters to every page. Use comma-separated category names for multiple categories. `--grade` accepts A, B, C or F. `--sort` accepts `updated`, `name`, `downloads`, `github_stars` or `safety_rating`. `--sort-dir` accepts `asc` or `desc`. The default order is downloads descending.
+
+---
+
+## dhub similar
+
+Run `dhub similar ORG/SKILL` to find up to five related public skills. Results are based on the registry embeddings. Use `dhub --output json similar ORG/SKILL` to read the results in a script.
 
 ---
 

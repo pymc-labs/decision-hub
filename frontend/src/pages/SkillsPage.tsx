@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { Link, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { Search, Package, Filter, User, Tag, Layers, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 import { listSkillsFiltered, getTaxonomy, listOrgProfiles, getRegistryStats } from "../api/client";
 import type { SkillSortField } from "../api/client";
@@ -15,20 +15,102 @@ import styles from "./SkillsPage.module.css";
 
 const PAGE_SIZE = 12;
 const DEBOUNCE_MS = 300;
+const MAX_SEARCH_LENGTH = 200;
+const MAX_FACET_LENGTH = 100;
+const SORT_OPTIONS = [
+  ["updated", "Latest"],
+  ["name", "Name"],
+  ["downloads", "Downloads"],
+  ["github_stars", "Stars"],
+  ["safety_rating", "Safety"],
+] as const satisfies ReadonlyArray<readonly [SkillSortField, string]>;
+const GRADES = [["A", "Safe"], ["B", "Elevated"], ["C", "Risky"]] as const;
+
+function defaultDirFor(field: SkillSortField) {
+  return field === "name" || field === "safety_rating" ? "asc" : "desc";
+}
+
+function queryText(raw: string | null) {
+  return (raw ?? "").replace(/\p{Cc}+/gu, " ").trim();
+}
+
+function facetValue(raw: string | null) {
+  const value = queryText(raw);
+  return value === "all" || Array.from(value).length > MAX_FACET_LENGTH ? "" : value;
+}
+
+function readFilters(params: URLSearchParams) {
+  const sort = SORT_OPTIONS.find(([field]) => field === params.get("sort"))?.[0] ?? "updated";
+  const direction = params.get("sort_dir");
+  const sortDir = direction === "asc" || direction === "desc" ? direction : defaultDirFor(sort);
+  return {
+    search: Array.from(queryText(params.get("search"))).slice(0, MAX_SEARCH_LENGTH).join(""),
+    org: facetValue(params.get("org")),
+    category: facetValue(params.get("category")),
+    grade: GRADES.find(([grade]) => grade === params.get("grade"))?.[0] ?? "",
+    sort,
+    sort_dir: sortDir,
+  } as const;
+}
+
+function writeFilters(params: URLSearchParams, filters: ReturnType<typeof readFilters>) {
+  const next = new URLSearchParams(params);
+  const values = {
+    ...filters,
+    sort: filters.sort === "updated" ? "" : filters.sort,
+    sort_dir: filters.sort_dir === defaultDirFor(filters.sort) ? "" : filters.sort_dir,
+  };
+  for (const [key, value] of Object.entries(values)) {
+    if (value) next.set(key, value);
+    else next.delete(key);
+  }
+  return next.toString();
+}
+
+const DEFAULT_FILTERS = readFilters(new URLSearchParams());
 
 export default function SkillsPage() {
-  const [searchInput, setSearchInput] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [orgFilter, setOrgFilter] = useState<string>("all");
-  const [gradeFilter, setGradeFilter] = useState<string>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<SkillSortField>("updated");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navigationType = useNavigationType();
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const filters = useMemo(() => readFilters(params), [params]);
+  const { search, org, category, grade, sort, sort_dir: sortDir } = filters;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [viewMode, setViewMode] = useState<"grid" | "grouped">("grid");
 
-  // Natural default direction for each sort field
-  const defaultDirFor = (field: SkillSortField): "asc" | "desc" =>
-    field === "name" || field === "safety_rating" ? "asc" : "desc";
+  useEffect(() => {
+    const canonical = writeFilters(params, filters);
+    if (canonical !== params.toString()) {
+      void navigate({ search: canonical, hash: location.hash }, { replace: true });
+    }
+  }, [params, filters, navigate, location.hash]);
+
+  // A history change cancels typing on the old entry. Preserve the caret and
+  // trailing space when our own debounced edit is the navigation that finished.
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (input && (navigationType === "POP" || input.value.trim() !== search)) {
+      input.value = search;
+    }
+    return () => clearTimeout(debounceRef.current);
+  }, [location.key, navigationType, search]);
+
+  function updateFilters(changes: Partial<typeof filters> = {}) {
+    clearTimeout(debounceRef.current);
+    const next = writeFilters(params, {
+      ...filters,
+      search: queryText(inputRef.current?.value ?? search),
+      ...changes,
+    });
+    if (next !== params.toString()) void navigate({ search: next, hash: location.hash });
+  }
+
+  function resetFilters() {
+    if (inputRef.current) inputRef.current.value = "";
+    updateFilters(DEFAULT_FILTERS);
+  }
 
   useSEO({
     title: "Skills",
@@ -45,33 +127,23 @@ export default function SkillsPage() {
     [stats],
   );
 
-  // Debounce the search input
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => {
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(searchInput);
-    }, DEBOUNCE_MS);
-    return () => clearTimeout(debounceRef.current);
-  }, [searchInput]);
-
-  // Build API fetcher for infinite scroll
   const fetchPage = useCallback(
     (page: number) =>
       listSkillsFiltered({
         page,
         pageSize: PAGE_SIZE,
-        search: debouncedSearch || undefined,
-        org: orgFilter !== "all" ? orgFilter : undefined,
-        category: categoryFilter !== "all" ? categoryFilter : undefined,
-        grade: gradeFilter !== "all" ? gradeFilter : undefined,
-        sort: sortBy,
+        search: search || undefined,
+        org: org || undefined,
+        category: category || undefined,
+        grade: grade || undefined,
+        sort,
         sortDir,
       }),
-    [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy, sortDir],
+    [search, org, category, grade, sort, sortDir],
   );
 
   const { items, total, loading, loadingMore, error, hasMore, sentinelRef, retry } =
-    useInfiniteScroll(fetchPage, [debouncedSearch, orgFilter, categoryFilter, gradeFilter, sortBy, sortDir]);
+    useInfiniteScroll(fetchPage, [fetchPage]);
 
   const orgs = useMemo(
     () => (orgProfiles ?? []).map((p) => p.slug).sort(),
@@ -88,16 +160,8 @@ export default function SkillsPage() {
     return groups;
   }, [items]);
 
-  if (loading && items.length === 0) return <LoadingSpinner text="Loading skills..." />;
-  if (error && items.length === 0) {
-    return (
-      <div className="container">
-        <NeonCard glow="pink">
-          <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
-        </NeonCard>
-      </div>
-    );
-  }
+  const hasCategoryOption = activeCategories.has(category)
+    && Object.values(taxonomy?.groups ?? {}).some((group) => group.includes(category));
 
   return (
     <div className="container">
@@ -106,9 +170,11 @@ export default function SkillsPage() {
           <Package size={28} />
           Skill Registry
         </h1>
-        <p className={styles.subtitle}>
-          {total} skills — each automatically evaluated and security-graded
-        </p>
+        {(items.length > 0 || (!loading && !error)) && (
+          <p className={styles.subtitle}>
+            {total.toLocaleString()} {total === 1 ? "skill" : "skills"}
+          </p>
+        )}
       </div>
 
       {/* Filters bar */}
@@ -117,9 +183,15 @@ export default function SkillsPage() {
           <Search size={16} className={styles.searchIcon} />
           <input
             type="text"
+            aria-label="Search skills"
             placeholder="Search skills, e.g. 'Bayesian modeling' or 'time series forecasting'..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            ref={inputRef}
+            defaultValue={search}
+            maxLength={MAX_SEARCH_LENGTH}
+            onChange={() => {
+              clearTimeout(debounceRef.current);
+              debounceRef.current = setTimeout(updateFilters, DEBOUNCE_MS);
+            }}
             className={styles.searchInput}
           />
         </div>
@@ -128,11 +200,12 @@ export default function SkillsPage() {
           <Filter size={14} />
           <select
             aria-label="Filter by organization"
-            value={orgFilter}
-            onChange={(e) => setOrgFilter(e.target.value)}
+            value={org}
+            onChange={(e) => updateFilters({ org: e.target.value })}
             className={styles.select}
           >
-            <option value="all">All Orgs</option>
+            <option value="">All Orgs</option>
+            {org && !orgs.includes(org) && <option value={org}>{org}</option>}
             {orgs.map((org) => (
               <option key={org} value={org}>
                 {org}
@@ -142,23 +215,24 @@ export default function SkillsPage() {
 
           <select
             aria-label="Filter by safety grade"
-            value={gradeFilter}
-            onChange={(e) => setGradeFilter(e.target.value)}
+            value={grade}
+            onChange={(e) => updateFilters({ grade: e.target.value as typeof grade })}
             className={styles.select}
           >
-            <option value="all">All Grades</option>
-            <option value="A">A - Safe</option>
-            <option value="B">B - Elevated</option>
-            <option value="C">C - Risky</option>
+            <option value="">All Grades</option>
+            {GRADES.map(([value, label]) => (
+              <option key={value} value={value}>{value} - {label}</option>
+            ))}
           </select>
 
           <select
             aria-label="Filter by category"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            value={category}
+            onChange={(e) => updateFilters({ category: e.target.value })}
             className={styles.select}
           >
-            <option value="all">All Categories</option>
+            <option value="">All Categories</option>
+            {category && !hasCategoryOption && <option value={category}>{category}</option>}
             {Object.entries(taxonomy?.groups ?? {}).map(([group, subcategories]) => {
               const activeSubs = subcategories.filter((sub) => activeCategories.has(sub));
               if (activeSubs.length === 0) return null;
@@ -178,24 +252,19 @@ export default function SkillsPage() {
         <div className={styles.sortGroup}>
           <select
             aria-label="Sort skills by"
-            value={sortBy}
+            value={sort}
             onChange={(e) => {
               const field = e.target.value as SkillSortField;
-              setSortBy(field);
-              setSortDir(defaultDirFor(field));
+              updateFilters({ sort: field, sort_dir: defaultDirFor(field) });
             }}
             className={styles.sortSelect}
           >
-            <option value="updated">Latest</option>
-            <option value="name">Name</option>
-            <option value="downloads">Downloads</option>
-            <option value="github_stars">Stars</option>
-            <option value="safety_rating">Safety</option>
+            {SORT_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
 
           <button
             className={styles.sortDirBtn}
-            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+            onClick={() => updateFilters({ sort_dir: sortDir === "asc" ? "desc" : "asc" })}
             title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"}
             aria-label="Toggle sort direction"
           >
@@ -209,11 +278,20 @@ export default function SkillsPage() {
           >
             <Layers size={16} />
           </button>
+          <button type="button" className={styles.resetBtn} onClick={resetFilters}>
+            Reset filters
+          </button>
         </div>
       </div>
 
       {/* Results */}
-      {items.length === 0 && !loading ? (
+      {items.length === 0 && loading ? (
+        <LoadingSpinner text="Loading skills..." />
+      ) : items.length === 0 && error ? (
+        <NeonCard glow="pink">
+          <p style={{ color: "var(--neon-pink)" }}>Error: {error}</p>
+        </NeonCard>
+      ) : items.length === 0 ? (
         <div className={styles.empty}>
           <Package size={48} />
           <p>No skills match your filters</p>

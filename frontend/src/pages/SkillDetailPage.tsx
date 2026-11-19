@@ -10,8 +10,6 @@ import {
   FolderOpen,
   User,
   Clock,
-  Copy,
-  Check,
   Github,
   GitFork,
   Star,
@@ -37,13 +35,14 @@ import {
 import { useApi } from "../hooks/useApi";
 import { useSEO } from "../hooks/useSEO";
 import { useRecentlyViewed } from "../hooks/useRecentlyViewed";
-import type { SkillSummary, EvalReport, AuditLogEntry, CheckResult, PaginatedAuditLogResponse, ScanReport, SkillFile, SimilarSkillRef } from "../types/api";
+import type { SkillSummary, EvalReport, CheckResult, ScanReport, SkillFile, SimilarSkillRef } from "../types/api";
 import NeonCard from "../components/NeonCard";
 import GradeBadge from "../components/GradeBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
 import EvalReportView from "../components/EvalReportView";
 import FileBrowser from "../components/FileBrowser";
 import ScannerReport from "../components/ScannerReport";
+import SkillInstallCommand from "./SkillInstallCommand";
 import { formatCheckName } from "./auditUtils";
 import { LINK_TO_MANIFEST, SHOW_SCANNER_REPORT } from "../featureFlags";
 import styles from "./SkillDetailPage.module.css";
@@ -58,6 +57,23 @@ export default function SkillDetailPage() {
     skillName: string;
   }>();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  return (
+    <SkillDetailContent
+      key={`${orgSlug}/${skillName}`}
+      orgSlug={orgSlug!}
+      skillName={skillName!}
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+    />
+  );
+}
+
+function SkillDetailContent({ orgSlug, skillName, activeTab, setActiveTab }: {
+  orgSlug: string;
+  skillName: string;
+  activeTab: Tab;
+  setActiveTab: (tab: Tab) => void;
+}) {
   const [zipData, setZipData] = useState<ArrayBuffer | null>(null);
   const [zipLoading, setZipLoading] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
@@ -65,28 +81,22 @@ export default function SkillDetailPage() {
   const [skillMdContent, setSkillMdContent] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const zipRetries = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  const mounted = useRef(false);
   useEffect(() => {
-    setZipData(null);
-    setZipError(null);
-    setZipLoading(false);
-    setFiles([]);
-    setSkillMdContent(null);
-    zipRetries.current = 0;
-    if (retryTimer.current) {
-      clearTimeout(retryTimer.current);
-      retryTimer.current = null;
-    }
-  }, [orgSlug, skillName]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
+  }, []);
 
   // Fetch single skill
   const { data: skill, loading: skillLoading } = useApi<SkillSummary>(
-    () => getSkill(orgSlug!, skillName!),
+    () => getSkill(orgSlug, skillName),
     [orgSlug, skillName]
   );
 
@@ -101,7 +111,7 @@ export default function SkillDetailPage() {
         safety_rating: skill.safety_rating ?? "",
       });
     }
-  }, [skill?.org_slug, skill?.skill_name, addRecentlyViewed]);
+  }, [skill, addRecentlyViewed]);
 
   // Fetch eval report
   const {
@@ -115,24 +125,15 @@ export default function SkillDetailPage() {
     [orgSlug, skillName, skill?.latest_version]
   );
 
-  // Fetch audit log
-  const { data: auditLogResponse, loading: auditLoading } = useApi<PaginatedAuditLogResponse>(
-    () =>
-      orgSlug && skillName
-        ? getAuditLog(orgSlug, skillName)
-        : Promise.resolve({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 }),
-    [orgSlug, skillName]
-  );
-  const auditLog = auditLogResponse?.items ?? [];
-
   // Fetch Cisco scanner report (behind feature flag)
-  const { data: scanReport } = useApi<ScanReport | null>(
+  const scan = useApi<ScanReport | null>(
     () =>
       SHOW_SCANNER_REPORT && orgSlug && skillName
         ? getScanReport(orgSlug, skillName)
         : Promise.resolve(null),
     [orgSlug, skillName]
   );
+  const scanReport = scan.loading || scan.error ? null : scan.data;
 
   const { data: similarSkills, error: similarError } = useApi<SimilarSkillRef[]>(
     () =>
@@ -199,6 +200,7 @@ export default function SkillDetailPage() {
       setZipData(buf);
       zipRetries.current = 0;
     } catch (err) {
+      if (!mounted.current) return;
       zipRetries.current += 1;
       if (zipRetries.current < MAX_ZIP_ATTEMPTS) {
         const delay = 2000 * zipRetries.current;
@@ -241,12 +243,6 @@ export default function SkillDetailPage() {
     } finally {
       setDownloading(false);
     }
-  };
-
-  const handleCopyInstall = () => {
-    navigator.clipboard.writeText(`dhub install ${orgSlug}/${skillName} --agent all`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   if (skillLoading) {
@@ -318,7 +314,11 @@ export default function SkillDetailPage() {
               <EvalsTab report={evalReport} loading={evalLoading} />
             )}
             {activeTab === "audit" && (
-              <AuditTab entries={auditLog ?? []} loading={auditLoading} scanReport={scanReport ?? undefined} />
+              <AuditTab
+                orgSlug={skill.org_slug}
+                skillName={skill.skill_name}
+                scanReport={scanReport}
+              />
             )}
           </div>
         </div>
@@ -418,10 +418,9 @@ export default function SkillDetailPage() {
               )}
             </div>
             <div className={styles.sidebarActions}>
-              <button onClick={handleCopyInstall} className={styles.installBtn}>
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                {copied ? "Copied!" : "dhub install"}
-              </button>
+              {skill.org_slug === orgSlug && skill.skill_name === skillName && (
+                <SkillInstallCommand skill={skill} />
+              )}
               <button onClick={handleDownload} disabled={downloading} className={styles.downloadBtn}>
                 <Download size={14} />
                 {downloading ? "Downloading..." : "Download .zip"}
@@ -731,22 +730,23 @@ export function CheckResultsGrid({ checks }: { checks: CheckResult[] }) {
 }
 
 function AuditTab({
-  entries,
-  loading,
+  orgSlug,
+  skillName,
   scanReport,
 }: {
-  entries: AuditLogEntry[];
-  loading: boolean;
-  scanReport?: ScanReport;
+  orgSlug: string;
+  skillName: string;
+  scanReport: ScanReport | null;
 }) {
-  if (loading) return <LoadingSpinner text="Loading audit log..." />;
-  if (entries.length === 0 && !scanReport) {
-    return (
-      <div className={styles.emptyTab}>
-        <Shield size={48} />
-        <p>No audit log entries found</p>
-      </div>
-    );
+  const [requestedPage, setRequestedPage] = useState(1);
+  const { data, loading, error, refetch } = useApi(
+    () => getAuditLog(orgSlug, skillName, undefined, requestedPage),
+    [orgSlug, skillName, requestedPage],
+  );
+
+  function goToPage(page: number) {
+    if (page === requestedPage) refetch();
+    else setRequestedPage(page);
   }
 
   return (
@@ -762,7 +762,55 @@ function AuditTab({
           </NeonCard>
         </div>
       )}
-      {entries.map((entry) => (
+      <div id="gauntlet-history">
+        {loading && !data && (
+          <div role="status"><LoadingSpinner text="Loading audit log..." /></div>
+        )}
+        {data && data.total > 0 && (
+          <div className={styles.auditPager}>
+            <p role="status" aria-label="Audit history" className={styles.auditPageStatus}>
+              {data.total.toLocaleString()} audit {data.total === 1 ? "entry" : "entries"} ·{" "}
+              {data.page <= data.total_pages
+                ? `Page ${data.page} of ${data.total_pages}`
+                : `Page ${data.page} is no longer available`}
+              {loading && ` · Loading page ${requestedPage}…`}
+            </p>
+            {(data.total_pages > 1 || data.page > 1) && (
+              <nav className={styles.auditPageControls} aria-label="Audit history pages">
+                <button
+                  type="button"
+                  className={styles.auditPageButton}
+                  disabled={loading || data.page <= 1}
+                  onClick={() => goToPage(Math.min(data.page - 1, data.total_pages))}
+                >
+                  Previous page
+                </button>
+                <button
+                  type="button"
+                  className={styles.auditPageButton}
+                  disabled={loading || data.page >= data.total_pages}
+                  onClick={() => goToPage(data.page + 1)}
+                >
+                  Next page
+                </button>
+              </nav>
+            )}
+          </div>
+        )}
+        {error && (
+          <div className={styles.auditPager}>
+            <p role="alert">Could not load audit page {requestedPage}.</p>
+            <button type="button" className={styles.auditPageButton} onClick={refetch}>Retry</button>
+          </div>
+        )}
+        {data?.total === 0 && (
+          <div className={styles.emptyTab}>
+            <Shield size={48} />
+            <p>No audit log entries found</p>
+          </div>
+        )}
+      </div>
+      {data?.items.map((entry) => (
         <NeonCard
           key={entry.id}
           glow={entry.grade === "F" ? "pink" : entry.grade === "A" ? "green" : "cyan"}

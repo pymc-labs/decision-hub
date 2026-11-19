@@ -1,10 +1,11 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SkillSummary } from "../types/api";
-import { renderWithRouter, makeSkill } from "../test/helpers";
+import { makeSkill } from "../test/helpers";
 import SkillsPage from "./SkillsPage";
 
 const SKILLS: SkillSummary[] = [
@@ -52,6 +53,8 @@ function filterSkillsHandler({ request }: { request: Request }) {
   const url = new URL(request.url);
   const search = url.searchParams.get("search")?.toLowerCase();
   const category = url.searchParams.get("category");
+  const org = url.searchParams.get("org");
+  const grade = url.searchParams.get("grade");
 
   let filtered = [...SKILLS];
   if (search) {
@@ -65,6 +68,8 @@ function filterSkillsHandler({ request }: { request: Request }) {
   if (category) {
     filtered = filtered.filter((s) => s.category === category);
   }
+  if (org) filtered = filtered.filter((s) => s.org_slug === org);
+  if (grade) filtered = filtered.filter((s) => s.safety_rating === grade);
 
   return HttpResponse.json({
     items: filtered,
@@ -83,11 +88,19 @@ const server = setupServer(
 );
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  vi.useRealTimers();
+});
 afterAll(() => server.close());
 
-function renderPage() {
-  return renderWithRouter(<SkillsPage />);
+function renderPage(url = "/skills") {
+  window.history.replaceState(null, "", url);
+  return render(
+    <BrowserRouter>
+      <Routes><Route path="/skills" element={<SkillsPage />} /></Routes>
+    </BrowserRouter>,
+  );
 }
 
 /** Wait for the skill grid to load (first skill name visible). */
@@ -95,17 +108,174 @@ async function waitForSkills() {
   await screen.findByText("api-gen");
 }
 
-/** Get the category <select> by finding the one with "All Categories". */
 function getCategorySelect(): HTMLSelectElement {
-  const selects = screen.getAllByRole("combobox") as HTMLSelectElement[];
-  const match = selects.find((s) =>
-    Array.from(s.options).some((o) => o.textContent === "All Categories"),
-  );
-  if (!match) throw new Error("Category select not found");
-  return match;
+  return screen.getByRole("combobox", { name: "Filter by category" });
+}
+
+function recordSkillRequests() {
+  const requests: URLSearchParams[] = [];
+  server.use(http.get("/v1/skills", (info) => {
+    requests.push(new URL(info.request.url).searchParams);
+    return filterSkillsHandler(info);
+  }));
+  return requests;
 }
 
 describe("SkillsPage", () => {
+  it("opens a shared URL with every control and the first results request in sync", async () => {
+    const requests = recordSkillRequests();
+    renderPage("/skills?search=api&org=acme&category=Backend+%26+APIs&grade=A&sort=downloads&sort_dir=asc");
+    await waitForSkills();
+    expect(screen.getByText("1 skill")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("api");
+    expect(screen.getByLabelText("Filter by organization")).toHaveValue("acme");
+    expect(getCategorySelect()).toHaveValue("Backend & APIs");
+    expect(screen.getByLabelText("Filter by safety grade")).toHaveValue("A");
+    expect(screen.getByLabelText("Sort skills by")).toHaveValue("downloads");
+    expect(screen.getByLabelText("Toggle sort direction")).toHaveAttribute("title", expect.stringMatching(/^Ascending/));
+    expect(screen.queryByText("llm-tool")).not.toBeInTheDocument();
+    expect(requests.map((params) => Object.fromEntries(params))).toEqual([{
+      page: "1", page_size: "12", search: "api", org: "acme", category: "Backend & APIs",
+      grade: "A", sort: "downloads", sort_dir: "asc",
+    }]);
+  });
+
+  it("shares edits, reopens the same empty search, and resets only registry parameters", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderPage("/skills?ref=one&ref=two#results");
+    await waitForSkills();
+    await user.selectOptions(screen.getByLabelText("Filter by organization"), "acme");
+    await user.selectOptions(getCategorySelect(), "AI & LLM");
+    await user.selectOptions(screen.getByLabelText("Filter by safety grade"), "A");
+    await user.selectOptions(screen.getByLabelText("Sort skills by"), "name");
+    expect(screen.getByLabelText("Toggle sort direction")).toHaveAttribute("title", expect.stringMatching(/^Ascending/));
+    await user.click(screen.getByLabelText("Toggle sort direction"));
+    await user.type(screen.getByRole("textbox"), "C++ & ML");
+    await screen.findByText("No skills match your filters");
+    const { pathname, search, hash } = window.location;
+    const params = new URLSearchParams(search);
+    expect(Object.fromEntries(params)).toEqual({
+      ref: "two", org: "acme", category: "AI & LLM", grade: "A", sort: "name", sort_dir: "desc", search: "C++ & ML",
+    });
+    expect(params.getAll("ref")).toEqual(["one", "two"]);
+    expect(hash).toBe("#results");
+
+    unmount();
+    renderPage(pathname + search + hash);
+    await screen.findByText("No skills match your filters");
+    expect(screen.getByRole("textbox")).toHaveValue("C++ & ML");
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await waitForSkills();
+    expect(window.location).toMatchObject({ search: "?ref=one&ref=two", hash });
+    expect(screen.getByRole("textbox")).toHaveValue("");
+    expect(screen.getByLabelText("Sort skills by")).toHaveValue("updated");
+  });
+
+  it("debounces typing into one history entry and cancels an unfinished edit on Back", async () => {
+    const requests = recordSkillRequests();
+    renderPage();
+    await waitForSkills();
+    const input = screen.getByRole("textbox");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.change(input, { target: { value: "a" } });
+    act(() => vi.advanceTimersByTime(200));
+    fireEvent.change(input, { target: { value: "api" } });
+    act(() => vi.advanceTimersByTime(299));
+    expect(window.location.search).toBe("");
+    expect(requests).toHaveLength(1);
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(window.location.search).toBe("?search=api");
+    fireEvent.change(input, { target: { value: "discard me" } });
+    await act(async () => {
+      window.history.back();
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    act(() => vi.advanceTimersByTime(300));
+    expect(window.location.search).toBe("");
+    expect(input).toHaveValue("");
+    await act(async () => {
+      window.history.forward();
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(input).toHaveValue("api");
+    vi.useRealTimers();
+    await waitFor(() => expect(requests.map((params) => params.get("search"))).toEqual([null, "api", null, "api"]));
+  });
+
+  it("applies a pending query with a filter change, and removes a blank query on its own", async () => {
+    const user = userEvent.setup();
+    renderPage("/skills?ref=catalog");
+    await waitForSkills();
+    const input = screen.getByRole("textbox");
+    await user.type(input, "api");
+    await user.selectOptions(getCategorySelect(), "Backend & APIs");
+    const combined = new URLSearchParams(window.location.search);
+    expect(combined.get("search")).toBe("api");
+    expect(combined.get("category")).toBe("Backend & APIs");
+    await user.clear(input);
+    await user.type(input, "   ");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("search")).toBe(false));
+    expect(new URLSearchParams(window.location.search).get("category")).toBe("Backend & APIs");
+  });
+
+  it("keeps malformed and oversized filter values out of requests", async () => {
+    const requests = recordSkillRequests();
+    const longValue = "x".repeat(201);
+    renderPage(`/skills?search=++&grade=F&sort=typo&sort_dir=sideways&org=${longValue}&category=${longValue}`);
+    await waitForSkills();
+    expect(requests.map((params) => Object.fromEntries(params))).toEqual([{
+      page: "1", page_size: "12", sort: "updated", sort_dir: "desc",
+    }]);
+    expect(screen.getByRole("textbox")).toHaveValue("");
+    expect(screen.getByLabelText("Filter by safety grade")).toHaveDisplayValue("All Grades");
+    expect(window.location.search).toBe("");
+  });
+
+  it("cleans a copied query once, retaining Unicode and repeated unrelated parameters", async () => {
+    const requests = recordSkillRequests();
+    const search = "🚀".repeat(200);
+    const params = new URLSearchParams([
+      ["search", "\u0000" + search + "extra"], ["search", "duplicate"],
+      ["grade", "B"], ["grade", "C"], ["ref", "one"], ["ref", "two"],
+    ]);
+    const historyLength = window.history.length;
+    renderPage("/skills?" + params);
+    await screen.findByText("No skills match your filters");
+    expect(screen.getByRole("textbox")).toHaveValue(search);
+    const cleaned = new URLSearchParams(window.location.search);
+    expect(cleaned.getAll("search")).toEqual([search]);
+    expect(cleaned.getAll("grade")).toEqual(["B"]);
+    expect(cleaned.getAll("ref")).toEqual(["one", "two"]);
+    expect(window.history.length).toBe(historyLength);
+    expect(requests.map((request) => request.get("search"))).toEqual([search]);
+  });
+
+  it("discards pending text on reset even when the URL is already clear", async () => {
+    const requests = recordSkillRequests();
+    renderPage("/skills?ref=one");
+    await waitForSkills();
+    const input = screen.getByRole("textbox");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.change(input, { target: { value: "draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+    await act(async () => { vi.advanceTimersByTime(300); });
+    expect(input).toHaveValue("");
+    expect(window.location.search).toBe("?ref=one");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("keeps unavailable facets visible and lets the reader recover from an empty link", async () => {
+    const user = userEvent.setup();
+    renderPage("/skills?org=retired&category=Old+category&sort=name&sort_dir=bad");
+    await screen.findByText("No skills match your filters");
+    expect(screen.getByLabelText("Filter by organization")).toHaveDisplayValue("retired");
+    expect(getCategorySelect()).toHaveDisplayValue("Old category");
+    expect(screen.getByLabelText("Toggle sort direction")).toHaveAttribute("title", expect.stringMatching(/^Ascending/));
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await waitForSkills();
+    expect(window.location.search).toBe("");
+  });
+
   it("renders all skills after loading", async () => {
     renderPage();
     await waitForSkills();
@@ -130,7 +300,7 @@ describe("SkillsPage", () => {
     const select = getCategorySelect();
     const optgroups = select.querySelectorAll("optgroup");
     expect(optgroups.length).toBeGreaterThan(0);
-    expect(select.value).toBe("all");
+    expect(select).toHaveDisplayValue("All Categories");
   });
 
   it("filters skills by category selection", async () => {

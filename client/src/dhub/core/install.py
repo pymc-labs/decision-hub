@@ -11,6 +11,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from dhub_core.validation import validate_semver
+
 # Filename used to track the installed version inside each skill directory.
 _VERSION_FILE = ".dhub-version"
 
@@ -296,23 +298,25 @@ def save_installed_version(org: str, skill_name: str, version: str, *, allow_ris
 def get_installed_version(org: str, skill_name: str) -> InstalledVersion | None:
     """Read the installed version from the skill's canonical directory.
 
-    Returns an ``InstalledVersion``, or ``None`` if no version file exists
-    (legacy install).
+    Return None when metadata is missing or damaged.
     """
     path = get_dhub_skill_path(org, skill_name) / _VERSION_FILE
-    if not path.exists():
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, UnicodeDecodeError):
         return None
-    raw = path.read_text(encoding="utf-8").strip()
     try:
         data = json.loads(raw)
-        return InstalledVersion(
-            version=data["version"],
-            allow_risky=data.get("allow_risky", False),
-        )
-    except (json.JSONDecodeError, KeyError):
-        # Fallback for plain-text version files (shouldn't exist in practice
-        # since this format ships with the same PR, but be defensive).
-        return InstalledVersion(version=raw)
+    except json.JSONDecodeError:
+        # Older installations can record just the version number.
+        data = {"version": raw}
+    if not isinstance(data, dict) or not isinstance(data.get("version"), str):
+        return None
+    try:
+        version = validate_semver(data["version"])
+    except ValueError:
+        return None
+    return InstalledVersion(version=version, allow_risky=data.get("allow_risky") is True)
 
 
 def list_installed_skills() -> list[tuple[str, str]]:

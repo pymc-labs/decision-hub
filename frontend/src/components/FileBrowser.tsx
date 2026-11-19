@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { File, Folder, ChevronRight, ChevronDown } from "lucide-react";
+import { File, Folder, ChevronRight, ChevronDown, X } from "lucide-react";
 import type { SkillFile } from "../types/api";
 import styles from "./FileBrowser.module.css";
 
@@ -91,66 +91,13 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function TreeNodeView({
-  node,
-  depth,
-  selectedPath,
-  onSelect,
-}: {
-  node: TreeNode;
-  depth: number;
-  selectedPath: string | null;
-  onSelect: (file: SkillFile) => void;
-}) {
-  const [expanded, setExpanded] = useState(depth < 2);
-  const isDir = node.children.length > 0 && !node.file;
-  const isSelected = node.path === selectedPath;
-
-  if (isDir) {
-    return (
-      <div>
-        <button
-          className={styles.treeItem}
-          style={{ paddingLeft: `${12 + depth * 16}px` }}
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <Folder size={14} className={styles.folderIcon} />
-          <span>{node.name}</span>
-        </button>
-        {expanded &&
-          node.children.map((child) => (
-            <TreeNodeView
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-            />
-          ))}
-      </div>
-    );
-  }
-
-  return (
-    <button
-      className={`${styles.treeItem} ${isSelected ? styles.treeItemActive : ""}`}
-      style={{ paddingLeft: `${12 + depth * 16}px` }}
-      onClick={() => node.file && onSelect(node.file)}
-    >
-      <File size={14} className={styles.fileIcon} />
-      <span>{node.name}</span>
-    </button>
-  );
-}
-
 // Custom theme based on oneDark with neon accents
 const neonTheme = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
     background: "#0d0d1a",
-    fontSize: "0.85rem",
+    fontSize: "var(--text-xs)",
     lineHeight: "1.6",
   },
   'code[class*="language-"]': {
@@ -159,19 +106,110 @@ const neonTheme = {
   },
 };
 
+const FilePreview = memo(function FilePreview({ selected }: { selected: SkillFile | null }) {
+  return (
+    <div className={styles.editor}>
+      {selected ? (
+        <>
+          <div className={styles.editorHeader}>
+            <span className={styles.editorPath}>{selected.path}</span>
+            <span className={styles.editorSize}>
+              {formatSize(selected.size)}
+            </span>
+          </div>
+          <div className={styles.editorContent}>
+            <SyntaxHighlighter
+              language={getLanguage(selected.path)}
+              style={neonTheme}
+              showLineNumbers
+              lineNumberStyle={{
+                color: "#444466",
+                minWidth: "3em",
+                paddingRight: "1em",
+                borderRight: "1px solid #222244",
+                marginRight: "1em",
+              }}
+              customStyle={{
+                margin: 0,
+                padding: "16px",
+                background: "#0d0d1a",
+                borderRadius: 0,
+                minHeight: "400px",
+              }}
+            >
+              {selected.content}
+            </SyntaxHighlighter>
+          </div>
+        </>
+      ) : (
+        <div className={styles.editorEmpty}>
+          <File size={48} />
+          <p>Select a file to view</p>
+        </div>
+      )}
+    </div>
+  );
+});
+
 export default function FileBrowser({ files }: FileBrowserProps) {
   const defaultSelection = files.find((f) => f.path === "SKILL.md") ?? files[0] ?? null;
 
-  // Reset selection when files change (render-time adjustment per React docs:
-  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
   const [prevFiles, setPrevFiles] = useState(files);
   const [selected, setSelected] = useState<SkillFile | null>(defaultSelection);
+  const [query, setQuery] = useState("");
+  const [folderExpansion, setFolderExpansion] = useState<Map<string, boolean>>(() => new Map());
+  const filterInput = useRef<HTMLInputElement>(null);
+  // Paths can be identical across archives, but the preview and tree state belong to one archive.
   if (prevFiles !== files) {
     setPrevFiles(files);
     setSelected(defaultSelection);
+    setQuery("");
+    setFolderExpansion(new Map());
   }
 
-  const tree = buildTree(files);
+  const tree = useMemo(() => buildTree(files), [files]);
+  const needle = query.toLowerCase();
+  const matches = needle
+    ? files.filter((file) => file.path.toLowerCase().includes(needle))
+    : [];
+
+  function renderFile(file: SkillFile, label: string, depth: number) {
+    const isSelected = file.path === selected?.path;
+    return (
+      <button
+        key={file.path}
+        type="button"
+        className={`${styles.treeItem} ${isSelected ? styles.treeItemActive : ""}`}
+        style={{ paddingLeft: 12 + depth * 16 }}
+        aria-current={isSelected || undefined}
+        onClick={() => setSelected(file)}
+      >
+        <File size={14} className={styles.fileIcon} aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+    );
+  }
+
+  function renderNode(node: TreeNode, depth: number) {
+    if (node.file) return renderFile(node.file, node.name, depth);
+    const expanded = folderExpansion.get(node.path) ?? (depth < 2);
+    return (
+      <div key={node.path}>
+        <button
+          type="button"
+          className={styles.treeItem}
+          style={{ paddingLeft: 12 + depth * 16 }}
+          aria-expanded={expanded}
+          onClick={() => setFolderExpansion((previous) => new Map(previous).set(node.path, !expanded))}
+        >
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <Folder size={14} className={styles.folderIcon} />
+          <span>{node.name}</span>
+        </button>
+        {expanded && node.children.map((child) => renderNode(child, depth + 1))}
+      </div>
+    );
+  }
 
   return (
     <div className={styles.browser}>
@@ -181,59 +219,41 @@ export default function FileBrowser({ files }: FileBrowserProps) {
           <span>Files</span>
           <span className={styles.fileCount}>{files.length}</span>
         </div>
+        <div className={styles.filter}>
+          <input
+            ref={filterInput}
+            type="search"
+            aria-label="Filter files by path or filename"
+            placeholder="Filter by path or name"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {query && (
+            <button
+              type="button"
+              aria-label="Clear filter"
+              onClick={() => {
+                setQuery("");
+                filterInput.current?.focus();
+              }}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        <p role="status" className={styles.resultStatus}>
+          {query && (matches.length === 0
+            ? "No matching files"
+            : `${matches.length} matching ${matches.length === 1 ? "file" : "files"}`)}
+        </p>
         <div className={styles.tree}>
-          {tree.map((node) => (
-            <TreeNodeView
-              key={node.path}
-              node={node}
-              depth={0}
-              selectedPath={selected?.path ?? null}
-              onSelect={setSelected}
-            />
-          ))}
+          {query
+            ? matches.map((file) => renderFile(file, file.path, 0))
+            : tree.map((node) => renderNode(node, 0))}
         </div>
       </div>
 
-      <div className={styles.editor}>
-        {selected ? (
-          <>
-            <div className={styles.editorHeader}>
-              <span className={styles.editorPath}>{selected.path}</span>
-              <span className={styles.editorSize}>
-                {formatSize(selected.size)}
-              </span>
-            </div>
-            <div className={styles.editorContent}>
-              <SyntaxHighlighter
-                language={getLanguage(selected.path)}
-                style={neonTheme}
-                showLineNumbers
-                lineNumberStyle={{
-                  color: "#444466",
-                  minWidth: "3em",
-                  paddingRight: "1em",
-                  borderRight: "1px solid #222244",
-                  marginRight: "1em",
-                }}
-                customStyle={{
-                  margin: 0,
-                  padding: "16px",
-                  background: "#0d0d1a",
-                  borderRadius: 0,
-                  minHeight: "400px",
-                }}
-              >
-                {selected.content}
-              </SyntaxHighlighter>
-            </div>
-          </>
-        ) : (
-          <div className={styles.editorEmpty}>
-            <File size={48} />
-            <p>Select a file to view</p>
-          </div>
-        )}
-      </div>
+      <FilePreview selected={selected} />
     </div>
   );
 }
