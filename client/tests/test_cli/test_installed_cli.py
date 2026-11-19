@@ -66,3 +66,16 @@ def test_installed_empty_state(skills_root: Path) -> None:
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == []
     assert not respx.calls
+
+
+@pytest.mark.parametrize("metadata", ["null", "{}", '{"version": 7}', "not-a-version"])
+def test_installed_shows_unknown_for_unreadable_version_metadata(skills_root: Path, metadata: str) -> None:
+    path = skills_root / "team" / "model"
+    path.mkdir(parents=True)
+    (path / "SKILL.md").touch()
+    (path / ".dhub-version").write_text(metadata)
+
+    result = runner.invoke(app, ["--output", "json", "installed"])
+
+    assert result.exit_code == 0, result.exception
+    assert json.loads(result.stdout) == [{"ref": "team/model", "version": None, "agents": []}]
