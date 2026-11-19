@@ -59,6 +59,7 @@ def main(
 from dhub.cli.auth import login_command, logout_command  # noqa: E402
 from dhub.cli.env import env_command  # noqa: E402
 from dhub.cli.init import init_command  # noqa: E402
+from dhub.cli.installed import installed_command  # noqa: E402
 from dhub.cli.registry import (  # noqa: E402
     delete_command,
     eval_report_command,
@@ -77,6 +78,7 @@ from dhub.cli.search import ask_command  # noqa: E402
 app.command("login")(login_command)
 app.command("logout")(logout_command)
 app.command("env")(env_command)
+app.command("installed")(installed_command)
 app.command("init")(init_command)
 app.command("publish")(publish_command)
 app.command("install")(install_command)
