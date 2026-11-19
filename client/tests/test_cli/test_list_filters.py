@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from dhub.cli.app import app
@@ -120,6 +121,7 @@ def test_list_rejects_invalid_choices_before_request(catalog, option, value):
 
     assert result.exit_code == 2
     assert result.stdout == ""
-    assert option in result.stderr
-    assert value in result.stderr
+    diagnostic = Text.from_ansi(result.stderr).plain
+    assert option in diagnostic
+    assert value in diagnostic
     assert not catalog.called
