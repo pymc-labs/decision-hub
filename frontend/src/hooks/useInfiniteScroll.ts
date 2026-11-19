@@ -40,6 +40,8 @@ export function useInfiniteScroll<T>(
   useEffect(() => {
     const id = ++fetchIdRef.current;
     pageRef.current = 1;
+    setItems([]);
+    setTotal(0);
     setLoading(true);
     setLoadingMore(false);
     loadingRef.current = false;
