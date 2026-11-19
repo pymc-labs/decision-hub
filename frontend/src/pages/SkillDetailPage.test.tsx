@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Link } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -193,25 +194,103 @@ describe("SkillDetailPage", () => {
     );
   });
 
-  it("shows install button and copies to clipboard on click", async () => {
-    // userEvent.setup() replaces navigator.clipboard, so we must set up
-    // the spy *after* calling setup() to intercept the correct object.
+  it.each([
+    ["A", ""],
+    ["C", " --allow-risky"],
+  ])("shows and copies the latest and exact commands for grade %s", async (grade, riskFlag) => {
+    server.use(http.get("/v1/skills/acme/data-tool/summary", () =>
+      HttpResponse.json({ ...SKILL, safety_rating: grade }),
+    ));
     const user = userEvent.setup();
-
     renderPage();
-    await screen.findByText("data-tool");
+    const version = await screen.findByRole("combobox", { name: "Install version" });
+    const latest = `dhub install acme/data-tool --agent all${riskFlag}`;
+    const pinned = `dhub install acme/data-tool --version 2.1.0 --agent all${riskFlag}`;
+    expect(version).toHaveDisplayValue("Latest");
 
-    const clipboardSpy = vi.spyOn(navigator.clipboard, "writeText");
+    async function expectVisibleCommandCopied(command: string) {
+      const displayed = screen.getByText(command);
+      await user.click(screen.getByRole("button", { name: "Copy install command" }));
+      expect(await navigator.clipboard.readText()).toBe(displayed.textContent);
+      expect(screen.getByText("Copied!")).toBeInTheDocument();
+    }
 
-    const installBtn = screen.getByText("dhub install");
-    await user.click(installBtn);
+    await expectVisibleCommandCopied(latest);
+    await user.selectOptions(version, screen.getByRole("option", { name: "Exact (2.1.0)" }));
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+    await expectVisibleCommandCopied(pinned);
+    await user.selectOptions(version, "latest");
+    expect(screen.getByText(latest)).toBeInTheDocument();
+    expect(screen.queryByText(pinned)).not.toBeInTheDocument();
+  });
 
-    expect(clipboardSpy).toHaveBeenCalledWith(
-      "dhub install acme/data-tool --agent all",
+  it("reports a rejected copy and allows a successful retry", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("Permission denied"));
+    renderPage();
+    const copy = await screen.findByRole("button", { name: "Copy install command" });
+    await user.click(copy);
+    expect(screen.getByRole("status")).toHaveTextContent(/copy the command manually/i);
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+    expect(screen.getByText("dhub install acme/data-tool --agent all")).toBeVisible();
+    await user.click(copy);
+    expect(screen.getByRole("status")).toHaveTextContent("Copied!");
+  });
+
+  it("offers manual copy when the clipboard API is unavailable", async () => {
+    const user = userEvent.setup();
+    // The DOM types assume a secure context. HTTP pages can lack this property.
+    Reflect.deleteProperty(navigator, "clipboard");
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Copy install command" }));
+    expect(screen.getByRole("status")).toHaveTextContent(/copy the command manually/i);
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+  });
+
+  it("ignores a pending copy after changing the selected command", async () => {
+    const user = userEvent.setup();
+    let finishCopy!: () => void;
+    vi.spyOn(navigator.clipboard, "writeText").mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishCopy = resolve;
+    }));
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Copy install command" }));
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Install version"), "exact");
+    await act(async () => finishCopy());
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+  });
+
+  it("resets the install version and copy feedback when navigating to another skill", async () => {
+    const otherSkill = "/v1/skills/other/data-tool";
+    server.use(
+      http.get(`${otherSkill}/summary`, () =>
+        HttpResponse.json({ ...SKILL, org_slug: "other", latest_version: "3.0.0" }),
+      ),
+      http.get(`${otherSkill}/eval-report`, () => HttpResponse.json(null)),
+      http.get(`${otherSkill}/similar`, () => HttpResponse.json([])),
+      http.get(`${otherSkill}/audit-log`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20, total_pages: 1 }),
+      ),
+      http.get(`${otherSkill}/download`, () => new HttpResponse(EMPTY_ZIP)),
     );
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <Link to="/skills/other/data-tool">Other skill</Link>
+        <SkillDetailPage />
+      </>,
+      { initialEntries: ["/skills/acme/data-tool"], path: "/skills/:orgSlug/:skillName" },
+    );
+    const version = await screen.findByLabelText("Install version");
+    await user.selectOptions(version, screen.getByRole("option", { name: "Exact (2.1.0)" }));
+    await user.click(screen.getByRole("button", { name: "Copy install command" }));
     expect(screen.getByText("Copied!")).toBeInTheDocument();
-
-    clipboardSpy.mockRestore();
+    await user.click(screen.getByRole("link", { name: "Other skill" }));
+    expect(await screen.findByText("dhub install other/data-tool --agent all")).toBeVisible();
+    expect(screen.getByLabelText("Install version")).toHaveDisplayValue("Latest");
+    expect(screen.getByRole("option", { name: "Exact (3.0.0)" })).toBeInTheDocument();
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
   });
 
   it("switches to evals tab and shows eval report", async () => {
@@ -297,16 +376,16 @@ describe("SkillDetailPage", () => {
     const previous = nav.getByRole("button", { name: "Previous page" });
     const next = nav.getByRole("button", { name: "Next page" });
     expect(previous).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("21 audit entries · Page 1 of 2");
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("21 audit entries · Page 1 of 2");
     next.focus();
     await user.keyboard("{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(/could not load audit page 2/i);
-    expect(screen.getByRole("status")).toHaveTextContent("Page 1 of 2");
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("Page 1 of 2");
     expect(screen.getByText("by publisher-21")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Retry" }));
     await screen.findByText("by publisher-1");
-    expect(screen.getByRole("status")).toHaveTextContent("21 audit entries · Page 2 of 2");
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("21 audit entries · Page 2 of 2");
     expect(next).toBeDisabled();
     expect(screen.queryByText("by publisher-21")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -332,7 +411,7 @@ describe("SkillDetailPage", () => {
     await screen.findByText(/Page 2 is no longer available/);
     await user.click(screen.getByRole("button", { name: "Previous page" }));
     await screen.findByText("by publisher-21");
-    expect(screen.getByRole("status")).toHaveTextContent("20 audit entries · Page 1 of 1");
+    expect(screen.getByRole("status", { name: "Audit history" })).toHaveTextContent("20 audit entries · Page 1 of 1");
   });
 
   it("starts the next skill at page one and ignores a late page from the previous skill", async () => {

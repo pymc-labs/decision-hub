@@ -10,8 +10,6 @@ import {
   FolderOpen,
   User,
   Clock,
-  Copy,
-  Check,
   Github,
   GitFork,
   Star,
@@ -44,6 +42,7 @@ import LoadingSpinner from "../components/LoadingSpinner";
 import EvalReportView from "../components/EvalReportView";
 import FileBrowser from "../components/FileBrowser";
 import ScannerReport from "../components/ScannerReport";
+import SkillInstallCommand from "./SkillInstallCommand";
 import { formatCheckName } from "./auditUtils";
 import { LINK_TO_MANIFEST, SHOW_SCANNER_REPORT } from "../featureFlags";
 import styles from "./SkillDetailPage.module.css";
@@ -82,7 +81,6 @@ function SkillDetailContent({ orgSlug, skillName, activeTab, setActiveTab }: {
   const [skillMdContent, setSkillMdContent] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const zipRetries = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
@@ -247,12 +245,6 @@ function SkillDetailContent({ orgSlug, skillName, activeTab, setActiveTab }: {
     }
   };
 
-  const handleCopyInstall = () => {
-    navigator.clipboard.writeText(`dhub install ${orgSlug}/${skillName} --agent all`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   if (skillLoading) {
     return <LoadingSpinner text={`Loading ${orgSlug}/${skillName}...`} />;
   }
@@ -323,7 +315,6 @@ function SkillDetailContent({ orgSlug, skillName, activeTab, setActiveTab }: {
             )}
             {activeTab === "audit" && (
               <AuditTab
-                key={`${skill.org_slug}/${skill.skill_name}`}
                 orgSlug={skill.org_slug}
                 skillName={skill.skill_name}
                 scanReport={scanReport}
@@ -427,10 +418,9 @@ function SkillDetailContent({ orgSlug, skillName, activeTab, setActiveTab }: {
               )}
             </div>
             <div className={styles.sidebarActions}>
-              <button onClick={handleCopyInstall} className={styles.installBtn}>
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                {copied ? "Copied!" : "dhub install"}
-              </button>
+              {skill.org_slug === orgSlug && skill.skill_name === skillName && (
+                <SkillInstallCommand skill={skill} />
+              )}
               <button onClick={handleDownload} disabled={downloading} className={styles.downloadBtn}>
                 <Download size={14} />
                 {downloading ? "Downloading..." : "Download .zip"}
@@ -778,7 +768,7 @@ function AuditTab({
         )}
         {data && data.total > 0 && (
           <div className={styles.auditPager}>
-            <p role="status" className={styles.auditPageStatus}>
+            <p role="status" aria-label="Audit history" className={styles.auditPageStatus}>
               {data.total.toLocaleString()} audit {data.total === 1 ? "entry" : "entries"} ·{" "}
               {data.page <= data.total_pages
                 ? `Page ${data.page} of ${data.total_pages}`
