@@ -474,3 +474,21 @@ describe("SkillDetailPage", () => {
     });
   });
 });
+
+it("does not offer the previous skill's details or install action when a linked skill disappears", async () => {
+  server.use(
+    http.get("/v1/skills/acme/data-tool/similar", () =>
+      HttpResponse.json([{ ...SKILL, org_slug: "retired" }]),
+    ),
+    http.get("/v1/skills/retired/data-tool/summary", () => new HttpResponse(null, { status: 404 })),
+    http.get("/v1/skills/retired/data-tool/similar", () => HttpResponse.json([])),
+    http.get("/v1/skills/retired/data-tool/eval-report", () => HttpResponse.json(null)),
+    http.get("/v1/skills/retired/data-tool/download", () => new HttpResponse(EMPTY_ZIP)),
+  );
+  const user = userEvent.setup();
+  renderPage();
+  await user.click(await screen.findByRole("link", { name: /retired\/data-tool/ }));
+  expect(await screen.findByText("Skill not found: retired/data-tool")).toBeInTheDocument();
+  expect(screen.queryByText("Analyzes datasets")).not.toBeInTheDocument();
+  expect(screen.queryByText(/dhub install/)).not.toBeInTheDocument();
+});

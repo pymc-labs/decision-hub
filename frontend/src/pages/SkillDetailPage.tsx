@@ -58,6 +58,23 @@ export default function SkillDetailPage() {
     skillName: string;
   }>();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  return (
+    <SkillDetailContent
+      key={`${orgSlug}/${skillName}`}
+      orgSlug={orgSlug!}
+      skillName={skillName!}
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+    />
+  );
+}
+
+function SkillDetailContent({ orgSlug, skillName, activeTab, setActiveTab }: {
+  orgSlug: string;
+  skillName: string;
+  activeTab: Tab;
+  setActiveTab: (tab: Tab) => void;
+}) {
   const [zipData, setZipData] = useState<ArrayBuffer | null>(null);
   const [zipLoading, setZipLoading] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
@@ -70,23 +87,18 @@ export default function SkillDetailPage() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const MAX_ZIP_ATTEMPTS = 3;
 
-  // Reset state when navigating to a different skill
+  const mounted = useRef(false);
   useEffect(() => {
-    setZipData(null);
-    setZipError(null);
-    setZipLoading(false);
-    setFiles([]);
-    setSkillMdContent(null);
-    zipRetries.current = 0;
-    if (retryTimer.current) {
-      clearTimeout(retryTimer.current);
-      retryTimer.current = null;
-    }
-  }, [orgSlug, skillName]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
+  }, []);
 
   // Fetch single skill
   const { data: skill, loading: skillLoading } = useApi<SkillSummary>(
-    () => getSkill(orgSlug!, skillName!),
+    () => getSkill(orgSlug, skillName),
     [orgSlug, skillName]
   );
 
@@ -101,7 +113,7 @@ export default function SkillDetailPage() {
         safety_rating: skill.safety_rating ?? "",
       });
     }
-  }, [skill?.org_slug, skill?.skill_name, addRecentlyViewed]);
+  }, [skill, addRecentlyViewed]);
 
   // Fetch eval report
   const {
@@ -190,6 +202,7 @@ export default function SkillDetailPage() {
       setZipData(buf);
       zipRetries.current = 0;
     } catch (err) {
+      if (!mounted.current) return;
       zipRetries.current += 1;
       if (zipRetries.current < MAX_ZIP_ATTEMPTS) {
         const delay = 2000 * zipRetries.current;
