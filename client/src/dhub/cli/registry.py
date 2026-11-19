@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import zipfile
+from enum import StrEnum
 from pathlib import Path
 
 import httpx
@@ -671,11 +672,37 @@ def _render_skills_table(skills: list[dict], title: str = "Published Skills") ->
     return table
 
 
+class _SafetyGrade(StrEnum):
+    A = "A"
+    B = "B"
+    C = "C"
+    F = "F"
+
+
+class _SkillSort(StrEnum):
+    updated = "updated"
+    name = "name"
+    downloads = "downloads"
+    github_stars = "github_stars"
+    safety_rating = "safety_rating"
+
+
+class _SortDirection(StrEnum):
+    asc = "asc"
+    desc = "desc"
+
+
 def list_command(
     org: str = typer.Option(None, "--org", "-o", help="Filter by organization"),
     skill: str = typer.Option(None, "--skill", "-s", help="Filter by skill name (substring match)"),
     page_size: int = typer.Option(50, "--page-size", "-n", min=1, max=100, help="Items per page"),
     all_pages: bool = typer.Option(False, "--all", help="Dump all pages without prompting"),
+    category: str | None = typer.Option(
+        None, "--category", "-c", help="Filter by category name (comma-separated for multiple)"
+    ),
+    grade: _SafetyGrade | None = typer.Option(None, "--grade", case_sensitive=False, help="Filter by safety grade"),
+    sort: _SkillSort = typer.Option(_SkillSort.downloads, "--sort", help="Order skills by this field"),
+    sort_dir: _SortDirection = typer.Option(_SortDirection.desc, "--sort-dir", help="Sort direction"),
 ) -> None:
     """List published skills on the registry."""
     import sys
@@ -706,17 +733,22 @@ def list_command(
     page = 1
     total = 0
     found_any = False
+    params: dict[str, int | str] = {"page_size": page_size, "sort": sort.value, "sort_dir": sort_dir.value}
+    if org:
+        params["org"] = org
+    if skill:
+        params["search"] = skill
+    if category:
+        params["category"] = category
+    if grade:
+        params["grade"] = grade.value
+
     with httpx.Client(timeout=60) as client:
         while True:
-            params: dict[str, int | str] = {"page": page, "page_size": page_size, "sort": "downloads"}
-            if org:
-                params["org"] = org
-            if skill:
-                params["search"] = skill
             resp = client.get(
                 f"{api_url}/v1/skills",
                 headers=headers,
-                params=params,
+                params={**params, "page": page},
             )
             if resp.status_code == 404:
                 # /v1/skills never 404s on a compatible registry (unknown orgs
