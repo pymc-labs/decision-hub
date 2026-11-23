@@ -126,7 +126,7 @@ runtime:                           # optional — makes the skill executable
 
 evals:                             # optional — enables automated evaluation
   agent: claude
-  judge_model: claude-sonnet-4-5-20250929
+  judge_model: claude-sonnet-5-5
 ---
 
 System prompt content goes here. This is what the agent sees

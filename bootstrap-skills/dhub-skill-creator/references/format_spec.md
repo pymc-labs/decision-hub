@@ -85,7 +85,7 @@ Configures automated evaluation for the skill. Eval cases are defined in separat
 ```yaml
 evals:
   agent: claude                        # Required. Agent that runs the skill.
-  judge_model: claude-sonnet-4-5-20250929  # Required. Model that judges results.
+  judge_model: claude-sonnet-5-5  # Required. Model that judges results.
 ```
 
 ### Evals Field Details
@@ -93,7 +93,7 @@ evals:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `agent` | string | yes | Agent identifier: `claude`, `codex`, `gemini` |
-| `judge_model` | string | yes | Model ID for the LLM judge (e.g. `claude-sonnet-4-5-20250929`, `gpt-4o`) |
+| `judge_model` | string | yes | Model ID for the LLM judge (e.g. `claude-sonnet-5-5`, `gpt-4o`) |
 
 ## Eval Case YAML Format
 
@@ -185,7 +185,7 @@ runtime:
   repair_strategy: attempt_install
 evals:
   agent: claude
-  judge_model: claude-sonnet-4-5-20250929
+  judge_model: claude-sonnet-5-5
 ---
 # Data Analyzer
 
