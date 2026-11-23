@@ -42,7 +42,7 @@ def _build_frontmatter(
             [
                 "evals:",
                 "  agent: claude",
-                "  judge_model: claude-sonnet-4-5-20250929",
+                "  judge_model: claude-sonnet-5-5",
             ]
         )
 

@@ -308,7 +308,7 @@ runtime:                       # optional — for executable skills
     lockfile: uv.lock
 evals:                         # optional — for testable skills
   agent: claude
-  judge_model: claude-sonnet-4-5-20250929
+  judge_model: claude-sonnet-5-5
 ---
 System prompt for the agent goes here.
 ```

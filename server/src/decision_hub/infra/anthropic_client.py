@@ -59,6 +59,12 @@ def judge_eval_output(
         "messages": [{"role": "user", "content": user_message}],
     }
 
+    if model == "claude-sonnet-5-5":
+        # Sonnet 5.5 enables thinking by default. With no tools, between_tools
+        # preserves a text-only verdict and leaves the existing output cap intact.
+        payload["thinking"] = {"type": "between_tools"}
+        payload["output_config"] = {"effort": "high"}
+
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",

@@ -50,8 +50,9 @@ class TestParseJudgeResponse:
 
 
 class TestJudgeEvalOutput:
+    @pytest.mark.parametrize("model", ["claude-sonnet-4-5-20250929", "claude-sonnet-5-5"])
     @respx.mock
-    def test_successful_judge_call(self) -> None:
+    def test_successful_judge_call(self, model: str) -> None:
         route = respx.post("https://api.anthropic.com/v1/messages").mock(
             return_value=httpx.Response(
                 200,
@@ -63,7 +64,7 @@ class TestJudgeEvalOutput:
 
         result = judge_eval_output(
             api_key="test-api-key",
-            model="claude-sonnet-4-5-20250929",
+            model=model,
             eval_case_name="test-case",
             eval_criteria="PASS: has output\nFAIL: no output",
             agent_output="The analysis shows...",
@@ -77,7 +78,14 @@ class TestJudgeEvalOutput:
         assert request.headers["x-api-key"] == "test-api-key"
         assert request.headers["anthropic-version"] == "2023-06-01"
         payload = json.loads(request.content)
-        assert payload["model"] == "claude-sonnet-4-5-20250929"
+        assert payload["model"] == model
+        assert payload["max_tokens"] == 512
+        if model == "claude-sonnet-5-5":
+            assert payload["thinking"] == {"type": "between_tools"}
+            assert payload["output_config"] == {"effort": "high"}
+        else:
+            assert "thinking" not in payload
+            assert "output_config" not in payload
         assert payload["system"] is not None
         assert "test-case" in payload["messages"][0]["content"]
 
